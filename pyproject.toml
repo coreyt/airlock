@@ -34,5 +34,8 @@ addopts = "-p no:xdist -p no:hypothesis -p no:Faker -p no:dash"
 include = ["airlock*"]
 
 [project.scripts]
-airlock = "airlock.proxy:main"
+airlock = "airlock.cli.main:main"
 airlock-analyze = "airlock.slow.cli:main"
+
+[tool.setuptools.package-data]
+"airlock.cli.templates" = ["*.yaml", "dot_env"]

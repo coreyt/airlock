@@ -1,0 +1,32 @@
+# Airlock environment variables
+# Copy this file to .env and fill in your values.
+
+# --- LLM Provider API Keys ---
+ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...
+
+# --- Airlock Proxy ---
+AIRLOCK_MASTER_KEY=sk-airlock-change-me
+AIRLOCK_HOST=0.0.0.0
+AIRLOCK_PORT=4000
+
+# --- Logging ---
+# Where to write structured JSON logs (directory path)
+AIRLOCK_LOG_DIR=./logs
+
+# Optional: S3 bucket for log archival
+# AIRLOCK_S3_BUCKET=my-company-llm-logs
+# AWS_DEFAULT_REGION=us-east-1
+
+# --- Guardrails ---
+# Comma-separated list of blocked keywords/phrases (case-insensitive)
+AIRLOCK_BLOCKED_KEYWORDS=Project Manhattan,Operation Bluebook,INTERNAL ONLY
+
+# PII entity types to redact (comma-separated)
+# See: https://microsoft.github.io/presidio/supported_entities/
+AIRLOCK_PII_ENTITIES=CREDIT_CARD,US_SSN,EMAIL_ADDRESS,PHONE_NUMBER,US_BANK_NUMBER,IBAN_CODE
+
+# --- Dynamic Processing (Fast subsystem) ---
+# Model failover map — JSON mapping model name → ordered fallback list.
+# Omit to use built-in defaults derived from config.yaml models.
+# AIRLOCK_FAILOVER_MAP={"claude-sonnet":["claude-haiku","gpt-4o"],"gpt-4o":["claude-sonnet","gpt-4o-mini"]}

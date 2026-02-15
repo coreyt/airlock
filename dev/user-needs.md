@@ -233,3 +233,32 @@ schema enforcement, content moderation) as requirements evolve.
    to the caller.
 6. Guardrail failures are logged through the same enterprise logging pipeline as
    normal request failures.
+
+---
+
+## UN-9: Guided Setup and Unified CLI
+
+**As a** platform engineer deploying Airlock for the first time,
+**I need** a single CLI with an `init` command that generates a working
+configuration,
+**so that** I can go from `pip install` to a running proxy in under two minutes.
+
+### Stakeholders
+
+- Platform / infrastructure engineers
+- DevOps team
+- Developers (first-time setup)
+
+### Acceptance Criteria
+
+1. A unified `airlock` command dispatches to `init`, `start`, and `analyze`
+   subcommands.
+2. `airlock init` generates `config.yaml`, `.env`, and `logs/` in the current
+   directory (or a directory specified by `--dir`).
+3. Existing files are never overwritten unless the `--force` flag is passed.
+4. After initialization, a summary is printed showing which files were created,
+   skipped, or overwritten, followed by next-step instructions.
+5. The `airlock-analyze` entry point continues to work unchanged for backwards
+   compatibility.
+6. The CLI uses only Python standard library modules (argparse) — no additional
+   dependencies.

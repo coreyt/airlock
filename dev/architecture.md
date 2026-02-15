@@ -94,6 +94,58 @@ proxy.py
   └── subprocess.call(litellm --config ... --host ... --port ...)
 ```
 
+### 3.1.1 CLI Framework (`airlock/cli/`)
+
+**Traces to:** FR-17–FR-21, NFR-11
+
+The CLI provides a unified `airlock` command that dispatches to subcommands:
+
+```
+airlock
+  ├── init     → airlock.cli.init_cmd.run()     Generate config files
+  ├── start    → airlock.proxy.main()            Launch the proxy
+  └── analyze  → airlock.slow.cli.main()         Offline log analysis
+```
+
+#### Dispatch Architecture
+
+The entry point (`airlock.cli.main:main`) uses `argparse` with subparsers. Each
+subcommand is handled by a dedicated function. Imports are lazy — the `start`
+subcommand imports `airlock.proxy` only when invoked, so `pip install` users
+who only run `airlock init` do not need LiteLLM or Presidio installed.
+
+```
+main(argv)
+  │
+  ├── argparse.ArgumentParser
+  │     ├── subparser "init"   → --force, --dir
+  │     ├── subparser "start"  → --host, --port, --config
+  │     └── subparser "analyze" → --days, --json, --output
+  │
+  ├── No subcommand → print help, exit(0)
+  └── Dispatch to handler
+```
+
+#### Template Storage
+
+Init templates are stored as package data in `airlock/cli/templates/` and loaded
+at runtime via `importlib.resources`:
+
+| Template file | Written as | Contents |
+|---|---|---|
+| `config.yaml` | `config.yaml` | Copy of repo root `config.yaml` |
+| `dot_env` | `.env` | Copy of repo root `.env.example` |
+
+The `.env` template is named `dot_env` to avoid `.gitignore` matching in the
+source tree. The init command writes it as `.env` in the target directory.
+
+#### Backwards Compatibility
+
+The `airlock-analyze` entry point in `pyproject.toml` continues to point
+directly at `airlock.slow.cli:main`. The `airlock` entry point changes from
+`airlock.proxy:main` to `airlock.cli.main:main`, with `airlock start` providing
+the equivalent functionality.
+
 ### 3.2 Guardrails (`airlock/guardrails/`)
 
 **Traces to:** FR-4–FR-7, FR-14–FR-16, NFR-6, NFR-9
