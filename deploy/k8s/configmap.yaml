@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airlock-config
+  labels:
+    app: airlock
+data:
+  AIRLOCK_HOST: "0.0.0.0"
+  AIRLOCK_PORT: "4000"
+  AIRLOCK_LOG_DIR: "/app/logs"
+  AIRLOCK_CONFIG: "/etc/airlock/config.yaml"
+  AIRLOCK_PII_ENTITIES: "CREDIT_CARD,US_SSN,EMAIL_ADDRESS,PHONE_NUMBER"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airlock-config-file
+  labels:
+    app: airlock
+data:
+  config.yaml: |
+    model_list:
+      - model_name: claude-sonnet
+        litellm_params:
+          model: anthropic/claude-sonnet-4-20250514
+          api_key: os.environ/ANTHROPIC_API_KEY
+
+    litellm_settings:
+      drop_params: true
+      success_callback: ["airlock.callbacks.enterprise_logger"]
+      failure_callback: ["airlock.callbacks.enterprise_logger"]
+      request_timeout: 300
+
+    general_settings:
+      master_key: os.environ/AIRLOCK_MASTER_KEY
