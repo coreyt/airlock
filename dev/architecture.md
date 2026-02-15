@@ -104,6 +104,7 @@ The CLI provides a unified `airlock` command that dispatches to subcommands:
 airlock
   ├── init     → airlock.cli.init_cmd.run()     Generate config files
   ├── start    → airlock.proxy.main()            Launch the proxy
+  ├── status   → airlock.cli.status_cmd.run()   Check proxy health
   └── analyze  → airlock.slow.cli.main()         Offline log analysis
 ```
 
@@ -118,13 +119,30 @@ who only run `airlock init` do not need LiteLLM or Presidio installed.
 main(argv)
   │
   ├── argparse.ArgumentParser
-  │     ├── subparser "init"   → --force, --dir
-  │     ├── subparser "start"  → --host, --port, --config
+  │     ├── subparser "init"    → --force, --dir
+  │     ├── subparser "start"   → --host, --port, --config
+  │     ├── subparser "status"  → --host, --port
   │     └── subparser "analyze" → --days, --json, --output
   │
   ├── No subcommand → print help, exit(0)
   └── Dispatch to handler
 ```
+
+#### Start Pre-Flight Validation
+
+Before launching the proxy, `airlock start` validates that `config.yaml` exists
+at the resolved path (`--config` flag → `AIRLOCK_CONFIG` env → `./config.yaml`).
+If missing, it prints an error suggesting `airlock init` and exits with code 1.
+A missing `.env` file in the same directory triggers a warning on stderr but does
+not prevent startup.
+
+#### Status Health Check
+
+`airlock status` probes the proxy's `/health` endpoint using stdlib
+`urllib.request`. Resolution order for host/port: CLI flags → `AIRLOCK_HOST`/
+`AIRLOCK_PORT` env vars → `localhost`:`4000`. Defaults to `localhost` (not
+`0.0.0.0`) since this is a client-side probe. Exit 0 if healthy, exit 1 if not
+reachable.
 
 #### Template Storage
 

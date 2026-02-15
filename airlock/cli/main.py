@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from pathlib import Path
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -52,6 +53,22 @@ def main(argv: list[str] | None = None) -> None:
         help="Path to config.yaml (default: auto-detect).",
     )
 
+    # -- status --
+    status_parser = subparsers.add_parser(
+        "status",
+        help="Check if the Airlock proxy is running.",
+    )
+    status_parser.add_argument(
+        "--host",
+        default=None,
+        help="Proxy host to probe (default: AIRLOCK_HOST or localhost).",
+    )
+    status_parser.add_argument(
+        "--port",
+        default=None,
+        help="Proxy port to probe (default: AIRLOCK_PORT or 4000).",
+    )
+
     # -- analyze --
     analyze_parser = subparsers.add_parser(
         "analyze",
@@ -88,6 +105,30 @@ def main(argv: list[str] | None = None) -> None:
         run(args)
 
     elif args.command == "start":
+        # Pre-flight validation (FR-22)
+        if args.config is not None:
+            config_path = Path(args.config)
+        elif "AIRLOCK_CONFIG" in os.environ:
+            config_path = Path(os.environ["AIRLOCK_CONFIG"])
+        else:
+            config_path = Path("config.yaml")
+
+        if not config_path.is_file():
+            print(
+                f"Error: config file not found: {config_path}\n"
+                "Run 'airlock init' to generate one.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+
+        env_path = config_path.parent / ".env"
+        if not env_path.is_file():
+            print(
+                f"Warning: .env not found at {env_path} — "
+                "proceeding without it.",
+                file=sys.stderr,
+            )
+
         if args.host is not None:
             os.environ["AIRLOCK_HOST"] = args.host
         if args.port is not None:
@@ -98,6 +139,11 @@ def main(argv: list[str] | None = None) -> None:
         from airlock.proxy import main as proxy_main
 
         proxy_main()
+
+    elif args.command == "status":
+        from airlock.cli.status_cmd import run
+
+        run(args)
 
     elif args.command == "analyze":
         # Rebuild sys.argv for the analyze CLI's own argparse
