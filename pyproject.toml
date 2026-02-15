@@ -24,3 +24,4 @@ sql = ["sqlalchemy>=2.0.0"]
 
 [project.scripts]
 airlock = "airlock.proxy:main"
+airlock-analyze = "airlock.slow.cli:main"
