@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airlock
+  labels:
+    app: airlock
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: airlock
+  template:
+    metadata:
+      labels:
+        app: airlock
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: airlock
+          image: airlock:latest
+          ports:
+            - containerPort: 4000
+              name: http
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: airlock-config
+            - secretRef:
+                name: airlock-secrets
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: config
+              mountPath: /etc/airlock
+              readOnly: true
+            - name: logs
+              mountPath: /app/logs
+      volumes:
+        - name: config
+          configMap:
+            name: airlock-config-file
+        - name: logs
+          emptyDir:
+            sizeLimit: 1Gi

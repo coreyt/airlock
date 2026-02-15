@@ -1,0 +1,144 @@
+"""
+Airlock S3 Logger — LiteLLM custom callback for writing logs to S3.
+
+Writes the same structured JSON records as the enterprise logger, but
+batches them in memory and flushes to S3 as JSONL files keyed by date.
+
+Env vars:
+    AIRLOCK_S3_BUCKET  — S3 bucket name (required)
+    AIRLOCK_S3_PREFIX  — key prefix (default: "airlock-logs")
+    AIRLOCK_S3_BATCH   — flush after this many records (default: 100)
+"""
+
+from __future__ import annotations
+
+import datetime
+import json
+import logging
+import os
+import threading
+from typing import Any
+
+logger = logging.getLogger("airlock.callbacks.s3")
+
+try:
+    import boto3
+    from botocore.exceptions import ClientError
+
+    _BOTO3_AVAILABLE = True
+except ImportError:
+    _BOTO3_AVAILABLE = False
+
+# Late import to avoid circular dependency
+from litellm.integrations.custom_logger import CustomLogger
+
+from .enterprise_logger import _serialize
+
+
+class AirlockS3Logger(CustomLogger):
+    """LiteLLM callback that batches and flushes log records to S3."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._bucket = os.getenv("AIRLOCK_S3_BUCKET", "")
+        self._prefix = os.getenv("AIRLOCK_S3_PREFIX", "airlock-logs")
+        self._batch_size = int(os.getenv("AIRLOCK_S3_BATCH", "100"))
+        self._buffer: list[dict[str, Any]] = []
+        self._lock = threading.Lock()
+        self._client = None
+
+    def _get_client(self) -> Any:
+        if not _BOTO3_AVAILABLE:
+            raise ImportError("boto3 is required for S3 logging: pip install airlock[s3]")
+        if self._client is None:
+            self._client = boto3.client("s3")
+        return self._client
+
+    def _build_record(
+        self,
+        kwargs: dict,
+        response_obj: Any,
+        start_time: Any,
+        end_time: Any,
+        *,
+        success: bool,
+    ) -> dict[str, Any]:
+        metadata = kwargs.get("litellm_params", {}).get("metadata", {}) or {}
+        usage: dict[str, int] = {}
+        if response_obj and hasattr(response_obj, "usage") and response_obj.usage:
+            u = response_obj.usage
+            usage = {
+                "prompt_tokens": getattr(u, "prompt_tokens", 0),
+                "completion_tokens": getattr(u, "completion_tokens", 0),
+                "total_tokens": getattr(u, "total_tokens", 0),
+            }
+
+        return {
+            "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+            "success": success,
+            "model": kwargs.get("model", "unknown"),
+            "user": metadata.get("user_api_key_alias") or metadata.get("user_api_key_user_id"),
+            "team": metadata.get("user_api_key_team_alias"),
+            "request_id": kwargs.get("litellm_call_id"),
+            "messages": kwargs.get("messages"),
+            "response": _serialize(response_obj) if response_obj else None,
+            "error": str(kwargs.get("exception")) if not success else None,
+            "duration_ms": (
+                int((end_time - start_time).total_seconds() * 1000)
+                if start_time and end_time
+                else None
+            ),
+            **usage,
+        }
+
+    def _flush(self) -> None:
+        with self._lock:
+            if not self._buffer:
+                return
+            records = self._buffer[:]
+            self._buffer.clear()
+
+        if not self._bucket:
+            logger.warning("AIRLOCK_S3_BUCKET not set, discarding %d records", len(records))
+            return
+
+        body = "\n".join(json.dumps(r, default=_serialize) for r in records) + "\n"
+        now = datetime.datetime.utcnow()
+        key = (
+            f"{self._prefix}/{now.year:04d}/{now.month:02d}/{now.day:02d}/"
+            f"airlock-{now.isoformat()}.jsonl"
+        )
+
+        try:
+            client = self._get_client()
+            client.put_object(Bucket=self._bucket, Key=key, Body=body.encode("utf-8"))
+            logger.info("s3_flush bucket=%s key=%s records=%d", self._bucket, key, len(records))
+        except Exception:
+            logger.exception("s3_flush_failed bucket=%s key=%s", self._bucket, key)
+
+    def _append(self, record: dict[str, Any]) -> None:
+        with self._lock:
+            self._buffer.append(record)
+            should_flush = len(self._buffer) >= self._batch_size
+        if should_flush:
+            self._flush()
+
+    # ------------------------------------------------------------------
+    # Success
+    # ------------------------------------------------------------------
+    def log_success_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
+        record = self._build_record(kwargs, response_obj, start_time, end_time, success=True)
+        self._append(record)
+
+    async def async_log_success_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
+        self.log_success_event(kwargs, response_obj, start_time, end_time)
+
+    # ------------------------------------------------------------------
+    # Failure
+    # ------------------------------------------------------------------
+    def log_failure_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
+        record = self._build_record(kwargs, response_obj, start_time, end_time, success=False)
+        self._append(record)
+
+    async def async_log_failure_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
+        self.log_failure_event(kwargs, response_obj, start_time, end_time)
