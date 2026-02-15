@@ -1,0 +1,86 @@
+# Airlock - LiteLLM Proxy Configuration
+# https://docs.litellm.ai/docs/proxy/configs
+#
+# This is the main configuration file for the Airlock LLM proxy.
+# Copy to config.yaml and fill in your API keys (or set them as env vars).
+
+# ---------------------------------------------------------------------------
+# Model definitions
+# ---------------------------------------------------------------------------
+model_list:
+  # --- Anthropic (Claude) ---
+  - model_name: claude-sonnet
+    litellm_params:
+      model: anthropic/claude-sonnet-4-20250514
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: claude-haiku
+    litellm_params:
+      model: anthropic/claude-haiku-4-20250414
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: claude-opus
+    litellm_params:
+      model: anthropic/claude-opus-4-20250514
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # --- OpenAI ---
+  - model_name: gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: gpt-4o-mini
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+
+  # --- Internal RAG (Phase 3 — uncomment when ready) ---
+  # - model_name: internal-docs
+  #   litellm_params:
+  #     model: openai/internal-docs
+  #     api_base: http://rag-service.internal:8000/v1
+  #     api_key: os.environ/INTERNAL_RAG_KEY
+
+# ---------------------------------------------------------------------------
+# Proxy settings
+# ---------------------------------------------------------------------------
+litellm_settings:
+  # Drop any unsupported params instead of erroring
+  drop_params: true
+
+  # Callbacks — enterprise logging
+  success_callback: ["airlock.callbacks.enterprise_logger"]
+  failure_callback: ["airlock.callbacks.enterprise_logger"]
+
+  # Budget & rate-limiting (per-user, requires virtual keys)
+  # max_budget: 100.0          # USD per 30-day rolling window
+  # budget_duration: 30d
+
+  # Request timeout (seconds)
+  request_timeout: 300
+
+# ---------------------------------------------------------------------------
+# Guardrails
+# ---------------------------------------------------------------------------
+guardrails:
+  - guardrail_name: airlock-pii-guard
+    litellm_params:
+      guardrail: airlock.guardrails.pii_guard
+      mode: pre_call            # runs before the request leaves the building
+
+  - guardrail_name: airlock-keyword-guard
+    litellm_params:
+      guardrail: airlock.guardrails.keyword_guard
+      mode: pre_call
+
+# ---------------------------------------------------------------------------
+# General proxy behaviour
+# ---------------------------------------------------------------------------
+general_settings:
+  # Master key protects the /key/generate endpoint (set via env)
+  master_key: os.environ/AIRLOCK_MASTER_KEY
+
+  # Where the proxy listens
+  # host: 0.0.0.0    # set via CLI flag or env
+  # port: 4000       # set via CLI flag or env
