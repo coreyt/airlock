@@ -113,9 +113,9 @@ def mock_start_end_times():
 # ---------------------------------------------------------------------------
 # Harness 3: Presidio NLP Engine
 # ---------------------------------------------------------------------------
-@pytest.fixture
+@pytest.fixture(scope="session")
 def presidio_available():
-    """True if Presidio + spaCy model installed."""
+    """True if Presidio + spaCy model installed.  Checked once per session."""
     try:
         from presidio_analyzer import AnalyzerEngine
 
@@ -125,15 +125,36 @@ def presidio_available():
         return False
 
 
+@pytest.fixture(scope="session")
+def _presidio_engines(presidio_available):
+    """Load Presidio engines once per session and share across all tests.
+
+    This avoids reloading the ~560 MB spaCy model for every test, which
+    was the root cause of OOM kills when running the full suite.
+    """
+    if not presidio_available:
+        return None, None
+    from presidio_analyzer import AnalyzerEngine
+    from presidio_anonymizer import AnonymizerEngine
+
+    return AnalyzerEngine(), AnonymizerEngine()
+
+
 @pytest.fixture
-def reset_presidio_singletons():
-    """Reset lazy-loaded Presidio globals between tests."""
+def reset_presidio_singletons(_presidio_engines):
+    """Point the module-level singletons at the shared session engines.
+
+    Each test gets the pre-loaded engines (no spaCy reload) and the
+    originals are restored on teardown for isolation.
+    """
     import airlock.guardrails.pii_guard as pii_mod
 
     original_analyzer = pii_mod._analyzer
     original_anonymizer = pii_mod._anonymizer
-    pii_mod._analyzer = None
-    pii_mod._anonymizer = None
+
+    analyzer, anonymizer = _presidio_engines
+    pii_mod._analyzer = analyzer
+    pii_mod._anonymizer = anonymizer
     yield
     pii_mod._analyzer = original_analyzer
     pii_mod._anonymizer = original_anonymizer
