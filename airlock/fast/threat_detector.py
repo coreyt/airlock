@@ -40,7 +40,7 @@ class ThreatAssessment:
 # ---------------------------------------------------------------------------
 # Tuning constants
 # ---------------------------------------------------------------------------
-VOLUME_SPIKE_MULTIPLIER = 10.0      # 10× normal rate
+VOLUME_SPIKE_MULTIPLIER = 5.0       # 5× baseline rate triggers spike
 RAPID_FIRE_MIN_GAP_S = 0.1         # <100 ms between requests
 RAPID_FIRE_COUNT = 10               # need 10+ rapid-fire requests
 LARGE_PAYLOAD_CHARS = 100_000       # >100 k chars is suspicious
@@ -66,11 +66,17 @@ def assess_threat(
     short_count = sum(1 for t in client.request_times if t > now - short_window)
     long_count = sum(1 for t in client.request_times if t > now - long_window)
 
-    if long_count > 0:
+    # Compare short-window rate to the baseline rate from the *rest* of
+    # the long window (excluding the short window).  This avoids the
+    # previous bug where the max possible ratio was capped at exactly
+    # long_window / short_window, making the threshold unreachable.
+    baseline_count = long_count - short_count
+    baseline_window = long_window - short_window
+    if baseline_count > 0:
         short_rate = short_count / short_window
-        long_rate = long_count / long_window
-        if long_rate > 0 and short_rate / long_rate > VOLUME_SPIKE_MULTIPLIER:
-            spike = short_rate / long_rate
+        baseline_rate = baseline_count / baseline_window
+        if short_rate / baseline_rate > VOLUME_SPIKE_MULTIPLIER:
+            spike = short_rate / baseline_rate
             score += min(0.4, (spike / VOLUME_SPIKE_MULTIPLIER - 1.0) * 0.1)
             reasons.append(f"volume_spike({spike:.1f}x)")
 

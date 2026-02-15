@@ -23,23 +23,21 @@ class TestAssessThreat:
         assert result.backoff_seconds == 0.0
 
     def test_volume_spike(self):
-        """Volume spike: short-window rate exceeds long-window rate.
+        """Volume spike: short-window rate far exceeds baseline rate.
 
-        Note: With 30s/300s windows, the max ratio is 10.0x. We patch
-        the multiplier threshold down to verify the detection logic.
+        With the fixed heuristic, the short-window rate is compared to the
+        baseline rate from the rest of the long window (excluding the short
+        window), so genuine spikes are detectable without patching.
         """
-        from unittest.mock import patch as _patch
-
         client = ClientState(client_id="spiky")
         now = time.time()
-        # 1 request in the older part of the long window
+        # 1 request in the older part of the long window (baseline)
         client.record_request(now - 250)
-        # 50 requests crammed into the last 30 seconds
+        # 50 requests crammed into the last 30 seconds (spike)
         for i in range(50):
             client.record_request(now - 29 + i * 0.5)
 
-        with _patch("airlock.fast.threat_detector.VOLUME_SPIKE_MULTIPLIER", 5.0):
-            result = assess_threat(client)
+        result = assess_threat(client)
         assert any("volume_spike" in r for r in result.reasons)
         assert result.threat_score > 0
 
