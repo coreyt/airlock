@@ -219,3 +219,49 @@ Multiple guardrails SHALL execute in the order they are defined in
 
 Log writes SHALL be append-only to daily files, supporting concurrent async
 request handlers without data corruption.
+
+### FR-17: Unified CLI Entry Point
+
+**Traces to:** UN-9
+
+The system SHALL provide a single `airlock` command that dispatches to `init`,
+`start`, and `analyze` subcommands. Invoking `airlock` with no subcommand SHALL
+print help text and exit with code 0.
+
+### FR-18: Project Initialization
+
+**Traces to:** UN-9
+
+`airlock init` SHALL generate `config.yaml`, `.env`, and a `logs/` directory in
+the target directory (current directory by default, overridable with `--dir`)
+from bundled templates.
+
+### FR-19: Idempotent Initialization
+
+**Traces to:** UN-9
+
+`airlock init` SHALL skip existing files without modification unless the
+`--force` flag is provided, in which case existing files SHALL be overwritten.
+An existing `logs/` directory SHALL always be left untouched.
+
+### FR-20: Initialization Summary
+
+**Traces to:** UN-9
+
+After initialization, the CLI SHALL print a summary showing the disposition of
+each artifact (created, skipped, or overwritten) and next-step instructions
+including how to start the proxy.
+
+### FR-21: Backwards-Compatible Analyze
+
+**Traces to:** UN-9
+
+The existing `airlock-analyze` entry point SHALL remain unchanged and continue
+to invoke `airlock.slow.cli:main` directly.
+
+### NFR-11: Minimal CLI Dependencies
+
+**Traces to:** UN-9
+
+The CLI framework SHALL use only Python standard library modules (argparse) and
+SHALL NOT introduce new third-party dependencies.
