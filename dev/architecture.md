@@ -1,0 +1,412 @@
+# Airlock — Architecture
+
+This document describes the software architecture of Airlock, tracing design
+decisions back to the [User Needs](user-needs.md) and
+[Requirements](requirements.md).
+
+---
+
+## 1. System Context
+
+Airlock is a reverse proxy that sits between AI coding tools and LLM provider
+APIs. It intercepts every request, applies security guardrails, logs the
+interaction, and forwards the (potentially modified) request to the appropriate
+upstream provider.
+
+```
+  ┌──────────┐   ┌──────────┐   ┌──────────┐
+  │  Cursor   │   │  Claude  │   │  Copilot  │   ... any OpenAI-compatible client
+  │           │   │   Code   │   │           │
+  └─────┬─────┘   └─────┬────┘   └─────┬─────┘
+        │               │              │
+        └───────────┬───┘──────────────┘
+                    │
+                    ▼
+           ┌────────────────┐
+           │    AIRLOCK      │   Port 4000 (configurable)
+           │   ┌──────────┐ │
+           │   │ LiteLLM  │ │   OpenAI-compatible API surface
+           │   │  Proxy   │ │
+           │   └────┬─────┘ │
+           │        │       │
+           │   ┌────▼─────┐ │
+           │   │Guardrails│ │   pre_call: PII guard, keyword guard
+           │   └────┬─────┘ │
+           │        │       │
+           │   ┌────▼─────┐ │
+           │   │Callbacks │ │   success/failure: enterprise logger
+           │   └──────────┘ │
+           └────────┬───────┘
+                    │
+          ┌─────────┼──────────┐
+          ▼         ▼          ▼
+    ┌──────────┐ ┌────────┐ ┌─────────┐
+    │Anthropic │ │ OpenAI │ │ Internal│   Upstream LLM providers
+    │  API     │ │  API   │ │  RAG    │
+    └──────────┘ └────────┘ └─────────┘
+```
+
+**Key design constraint:** Airlock must be invisible to end users. Developers
+point their tools at Airlock instead of the provider directly, and everything
+else works identically. This drives the choice of an OpenAI-compatible API
+surface (FR-1) and silent parameter dropping (FR-13).
+
+---
+
+## 2. Technology Selection
+
+| Layer | Technology | Rationale |
+|---|---|---|
+| **Proxy engine** | LiteLLM Proxy | Provides OpenAI-compatible API translation for 100+ providers, virtual key management, and a plugin system for callbacks and guardrails. Avoids building a proxy from scratch. |
+| **PII detection** | Microsoft Presidio | Mature, open-source NLP-based entity recognition. Supports configurable entity types and runs locally (no external API calls). |
+| **NLP model** | spaCy `en_core_web_lg` | Required by Presidio for named entity recognition. Large model chosen for accuracy over the small/medium variants. |
+| **Configuration** | YAML + env vars | LiteLLM's native config format. Environment variables overlay for secrets and deployment-specific values. |
+| **Logging format** | JSONL | One JSON object per line — trivially parseable, appendable, and ingestible by Splunk, Datadog, ELK, or S3-based analytics. |
+| **Containerization** | Docker + Compose | Single-container deployment with health checks. No orchestrator required for basic setups. |
+| **Language** | Python 3.10+ | LiteLLM and Presidio are both Python-native. Using the same runtime avoids FFI complexity. |
+
+---
+
+## 3. Component Architecture
+
+### 3.1 Proxy Entry Point (`airlock/proxy.py`)
+
+**Traces to:** FR-1, FR-2, FR-3, NFR-2, NFR-8
+
+The entry point is intentionally thin. It:
+
+1. Loads environment variables from `.env` via `python-dotenv`.
+2. Locates `config.yaml` by searching a priority list of paths
+   (`AIRLOCK_CONFIG` env var → project root → `/etc/airlock/`).
+3. Launches the LiteLLM proxy as a subprocess with the resolved config, host,
+   and port.
+
+This delegation pattern means Airlock does not reimplement any proxy logic.
+LiteLLM handles HTTP serving (via Uvicorn), request parsing, provider routing,
+virtual key validation, and budget enforcement. Airlock's value is in the
+configuration, callbacks, and guardrails it layers on top.
+
+```
+proxy.py
+  │
+  ├── load_dotenv()
+  ├── _find_config() → config.yaml path
+  └── subprocess.call(litellm --config ... --host ... --port ...)
+```
+
+### 3.2 Guardrails (`airlock/guardrails/`)
+
+**Traces to:** FR-4–FR-7, FR-14–FR-16, NFR-6, NFR-9
+
+Guardrails are LiteLLM `CustomGuardrail` subclasses registered in `config.yaml`.
+They execute at the `pre_call` stage — after LiteLLM parses the request but
+before it is forwarded to the upstream provider.
+
+#### Request Processing Pipeline
+
+```
+Incoming HTTP Request
+        │
+        ▼
+  ┌─────────────┐
+  │  LiteLLM    │   Parse request, validate API key
+  │  Core       │
+  └──────┬──────┘
+         │
+         ▼
+  ┌─────────────────┐
+  │ PII Guard       │   Scan messages → redact entities → mutate request
+  │ (pre_call)      │
+  └──────┬──────────┘
+         │
+         ▼
+  ┌─────────────────┐
+  │ Keyword Guard   │   Scan messages → reject if match found
+  │ (pre_call)      │
+  └──────┬──────────┘
+         │
+         ▼
+  ┌─────────────┐
+  │  Upstream    │   Forward (modified) request to provider
+  │  LLM API    │
+  └──────┬──────┘
+         │
+         ▼
+  ┌─────────────────┐
+  │ Enterprise      │   Log request + response as JSONL
+  │ Logger          │
+  │ (callback)      │
+  └─────────────────┘
+         │
+         ▼
+  HTTP Response to Client
+```
+
+#### PII Guard (`pii_guard.py`)
+
+- Lazy-loads Presidio engines on first use (NFR-6: graceful degradation).
+- Reads entity types from `AIRLOCK_PII_ENTITIES` on each call (hot-reloadable
+  via env var change + restart).
+- Processes each message independently: string content is scrubbed directly;
+  list content (multi-part) has text blocks scrubbed while image blocks pass
+  through (FR-16).
+- Mutates `data["messages"]` in place and returns the modified request dict.
+
+#### Keyword Guard (`keyword_guard.py`)
+
+- Reads blocked keywords from `AIRLOCK_BLOCKED_KEYWORDS` on each call.
+- Flattens all message content to a single lowercase string for scanning.
+- On match: raises `ValueError` with a user-safe message (FR-7). LiteLLM
+  translates this to an HTTP error response.
+- On no match (or no keywords configured): returns data unchanged.
+
+#### Execution Order
+
+Guardrails run in the order listed in `config.yaml` (NFR-9). The current order
+is:
+
+1. **PII Guard** — redact sensitive data first
+2. **Keyword Guard** — then check for restricted terms
+
+This order is deliberate: PII redaction runs first so that even if a keyword
+check fails and the error is logged, the log record contains redacted content
+rather than raw PII.
+
+### 3.3 Enterprise Logger (`airlock/callbacks/enterprise_logger.py`)
+
+**Traces to:** FR-8–FR-10, NFR-7, NFR-10
+
+The logger is a LiteLLM `CustomLogger` subclass registered as both a
+`success_callback` and `failure_callback`.
+
+#### Data Flow
+
+```
+LiteLLM fires callback
+        │
+        ▼
+_build_record(kwargs, response, timing, success)
+        │
+        ├── Extract metadata (user, team, request_id)
+        ├── Extract token usage from response.usage
+        ├── Compute duration_ms from timing
+        └── Assemble record dict
+        │
+        ▼
+_write_log(record)
+        │
+        ├── _ensure_log_dir()   → mkdir -p LOG_DIR
+        ├── Determine file: airlock-{today}.jsonl
+        └── Append JSON line
+```
+
+#### Serialization Strategy
+
+The `_serialize` helper handles edge cases that would otherwise cause
+`json.dumps` to fail:
+
+| Type | Serialization |
+|---|---|
+| `datetime.datetime` | `.isoformat()` |
+| `bytes` | `.decode("utf-8", errors="replace")` |
+| Pydantic v2 model | `.model_dump()` |
+| Pydantic v1 model | `.dict()` |
+| Everything else | `str()` |
+
+This is passed as the `default` argument to `json.dumps`, ensuring no record
+is ever lost to a serialization error (NFR-7).
+
+---
+
+## 4. Configuration Architecture
+
+Airlock uses a layered configuration approach:
+
+```
+┌─────────────────────────────────────────────┐
+│            Environment Variables             │   Secrets, deployment overrides
+│  (.env file loaded at startup)               │
+└──────────────────┬──────────────────────────┘
+                   │ overlays
+┌──────────────────▼──────────────────────────┐
+│              config.yaml                     │   Model list, guardrails,
+│  (LiteLLM proxy configuration)               │   callbacks, proxy settings
+└──────────────────┬──────────────────────────┘
+                   │ read by
+┌──────────────────▼──────────────────────────┐
+│           LiteLLM Proxy Runtime              │
+└─────────────────────────────────────────────┘
+```
+
+### Config Resolution Order
+
+`config.yaml` is located by searching:
+
+1. Path in `AIRLOCK_CONFIG` environment variable
+2. `config.yaml` in the project root (relative to `proxy.py`)
+3. `/etc/airlock/config.yaml` (for container deployments)
+
+### Secrets Handling
+
+API keys and the master key use LiteLLM's `os.environ/VAR_NAME` syntax in
+`config.yaml`, which defers resolution to runtime environment variables. This
+keeps secrets out of the config file and source control.
+
+---
+
+## 5. Deployment Architecture
+
+### 5.1 Docker Deployment (Primary)
+
+**Traces to:** NFR-1, NFR-3, NFR-4
+
+```
+┌─────────────────────────────────────────┐
+│           Docker Host                    │
+│                                          │
+│  ┌────────────────────────────────────┐  │
+│  │  airlock container                 │  │
+│  │                                    │  │
+│  │  python:3.12-slim                  │  │
+│  │  + spaCy en_core_web_lg           │  │
+│  │  + pip install airlock[all]       │  │
+│  │                                    │  │
+│  │  CMD: python -m airlock.proxy      │  │
+│  │                                    │  │
+│  │  Ports: 4000 (configurable)        │  │
+│  │  Volumes:                          │  │
+│  │    - config.yaml (read-only bind)  │  │
+│  │    - ./logs (writable bind)        │  │
+│  └────────────────────────────────────┘  │
+│                                          │
+│  Health: GET /health (30s interval)      │
+│  Restart: unless-stopped                 │
+└─────────────────────────────────────────┘
+```
+
+### 5.2 Local Development Deployment
+
+**Traces to:** NFR-8
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt && pip install -e .
+python -m spacy download en_core_web_lg
+airlock  # or: python -m airlock.proxy
+```
+
+No Docker required. The `airlock` CLI entry point (defined in `pyproject.toml`)
+invokes `airlock.proxy:main`.
+
+---
+
+## 6. Data Flow Summary
+
+### Successful Request
+
+```
+Client → POST /v1/chat/completions
+  → LiteLLM parses request, validates virtual key
+  → PII Guard: scrub messages (mutate in place)
+  → Keyword Guard: scan messages (pass or reject)
+  → LiteLLM routes to upstream provider (Anthropic/OpenAI)
+  → Provider returns response
+  → Enterprise Logger: write JSONL record (success)
+  → LiteLLM returns response to client
+```
+
+### Blocked Request (Keyword)
+
+```
+Client → POST /v1/chat/completions
+  → LiteLLM parses request, validates virtual key
+  → PII Guard: scrub messages
+  → Keyword Guard: blocked keyword detected → raise ValueError
+  → Enterprise Logger: write JSONL record (failure)
+  → LiteLLM returns error response to client
+```
+
+### Failed Request (Upstream Error)
+
+```
+Client → POST /v1/chat/completions
+  → LiteLLM parses request, validates virtual key
+  → PII Guard: scrub messages
+  → Keyword Guard: pass
+  → LiteLLM routes to upstream provider → provider returns error
+  → Enterprise Logger: write JSONL record (failure, with error details)
+  → LiteLLM returns error response to client
+```
+
+---
+
+## 7. Module Dependency Graph
+
+```
+airlock/
+├── proxy.py                      ← depends on: dotenv, litellm (subprocess)
+├── callbacks/
+│   └── enterprise_logger.py      ← depends on: litellm.integrations.custom_logger
+└── guardrails/
+    ├── pii_guard.py              ← depends on: litellm.integrations.custom_guardrail,
+    │                                            presidio_analyzer (lazy),
+    │                                            presidio_anonymizer (lazy)
+    └── keyword_guard.py          ← depends on: litellm.integrations.custom_guardrail
+```
+
+Key observations:
+
+- **No internal cross-dependencies.** The proxy, callbacks, and guardrails are
+  independent modules connected only through LiteLLM's plugin registration in
+  `config.yaml`. This allows any component to be added, removed, or replaced
+  without affecting the others.
+- **Presidio is lazy-loaded.** The PII guard imports Presidio only on first use,
+  so the proxy starts even if Presidio is not installed.
+- **LiteLLM is the integration backbone.** All components extend LiteLLM base
+  classes (`CustomLogger`, `CustomGuardrail`) and are discovered via
+  `config.yaml` at startup.
+
+---
+
+## 8. Extension Points
+
+| Extension | Mechanism | Example |
+|---|---|---|
+| New LLM provider | Add entry to `model_list` in `config.yaml` | Internal RAG service, Azure OpenAI |
+| New guardrail | Implement `CustomGuardrail` subclass, register in `config.yaml` | Semantic embedding filter, regex validator |
+| New logging backend | Implement `CustomLogger` subclass, add to callbacks | S3 shipper, Datadog integration, SQL writer |
+| New deployment target | Use `pip install` entry point or extend Dockerfile | Kubernetes, AWS ECS, systemd service |
+
+---
+
+## 9. Security Considerations
+
+| Concern | Mitigation |
+|---|---|
+| API key exposure | Keys stored in env vars, never in `config.yaml` or source control. `.env` is gitignored. |
+| PII in transit | PII guard runs `pre_call` — data is redacted before leaving the proxy process. |
+| Keyword leakage | Keyword guard runs `pre_call` — blocked requests never reach the provider. |
+| Unauthorized admin access | `/key/generate` and admin endpoints protected by `AIRLOCK_MASTER_KEY`. |
+| Log confidentiality | Logs contain full request/response content. Log directory access must be restricted at the OS/infrastructure level. |
+| Guardrail bypass | Guardrails are enforced server-side in the proxy. Clients cannot opt out. |
+
+---
+
+## 10. Future Architecture (Roadmap)
+
+### Phase 3: Internal RAG Provider
+
+The `model_list` in `config.yaml` already contains a commented-out entry for
+`internal-docs`, pointing to an internal RAG service. When enabled, this allows
+developers to query internal documentation through the same Airlock endpoint
+they use for Claude and GPT — with the same guardrails and logging applied.
+
+### Potential Extensions
+
+- **S3 log archival** — Rotate JSONL files to S3 for long-term retention
+  (optional `boto3` dependency already declared).
+- **SQL log backend** — Write logs to a relational database for structured
+  queries (optional `sqlalchemy` dependency already declared).
+- **Deterministic control loops** — Advanced guardrail patterns (auditor loops,
+  tool-call sandboxing, semantic alignment) as described in
+  `dev/feature-guardrails-deterministic-control-loops.md`.
