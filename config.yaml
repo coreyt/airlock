@@ -49,9 +49,9 @@ litellm_settings:
   # Drop any unsupported params instead of erroring
   drop_params: true
 
-  # Callbacks — enterprise logging
-  success_callback: ["airlock.callbacks.enterprise_logger"]
-  failure_callback: ["airlock.callbacks.enterprise_logger"]
+  # Callbacks — enterprise logging + fast subsystem metrics
+  success_callback: ["airlock.callbacks.enterprise_logger", "airlock.fast.monitor"]
+  failure_callback: ["airlock.callbacks.enterprise_logger", "airlock.fast.monitor"]
 
   # Budget & rate-limiting (per-user, requires virtual keys)
   # max_budget: 100.0          # USD per 30-day rolling window
@@ -73,6 +73,11 @@ guardrails:
     litellm_params:
       guardrail: airlock.guardrails.keyword_guard
       mode: pre_call
+
+  - guardrail_name: airlock-fast-guardian
+    litellm_params:
+      guardrail: airlock.fast.guardian
+      mode: pre_call            # threat gate, circuit breaker, priority scoring
 
 # ---------------------------------------------------------------------------
 # General proxy behaviour
