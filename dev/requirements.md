@@ -259,6 +259,23 @@ including how to start the proxy.
 The existing `airlock-analyze` entry point SHALL remain unchanged and continue
 to invoke `airlock.slow.cli:main` directly.
 
+### FR-22: Start Pre-Flight Validation
+
+**Traces to:** UN-9
+
+`airlock start` SHALL validate that `config.yaml` exists at the resolved path
+before launching. Missing config → error + suggest `airlock init`, exit 1.
+Missing `.env` → warning on stderr, proceed with startup.
+
+### FR-23: Proxy Status Check
+
+**Traces to:** UN-9
+
+`airlock status` SHALL probe `/health` using only stdlib (urllib). Default
+target: `http://localhost:4000/health`, configurable via `--host`/`--port` flags
+or `AIRLOCK_HOST`/`AIRLOCK_PORT` env vars. Exit 0 if healthy, exit 1 if not
+reachable.
+
 ### NFR-11: Minimal CLI Dependencies
 
 **Traces to:** UN-9
