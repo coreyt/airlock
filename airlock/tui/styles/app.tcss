@@ -1,0 +1,213 @@
+/* Airlock TUI — Cockpit Standard stylesheet */
+
+/* ── Shell layout ─────────────────────────────────────── */
+
+#sidebar {
+    width: 22;
+    dock: left;
+    background: $surface;
+    border-right: solid $primary-background;
+    padding: 1 0;
+}
+
+#sidebar ListView {
+    background: $surface;
+}
+
+#sidebar ListItem {
+    padding: 0 1;
+}
+
+#sidebar ListItem.--highlight {
+    background: $accent;
+    color: $text;
+}
+
+#workspace {
+    width: 1fr;
+    height: 1fr;
+}
+
+/* ── Screens ──────────────────────────────────────────── */
+
+.screen-container {
+    width: 1fr;
+    height: 1fr;
+    padding: 1 2;
+}
+
+/* ── Dashboard ────────────────────────────────────────── */
+
+#dash-top-row {
+    height: auto;
+    max-height: 8;
+    layout: horizontal;
+}
+
+#dash-proxy-status {
+    width: 1fr;
+    height: auto;
+    border: solid $accent;
+    padding: 1 2;
+}
+
+#dash-guardrails {
+    width: 1fr;
+    height: auto;
+    border: solid $accent;
+    padding: 1 2;
+    margin-left: 1;
+}
+
+#dash-model-table {
+    height: 1fr;
+    margin-top: 1;
+    border: solid $accent;
+}
+
+/* ── Section boxes ────────────────────────────────────── */
+
+.section-box {
+    border: solid $accent;
+    padding: 1 2;
+    height: auto;
+    margin-bottom: 1;
+}
+
+.section-box-grow {
+    border: solid $accent;
+    padding: 0 1;
+    height: 1fr;
+}
+
+/* ── Models ───────────────────────────────────────────── */
+
+#models-table {
+    height: 2fr;
+    border: solid $accent;
+}
+
+#models-detail {
+    height: 1fr;
+    border: solid $accent;
+    padding: 1 2;
+    margin-top: 1;
+}
+
+/* ── Threats ──────────────────────────────────────────── */
+
+#threats-backoffs {
+    height: 1fr;
+    border: solid $accent;
+}
+
+#threats-config {
+    height: auto;
+    border: solid $accent;
+    padding: 1 2;
+    margin-top: 1;
+}
+
+/* ── Logs ─────────────────────────────────────────────── */
+
+#logs-filters {
+    height: auto;
+    layout: horizontal;
+    padding: 0 0 1 0;
+}
+
+#logs-filters Select {
+    width: 20;
+    margin-right: 1;
+}
+
+#logs-filters Input {
+    width: 20;
+    margin-right: 1;
+}
+
+#logs-filters RadioSet {
+    width: auto;
+    layout: horizontal;
+    height: 3;
+}
+
+#logs-table {
+    height: 2fr;
+    border: solid $accent;
+}
+
+#logs-detail {
+    height: 1fr;
+    border: solid $accent;
+    padding: 1 2;
+    margin-top: 1;
+}
+
+/* ── Analysis ─────────────────────────────────────────── */
+
+#analysis-controls {
+    height: auto;
+    layout: horizontal;
+    align-vertical: middle;
+    padding-bottom: 1;
+}
+
+#analysis-controls Input {
+    width: 8;
+    margin-right: 1;
+}
+
+#analysis-controls Button {
+    margin-right: 2;
+}
+
+#analysis-controls .label {
+    margin-right: 1;
+    padding-top: 1;
+}
+
+#analysis-tabs {
+    height: 1fr;
+}
+
+/* ── Settings ─────────────────────────────────────────── */
+
+#settings-tabs {
+    height: 1fr;
+}
+
+.settings-form {
+    padding: 1 2;
+    height: auto;
+}
+
+.settings-form .label {
+    margin-top: 1;
+}
+
+.settings-form Input {
+    margin-bottom: 1;
+}
+
+.settings-form Switch {
+    margin-bottom: 1;
+}
+
+/* ── Semantic colors ──────────────────────────────────── */
+
+.status-ok {
+    color: $success;
+}
+
+.status-error {
+    color: $error;
+}
+
+.status-warn {
+    color: $warning;
+}
+
+.text-muted {
+    color: $text-muted;
+}

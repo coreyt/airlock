@@ -69,6 +69,22 @@ def main(argv: list[str] | None = None) -> None:
         help="Proxy port to probe (default: AIRLOCK_PORT or 4000).",
     )
 
+    # -- tui --
+    tui_parser = subparsers.add_parser(
+        "tui",
+        help="Launch the interactive terminal dashboard.",
+    )
+    tui_parser.add_argument(
+        "--host",
+        default=None,
+        help="Proxy host to monitor (default: AIRLOCK_HOST or localhost).",
+    )
+    tui_parser.add_argument(
+        "--port",
+        default=None,
+        help="Proxy port to monitor (default: AIRLOCK_PORT or 4000).",
+    )
+
     # -- analyze --
     analyze_parser = subparsers.add_parser(
         "analyze",
@@ -144,6 +160,14 @@ def main(argv: list[str] | None = None) -> None:
         from airlock.cli.status_cmd import run
 
         run(args)
+
+    elif args.command == "tui":
+        host = args.host or os.environ.get("AIRLOCK_HOST", "localhost")
+        port = args.port or os.environ.get("AIRLOCK_PORT", "4000")
+
+        from airlock.tui.app import run as tui_run
+
+        tui_run(host=host, port=port)
 
     elif args.command == "analyze":
         # Rebuild sys.argv for the analyze CLI's own argparse

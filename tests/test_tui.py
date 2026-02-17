@@ -1,0 +1,232 @@
+"""Tests for airlock.tui — terminal dashboard."""
+
+from __future__ import annotations
+
+import json
+import os
+from datetime import datetime
+from pathlib import Path
+from unittest import mock
+
+import pytest
+
+from airlock.tui.app import AirlockApp
+
+
+# -------------------------------------------------------------------
+# App instantiation and structure
+# -------------------------------------------------------------------
+
+
+@pytest.fixture()
+def app():
+    return AirlockApp(host="127.0.0.1", port="9999")
+
+
+async def test_app_creates_with_host_port(app) -> None:
+    assert app._proxy_host == "127.0.0.1"
+    assert app._proxy_port == "9999"
+
+
+async def test_app_has_bindings(app) -> None:
+    binding_keys = [b[0] for b in app.BINDINGS]
+    assert "1" in binding_keys
+    assert "6" in binding_keys
+    assert "q" in binding_keys
+
+
+async def test_app_composes_all_panes() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        # Sidebar exists
+        sidebar = app.query_one("#sidebar")
+        assert sidebar is not None
+
+        # Workspace with content switcher
+        workspace = app.query_one("#workspace")
+        assert workspace is not None
+
+        # All 6 panes exist
+        for pane_id in ("dashboard", "models", "threats", "logs", "analysis", "settings"):
+            pane = app.query_one(f"#{pane_id}")
+            assert pane is not None, f"Missing pane: {pane_id}"
+
+
+async def test_screen_switching_via_keys() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        workspace = app.query_one("#workspace")
+
+        # Start on dashboard
+        assert workspace.current == "dashboard"
+
+        # Press 2 → models
+        await pilot.press("2")
+        assert workspace.current == "models"
+
+        # Press 4 → logs
+        await pilot.press("4")
+        assert workspace.current == "logs"
+
+        # Press 1 → back to dashboard
+        await pilot.press("1")
+        assert workspace.current == "dashboard"
+
+
+async def test_sidebar_navigation() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        workspace = app.query_one("#workspace")
+
+        # Press 3 to verify key nav works
+        await pilot.press("3")
+        assert workspace.current == "threats"
+
+
+# -------------------------------------------------------------------
+# Dashboard screen
+# -------------------------------------------------------------------
+
+
+async def test_dashboard_has_widgets() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        # Proxy status indicator
+        indicator = app.query_one("#proxy-indicator")
+        assert indicator is not None
+
+        # Guardrail indicators
+        for gid in ("guard-pii", "guard-kw", "guard-fast"):
+            assert app.query_one(f"#{gid}") is not None
+
+        # Model table
+        table = app.query_one("#dash-model-table")
+        assert table is not None
+
+
+# -------------------------------------------------------------------
+# Models screen
+# -------------------------------------------------------------------
+
+
+async def test_models_has_table_and_detail() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("2")  # switch to models
+        assert app.query_one("#models-table") is not None
+        assert app.query_one("#models-detail") is not None
+
+
+# -------------------------------------------------------------------
+# Threats screen
+# -------------------------------------------------------------------
+
+
+async def test_threats_has_backoffs_and_config() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("3")  # switch to threats
+        assert app.query_one("#threats-backoffs") is not None
+        assert app.query_one("#threats-config") is not None
+
+
+# -------------------------------------------------------------------
+# Logs screen
+# -------------------------------------------------------------------
+
+
+async def test_logs_has_filters_and_table() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("4")
+        assert app.query_one("#logs-model-filter") is not None
+        assert app.query_one("#logs-user-filter") is not None
+        assert app.query_one("#logs-table") is not None
+        assert app.query_one("#logs-detail") is not None
+
+
+async def test_logs_loads_from_jsonl(tmp_path: Path) -> None:
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    today = datetime.utcnow().date().isoformat()
+    log_file = log_dir / f"airlock-{today}.jsonl"
+    record = {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "success": True,
+        "model": "claude-sonnet",
+        "user": "alice",
+        "total_tokens": 100,
+        "duration_ms": 1200,
+    }
+    log_file.write_text(json.dumps(record) + "\n")
+
+    with mock.patch.dict(os.environ, {"AIRLOCK_LOG_DIR": str(log_dir)}):
+        app = AirlockApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.press("4")  # logs
+            await pilot.pause()
+            # The log pane should have loaded — table should have at least
+            # the row we wrote
+            from airlock.tui.screens.logs import LogsPane
+
+            logs_pane = app.query_one(LogsPane)
+            assert len(logs_pane._records) >= 1
+            assert logs_pane._records[0]["model"] == "claude-sonnet"
+
+
+# -------------------------------------------------------------------
+# Analysis screen
+# -------------------------------------------------------------------
+
+
+async def test_analysis_has_controls_and_tabs() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("5")
+        assert app.query_one("#analysis-days") is not None
+        assert app.query_one("#analysis-run") is not None
+        assert app.query_one("#analysis-tabs") is not None
+
+
+# -------------------------------------------------------------------
+# Settings screen
+# -------------------------------------------------------------------
+
+
+async def test_settings_has_tabs_and_apply() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("6")
+        assert app.query_one("#settings-tabs") is not None
+        assert app.query_one("#settings-apply") is not None
+
+
+# -------------------------------------------------------------------
+# CLI dispatch
+# -------------------------------------------------------------------
+
+
+def test_tui_routes_to_tui_app() -> None:
+    from airlock.cli.main import main
+
+    with mock.patch("airlock.tui.app.run") as mock_run:
+        main(["tui"])
+    mock_run.assert_called_once_with(host="localhost", port="4000")
+
+
+def test_tui_passes_host_port() -> None:
+    from airlock.cli.main import main
+
+    with mock.patch("airlock.tui.app.run") as mock_run:
+        main(["tui", "--host", "10.0.0.1", "--port", "8080"])
+    mock_run.assert_called_once_with(host="10.0.0.1", port="8080")
+
+
+def test_help_includes_tui(capsys) -> None:
+    from airlock.cli.main import main
+
+    with pytest.raises(SystemExit) as exc_info:
+        main([])
+    assert exc_info.value.code == 0
+    out = capsys.readouterr().out
+    assert "tui" in out
