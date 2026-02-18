@@ -109,6 +109,65 @@ def main(argv: list[str] | None = None) -> None:
         help="Write report to file instead of stdout.",
     )
 
+    # -- hooks --
+    hooks_parser = subparsers.add_parser(
+        "hooks",
+        help="Install or inspect Claude Code hooks.",
+    )
+    hooks_sub = hooks_parser.add_subparsers(dest="hooks_action")
+
+    hooks_install = hooks_sub.add_parser(
+        "install",
+        help="Install Airlock hooks into .claude/settings.json.",
+    )
+    hooks_install.add_argument(
+        "--dir",
+        default=".",
+        help="Target directory (default: current directory).",
+    )
+    hooks_install.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing hooks configuration.",
+    )
+
+    hooks_status = hooks_sub.add_parser(
+        "status",
+        help="Show configured hooks.",
+    )
+    hooks_status.add_argument(
+        "--dir",
+        default=".",
+        help="Target directory (default: current directory).",
+    )
+
+    # -- dogfood --
+    dogfood_parser = subparsers.add_parser(
+        "dogfood",
+        help="Print env exports for routing Claude Code through Airlock.",
+    )
+    dogfood_parser.add_argument(
+        "--host",
+        default=None,
+        help="Proxy host (default: AIRLOCK_HOST or localhost).",
+    )
+    dogfood_parser.add_argument(
+        "--port",
+        default=None,
+        help="Proxy port (default: AIRLOCK_PORT or 4000).",
+    )
+    dogfood_parser.add_argument(
+        "--master-key",
+        default=None,
+        help="Master key (default: AIRLOCK_MASTER_KEY).",
+    )
+    dogfood_parser.add_argument(
+        "--shell",
+        choices=["bash", "zsh", "fish"],
+        default=None,
+        help="Shell syntax (default: bash).",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command is None:
@@ -182,6 +241,21 @@ def main(argv: list[str] | None = None) -> None:
         from airlock.slow.cli import main as analyze_main
 
         analyze_main()
+
+    elif args.command == "hooks":
+        from airlock.cli.hooks_cmd import run_install, run_status
+
+        if args.hooks_action == "install":
+            run_install(args)
+        elif args.hooks_action == "status":
+            run_status(args)
+        else:
+            hooks_parser.print_help()
+
+    elif args.command == "dogfood":
+        from airlock.cli.dogfood_cmd import run
+
+        run(args)
 
 
 if __name__ == "__main__":
