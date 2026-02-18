@@ -91,12 +91,12 @@ In settings, set:
 ### Claude Code
 
 ```bash
-# Route traffic through the proxy
-eval $(airlock dogfood)
-
-# Install client-side hooks (keyword blocking, config protection, audit logging)
+airlock start &
 airlock hooks install
+eval $(airlock dogfood)
 ```
+
+Then launch Claude Code in this project — every request flows through PII redaction, keyword blocking, JSONL logging, and shows up in `airlock tui`.
 
 See [dev/dogfooding.md](dev/dogfooding.md) for the full setup guide.
 
