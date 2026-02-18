@@ -16,7 +16,9 @@ def main() -> None:
     else:
         status = (
             f"Airlock proxy is NOT reachable at {host}:{port}. "
-            "Requests will go directly to providers."
+            "API calls routed through the proxy will FAIL. "
+            "To recover: run `airlock start` to restart the proxy, "
+            "or run `unset ANTHROPIC_BASE_URL` to bypass it."
         )
 
     respond_json({"additionalContext": status})

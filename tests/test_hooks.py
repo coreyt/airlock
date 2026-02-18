@@ -134,7 +134,10 @@ class TestSessionStart:
             main()
         assert exc_info.value.code == 0
         out = json.loads(capsys.readouterr().out)
-        assert "NOT reachable" in out["additionalContext"]
+        ctx = out["additionalContext"]
+        assert "NOT reachable" in ctx
+        assert "airlock start" in ctx
+        assert "unset ANTHROPIC_BASE_URL" in ctx
 
 
 # ===================================================================
