@@ -91,9 +91,14 @@ In settings, set:
 ### Claude Code
 
 ```bash
-# In your shell config or .claude/settings.json
-export ANTHROPIC_BASE_URL=https://airlock.internal:4000
+# Route traffic through the proxy
+eval $(airlock dogfood)
+
+# Install client-side hooks (keyword blocking, config protection, audit logging)
+airlock hooks install
 ```
+
+See [dev/dogfooding.md](dev/dogfooding.md) for the full setup guide.
 
 ### GitHub Copilot
 
