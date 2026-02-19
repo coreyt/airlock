@@ -520,6 +520,97 @@ at the practical state of the art.
 
 ---
 
+## 10. Implementation Status
+
+### Semantic Guard Orchestrator (Implemented)
+
+The thin orchestration layer is live at `airlock/guardrails/semantic.py`,
+registered as `airlock-semantic-guard` in `config.yaml` with `mode: during_call`.
+
+**What it does:**
+- Runs as a `during_call` guardrail — executes in parallel with the LLM call
+  via LiteLLM's `asyncio.gather` pattern, so classifier latency is hidden
+- Orchestrates pluggable classifiers concurrently via `asyncio.gather`
+- Attaches all classifier verdicts (scores, thresholds, labels, durations,
+  errors) to request `metadata["airlock_semantic"]` for downstream logging
+- Blocks only when any single classifier exceeds its own threshold
+- Handles classifier errors gracefully (fail-open by default, configurable
+  via `AIRLOCK_SEMANTIC_BLOCK_ON_FAIL`)
+
+**What it logs (the learning signal):**
+
+Every request that passes through the orchestrator produces metadata like:
+
+```json
+{
+  "airlock_semantic": {
+    "status": "passed",
+    "blocking_classifier": null,
+    "total_duration_ms": 45.2,
+    "results": [
+      {
+        "name": "topic_filter",
+        "score": 0.12,
+        "threshold": 0.5,
+        "blocked": false,
+        "label": "on_topic",
+        "duration_ms": 23.1
+      },
+      {
+        "name": "injection_detector",
+        "score": 0.34,
+        "threshold": 0.8,
+        "blocked": false,
+        "label": "benign",
+        "duration_ms": 41.7
+      }
+    ]
+  }
+}
+```
+
+This metadata flows through the enterprise logger into JSONL logs, where the
+slow analyzer can compute:
+- Score distributions per classifier (what do real requests look like?)
+- False positive/negative rates at different thresholds
+- Latency overhead per classifier
+- Correlation between classifiers (do they agree? disagree?)
+- Which requests are "ambiguous" (close to threshold) — candidates for
+  future escalation to LLM-as-judge
+
+**Pluggable classifier interface:**
+
+```python
+class Classifier(Protocol):
+    @property
+    def name(self) -> str: ...
+    async def classify(self, text: str) -> ClassifierResult: ...
+```
+
+Register classifiers at startup:
+
+```python
+from airlock.guardrails.semantic import register_classifier
+register_classifier(MyEmbeddingFilter())
+register_classifier(MyInjectionDetector())
+```
+
+**Next steps:**
+- Implement embedding-based topic filter as a `Classifier`
+- Implement prompt injection classifier as a `Classifier`
+- Extend slow analyzer with `airlock_semantic` dimension analysis
+- Use collected data to determine whether cross-classifier score
+  aggregation or escalation logic is needed
+
+**Tests:** 41 tests in `tests/test_semantic_guard.py` covering:
+- Text extraction, registry management, fail-open/fail-closed
+- Concurrent classifier execution (verified parallel, not sequential)
+- Error isolation (one crashed classifier doesn't block others)
+- Metadata attachment (scores, durations, errors logged on every request)
+- Block behavior (raises ValueError, but writes metadata first)
+
+---
+
 ## References
 
 ### Classifier Guardrail Models
