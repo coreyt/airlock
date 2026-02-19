@@ -79,6 +79,11 @@ guardrails:
       guardrail: airlock.fast.guardian
       mode: pre_call            # threat gate, circuit breaker, priority scoring
 
+  - guardrail_name: airlock-semantic-guard
+    litellm_params:
+      guardrail: airlock.guardrails.semantic
+      mode: during_call         # ML classifiers run in parallel with LLM call
+
 # ---------------------------------------------------------------------------
 # General proxy behaviour
 # ---------------------------------------------------------------------------

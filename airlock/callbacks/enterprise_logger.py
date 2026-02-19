@@ -104,6 +104,12 @@ class AirlockLogger(CustomLogger):
                 "total_tokens": getattr(u, "total_tokens", 0),
             }
 
+        # Collect airlock_* guardrail metadata (semantic scores, priority,
+        # failover info) so the slow analyzer can see classifier verdicts.
+        guardrail_meta = {
+            k: v for k, v in metadata.items() if k.startswith("airlock_")
+        }
+
         return {
             "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
             "success": success,
@@ -122,4 +128,5 @@ class AirlockLogger(CustomLogger):
                 else None
             ),
             **usage,
+            **guardrail_meta,
         }

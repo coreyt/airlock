@@ -107,6 +107,80 @@ class TestFormatText:
         assert "HYPOTHESES" in text
         assert "Confidence" in text
 
+    def test_contains_semantic_section(self):
+        from airlock.slow.analyzer import ClassifierStats, SemanticInsight
+
+        report = AnalysisReport(
+            generated_at="2024-01-15T10:00:00Z",
+            period_start="2024-01-08T10:00:00Z",
+            period_end="2024-01-15T10:00:00Z",
+            total_requests=100,
+            semantic_insights=SemanticInsight(
+                total_evaluated=80,
+                total_blocked=5,
+                overall_block_rate=0.0625,
+                classifier_stats=[
+                    ClassifierStats(
+                        name="injection_detector",
+                        sample_count=80,
+                        block_count=5,
+                        block_rate=0.0625,
+                        error_count=2,
+                        error_rate=0.025,
+                        score_mean=0.15,
+                        score_p50=0.12,
+                        score_p95=0.45,
+                        score_p99=0.88,
+                        current_threshold=0.5,
+                        latency_mean_ms=25.0,
+                        latency_p95_ms=48.0,
+                        ambiguous_count=8,
+                        ambiguous_rate=0.1,
+                    ),
+                ],
+                classifier_agreement=[
+                    {
+                        "classifier_a": "injection",
+                        "classifier_b": "topic",
+                        "co_block_count": 3,
+                        "co_occurrence_count": 50,
+                        "agreement_rate": 0.06,
+                    }
+                ],
+            ),
+            summary={
+                "total_requests": 100, "successful": 95, "failed": 5,
+                "error_rate": 0.05, "active_users": 10, "total_tokens": 50000,
+                "models_used": {"claude-sonnet": 100},
+            },
+        )
+        text = _format_text(report)
+        assert "SEMANTIC GUARD" in text
+        assert "injection_detector" in text
+        assert "Scores" in text
+        assert "Threshold" in text
+        assert "Latency" in text
+        assert "Errors" in text
+        assert "Ambiguous" in text
+        assert "Cross-classifier agreement" in text
+        assert "injection + topic" in text
+
+    def test_semantic_section_omitted_when_none(self):
+        report = AnalysisReport(
+            generated_at="2024-01-15T10:00:00Z",
+            period_start="2024-01-08T10:00:00Z",
+            period_end="2024-01-15T10:00:00Z",
+            total_requests=100,
+            semantic_insights=None,
+            summary={
+                "total_requests": 100, "successful": 100, "failed": 0,
+                "error_rate": 0, "active_users": 5, "total_tokens": 50000,
+                "models_used": {"gpt-4o": 100},
+            },
+        )
+        text = _format_text(report)
+        assert "SEMANTIC GUARD" not in text
+
     def test_empty_report(self):
         report = AnalysisReport(
             generated_at="2024-01-15T10:00:00Z",

@@ -135,6 +135,63 @@ class TestBuildRecord:
         )
         assert record["user"] == "bob"
 
+    def test_airlock_metadata_included(self):
+        """Guardrail metadata (airlock_*) is passed through to log records."""
+        kwargs = {
+            "model": "claude-sonnet",
+            "messages": [],
+            "litellm_params": {
+                "metadata": {
+                    "user_api_key_alias": "alice",
+                    "airlock_semantic": {
+                        "status": "passed",
+                        "blocking_classifier": None,
+                        "total_duration_ms": 42.5,
+                        "results": [
+                            {"name": "injection", "score": 0.12, "blocked": False}
+                        ],
+                    },
+                    "airlock_priority": {"score": 0.5, "boost": False},
+                }
+            },
+        }
+        record = AirlockLogger._build_record(
+            kwargs, None, None, None, success=True
+        )
+        assert "airlock_semantic" in record
+        assert record["airlock_semantic"]["status"] == "passed"
+        assert record["airlock_semantic"]["results"][0]["name"] == "injection"
+        assert "airlock_priority" in record
+        assert record["airlock_priority"]["score"] == 0.5
+
+    def test_non_airlock_metadata_excluded(self):
+        """Non-airlock metadata keys are not leaked to log records."""
+        kwargs = {
+            "model": "claude-sonnet",
+            "messages": [],
+            "litellm_params": {
+                "metadata": {
+                    "user_api_key_alias": "alice",
+                    "some_internal_field": "secret",
+                    "airlock_semantic": {"status": "passed"},
+                }
+            },
+        }
+        record = AirlockLogger._build_record(
+            kwargs, None, None, None, success=True
+        )
+        assert "airlock_semantic" in record
+        assert "some_internal_field" not in record
+
+    def test_no_airlock_metadata_no_extra_keys(self, mock_logger_kwargs, mock_start_end_times):
+        """When no airlock_* metadata exists, no extra keys are added."""
+        start, end = mock_start_end_times
+        record = AirlockLogger._build_record(
+            mock_logger_kwargs, None, start, end, success=True
+        )
+        airlock_keys = [k for k in record if k.startswith("airlock_")]
+        assert airlock_keys == []
+
 
 # ---------------------------------------------------------------------------
 # _write_log() and file I/O
