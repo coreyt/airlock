@@ -2,7 +2,7 @@
 
 ## Status: Active Development
 
-Last updated: 2026-02-17
+Last updated: 2026-02-19
 
 ## Completed Work
 
@@ -54,6 +54,31 @@ Client-side hooks for Claude Code: SessionStart (proxy health), PreSubmit
 - README Claude Code section expanded with hooks and dogfood commands
 - Auth passthrough documented (LiteLLM `os.environ/` syntax)
 
+### Guardrails Exploration (commit df87267)
+Research document exploring Gen 1 → Gen 2 guardrails evolution: classifier
+guardrail models, embedding-based topic filters, prompt injection classifiers,
+NLI hallucination detection, LLM-as-judge, speculative guardrailing, tool-call
+sandboxing. Maps what is achievable at the proxy level vs. requires model weight
+access. Evaluates Guardrails AI, NeMo Guardrails, LLM Guard frameworks.
+
+### Semantic Guard Orchestrator (commit dd93d84)
+`airlock/guardrails/semantic.py` — thin `during_call` orchestration layer that
+runs pluggable ML classifiers concurrently via `asyncio.gather` while the LLM
+call proceeds in parallel. Pluggable `Classifier` protocol, fail-open by
+default, attaches classifier verdicts (scores, thresholds, labels, durations) to
+request metadata for downstream logging. 41 tests.
+
+### Semantic Analysis Dimension (commit 1c6ec25)
+Fifth analysis dimension in the slow analyzer: `find_semantic_insights()` reads
+`airlock_semantic` metadata from JSONL logs and computes per-classifier score
+distributions (mean/p50/p95/p99), block/error rates, latency profiles, ambiguous
+zone detection (scores within ±20% of threshold), and cross-classifier agreement
+tracking. Enterprise logger updated to persist all `airlock_*` metadata to log
+records. Hypothesis generation extended with four semantic-specific patterns:
+high block rate (threshold tuning), high ambiguity (LLM-as-judge escalation),
+classifier errors (reliability), high latency (bottleneck). 28 new tests across
+3 files.
+
 ## Open Issues
 
 ### Issue #10 — Basic Keyword Search for TUI Logs
@@ -69,9 +94,8 @@ Depends on #10 completing first.
 
 ## Test Suite
 
-- **310 tests** across 23 test files
-- **308 passing**, 2 known failures in `test_slow_analyzer` (log file
-  path resolution — pre-existing)
+- **355 tests** across 24 test files
+- **355 passing**, 9 skipped (SQL logger — optional `sqlalchemy` dependency)
 - Presidio engines shared via session fixture to avoid OOM
 - TUI tests use async `app.run_test()` pattern
 
@@ -81,9 +105,10 @@ Depends on #10 completing first.
 |-----------|----------|--------|
 | Proxy | `airlock/proxy.py` | Complete |
 | Guardrails | `airlock/guardrails/` | Complete |
-| Callbacks | `airlock/callbacks/` | Complete |
+| Semantic Guard | `airlock/guardrails/semantic.py` | Orchestrator complete — awaiting classifiers |
+| Callbacks | `airlock/callbacks/` | Complete (now persists guardrail metadata) |
 | Fast (real-time) | `airlock/fast/` | Complete |
-| Slow (offline) | `airlock/slow/` | Complete |
+| Slow (offline) | `airlock/slow/` | Complete — 5 dimensions (incl. semantic) |
 | Hooks | `airlock/hooks/` | Complete |
 | CLI | `airlock/cli/` | Complete |
 | TUI | `airlock/tui/` | Complete — search pending (#10) |

@@ -486,6 +486,8 @@ layer catches what the previous one misses:
 ├─────────────────────────────────────────────────────────┤
 │ Layer 6: Retrospective (existing Slow subsystem)        │
 │   Offline log analysis, trend detection, hypothesis gen │
+│   Semantic classifier analysis (score/block/error/      │
+│   latency distributions, ambiguous zone, agreement)     │
 │   → feeds back into Layers 1–3 threshold tuning         │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -595,10 +597,34 @@ register_classifier(MyEmbeddingFilter())
 register_classifier(MyInjectionDetector())
 ```
 
+### Slow Analyzer Semantic Dimension (Implemented)
+
+The observation loop is now closed. The enterprise logger persists all
+`airlock_*` metadata to JSONL log records, and the slow analyzer extracts
+actionable insights via `find_semantic_insights()`:
+
+- Per-classifier score distributions (mean, p50, p95, p99)
+- Block rate and error rate per classifier
+- Latency profiling (mean, p95) per classifier
+- Ambiguous zone detection (scores within ±20% of threshold)
+- Cross-classifier agreement tracking (co-blocking pairs)
+
+Hypothesis generation from semantic data:
+- High block rate → suggest raising threshold to p95 score
+- High ambiguity → suggest LLM-as-judge escalation tier
+- High classifier error rate → flag reliability problem
+- High classifier latency → suggest model optimization
+
+The CLI (`airlock-analyze`) renders a SEMANTIC GUARD section with full
+per-classifier statistics. JSON output includes the `semantic_insights`
+field for programmatic consumption.
+
+**28 new tests** across `test_enterprise_logger.py`, `test_slow_analyzer.py`,
+and `test_slow_cli.py`.
+
 **Next steps:**
 - Implement embedding-based topic filter as a `Classifier`
 - Implement prompt injection classifier as a `Classifier`
-- Extend slow analyzer with `airlock_semantic` dimension analysis
 - Use collected data to determine whether cross-classifier score
   aggregation or escalation logic is needed
 
