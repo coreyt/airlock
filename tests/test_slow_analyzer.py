@@ -10,11 +10,15 @@ import pytest
 
 from airlock.slow.analyzer import (
     AnalysisReport,
+    ClassifierStats,
+    SemanticInsight,
     _fingerprint_messages,
     _load_logs,
+    _percentile,
     analyze,
     find_cache_opportunities,
     find_optimizations,
+    find_semantic_insights,
     find_trends,
     generate_hypotheses,
 )
@@ -263,6 +267,254 @@ class TestFindTrends:
 
 
 # ---------------------------------------------------------------------------
+# _percentile()
+# ---------------------------------------------------------------------------
+class TestPercentile:
+    def test_empty_returns_zero(self):
+        assert _percentile([], 50) == 0.0
+
+    def test_single_value(self):
+        assert _percentile([0.5], 50) == 0.5
+
+    def test_p50(self):
+        values = [0.1, 0.2, 0.3, 0.4, 0.5]
+        assert _percentile(values, 50) == 0.3
+
+    def test_p95_high(self):
+        values = list(range(100))
+        p95 = _percentile(values, 95)
+        assert p95 == 95
+
+    def test_unsorted_input(self):
+        values = [0.9, 0.1, 0.5, 0.3, 0.7]
+        assert _percentile(values, 50) == 0.5
+
+
+# ---------------------------------------------------------------------------
+# find_semantic_insights()
+# ---------------------------------------------------------------------------
+class TestFindSemanticInsights:
+    @staticmethod
+    def _make_semantic_record(
+        results: list[dict],
+        status: str = "passed",
+        blocking_classifier: str | None = None,
+    ) -> dict:
+        """Helper to build a log record with airlock_semantic metadata."""
+        return {
+            "success": status != "blocked",
+            "model": "claude-sonnet",
+            "airlock_semantic": {
+                "status": status,
+                "blocking_classifier": blocking_classifier,
+                "total_duration_ms": 50.0,
+                "results": results,
+            },
+        }
+
+    def test_no_semantic_data_returns_none(self):
+        records = [{"success": True, "model": "gpt-4o"}]
+        assert find_semantic_insights(records) is None
+
+    def test_no_classifiers_status_returns_none(self):
+        records = [{
+            "success": True,
+            "airlock_semantic": {"status": "no_classifiers", "results": []},
+        }]
+        assert find_semantic_insights(records) is None
+
+    def test_single_classifier_basic_stats(self):
+        records = [
+            self._make_semantic_record([
+                {"name": "injection", "score": 0.1, "threshold": 0.5,
+                 "blocked": False, "label": "safe", "duration_ms": 20.0}
+            ]),
+            self._make_semantic_record([
+                {"name": "injection", "score": 0.2, "threshold": 0.5,
+                 "blocked": False, "label": "safe", "duration_ms": 25.0}
+            ]),
+            self._make_semantic_record([
+                {"name": "injection", "score": 0.3, "threshold": 0.5,
+                 "blocked": False, "label": "safe", "duration_ms": 30.0}
+            ]),
+        ]
+        insight = find_semantic_insights(records)
+        assert insight is not None
+        assert insight.total_evaluated == 3
+        assert insight.total_blocked == 0
+        assert insight.overall_block_rate == 0.0
+        assert len(insight.classifier_stats) == 1
+
+        cs = insight.classifier_stats[0]
+        assert cs.name == "injection"
+        assert cs.sample_count == 3
+        assert cs.block_count == 0
+        assert cs.error_count == 0
+        assert 0.19 <= cs.score_mean <= 0.21  # ~0.2
+        assert cs.current_threshold == 0.5
+
+    def test_blocking_classifier_counted(self):
+        records = [
+            self._make_semantic_record([
+                {"name": "injection", "score": 0.9, "threshold": 0.5,
+                 "blocked": True, "label": "injection", "duration_ms": 15.0}
+            ], status="blocked", blocking_classifier="injection"),
+            self._make_semantic_record([
+                {"name": "injection", "score": 0.1, "threshold": 0.5,
+                 "blocked": False, "label": "safe", "duration_ms": 20.0}
+            ]),
+        ]
+        insight = find_semantic_insights(records)
+        assert insight.total_blocked == 1
+        assert insight.overall_block_rate == 0.5
+
+        cs = insight.classifier_stats[0]
+        assert cs.block_count == 1
+        assert cs.block_rate == 0.5
+
+    def test_classifier_errors_tracked(self):
+        records = [
+            self._make_semantic_record([
+                {"name": "topic", "score": 0.0, "threshold": 0.5,
+                 "blocked": False, "label": "error", "duration_ms": 5.0,
+                 "error": "model not loaded"}
+            ]),
+            self._make_semantic_record([
+                {"name": "topic", "score": 0.2, "threshold": 0.5,
+                 "blocked": False, "label": "safe", "duration_ms": 20.0}
+            ]),
+        ]
+        insight = find_semantic_insights(records)
+        cs = insight.classifier_stats[0]
+        assert cs.error_count == 1
+        assert cs.error_rate == 0.5
+        # Errored result's score should not be in score distribution
+        assert cs.sample_count == 2
+        assert len([s for s in [0.2] if s == cs.score_mean]) > 0  # only score=0.2
+
+    def test_multiple_classifiers(self):
+        records = [
+            self._make_semantic_record([
+                {"name": "injection", "score": 0.1, "threshold": 0.5,
+                 "blocked": False, "label": "safe", "duration_ms": 20.0},
+                {"name": "topic", "score": 0.3, "threshold": 0.5,
+                 "blocked": False, "label": "on_topic", "duration_ms": 15.0},
+            ]),
+        ]
+        insight = find_semantic_insights(records)
+        assert len(insight.classifier_stats) == 2
+        names = [cs.name for cs in insight.classifier_stats]
+        assert "injection" in names
+        assert "topic" in names
+
+    def test_ambiguous_zone_detection(self):
+        """Scores within ±20% of threshold are flagged as ambiguous."""
+        # threshold=0.5, so ambiguous zone is 0.4–0.6
+        records = [
+            self._make_semantic_record([
+                {"name": "clf", "score": 0.45, "threshold": 0.5,
+                 "blocked": False, "label": "safe", "duration_ms": 10.0}
+            ]),
+            self._make_semantic_record([
+                {"name": "clf", "score": 0.55, "threshold": 0.5,
+                 "blocked": True, "label": "risky", "duration_ms": 10.0}
+            ]),
+            self._make_semantic_record([
+                {"name": "clf", "score": 0.1, "threshold": 0.5,
+                 "blocked": False, "label": "safe", "duration_ms": 10.0}
+            ]),
+        ]
+        insight = find_semantic_insights(records)
+        cs = insight.classifier_stats[0]
+        assert cs.ambiguous_count == 2  # 0.45 and 0.55 are in zone
+        assert abs(cs.ambiguous_rate - 2 / 3) < 0.01
+
+    def test_score_percentiles(self):
+        scores = [0.01 * i for i in range(101)]  # 0.00 to 1.00
+        records = [
+            self._make_semantic_record([
+                {"name": "clf", "score": s, "threshold": 0.5,
+                 "blocked": s >= 0.5, "label": "test", "duration_ms": 10.0}
+            ])
+            for s in scores
+        ]
+        insight = find_semantic_insights(records)
+        cs = insight.classifier_stats[0]
+        assert 0.49 <= cs.score_p50 <= 0.51
+        assert 0.94 <= cs.score_p95 <= 0.96
+        assert cs.score_p99 >= 0.98
+
+    def test_latency_stats(self):
+        latencies = [10.0, 20.0, 30.0, 40.0, 100.0]
+        records = [
+            self._make_semantic_record([
+                {"name": "clf", "score": 0.1, "threshold": 0.5,
+                 "blocked": False, "label": "safe", "duration_ms": lat}
+            ])
+            for lat in latencies
+        ]
+        insight = find_semantic_insights(records)
+        cs = insight.classifier_stats[0]
+        assert cs.latency_mean_ms == 40.0  # mean of 10,20,30,40,100
+        assert cs.latency_p95_ms == 100.0
+
+    def test_cross_classifier_agreement(self):
+        """Two classifiers that both block the same request are tracked."""
+        records = [
+            # Both block
+            self._make_semantic_record([
+                {"name": "clf_a", "score": 0.9, "threshold": 0.5,
+                 "blocked": True, "label": "bad", "duration_ms": 10.0},
+                {"name": "clf_b", "score": 0.8, "threshold": 0.5,
+                 "blocked": True, "label": "bad", "duration_ms": 10.0},
+            ], status="blocked", blocking_classifier="clf_a"),
+            # Both block again
+            self._make_semantic_record([
+                {"name": "clf_a", "score": 0.7, "threshold": 0.5,
+                 "blocked": True, "label": "bad", "duration_ms": 10.0},
+                {"name": "clf_b", "score": 0.6, "threshold": 0.5,
+                 "blocked": True, "label": "bad", "duration_ms": 10.0},
+            ], status="blocked", blocking_classifier="clf_a"),
+            # Only one blocks
+            self._make_semantic_record([
+                {"name": "clf_a", "score": 0.1, "threshold": 0.5,
+                 "blocked": False, "label": "safe", "duration_ms": 10.0},
+                {"name": "clf_b", "score": 0.1, "threshold": 0.5,
+                 "blocked": False, "label": "safe", "duration_ms": 10.0},
+            ]),
+        ]
+        insight = find_semantic_insights(records)
+        assert len(insight.classifier_agreement) == 1
+        ag = insight.classifier_agreement[0]
+        assert ag["co_block_count"] == 2
+        assert ag["co_occurrence_count"] == 3
+        assert abs(ag["agreement_rate"] - 2 / 3) < 0.01
+
+    def test_no_agreement_when_single_classifier(self):
+        records = [
+            self._make_semantic_record([
+                {"name": "solo", "score": 0.9, "threshold": 0.5,
+                 "blocked": True, "label": "bad", "duration_ms": 10.0},
+            ], status="blocked", blocking_classifier="solo"),
+        ]
+        insight = find_semantic_insights(records)
+        assert insight.classifier_agreement == []
+
+    def test_mixed_records_only_semantic_counted(self):
+        """Records without airlock_semantic are ignored."""
+        records = [
+            {"success": True, "model": "gpt-4o"},  # no semantic data
+            {"success": True, "model": "gpt-4o"},  # no semantic data
+            self._make_semantic_record([
+                {"name": "clf", "score": 0.1, "threshold": 0.5,
+                 "blocked": False, "label": "safe", "duration_ms": 10.0}
+            ]),
+        ]
+        insight = find_semantic_insights(records)
+        assert insight.total_evaluated == 1
+
+
+# ---------------------------------------------------------------------------
 # generate_hypotheses()
 # ---------------------------------------------------------------------------
 class TestGenerateHypotheses:
@@ -304,6 +556,172 @@ class TestGenerateHypotheses:
         hypotheses = generate_hypotheses([], [], [], [])
         assert hypotheses == []
 
+    def test_from_semantic_high_block_rate(self):
+        """High block rate triggers threshold tuning hypothesis."""
+        semantic = SemanticInsight(
+            total_evaluated=100,
+            total_blocked=20,
+            overall_block_rate=0.2,
+            classifier_stats=[
+                ClassifierStats(
+                    name="injection",
+                    sample_count=100,
+                    block_count=15,
+                    block_rate=0.15,
+                    error_count=0,
+                    error_rate=0.0,
+                    score_mean=0.3,
+                    score_p50=0.25,
+                    score_p95=0.65,
+                    score_p99=0.9,
+                    current_threshold=0.5,
+                    latency_mean_ms=20.0,
+                    latency_p95_ms=45.0,
+                    ambiguous_count=10,
+                    ambiguous_rate=0.1,
+                ),
+            ],
+        )
+        hypotheses = generate_hypotheses([], [], [], [], semantic)
+        threshold_hyps = [
+            h for h in hypotheses if "threshold" in h.statement.lower()
+        ]
+        assert len(threshold_hyps) >= 1
+        assert "injection" in threshold_hyps[0].statement
+
+    def test_from_semantic_high_ambiguity(self):
+        """High ambiguous rate triggers escalation hypothesis."""
+        semantic = SemanticInsight(
+            total_evaluated=100,
+            total_blocked=0,
+            overall_block_rate=0.0,
+            classifier_stats=[
+                ClassifierStats(
+                    name="topic",
+                    sample_count=100,
+                    block_count=0,
+                    block_rate=0.0,
+                    error_count=0,
+                    error_rate=0.0,
+                    score_mean=0.45,
+                    score_p50=0.45,
+                    score_p95=0.55,
+                    score_p99=0.6,
+                    current_threshold=0.5,
+                    latency_mean_ms=15.0,
+                    latency_p95_ms=30.0,
+                    ambiguous_count=30,
+                    ambiguous_rate=0.30,
+                ),
+            ],
+        )
+        hypotheses = generate_hypotheses([], [], [], [], semantic)
+        ambig_hyps = [
+            h for h in hypotheses if "ambiguous" in h.statement.lower()
+        ]
+        assert len(ambig_hyps) >= 1
+
+    def test_from_semantic_high_error_rate(self):
+        """High classifier error rate triggers reliability hypothesis."""
+        semantic = SemanticInsight(
+            total_evaluated=50,
+            total_blocked=0,
+            overall_block_rate=0.0,
+            classifier_stats=[
+                ClassifierStats(
+                    name="broken_clf",
+                    sample_count=50,
+                    block_count=0,
+                    block_rate=0.0,
+                    error_count=10,
+                    error_rate=0.2,
+                    score_mean=0.1,
+                    score_p50=0.1,
+                    score_p95=0.2,
+                    score_p99=0.3,
+                    current_threshold=0.5,
+                    latency_mean_ms=10.0,
+                    latency_p95_ms=20.0,
+                    ambiguous_count=0,
+                    ambiguous_rate=0.0,
+                ),
+            ],
+        )
+        hypotheses = generate_hypotheses([], [], [], [], semantic)
+        error_hyps = [
+            h for h in hypotheses if "failing" in h.statement.lower()
+        ]
+        assert len(error_hyps) >= 1
+        assert "broken_clf" in error_hyps[0].statement
+
+    def test_from_semantic_high_latency(self):
+        """High classifier latency triggers optimization hypothesis."""
+        semantic = SemanticInsight(
+            total_evaluated=50,
+            total_blocked=0,
+            overall_block_rate=0.0,
+            classifier_stats=[
+                ClassifierStats(
+                    name="slow_clf",
+                    sample_count=50,
+                    block_count=0,
+                    block_rate=0.0,
+                    error_count=0,
+                    error_rate=0.0,
+                    score_mean=0.1,
+                    score_p50=0.1,
+                    score_p95=0.2,
+                    score_p99=0.3,
+                    current_threshold=0.5,
+                    latency_mean_ms=3000.0,
+                    latency_p95_ms=6000.0,
+                    ambiguous_count=0,
+                    ambiguous_rate=0.0,
+                ),
+            ],
+        )
+        hypotheses = generate_hypotheses([], [], [], [], semantic)
+        lat_hyps = [
+            h for h in hypotheses if "latency" in h.statement.lower()
+        ]
+        assert len(lat_hyps) >= 1
+        assert "slow_clf" in lat_hyps[0].statement
+
+    def test_semantic_none_no_hypotheses(self):
+        """When semantic is None, no semantic hypotheses are generated."""
+        hypotheses = generate_hypotheses([], [], [], [], None)
+        assert hypotheses == []
+
+    def test_semantic_low_sample_count_no_hypothesis(self):
+        """Small sample counts don't trigger hypotheses (avoid noise)."""
+        semantic = SemanticInsight(
+            total_evaluated=5,
+            total_blocked=3,
+            overall_block_rate=0.6,
+            classifier_stats=[
+                ClassifierStats(
+                    name="tiny",
+                    sample_count=5,  # below the 20 threshold
+                    block_count=3,
+                    block_rate=0.6,
+                    error_count=0,
+                    error_rate=0.0,
+                    score_mean=0.6,
+                    score_p50=0.6,
+                    score_p95=0.9,
+                    score_p99=0.95,
+                    current_threshold=0.5,
+                    latency_mean_ms=10.0,
+                    latency_p95_ms=20.0,
+                    ambiguous_count=2,
+                    ambiguous_rate=0.4,
+                ),
+            ],
+        )
+        hypotheses = generate_hypotheses([], [], [], [], semantic)
+        # block_rate and ambiguous_rate are high but sample_count < 20
+        assert hypotheses == []
+
 
 # ---------------------------------------------------------------------------
 # analyze() — full pipeline
@@ -323,4 +741,5 @@ class TestAnalyze:
         assert report.optimizations == []
         assert report.cache_opportunities == []
         assert report.trends == []
+        assert report.semantic_insights is None
         assert report.hypotheses == []

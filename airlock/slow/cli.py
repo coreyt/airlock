@@ -86,6 +86,58 @@ def _format_text(report) -> str:
                 f"over {trend.period_days}d"
             )
 
+    # ---- Semantic guard ----
+    sem = report.semantic_insights
+    if sem:
+        lines.append("")
+        lines.append(
+            f"  SEMANTIC GUARD "
+            f"({sem.total_evaluated} evaluated, "
+            f"{sem.total_blocked} blocked, "
+            f"{sem.overall_block_rate:.1%} block rate)"
+        )
+        lines.append("  " + "-" * 38)
+        for cs in sem.classifier_stats:
+            lines.append(
+                f"    {cs.name}  (n={cs.sample_count})"
+            )
+            lines.append(
+                f"      Scores   : "
+                f"mean={cs.score_mean:.4f}  "
+                f"p50={cs.score_p50:.4f}  "
+                f"p95={cs.score_p95:.4f}  "
+                f"p99={cs.score_p99:.4f}"
+            )
+            lines.append(
+                f"      Threshold: {cs.current_threshold}  |  "
+                f"Block rate: {cs.block_rate:.1%}"
+            )
+            lines.append(
+                f"      Latency  : "
+                f"mean={cs.latency_mean_ms:.0f} ms  "
+                f"p95={cs.latency_p95_ms:.0f} ms"
+            )
+            if cs.error_count > 0:
+                lines.append(
+                    f"      Errors   : {cs.error_count} "
+                    f"({cs.error_rate:.1%})"
+                )
+            if cs.ambiguous_count > 0:
+                lines.append(
+                    f"      Ambiguous: {cs.ambiguous_count} "
+                    f"({cs.ambiguous_rate:.1%} in threshold zone)"
+                )
+        if sem.classifier_agreement:
+            lines.append("")
+            lines.append("    Cross-classifier agreement:")
+            for ag in sem.classifier_agreement:
+                lines.append(
+                    f"      {ag['classifier_a']} + {ag['classifier_b']}: "
+                    f"{ag['co_block_count']} co-blocks / "
+                    f"{ag['co_occurrence_count']} co-occurrences "
+                    f"({ag['agreement_rate']:.0%})"
+                )
+
     # ---- Hypotheses ----
     if report.hypotheses:
         lines.append("")
