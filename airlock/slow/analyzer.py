@@ -2,7 +2,7 @@
 Airlock Slow — Log analysis engine.
 
 Reads the JSONL logs produced by the enterprise logger and performs
-offline analysis across four dimensions:
+offline analysis across five dimensions:
 
   1. Optimizations  — reliability, latency, and cost patterns that can
                       be improved (high error-rate models, slow p95s,
@@ -11,7 +11,10 @@ offline analysis across four dimensions:
                       local or provider-side caching.
   3. Trends         — directional shifts in volume, model share, error
                       rate, latency, and user concentration.
-  4. Hypotheses     — testable statements derived from the data with
+  4. Semantic       — classifier score distributions, block rates,
+                      threshold tuning data, and classifier health from
+                      the semantic guard orchestrator.
+  5. Hypotheses     — testable statements derived from the data with
                       a confidence score and a concrete test proposal.
 
 This is the "slow" counterpart to the real-time fast subsystem.  It is
@@ -77,6 +80,38 @@ class Hypothesis:
 
 
 @dataclass
+class ClassifierStats:
+    """Per-classifier aggregate statistics from semantic guard logs."""
+    name: str
+    sample_count: int
+    block_count: int
+    block_rate: float               # 0.0 → 1.0
+    error_count: int
+    error_rate: float               # 0.0 → 1.0
+    score_mean: float
+    score_p50: float
+    score_p95: float
+    score_p99: float
+    current_threshold: float
+    latency_mean_ms: float
+    latency_p95_ms: float
+    # How many requests scored within ±20% of threshold ("ambiguous zone")
+    ambiguous_count: int
+    ambiguous_rate: float           # 0.0 → 1.0
+
+
+@dataclass
+class SemanticInsight:
+    """Aggregate analysis of semantic guard classifier data."""
+    total_evaluated: int            # requests that hit the semantic guard
+    total_blocked: int
+    overall_block_rate: float       # 0.0 → 1.0
+    classifier_stats: list[ClassifierStats] = field(default_factory=list)
+    # Pairs of classifiers that frequently agree on blocking
+    classifier_agreement: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
 class AnalysisReport:
     generated_at: str
     period_start: str
@@ -85,6 +120,7 @@ class AnalysisReport:
     optimizations: list[Optimization] = field(default_factory=list)
     cache_opportunities: list[CacheOpportunity] = field(default_factory=list)
     trends: list[Trend] = field(default_factory=list)
+    semantic_insights: SemanticInsight | None = None
     hypotheses: list[Hypothesis] = field(default_factory=list)
     summary: dict[str, Any] = field(default_factory=dict)
 
@@ -415,13 +451,154 @@ def find_trends(records: list[dict], period_days: int = 7) -> list[Trend]:
 
 
 # ---------------------------------------------------------------------------
-# Dimension 4 — Hypotheses
+# Dimension 4 — Semantic guard insights
+# ---------------------------------------------------------------------------
+def _percentile(values: list[float], pct: float) -> float:
+    """Return the pct-th percentile of a sorted list (0–100 scale)."""
+    if not values:
+        return 0.0
+    sorted_vals = sorted(values)
+    idx = int(len(sorted_vals) * pct / 100)
+    return sorted_vals[min(idx, len(sorted_vals) - 1)]
+
+
+def find_semantic_insights(records: list[dict]) -> SemanticInsight | None:
+    """Analyze semantic guard classifier data across all log records.
+
+    Extracts ``airlock_semantic`` metadata from log records and computes
+    per-classifier statistics: score distributions, block/error rates,
+    latency profiles, ambiguous-zone counts, and cross-classifier agreement.
+
+    Returns ``None`` if no records contain semantic guard data.
+    """
+    # Filter to records that have semantic guard metadata
+    semantic_records: list[dict] = []
+    for r in records:
+        sem = r.get("airlock_semantic")
+        if sem and isinstance(sem, dict) and sem.get("status") != "no_classifiers":
+            semantic_records.append(r)
+
+    if not semantic_records:
+        return None
+
+    total_blocked = sum(
+        1 for r in semantic_records
+        if r["airlock_semantic"].get("status") == "blocked"
+    )
+
+    # Collect per-classifier data
+    classifier_data: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {
+            "scores": [],
+            "latencies": [],
+            "blocked": 0,
+            "errors": 0,
+            "threshold": 0.5,
+            "count": 0,
+        }
+    )
+
+    for r in semantic_records:
+        results = r["airlock_semantic"].get("results", [])
+        for cr in results:
+            name = cr.get("name", "unknown")
+            cd = classifier_data[name]
+            cd["count"] += 1
+            cd["threshold"] = cr.get("threshold", 0.5)
+
+            if cr.get("error"):
+                cd["errors"] += 1
+            else:
+                score = cr.get("score", 0.0)
+                cd["scores"].append(score)
+                cd["latencies"].append(cr.get("duration_ms", 0.0))
+                if cr.get("blocked"):
+                    cd["blocked"] += 1
+
+    # Build per-classifier stats
+    classifier_stats: list[ClassifierStats] = []
+    for name, cd in sorted(classifier_data.items()):
+        count = cd["count"]
+        scores = cd["scores"]
+        latencies = cd["latencies"]
+        threshold = cd["threshold"]
+
+        # Ambiguous zone: score within ±20% of threshold
+        if threshold > 0:
+            low = threshold * 0.8
+            high = threshold * 1.2
+        else:
+            low = high = 0.0
+        ambiguous = [s for s in scores if low <= s <= high]
+
+        classifier_stats.append(ClassifierStats(
+            name=name,
+            sample_count=count,
+            block_count=cd["blocked"],
+            block_rate=round(cd["blocked"] / max(count, 1), 4),
+            error_count=cd["errors"],
+            error_rate=round(cd["errors"] / max(count, 1), 4),
+            score_mean=round(statistics.mean(scores), 4) if scores else 0.0,
+            score_p50=round(_percentile(scores, 50), 4),
+            score_p95=round(_percentile(scores, 95), 4),
+            score_p99=round(_percentile(scores, 99), 4),
+            current_threshold=threshold,
+            latency_mean_ms=round(statistics.mean(latencies), 2) if latencies else 0.0,
+            latency_p95_ms=round(_percentile(latencies, 95), 2),
+            ambiguous_count=len(ambiguous),
+            ambiguous_rate=round(len(ambiguous) / max(len(scores), 1), 4),
+        ))
+
+    # Cross-classifier agreement: for requests where 2+ classifiers both
+    # blocked, track which pairs agree
+    agreement: list[dict[str, Any]] = []
+    pair_counts: dict[tuple[str, str], int] = Counter()
+    pair_totals: dict[tuple[str, str], int] = Counter()
+
+    for r in semantic_records:
+        results = r["airlock_semantic"].get("results", [])
+        names = [cr["name"] for cr in results if not cr.get("error")]
+        blockers = [cr["name"] for cr in results if cr.get("blocked")]
+
+        # Count co-occurrences for all pairs
+        for i, a in enumerate(names):
+            for b in names[i + 1:]:
+                pair = (min(a, b), max(a, b))
+                pair_totals[pair] += 1
+                if a in blockers and b in blockers:
+                    pair_counts[pair] += 1
+
+    for pair, co_blocks in pair_counts.most_common(10):
+        total = pair_totals[pair]
+        if co_blocks >= 2:
+            agreement.append({
+                "classifier_a": pair[0],
+                "classifier_b": pair[1],
+                "co_block_count": co_blocks,
+                "co_occurrence_count": total,
+                "agreement_rate": round(co_blocks / max(total, 1), 4),
+            })
+
+    return SemanticInsight(
+        total_evaluated=len(semantic_records),
+        total_blocked=total_blocked,
+        overall_block_rate=round(
+            total_blocked / max(len(semantic_records), 1), 4
+        ),
+        classifier_stats=classifier_stats,
+        classifier_agreement=agreement,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Dimension 5 — Hypotheses
 # ---------------------------------------------------------------------------
 def generate_hypotheses(
     records: list[dict],
     optimizations: list[Optimization],
     cache_opps: list[CacheOpportunity],
     trends: list[Trend],
+    semantic: SemanticInsight | None = None,
 ) -> list[Hypothesis]:
     hypotheses: list[Hypothesis] = []
 
@@ -517,6 +694,103 @@ def generate_hypotheses(
             ),
         ))
 
+    # From semantic guard insights
+    if semantic:
+        for cs in semantic.classifier_stats:
+            # High block rate → threshold may be too aggressive
+            if cs.block_rate > 0.10 and cs.sample_count >= 20:
+                hypotheses.append(Hypothesis(
+                    statement=(
+                        f"Classifier '{cs.name}' is blocking {cs.block_rate:.0%} "
+                        f"of requests (n={cs.sample_count}). The threshold "
+                        f"({cs.current_threshold}) may be too aggressive, "
+                        f"causing false positives."
+                    ),
+                    evidence={
+                        "classifier": cs.name,
+                        "block_rate": cs.block_rate,
+                        "sample_count": cs.sample_count,
+                        "threshold": cs.current_threshold,
+                        "score_p95": cs.score_p95,
+                    },
+                    confidence=min(0.85, cs.block_rate * 2),
+                    test_proposal=(
+                        f"Raise '{cs.name}' threshold from {cs.current_threshold} "
+                        f"to {cs.score_p95:.2f} (current p95 score) and monitor "
+                        f"block rate reduction over 48 hours."
+                    ),
+                ))
+
+            # Many ambiguous requests → threshold is in the noisy zone
+            if cs.ambiguous_rate > 0.20 and cs.sample_count >= 20:
+                hypotheses.append(Hypothesis(
+                    statement=(
+                        f"Classifier '{cs.name}' has {cs.ambiguous_rate:.0%} "
+                        f"of scores in the ambiguous zone (within 20% of "
+                        f"threshold={cs.current_threshold}). Consider adding "
+                        f"an LLM-as-judge escalation tier for these requests."
+                    ),
+                    evidence={
+                        "classifier": cs.name,
+                        "ambiguous_rate": cs.ambiguous_rate,
+                        "ambiguous_count": cs.ambiguous_count,
+                        "threshold": cs.current_threshold,
+                        "score_mean": cs.score_mean,
+                    },
+                    confidence=0.6,
+                    test_proposal=(
+                        f"Route requests where '{cs.name}' scores between "
+                        f"{cs.current_threshold * 0.8:.2f}–{cs.current_threshold * 1.2:.2f} "
+                        f"to a secondary LLM-as-judge check and compare "
+                        f"verdicts over 1 week."
+                    ),
+                ))
+
+            # High classifier error rate → reliability problem
+            if cs.error_rate > 0.05 and cs.sample_count >= 10:
+                hypotheses.append(Hypothesis(
+                    statement=(
+                        f"Classifier '{cs.name}' is failing on {cs.error_rate:.0%} "
+                        f"of requests (n={cs.error_count}). This may indicate "
+                        f"a model loading issue or resource constraint."
+                    ),
+                    evidence={
+                        "classifier": cs.name,
+                        "error_rate": cs.error_rate,
+                        "error_count": cs.error_count,
+                        "sample_count": cs.sample_count,
+                    },
+                    confidence=0.8,
+                    test_proposal=(
+                        f"Check '{cs.name}' classifier health: model loading, "
+                        f"memory usage, and timeout configuration. Consider "
+                        f"adding a health check endpoint."
+                    ),
+                ))
+
+            # Classifier latency is high relative to typical LLM latency
+            if cs.latency_p95_ms > 5000 and cs.sample_count >= 10:
+                hypotheses.append(Hypothesis(
+                    statement=(
+                        f"Classifier '{cs.name}' p95 latency is "
+                        f"{cs.latency_p95_ms:.0f} ms. If this exceeds the "
+                        f"LLM provider's response time, it becomes the "
+                        f"bottleneck despite running in parallel."
+                    ),
+                    evidence={
+                        "classifier": cs.name,
+                        "latency_p95_ms": cs.latency_p95_ms,
+                        "latency_mean_ms": cs.latency_mean_ms,
+                        "sample_count": cs.sample_count,
+                    },
+                    confidence=0.7,
+                    test_proposal=(
+                        f"Profile '{cs.name}' inference latency. Consider "
+                        f"model quantization, batching, or switching to a "
+                        f"lighter model variant."
+                    ),
+                ))
+
     return hypotheses
 
 
@@ -533,7 +807,10 @@ def analyze(days: int = 7) -> AnalysisReport:
     optimizations = find_optimizations(records)
     cache_opps = find_cache_opportunities(records)
     trends = find_trends(records, period_days=days)
-    hypotheses = generate_hypotheses(records, optimizations, cache_opps, trends)
+    semantic = find_semantic_insights(records)
+    hypotheses = generate_hypotheses(
+        records, optimizations, cache_opps, trends, semantic
+    )
 
     # Summary
     success_records = [r for r in records if r.get("success")]
@@ -554,6 +831,9 @@ def analyze(days: int = 7) -> AnalysisReport:
         "total_tokens": total_tokens,
         "optimizations_found": len(optimizations),
         "cache_opportunities_found": len(cache_opps),
+        "semantic_classifiers_active": (
+            len(semantic.classifier_stats) if semantic else 0
+        ),
         "trends_detected": len(trends),
         "hypotheses_generated": len(hypotheses),
     }
@@ -566,6 +846,7 @@ def analyze(days: int = 7) -> AnalysisReport:
         optimizations=optimizations,
         cache_opportunities=cache_opps,
         trends=trends,
+        semantic_insights=semantic,
         hypotheses=hypotheses,
         summary=summary,
     )
