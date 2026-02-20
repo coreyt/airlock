@@ -17,8 +17,13 @@ from airlock.callbacks.enterprise_logger import AirlockLogger, _write_log
 from airlock.fast.guardian import AirlockFastGuardian
 from airlock.fast.monitor import AirlockFastMonitor
 from airlock.fast.state import CircuitState
+from airlock.guardrails.enforcer import AirlockEnforcer
 from airlock.guardrails.keyword_guard import AirlockKeywordGuard
+from airlock.guardrails.observer import AirlockObserver
+from airlock.guardrails.orchestrator import AirlockOrchestrator, _invalidate_knobs_cache
 from airlock.guardrails.pii_guard import AirlockPIIGuard
+from airlock.guardrails.schemas import GuardrailKnobs
+from airlock.slow.tuner import write_knobs
 
 
 # ---------------------------------------------------------------------------
@@ -310,5 +315,177 @@ class TestFullPipeline:
 
         with pytest.raises(ValueError, match="restricted content"):
             await keyword_guard.async_pre_call_hook(
+                mock_user_api_key_dict, mock_cache, data, "completion"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Observer alongside pre_call chain
+# ---------------------------------------------------------------------------
+class TestObserverIntegration:
+    async def test_observer_after_precall_chain(
+        self, fresh_state_store, mock_cache, mock_user_api_key_dict,
+    ):
+        """Observer runs alongside the full pre_call chain without conflict."""
+        keyword_guard = AirlockKeywordGuard()
+        fast_guardian = AirlockFastGuardian()
+        observer = AirlockObserver()
+
+        data = {
+            "messages": [{"role": "user", "content": "What is Python?"}],
+            "model": "claude-sonnet",
+        }
+
+        # Pre-call chain
+        data = await keyword_guard.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        data = await fast_guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+
+        # During-call observer
+        await observer.async_moderation_hook(data, mock_user_api_key_dict, "completion")
+
+        assert "airlock_priority" in data["metadata"]
+        assert "airlock_observation" in data["metadata"]
+        obs = data["metadata"]["airlock_observation"]
+        assert len(obs["signals"]) == 3
+
+    async def test_observation_appears_in_jsonl(
+        self, fresh_state_store, log_dir, mock_cache, mock_user_api_key_dict,
+        mock_response_obj,
+    ):
+        """Observer observation flows through to enterprise logger JSONL."""
+        observer = AirlockObserver()
+        data = {
+            "messages": [{"role": "user", "content": "Contact alice@example.com"}],
+            "model": "claude-sonnet",
+        }
+        await observer.async_moderation_hook(data, mock_user_api_key_dict, "completion")
+
+        # Log it
+        start = datetime.datetime(2024, 1, 15, 10, 0, 0)
+        end = datetime.datetime(2024, 1, 15, 10, 0, 1)
+        kwargs = {
+            "model": data["model"],
+            "messages": data["messages"],
+            "litellm_call_id": "test-obs",
+            "litellm_params": {"metadata": data.get("metadata", {})},
+        }
+        logger_inst = AirlockLogger()
+        logger_inst.log_success_event(kwargs, mock_response_obj, start, end)
+
+        today = datetime.date.today().isoformat()
+        log_path = log_dir / f"airlock-{today}.jsonl"
+        record = json.loads(log_path.read_text().strip())
+        assert record["airlock_observation"] is not None
+        assert len(record["airlock_observation"]["signals"]) == 3
+
+
+# ---------------------------------------------------------------------------
+# Enforcer in the full chain
+# ---------------------------------------------------------------------------
+class TestEnforcerIntegration:
+    @pytest.fixture(autouse=True)
+    def _clear_knobs(self):
+        _invalidate_knobs_cache()
+        yield
+        _invalidate_knobs_cache()
+
+    @pytest.fixture
+    def knobs_dir(self, tmp_path, monkeypatch):
+        import airlock.slow.tuner as tuner_mod
+        monkeypatch.setattr(tuner_mod, "LOG_DIR", tmp_path)
+        return tmp_path
+
+    async def test_enforcer_observe_in_chain(
+        self, fresh_state_store, mock_cache, mock_user_api_key_dict, knobs_dir,
+    ):
+        """Enforcer in observe mode passes through without evaluation."""
+        keyword_guard = AirlockKeywordGuard()
+        fast_guardian = AirlockFastGuardian()
+        enforcer = AirlockEnforcer()
+
+        data = {
+            "messages": [{"role": "user", "content": "What is Python?"}],
+            "model": "claude-sonnet",
+        }
+
+        data = await keyword_guard.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        data = await fast_guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        data = await enforcer.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+
+        assert "airlock_priority" in data["metadata"]
+        assert "airlock_enforcement" not in data.get("metadata", {})
+
+    async def test_enforcer_shadow_in_chain(
+        self, monkeypatch, fresh_state_store, mock_cache, mock_user_api_key_dict,
+        knobs_dir,
+    ):
+        """Enforcer in shadow mode evaluates but doesn't block."""
+        monkeypatch.setenv("AIRLOCK_ENFORCE_MODE", "shadow")
+        monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "forbidden")
+
+        knobs = GuardrailKnobs(
+            version="test",
+            weights={"pii_scan": 0.1, "keyword_scan": 0.8, "threat_read": 0.1},
+            threshold=0.3,
+        )
+        write_knobs(knobs, directory=knobs_dir)
+
+        fast_guardian = AirlockFastGuardian()
+        enforcer = AirlockEnforcer()
+
+        data = {
+            "messages": [{"role": "user", "content": "Tell me forbidden things"}],
+            "model": "claude-sonnet",
+        }
+
+        data = await fast_guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        # Should NOT raise in shadow mode
+        data = await enforcer.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+
+        assert data["metadata"]["airlock_enforcement"]["should_block"] is True
+        assert data["metadata"]["airlock_enforcement"]["mode"] == "shadow"
+
+    async def test_enforcer_enforce_blocks_in_chain(
+        self, monkeypatch, fresh_state_store, mock_cache, mock_user_api_key_dict,
+        knobs_dir,
+    ):
+        """Enforcer in enforce mode blocks above threshold."""
+        monkeypatch.setenv("AIRLOCK_ENFORCE_MODE", "enforce")
+        monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "forbidden")
+
+        knobs = GuardrailKnobs(
+            version="test",
+            weights={"pii_scan": 0.1, "keyword_scan": 0.8, "threat_read": 0.1},
+            threshold=0.3,
+        )
+        write_knobs(knobs, directory=knobs_dir)
+
+        fast_guardian = AirlockFastGuardian()
+        enforcer = AirlockEnforcer()
+
+        data = {
+            "messages": [{"role": "user", "content": "Tell me forbidden things"}],
+            "model": "claude-sonnet",
+        }
+
+        data = await fast_guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        with pytest.raises(ValueError, match="blocked by Airlock"):
+            await enforcer.async_pre_call_hook(
                 mock_user_api_key_dict, mock_cache, data, "completion"
             )

@@ -79,10 +79,20 @@ guardrails:
       guardrail: airlock.fast.guardian
       mode: pre_call            # threat gate, circuit breaker, priority scoring
 
+  - guardrail_name: airlock-enforcer
+    litellm_params:
+      guardrail: airlock.guardrails.enforcer
+      mode: pre_call            # adaptive weighted blocking (AIRLOCK_ENFORCE_MODE)
+
   - guardrail_name: airlock-semantic-guard
     litellm_params:
       guardrail: airlock.guardrails.semantic
       mode: during_call         # ML classifiers run in parallel with LLM call
+
+  - guardrail_name: airlock-orchestrator
+    litellm_params:
+      guardrail: airlock.guardrails.orchestrator
+      mode: during_call         # zero-cost observation + weighted evaluation
 
 # ---------------------------------------------------------------------------
 # General proxy behaviour

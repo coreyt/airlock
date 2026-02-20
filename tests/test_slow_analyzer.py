@@ -743,3 +743,13 @@ class TestAnalyze:
         assert report.trends == []
         assert report.semantic_insights is None
         assert report.hypotheses == []
+
+    def test_guardrail_tuning_in_report(self, populated_log_dir):
+        report = analyze(days=7)
+        assert "knobs_version" in report.guardrail_tuning
+        assert "weights" in report.guardrail_tuning
+        assert "threshold" in report.guardrail_tuning
+
+    def test_guardrail_tuning_default_without_observations(self, log_dir):
+        report = analyze(days=7)
+        assert report.guardrail_tuning["knobs_version"] == "default"

@@ -192,6 +192,51 @@ class TestBuildRecord:
         airlock_keys = [k for k in record if k.startswith("airlock_")]
         assert airlock_keys == []
 
+    def test_observation_in_record(self, mock_start_end_times):
+        """airlock_observation from metadata flows into the log record."""
+        observation = {
+            "request_id": "req-001",
+            "model": "claude-sonnet",
+            "client_id": "key:testkey1",
+            "signals": [{"guardrail_name": "pii_scan", "detected": True}],
+        }
+        kwargs = {
+            "model": "claude-sonnet",
+            "messages": [],
+            "litellm_params": {
+                "metadata": {"airlock_observation": observation}
+            },
+        }
+        start, end = mock_start_end_times
+        record = AirlockLogger._build_record(
+            kwargs, None, start, end, success=True
+        )
+        assert record["airlock_observation"] == observation
+
+    def test_observation_absent_not_in_record(self, mock_logger_kwargs, mock_start_end_times):
+        """Without observation metadata, no airlock_observation key appears."""
+        start, end = mock_start_end_times
+        record = AirlockLogger._build_record(
+            mock_logger_kwargs, None, start, end, success=True
+        )
+        assert "airlock_observation" not in record
+
+    def test_enforcement_in_record(self, mock_start_end_times):
+        """airlock_enforcement from metadata flows into the log record."""
+        enforcement = {"mode": "shadow", "should_block": False}
+        kwargs = {
+            "model": "claude-sonnet",
+            "messages": [],
+            "litellm_params": {
+                "metadata": {"airlock_enforcement": enforcement}
+            },
+        }
+        start, end = mock_start_end_times
+        record = AirlockLogger._build_record(
+            kwargs, None, start, end, success=True
+        )
+        assert record["airlock_enforcement"] == enforcement
+
 
 # ---------------------------------------------------------------------------
 # _write_log() and file I/O

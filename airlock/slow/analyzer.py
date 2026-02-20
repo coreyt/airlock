@@ -122,6 +122,7 @@ class AnalysisReport:
     trends: list[Trend] = field(default_factory=list)
     semantic_insights: SemanticInsight | None = None
     hypotheses: list[Hypothesis] = field(default_factory=list)
+    guardrail_tuning: dict[str, Any] = field(default_factory=dict)
     summary: dict[str, Any] = field(default_factory=dict)
 
 
@@ -812,6 +813,21 @@ def analyze(days: int = 7) -> AnalysisReport:
         records, optimizations, cache_opps, trends, semantic
     )
 
+    # Dimension 5 — guardrail tuning
+    from airlock.slow.tuner import tune_guardrails, write_knobs
+
+    knobs = tune_guardrails(records)
+    try:
+        write_knobs(knobs)
+    except OSError:
+        logger.warning("knobs_write_failed — continuing without writing")
+
+    guardrail_tuning: dict[str, Any] = {
+        "knobs_version": knobs.version,
+        "weights": knobs.weights,
+        "threshold": knobs.threshold,
+    }
+
     # Summary
     success_records = [r for r in records if r.get("success")]
     failure_records = [r for r in records if not r.get("success")]
@@ -848,5 +864,6 @@ def analyze(days: int = 7) -> AnalysisReport:
         trends=trends,
         semantic_insights=semantic,
         hypotheses=hypotheses,
+        guardrail_tuning=guardrail_tuning,
         summary=summary,
     )
