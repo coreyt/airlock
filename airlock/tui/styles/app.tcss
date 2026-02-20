@@ -40,7 +40,7 @@
 
 #dash-top-row {
     height: auto;
-    max-height: 8;
+    max-height: 12;
     layout: horizontal;
 }
 
@@ -51,12 +51,31 @@
     padding: 1 2;
 }
 
+#proxy-start-btn {
+    margin-top: 1;
+    width: auto;
+    min-width: 20;
+}
+
 #dash-guardrails {
     width: 1fr;
     height: auto;
     border: solid $accent;
     padding: 1 2;
     margin-left: 1;
+}
+
+#dash-console-collapsible {
+    height: auto;
+    max-height: 12;
+    margin-top: 1;
+}
+
+#dash-console-log {
+    height: auto;
+    max-height: 10;
+    border: solid $accent;
+    background: $surface;
 }
 
 #dash-model-table {

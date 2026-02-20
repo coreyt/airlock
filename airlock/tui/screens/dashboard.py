@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import urllib.request
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import DataTable, Static
+from textual.widgets import Button, Collapsible, DataTable, RichLog, Static
 
 from airlock.tui.widgets.status_indicator import StatusIndicator
+
+if TYPE_CHECKING:
+    from airlock.tui.proxy_manager import ProxyManager
 
 
 class DashboardPane(Vertical):
@@ -21,11 +25,14 @@ class DashboardPane(Vertical):
         *,
         host: str = "localhost",
         port: str = "4000",
+        proxy_manager: ProxyManager | None = None,
         id: str | None = None,
     ) -> None:
         super().__init__(id=id)
         self._host = host
         self._port = port
+        self._proxy_manager = proxy_manager
+        self._externally_running = False
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="dash-top-row"):
@@ -35,11 +42,18 @@ class DashboardPane(Vertical):
                     "Checking...", status="warn", id="proxy-indicator"
                 )
                 yield Static("", id="proxy-detail")
+                yield Button(
+                    "Start Proxy",
+                    id="proxy-start-btn",
+                    variant="success",
+                )
             with Vertical(id="dash-guardrails"):
                 yield Static("[bold]Guardrails[/]")
                 yield StatusIndicator("PII Guard", status="ok", id="guard-pii")
                 yield StatusIndicator("Keyword Guard", status="ok", id="guard-kw")
                 yield StatusIndicator("Fast Guardian", status="ok", id="guard-fast")
+        with Collapsible(title="Proxy Console Output", id="dash-console-collapsible"):
+            yield RichLog(id="dash-console-log", max_lines=500)
         table = DataTable(id="dash-model-table")
         table.add_columns("Model", "Circuit", "Reqs", "Err%", "Avg Latency")
         yield table
@@ -50,18 +64,98 @@ class DashboardPane(Vertical):
         self.set_interval(5.0, self._check_health)
         self.set_interval(5.0, self._refresh_state)
 
+    # -- button handling --------------------------------------------------
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id != "proxy-start-btn":
+            return
+        if event.button.label.plain == "Stop Proxy":
+            self.action_stop_proxy()
+        else:
+            self.action_start_proxy()
+
+    def action_start_proxy(self) -> None:
+        """Start the proxy via ProxyManager."""
+        if self._proxy_manager is None:
+            return
+        err = self._proxy_manager.start()
+        btn = self.query_one("#proxy-start-btn", Button)
+        console = self.query_one("#dash-console-log", RichLog)
+        if err:
+            console.write(f"[red]Error:[/] {err}")
+            return
+        btn.label = "Stop Proxy"
+        btn.variant = "error"
+        self.query_one("#dash-console-collapsible", Collapsible).collapsed = False
+        console.write("[green]Proxy started.[/]")
+        self._stream_proxy_output()
+
+    def action_stop_proxy(self) -> None:
+        """Stop the TUI-owned proxy."""
+        if self._proxy_manager is None:
+            return
+        self._proxy_manager.stop()
+        btn = self.query_one("#proxy-start-btn", Button)
+        btn.label = "Start Proxy"
+        btn.variant = "success"
+        console = self.query_one("#dash-console-log", RichLog)
+        console.write("[yellow]Proxy stopped.[/]")
+
+    @work(thread=True, group="proxy-stdout")
+    def _stream_proxy_output(self) -> None:
+        """Read proxy stdout line-by-line into the RichLog."""
+        if self._proxy_manager is None:
+            return
+        stream = self._proxy_manager.stdout_stream
+        if stream is None:
+            return
+        console = self.query_one("#dash-console-log", RichLog)
+        try:
+            for line in stream:
+                console.write(line.rstrip("\n"))
+        except ValueError:
+            pass  # stream closed
+
+    # -- health check with button state -----------------------------------
+
     @work(exclusive=True, thread=True)
     def _check_health(self) -> None:
         indicator = self.query_one("#proxy-indicator", StatusIndicator)
         detail = self.query_one("#proxy-detail", Static)
+        btn = self.query_one("#proxy-start-btn", Button)
         url = f"http://{self._host}:{self._port}/health"
+
+        proxy_reachable = False
         try:
             urllib.request.urlopen(url, timeout=3)  # noqa: S310
-            indicator.set_status("ok", f"Running at {self._host}:{self._port}")
-            detail.update(f"Last checked: {datetime.now().strftime('%H:%M:%S')}")
+            proxy_reachable = True
         except Exception:
-            indicator.set_status("error", f"Not reachable at {self._host}:{self._port}")
-            detail.update(f"Last checked: {datetime.now().strftime('%H:%M:%S')}")
+            pass
+
+        mgr = self._proxy_manager
+        tui_owned = mgr is not None and mgr.is_tui_owned
+
+        if proxy_reachable:
+            indicator.set_status("ok", f"Running at {self._host}:{self._port}")
+            if tui_owned:
+                btn.label = "Stop Proxy"
+                btn.variant = "error"
+                btn.disabled = False
+            else:
+                btn.label = "Running Externally"
+                btn.variant = "default"
+                btn.disabled = True
+                self._externally_running = True
+        else:
+            indicator.set_status(
+                "error", f"Not reachable at {self._host}:{self._port}"
+            )
+            btn.label = "Start Proxy"
+            btn.variant = "success"
+            btn.disabled = False
+            self._externally_running = False
+
+        detail.update(f"Last checked: {datetime.now().strftime('%H:%M:%S')}")
 
     @work(exclusive=True, thread=True)
     def _refresh_state(self) -> None:

@@ -212,7 +212,7 @@ def test_tui_routes_to_tui_app() -> None:
 
     with mock.patch("airlock.tui.app.run") as mock_run:
         main(["tui"])
-    mock_run.assert_called_once_with(host="localhost", port="4000")
+    mock_run.assert_called_once_with(host="localhost", port="4000", auto_start=False)
 
 
 def test_tui_passes_host_port() -> None:
@@ -220,7 +220,7 @@ def test_tui_passes_host_port() -> None:
 
     with mock.patch("airlock.tui.app.run") as mock_run:
         main(["tui", "--host", "10.0.0.1", "--port", "8080"])
-    mock_run.assert_called_once_with(host="10.0.0.1", port="8080")
+    mock_run.assert_called_once_with(host="10.0.0.1", port="8080", auto_start=False)
 
 
 def test_help_includes_tui(capsys) -> None:
@@ -437,3 +437,83 @@ async def test_flow_pipeline_rendering() -> None:
     assert "DURING_CALL" in rendered
     assert "PII Guard" in rendered
     assert "req-001" in rendered
+
+
+# -------------------------------------------------------------------
+# Proxy launch & control
+# -------------------------------------------------------------------
+
+
+async def test_dashboard_has_start_button() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        from textual.widgets import Button
+
+        btn = app.query_one("#proxy-start-btn", Button)
+        assert btn is not None
+        assert btn.label.plain == "Start Proxy"
+        assert btn.variant == "success"
+
+
+async def test_dashboard_has_console_log() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        from textual.widgets import Collapsible, RichLog
+
+        collapsible = app.query_one("#dash-console-collapsible", Collapsible)
+        assert collapsible is not None
+        console = app.query_one("#dash-console-log", RichLog)
+        assert console is not None
+
+
+async def test_start_shows_error_without_config() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        # Mock ProxyManager to fail preflight
+        app._proxy_manager.find_config = mock.Mock(return_value=None)
+
+        from airlock.tui.screens.dashboard import DashboardPane
+
+        dashboard = app.query_one(DashboardPane)
+        dashboard.action_start_proxy()
+        await pilot.pause()
+
+        from textual.widgets import Button
+
+        btn = app.query_one("#proxy-start-btn", Button)
+        # Should stay as "Start Proxy" since start failed
+        assert btn.label.plain == "Start Proxy"
+
+
+def test_tui_start_flag_passed_through() -> None:
+    from airlock.cli.main import main
+
+    with mock.patch("airlock.tui.app.run") as mock_run:
+        main(["tui", "--start"])
+    mock_run.assert_called_once_with(host="localhost", port="4000", auto_start=True)
+
+
+async def test_app_has_proxy_manager() -> None:
+    app = AirlockApp(host="127.0.0.1", port="9999")
+    from airlock.tui.proxy_manager import ProxyManager
+
+    assert isinstance(app._proxy_manager, ProxyManager)
+
+
+async def test_externally_running_proxy_disables_button() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        from textual.widgets import Button
+
+        from airlock.tui.screens.dashboard import DashboardPane
+
+        dashboard = app.query_one(DashboardPane)
+        # Simulate: proxy reachable but not TUI-owned
+        dashboard._externally_running = True
+        btn = app.query_one("#proxy-start-btn", Button)
+        btn.label = "Running Externally"
+        btn.variant = "default"
+        btn.disabled = True
+
+        assert btn.disabled is True
+        assert btn.label.plain == "Running Externally"

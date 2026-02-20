@@ -84,6 +84,11 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help="Proxy port to monitor (default: AIRLOCK_PORT or 4000).",
     )
+    tui_parser.add_argument(
+        "--start",
+        action="store_true",
+        help="Automatically start the proxy when the TUI launches.",
+    )
 
     # -- analyze --
     analyze_parser = subparsers.add_parser(
@@ -226,7 +231,7 @@ def main(argv: list[str] | None = None) -> None:
 
         from airlock.tui.app import run as tui_run
 
-        tui_run(host=host, port=port)
+        tui_run(host=host, port=port, auto_start=args.start)
 
     elif args.command == "analyze":
         # Rebuild sys.argv for the analyze CLI's own argparse

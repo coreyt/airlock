@@ -8,6 +8,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import ContentSwitcher, Footer, Header, ListItem, ListView, Label
 
+from airlock.tui.proxy_manager import ProxyManager
 from airlock.tui.screens.dashboard import DashboardPane
 from airlock.tui.screens.models import ModelsPane
 from airlock.tui.screens.threats import ThreatsPane
@@ -47,10 +48,17 @@ class AirlockApp(App):
         ("q", "quit", "Quit"),
     ]
 
-    def __init__(self, host: str = "localhost", port: str = "4000") -> None:
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: str = "4000",
+        auto_start: bool = False,
+    ) -> None:
         super().__init__()
         self._proxy_host = host
         self._proxy_port = port
+        self._auto_start = auto_start
+        self._proxy_manager = ProxyManager(host=host, port=port)
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -64,6 +72,7 @@ class AirlockApp(App):
                 yield DashboardPane(
                     host=self._proxy_host,
                     port=self._proxy_port,
+                    proxy_manager=self._proxy_manager,
                     id="dashboard",
                 )
                 yield ModelsPane(id="models")
@@ -73,6 +82,14 @@ class AirlockApp(App):
                 yield SettingsPane(id="settings")
                 yield FlowPane(id="flow")
         yield Footer()
+
+    def on_mount(self) -> None:
+        if self._auto_start:
+            dashboard = self.query_one(DashboardPane)
+            dashboard.action_start_proxy()
+
+    def on_unmount(self) -> None:
+        self._proxy_manager.stop()
 
     def action_switch_screen(self, screen_id: str) -> None:
         self.query_one("#workspace", ContentSwitcher).current = screen_id
@@ -84,7 +101,7 @@ class AirlockApp(App):
             self.action_switch_screen(screen_id)
 
 
-def run(host: str = "localhost", port: str = "4000") -> None:
+def run(host: str = "localhost", port: str = "4000", auto_start: bool = False) -> None:
     """Launch the TUI application."""
-    app = AirlockApp(host=host, port=port)
+    app = AirlockApp(host=host, port=port, auto_start=auto_start)
     app.run()
