@@ -39,7 +39,7 @@ class TestLoadLogs:
         assert records == []
 
     def test_skips_malformed_lines(self, log_dir):
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.utcnow().date().isoformat()
         log_path = log_dir / f"airlock-{today}.jsonl"
         log_path.write_text(
             '{"valid": true}\n'
@@ -50,7 +50,7 @@ class TestLoadLogs:
         assert len(records) == 2
 
     def test_skips_empty_lines(self, log_dir):
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.utcnow().date().isoformat()
         log_path = log_dir / f"airlock-{today}.jsonl"
         log_path.write_text(
             '{"a": 1}\n'
