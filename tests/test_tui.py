@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
+from textual.widgets import DataTable
 
 from airlock.tui.app import AirlockApp
 
@@ -31,7 +32,7 @@ async def test_app_creates_with_host_port(app) -> None:
 async def test_app_has_bindings(app) -> None:
     binding_keys = [b[0] for b in app.BINDINGS]
     assert "1" in binding_keys
-    assert "6" in binding_keys
+    assert "7" in binding_keys
     assert "q" in binding_keys
 
 
@@ -46,8 +47,8 @@ async def test_app_composes_all_panes() -> None:
         workspace = app.query_one("#workspace")
         assert workspace is not None
 
-        # All 6 panes exist
-        for pane_id in ("dashboard", "models", "threats", "logs", "analysis", "settings"):
+        # All 7 panes exist
+        for pane_id in ("dashboard", "models", "threats", "logs", "analysis", "settings", "flow"):
             pane = app.query_one(f"#{pane_id}")
             assert pane is not None, f"Missing pane: {pane_id}"
 
@@ -230,3 +231,209 @@ def test_help_includes_tui(capsys) -> None:
     assert exc_info.value.code == 0
     out = capsys.readouterr().out
     assert "tui" in out
+
+
+# -------------------------------------------------------------------
+# Flow screen
+# -------------------------------------------------------------------
+
+
+async def test_flow_has_status_table_and_detail() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("7")
+        assert app.query_one("#flow-status") is not None
+        assert app.query_one("#flow-table") is not None
+        assert app.query_one("#flow-detail-tabs") is not None
+        assert app.query_one("#flow-signals") is not None
+        assert app.query_one("#flow-pipeline") is not None
+        assert app.query_one("#flow-raw") is not None
+
+
+async def test_flow_screen_switching() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        workspace = app.query_one("#workspace")
+        await pilot.press("7")
+        assert workspace.current == "flow"
+
+        # Switch away and back
+        await pilot.press("1")
+        assert workspace.current == "dashboard"
+        await pilot.press("7")
+        assert workspace.current == "flow"
+
+
+async def test_flow_pause_resume() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("7")
+        await pilot.pause()
+
+        from airlock.tui.screens.flow import FlowPane
+
+        flow_pane = app.query_one(FlowPane)
+        assert flow_pane._paused is False
+
+        # Focus the flow table so space bubbles to FlowPane
+        app.query_one("#flow-table", DataTable).focus()
+
+        # Press space to pause
+        await pilot.press("space")
+        assert flow_pane._paused is True
+
+        # Press space to resume
+        await pilot.press("space")
+        assert flow_pane._paused is False
+
+
+async def test_flow_loads_observations(tmp_path: Path) -> None:
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    today = datetime.utcnow().date().isoformat()
+    log_file = log_dir / f"airlock-{today}.jsonl"
+    record = {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "success": True,
+        "model": "claude-sonnet",
+        "request_id": "req-001",
+        "airlock_observation": {
+            "request_id": "req-001",
+            "model": "claude-sonnet",
+            "client_id": "key:testkey1",
+            "signals": [
+                {
+                    "guardrail_name": "pii_scan",
+                    "detected": False,
+                    "score": 0.0,
+                    "details": {"entities": {}, "total_count": 0},
+                    "duration_ms": 0.1,
+                },
+                {
+                    "guardrail_name": "keyword_scan",
+                    "detected": True,
+                    "score": 1.0,
+                    "details": {"matched_keywords": ["forbidden"], "match_count": 1},
+                    "duration_ms": 0.1,
+                },
+                {
+                    "guardrail_name": "threat_read",
+                    "detected": False,
+                    "score": 0.0,
+                    "details": {"client_id": "key:testkey1", "threat_score": 0.0},
+                    "duration_ms": 0.1,
+                },
+            ],
+            "composite_score": 0.4,
+            "would_block": False,
+            "orchestrator_version": "2024-01-15T10:00:00Z",
+        },
+    }
+    log_file.write_text(json.dumps(record) + "\n")
+
+    with mock.patch.dict(os.environ, {"AIRLOCK_LOG_DIR": str(log_dir)}):
+        app = AirlockApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.press("7")
+            await pilot.pause()
+            await pilot.pause()  # extra pause for worker to complete
+
+            from airlock.tui.screens.flow import FlowPane
+
+            flow_pane = app.query_one(FlowPane)
+            assert len(flow_pane._entries) >= 1
+            assert flow_pane._entries[0].model == "claude-sonnet"
+            assert flow_pane._entries[0].composite_score == 0.4
+
+
+async def test_flow_skips_records_without_observation(tmp_path: Path) -> None:
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    today = datetime.utcnow().date().isoformat()
+    log_file = log_dir / f"airlock-{today}.jsonl"
+    # Record without observation — should be skipped
+    record = {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "success": True,
+        "model": "gpt-4o",
+    }
+    log_file.write_text(json.dumps(record) + "\n")
+
+    with mock.patch.dict(os.environ, {"AIRLOCK_LOG_DIR": str(log_dir)}):
+        app = AirlockApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.press("7")
+            await pilot.pause()
+            await pilot.pause()
+
+            from airlock.tui.screens.flow import FlowPane
+
+            flow_pane = app.query_one(FlowPane)
+            assert len(flow_pane._entries) == 0
+
+
+async def test_flow_signal_rendering() -> None:
+    """Test that the signal renderer produces expected output."""
+    from airlock.tui.screens.flow import FlowEntry, _render_signals
+
+    entry = FlowEntry(
+        timestamp="2024-01-15T10:31:42Z",
+        request_id="req-001",
+        model="claude-sonnet",
+        client_id="key:testkey1",
+        success=True,
+        composite_score=0.4,
+        would_block=False,
+        orchestrator_version="2024-01-15T10:00:00Z",
+        signals=[
+            {
+                "guardrail_name": "pii_scan",
+                "detected": False,
+                "score": 0.0,
+                "details": {"entities": {}, "total_count": 0},
+                "duration_ms": 0.1,
+            },
+            {
+                "guardrail_name": "keyword_scan",
+                "detected": True,
+                "score": 1.0,
+                "details": {"matched_keywords": ["forbidden"], "match_count": 1},
+                "duration_ms": 0.2,
+            },
+        ],
+        enforcement={"mode": "shadow", "should_block": True, "threshold": 0.5, "composite_score": 0.4},
+        raw_observation={},
+        raw_record={},
+    )
+    rendered = _render_signals(entry)
+    assert "pii_scan" in rendered
+    assert "keyword_scan" in rendered
+    assert "COMPOSITE" in rendered
+    assert "shadow" in rendered
+
+
+async def test_flow_pipeline_rendering() -> None:
+    """Test that the pipeline renderer produces expected output."""
+    from airlock.tui.screens.flow import FlowEntry, _render_pipeline
+
+    entry = FlowEntry(
+        timestamp="2024-01-15T10:31:42Z",
+        request_id="req-001",
+        model="claude-sonnet",
+        client_id="key:testkey1",
+        success=True,
+        composite_score=0.4,
+        would_block=False,
+        orchestrator_version="v1",
+        signals=[
+            {"guardrail_name": "pii_scan", "detected": False, "score": 0.0, "details": {}, "duration_ms": 0.5},
+        ],
+        enforcement={"mode": "shadow", "should_block": False, "threshold": 0.5, "composite_score": 0.4},
+        raw_observation={},
+        raw_record={},
+    )
+    rendered = _render_pipeline(entry)
+    assert "PRE_CALL" in rendered
+    assert "DURING_CALL" in rendered
+    assert "PII Guard" in rendered
+    assert "req-001" in rendered

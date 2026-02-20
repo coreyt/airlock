@@ -38,3 +38,6 @@ Thumbs.db
 
 # LiteLLM
 litellm_uuid.txt
+
+# Aural
+.aural/

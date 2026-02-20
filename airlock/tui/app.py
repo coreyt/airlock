@@ -14,6 +14,7 @@ from airlock.tui.screens.threats import ThreatsPane
 from airlock.tui.screens.logs import LogsPane
 from airlock.tui.screens.analysis import AnalysisPane
 from airlock.tui.screens.settings import SettingsPane
+from airlock.tui.screens.flow import FlowPane
 
 CSS_PATH = Path(__file__).parent / "styles" / "app.tcss"
 
@@ -24,6 +25,7 @@ _SCREENS = [
     ("logs", "4 Logs"),
     ("analysis", "5 Analysis"),
     ("settings", "6 Settings"),
+    ("flow", "7 Flow"),
 ]
 
 
@@ -41,6 +43,7 @@ class AirlockApp(App):
         ("4", "switch_screen('logs')", "Logs"),
         ("5", "switch_screen('analysis')", "Analysis"),
         ("6", "switch_screen('settings')", "Settings"),
+        ("7", "switch_screen('flow')", "Flow"),
         ("q", "quit", "Quit"),
     ]
 
@@ -68,6 +71,7 @@ class AirlockApp(App):
                 yield LogsPane(id="logs")
                 yield AnalysisPane(id="analysis")
                 yield SettingsPane(id="settings")
+                yield FlowPane(id="flow")
         yield Footer()
 
     def action_switch_screen(self, screen_id: str) -> None:

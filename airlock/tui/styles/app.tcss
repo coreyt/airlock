@@ -194,6 +194,34 @@
     margin-bottom: 1;
 }
 
+/* ── Flow ────────────────────────────────────────────── */
+
+#flow-status {
+    height: 3;
+    border: solid $accent;
+    padding: 0 2;
+    content-align: left middle;
+}
+
+#flow-status.live {
+    border: solid $success;
+}
+
+#flow-status.paused {
+    border: solid $warning;
+}
+
+#flow-table {
+    height: 2fr;
+    border: solid $accent;
+    margin-top: 1;
+}
+
+#flow-detail-tabs {
+    height: 1fr;
+    margin-top: 1;
+}
+
 /* ── Semantic colors ──────────────────────────────────── */
 
 .status-ok {
