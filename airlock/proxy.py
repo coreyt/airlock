@@ -43,8 +43,10 @@ def main() -> None:
     host = os.getenv("AIRLOCK_HOST", "0.0.0.0")
     port = os.getenv("AIRLOCK_PORT", "4000")
 
+    litellm_bin = str(Path(sys.executable).parent / "litellm")
+
     cmd = [
-        sys.executable, "-m", "litellm",
+        litellm_bin,
         "--config", config_path,
         "--host", host,
         "--port", port,

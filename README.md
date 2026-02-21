@@ -45,8 +45,8 @@ git clone <repo-url> && cd airlock
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[tui]"
 
-# Download the spaCy model for Presidio PII detection
-python -m spacy download en_core_web_lg
+# Install spaCy and download the model for Presidio PII detection
+pip install spacy && python -m spacy download en_core_web_lg
 ```
 
 ### 2. Initialize

@@ -69,9 +69,8 @@ class TestMain:
                 main()
             assert exc_info.value.code == 0
 
-        assert sys.executable in captured_cmd
-        assert "-m" in captured_cmd
-        assert "litellm" in captured_cmd
+        expected_bin = str(Path(sys.executable).parent / "litellm")
+        assert captured_cmd[0] == expected_bin
         assert "--config" in captured_cmd
         assert str(config_file) in captured_cmd
         assert "--host" in captured_cmd

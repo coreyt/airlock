@@ -50,8 +50,8 @@ litellm_settings:
   drop_params: true
 
   # Callbacks — enterprise logging + fast subsystem metrics
-  success_callback: ["airlock.callbacks.enterprise_logger", "airlock.fast.monitor"]
-  failure_callback: ["airlock.callbacks.enterprise_logger", "airlock.fast.monitor"]
+  success_callback: ["airlock.callbacks.enterprise_logger.AirlockLogger", "airlock.fast.monitor.AirlockFastMonitor"]
+  failure_callback: ["airlock.callbacks.enterprise_logger.AirlockLogger", "airlock.fast.monitor.AirlockFastMonitor"]
 
   # Budget & rate-limiting (per-user, requires virtual keys)
   # max_budget: 100.0          # USD per 30-day rolling window
@@ -66,32 +66,32 @@ litellm_settings:
 guardrails:
   - guardrail_name: airlock-pii-guard
     litellm_params:
-      guardrail: airlock.guardrails.pii_guard
+      guardrail: airlock.guardrails.pii_guard.AirlockPIIGuard
       mode: pre_call            # runs before the request leaves the building
 
   - guardrail_name: airlock-keyword-guard
     litellm_params:
-      guardrail: airlock.guardrails.keyword_guard
+      guardrail: airlock.guardrails.keyword_guard.AirlockKeywordGuard
       mode: pre_call
 
   - guardrail_name: airlock-fast-guardian
     litellm_params:
-      guardrail: airlock.fast.guardian
+      guardrail: airlock.fast.guardian.AirlockFastGuardian
       mode: pre_call            # threat gate, circuit breaker, priority scoring
 
   - guardrail_name: airlock-enforcer
     litellm_params:
-      guardrail: airlock.guardrails.enforcer
+      guardrail: airlock.guardrails.enforcer.AirlockEnforcer
       mode: pre_call            # adaptive weighted blocking (AIRLOCK_ENFORCE_MODE)
 
   - guardrail_name: airlock-semantic-guard
     litellm_params:
-      guardrail: airlock.guardrails.semantic
+      guardrail: airlock.guardrails.semantic.AirlockSemanticGuard
       mode: during_call         # ML classifiers run in parallel with LLM call
 
   - guardrail_name: airlock-orchestrator
     litellm_params:
-      guardrail: airlock.guardrails.orchestrator
+      guardrail: airlock.guardrails.orchestrator.AirlockOrchestrator
       mode: during_call         # zero-cost observation + weighted evaluation
 
 # ---------------------------------------------------------------------------

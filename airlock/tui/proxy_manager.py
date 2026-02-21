@@ -59,10 +59,10 @@ class ProxyManager:
 
         load_dotenv()
 
+        litellm_bin = str(Path(sys.executable).parent / "litellm")
+
         cmd = [
-            sys.executable,
-            "-m",
-            "litellm",
+            litellm_bin,
             "--config",
             str(config_path),
             "--host",

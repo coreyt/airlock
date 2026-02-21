@@ -78,8 +78,7 @@ def test_start_launches_popen(tmp_path: Path) -> None:
     mock_popen.assert_called_once()
     call_args = mock_popen.call_args
     cmd = call_args[0][0]
-    assert "-m" in cmd
-    assert "litellm" in cmd
+    assert cmd[0].endswith("/litellm") or cmd[0].endswith("\\litellm")
     assert "--host" in cmd
     assert "127.0.0.1" in cmd
     assert "--port" in cmd

@@ -39,9 +39,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sys
 import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
+
+# LiteLLM loads custom guardrails via importlib.util.spec_from_file_location
+# without registering the module in sys.modules.  Python 3.10's @dataclass
+# needs the module there to resolve type annotations.
+sys.modules.setdefault(__name__, type(sys)(__name__))
 
 from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
