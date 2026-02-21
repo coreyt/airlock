@@ -27,9 +27,14 @@ import pytest
 # ---------------------------------------------------------------------------
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
-    """Remove all AIRLOCK_* vars before each test. Tests set what they need."""
+    """Remove all AIRLOCK_* vars before each test. Tests set what they need.
+
+    Also neutralise ``load_dotenv`` in the CLI dispatcher so ``.env`` from
+    the project root doesn't leak real keys into the test environment.
+    """
     for var in [k for k in os.environ if k.startswith("AIRLOCK_")]:
         monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr("airlock.cli.main.load_dotenv", lambda **kw: None)
 
 
 # ---------------------------------------------------------------------------

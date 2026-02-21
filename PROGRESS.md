@@ -1,8 +1,8 @@
 # Airlock — Project Progress
 
-## Status: Active Development
+## Status: Ready for End-to-End Trial
 
-Last updated: 2026-02-19
+Last updated: 2026-02-20
 
 ## Completed Work
 
@@ -79,6 +79,46 @@ high block rate (threshold tuning), high ambiguity (LLM-as-judge escalation),
 classifier errors (reliability), high latency (bottleneck). 28 new tests across
 3 files.
 
+### Adaptive Guardrails: Collect, Orchestrate, Enforce (commit dbdc6a4)
+Three-phase guardrail evolution: (1) `during_call` observer collects signals at
+zero latency cost, (2) orchestrator reads tuned knobs and evaluates weighted
+guardrail outputs, (3) enforcer in `pre_call` applies adaptive blocking with
+observe/shadow/enforce modes. Slow analyzer tunes guardrail parameters offline,
+evolving them from binary block/allow to weighted scoring. Closed feedback loop.
+
+### TUI Flow Screen (commit a494478)
+Real-time guardrail pipeline monitor. Reads `airlock_observation` metadata from
+JSONL logs, renders per-guardrail signal breakdown (scores, weights, contribution),
+enforcement verdict (block/shadow/observe), and pipeline stage visualization.
+Incremental log polling, pause/resume, keyboard navigation.
+
+### TUI Proxy Launch & Control (commit bd1bc41)
+`ProxyManager` class owns a LiteLLM subprocess on behalf of the TUI. Dashboard
+gains Start/Stop button and collapsible console log streaming proxy stdout in
+real time. `airlock tui --start` auto-launches the proxy on TUI startup.
+Graceful cleanup on TUI exit (SIGTERM → wait → SIGKILL). 22 new tests.
+
+## Readiness
+
+All subsystems are real, wired into LiteLLM, and tested. No mocks in production
+code. The end-to-end flow works:
+
+```bash
+airlock init --dir ~/trial    # scaffold config, .env, logs/
+# edit .env with real API keys
+airlock tui --start           # launch proxy + TUI in one command
+# send requests to localhost:4000
+```
+
+Requests flow through PII redaction → keyword blocking → threat scoring →
+upstream LLM → observation guardrails → JSONL logging → TUI dashboard.
+
+### Not yet present (does not block trial)
+- TUI log search (issue #10)
+- Hybrid sparse+dense search (issue #11, depends on #10)
+- Semantic ML classifiers (orchestrator is wired, no models plugged in)
+- Default enforce mode is `observe` (collects data, doesn't block via weighted system)
+
 ## Open Issues
 
 ### Issue #10 — Basic Keyword Search for TUI Logs
@@ -94,21 +134,22 @@ Depends on #10 completing first.
 
 ## Test Suite
 
-- **355 tests** across 24 test files
-- **355 passing**, 9 skipped (SQL logger — optional `sqlalchemy` dependency)
+- **476 tests** across 25 test files
+- **476 passing**, 0 failing
 - Presidio engines shared via session fixture to avoid OOM
 - TUI tests use async `app.run_test()` pattern
+- ProxyManager tests cover subprocess lifecycle with mocked Popen
 
 ## Architecture Summary
 
 | Subsystem | Location | Status |
 |-----------|----------|--------|
 | Proxy | `airlock/proxy.py` | Complete |
-| Guardrails | `airlock/guardrails/` | Complete |
+| Guardrails | `airlock/guardrails/` | Complete (7 guardrails wired) |
 | Semantic Guard | `airlock/guardrails/semantic.py` | Orchestrator complete — awaiting classifiers |
-| Callbacks | `airlock/callbacks/` | Complete (now persists guardrail metadata) |
+| Callbacks | `airlock/callbacks/` | Complete (JSONL, S3, SQL, Prometheus, OTel) |
 | Fast (real-time) | `airlock/fast/` | Complete |
 | Slow (offline) | `airlock/slow/` | Complete — 5 dimensions (incl. semantic) |
 | Hooks | `airlock/hooks/` | Complete |
-| CLI | `airlock/cli/` | Complete |
-| TUI | `airlock/tui/` | Complete — search pending (#10) |
+| CLI | `airlock/cli/` | Complete (init, start, status, tui, analyze, hooks, dogfood) |
+| TUI | `airlock/tui/` | Complete — 7 screens, proxy launch, search pending (#10) |

@@ -7,9 +7,14 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 
 def main(argv: list[str] | None = None) -> None:
     """Parse arguments and dispatch to the appropriate subcommand."""
+    # Load .env early so AIRLOCK_* vars are available for arg defaults.
+    load_dotenv()
+
     parser = argparse.ArgumentParser(
         prog="airlock",
         description="Airlock — enterprise LLM proxy with guardrails and logging.",
@@ -146,6 +151,50 @@ def main(argv: list[str] | None = None) -> None:
         help="Target directory (default: current directory).",
     )
 
+    # -- post --
+    post_parser = subparsers.add_parser(
+        "post",
+        help="Power-On Self-Test — validate config, providers, storage, guardrails.",
+    )
+    post_parser.add_argument(
+        "--skip-llm",
+        action="store_true",
+        help="Skip LLM provider connectivity checks.",
+    )
+    post_parser.add_argument(
+        "--skip-storage",
+        action="store_true",
+        help="Skip storage (log dir, S3, SQL) checks.",
+    )
+    post_parser.add_argument(
+        "--skip-guardrails",
+        action="store_true",
+        help="Skip guardrail dependency checks.",
+    )
+    post_parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        help="Output machine-readable JSON.",
+    )
+    post_parser.add_argument(
+        "--no-color",
+        action="store_true",
+        help="Disable ANSI color output.",
+    )
+    post_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Show verbose check details.",
+    )
+    post_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=30.0,
+        help="Per-check timeout in seconds (default: 30).",
+    )
+
     # -- dogfood --
     dogfood_parser = subparsers.add_parser(
         "dogfood",
@@ -256,6 +305,11 @@ def main(argv: list[str] | None = None) -> None:
             run_status(args)
         else:
             hooks_parser.print_help()
+
+    elif args.command == "post":
+        from airlock.cli.post_cmd import run
+
+        run(args)
 
     elif args.command == "dogfood":
         from airlock.cli.dogfood_cmd import run
