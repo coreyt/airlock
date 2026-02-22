@@ -141,4 +141,23 @@ class AirlockLogger(CustomLogger):
 
 # Module-level instance for config.yaml callback registration.
 # LiteLLM's get_instance_fn does getattr — it needs an instance, not a class.
+# We also self-register into the async callback lists because the proxy runs
+# async but config's success_callback key only populates the sync list.
 proxy_logger = AirlockLogger()
+
+
+def _self_register() -> None:
+    """Ensure proxy_logger is in both sync and async callback lists."""
+    try:
+        import litellm
+
+        mgr = litellm.logging_callback_manager
+        mgr.add_litellm_success_callback(proxy_logger)
+        mgr.add_litellm_failure_callback(proxy_logger)
+        mgr.add_litellm_async_success_callback(proxy_logger)
+        mgr.add_litellm_async_failure_callback(proxy_logger)
+    except Exception:
+        pass  # litellm not fully loaded yet — config path will handle it
+
+
+_self_register()
