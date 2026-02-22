@@ -35,6 +35,17 @@ model_list:
       model: openai/gpt-4o-mini
       api_key: os.environ/OPENAI_API_KEY
 
+  # --- Google (Gemini) ---
+  - model_name: gemini-flash
+    litellm_params:
+      model: gemini/gemini-2.0-flash
+      api_key: os.environ/GOOGLE_VERTEX_API_KEY
+
+  - model_name: gemini-pro
+    litellm_params:
+      model: gemini/gemini-1.5-pro
+      api_key: os.environ/GOOGLE_VERTEX_API_KEY
+
   # --- Internal RAG (Phase 3 — uncomment when ready) ---
   # - model_name: internal-docs
   #   litellm_params:
