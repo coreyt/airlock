@@ -116,3 +116,8 @@ class AirlockFastMonitor(CustomLogger):
         end_time: Any,
     ) -> None:
         self.log_failure_event(kwargs, response_obj, start_time, end_time)
+
+
+# Module-level instance for config.yaml callback registration.
+# LiteLLM's get_instance_fn does getattr — it needs an instance, not a class.
+proxy_monitor = AirlockFastMonitor()

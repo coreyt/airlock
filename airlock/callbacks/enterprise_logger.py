@@ -56,7 +56,14 @@ def _write_log(record: dict[str, Any]) -> None:
 
 
 class AirlockLogger(CustomLogger):
-    """LiteLLM callback that logs requests/responses to structured JSON files."""
+    """LiteLLM callback that logs requests/responses to structured JSON files.
+
+    LiteLLM's ``get_instance_fn`` returns whatever ``getattr`` finds at the
+    dotted path — it does **not** instantiate classes.  The module-level
+    ``proxy_logger`` instance below is the object that config.yaml should
+    reference so that ``isinstance(callback, CustomLogger)`` passes inside
+    LiteLLM's logging pipeline.
+    """
 
     # ------------------------------------------------------------------
     # Success
@@ -130,3 +137,8 @@ class AirlockLogger(CustomLogger):
             **usage,
             **guardrail_meta,
         }
+
+
+# Module-level instance for config.yaml callback registration.
+# LiteLLM's get_instance_fn does getattr — it needs an instance, not a class.
+proxy_logger = AirlockLogger()
