@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import urllib.request
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -128,7 +129,11 @@ class DashboardPane(Vertical):
 
         proxy_reachable = False
         try:
-            urllib.request.urlopen(url, timeout=3)  # noqa: S310
+            req = urllib.request.Request(url)
+            master_key = os.environ.get("AIRLOCK_MASTER_KEY")
+            if master_key:
+                req.add_header("Authorization", f"Bearer {master_key}")
+            urllib.request.urlopen(req, timeout=3)  # noqa: S310
             proxy_reachable = True
         except Exception:
             pass

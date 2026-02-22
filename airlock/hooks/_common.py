@@ -33,8 +33,12 @@ def respond_json(data: dict) -> None:
 def probe_health(host: str, port: str, timeout: int = 3) -> bool:
     """Check if the Airlock proxy is reachable."""
     url = f"http://{host}:{port}/health"
+    req = urllib.request.Request(url)
+    master_key = os.environ.get("AIRLOCK_MASTER_KEY")
+    if master_key:
+        req.add_header("Authorization", f"Bearer {master_key}")
     try:
-        urllib.request.urlopen(url, timeout=timeout)  # noqa: S310
+        urllib.request.urlopen(req, timeout=timeout)  # noqa: S310
         return True
     except Exception:
         return False

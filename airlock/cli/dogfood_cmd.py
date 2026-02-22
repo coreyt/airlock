@@ -9,8 +9,12 @@ import urllib.request
 
 def _probe_health(host: str, port: str) -> bool:
     url = f"http://{host}:{port}/health"
+    req = urllib.request.Request(url)
+    master_key = os.environ.get("AIRLOCK_MASTER_KEY")
+    if master_key:
+        req.add_header("Authorization", f"Bearer {master_key}")
     try:
-        urllib.request.urlopen(url, timeout=3)  # noqa: S310
+        urllib.request.urlopen(req, timeout=3)  # noqa: S310
         return True
     except Exception:
         return False

@@ -7,6 +7,15 @@ import sys
 import urllib.request
 
 
+def _health_request(url: str) -> urllib.request.Request:
+    """Build a health-check request, adding auth if master key is set."""
+    req = urllib.request.Request(url)
+    master_key = os.environ.get("AIRLOCK_MASTER_KEY")
+    if master_key:
+        req.add_header("Authorization", f"Bearer {master_key}")
+    return req
+
+
 def run(args) -> None:
     """Probe the proxy health endpoint and report status."""
     host = args.host or os.environ.get("AIRLOCK_HOST", "localhost")
@@ -14,7 +23,7 @@ def run(args) -> None:
     url = f"http://{host}:{port}/health"
 
     try:
-        urllib.request.urlopen(url, timeout=5)  # noqa: S310
+        urllib.request.urlopen(_health_request(url), timeout=5)  # noqa: S310
     except Exception:
         print(f"Airlock is not reachable at {host}:{port}", file=sys.stderr)
         raise SystemExit(1)
