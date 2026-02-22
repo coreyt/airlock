@@ -1,8 +1,8 @@
 # Airlock — Project Progress
 
-## Status: Ready for End-to-End Trial
+## Status: End-to-End Trial Confirmed Working
 
-Last updated: 2026-02-20
+Last updated: 2026-02-22
 
 ## Completed Work
 
@@ -98,14 +98,41 @@ gains Start/Stop button and collapsible console log streaming proxy stdout in
 real time. `airlock tui --start` auto-launches the proxy on TUI startup.
 Graceful cleanup on TUI exit (SIGTERM → wait → SIGKILL). 22 new tests.
 
+### Power-On Self-Test (commit 5eea760)
+`airlock post` command validates every external dependency before sending real
+traffic. 12 checks across 4 groups (config, providers, storage, guardrails).
+Per-check timeout, colored/JSON output, `--skip-*` flags. Exit 0 if all pass,
+1 if any fail. 72 new tests.
+
+### Proxy Console Ring Log (commits ec92dbe, 605a669)
+ProxyManager now persists subprocess output to `logs/proxy-console.log` via a
+reader thread that tees lines to both an output queue (for TUI) and a
+`deque(maxlen=1000)` ring buffer. Lines flush to disk immediately. File compacts
+to 1000 lines on stop and periodically during operation.
+
+### End-to-End Trial Fixes (commits 567bf4d, 38e1c31, 5aae4b0, 852c68c)
+Four issues found and fixed during first real-traffic trial:
+1. **Health checks missing auth** — all 4 probe sites now send
+   `Authorization: Bearer` when `AIRLOCK_MASTER_KEY` is set.
+2. **Callbacks registered as classes** — LiteLLM `get_instance_fn` returns the
+   class, not an instance. `isinstance(Class, CustomLogger)` is False, so
+   callbacks silently never fired. Fixed with module-level instances.
+3. **Callbacks in wrong list** — LiteLLM config `success_callback` only
+   populates the sync list, but the proxy runs async. Self-register into all 4
+   callback lists on module import.
+4. **Guardrails opt-in by default** — LiteLLM guardrails require
+   `default_on: true` in `litellm_params` to fire on every request. Added to
+   all 6 guardrails.
+
 ## Readiness
 
-All subsystems are real, wired into LiteLLM, and tested. No mocks in production
-code. The end-to-end flow works:
+All subsystems are real, wired into LiteLLM, and tested. The end-to-end flow
+has been **confirmed working with real API traffic**:
 
 ```bash
 airlock init --dir ~/trial    # scaffold config, .env, logs/
 # edit .env with real API keys
+airlock post                  # validate config, keys, storage, guardrails
 airlock tui --start           # launch proxy + TUI in one command
 # send requests to localhost:4000
 ```
@@ -113,11 +140,16 @@ airlock tui --start           # launch proxy + TUI in one command
 Requests flow through PII redaction → keyword blocking → threat scoring →
 upstream LLM → observation guardrails → JSONL logging → TUI dashboard.
 
+PII redaction confirmed: email, credit card, and phone numbers scrubbed by
+Presidio before reaching upstream providers. JSONL logs capture full structured
+records with request/response, token counts, and timing.
+
 ### Not yet present (does not block trial)
 - TUI log search (issue #10)
 - Hybrid sparse+dense search (issue #11, depends on #10)
 - Semantic ML classifiers (orchestrator is wired, no models plugged in)
 - Default enforce mode is `observe` (collects data, doesn't block via weighted system)
+- `claude-haiku` model ID stale in config (404 from Anthropic)
 
 ## Open Issues
 
@@ -134,11 +166,12 @@ Depends on #10 completing first.
 
 ## Test Suite
 
-- **476 tests** across 25 test files
-- **476 passing**, 0 failing
+- **557 tests** across 27 test files
+- **557 passing**, 0 failing
 - Presidio engines shared via session fixture to avoid OOM
 - TUI tests use async `app.run_test()` pattern
-- ProxyManager tests cover subprocess lifecycle with mocked Popen
+- ProxyManager tests cover subprocess lifecycle, ring log, and output queue
+- POST tests cover all 12 checks, rendering, JSON output, skip flags, timeouts
 
 ## Architecture Summary
 
@@ -147,9 +180,9 @@ Depends on #10 completing first.
 | Proxy | `airlock/proxy.py` | Complete |
 | Guardrails | `airlock/guardrails/` | Complete (7 guardrails wired) |
 | Semantic Guard | `airlock/guardrails/semantic.py` | Orchestrator complete — awaiting classifiers |
-| Callbacks | `airlock/callbacks/` | Complete (JSONL, S3, SQL, Prometheus, OTel) |
+| Callbacks | `airlock/callbacks/` | Complete — JSONL confirmed working with real traffic |
 | Fast (real-time) | `airlock/fast/` | Complete |
 | Slow (offline) | `airlock/slow/` | Complete — 5 dimensions (incl. semantic) |
 | Hooks | `airlock/hooks/` | Complete |
-| CLI | `airlock/cli/` | Complete (init, start, status, tui, analyze, hooks, dogfood) |
+| CLI | `airlock/cli/` | Complete (init, start, status, post, tui, analyze, hooks, dogfood) |
 | TUI | `airlock/tui/` | Complete — 7 screens, proxy launch, search pending (#10) |
