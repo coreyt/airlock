@@ -70,31 +70,37 @@ guardrails:
     litellm_params:
       guardrail: airlock.guardrails.pii_guard.AirlockPIIGuard
       mode: pre_call            # runs before the request leaves the building
+      default_on: true
 
   - guardrail_name: airlock-keyword-guard
     litellm_params:
       guardrail: airlock.guardrails.keyword_guard.AirlockKeywordGuard
       mode: pre_call
+      default_on: true
 
   - guardrail_name: airlock-fast-guardian
     litellm_params:
       guardrail: airlock.fast.guardian.AirlockFastGuardian
       mode: pre_call            # threat gate, circuit breaker, priority scoring
+      default_on: true
 
   - guardrail_name: airlock-enforcer
     litellm_params:
       guardrail: airlock.guardrails.enforcer.AirlockEnforcer
       mode: pre_call            # adaptive weighted blocking (AIRLOCK_ENFORCE_MODE)
+      default_on: true
 
   - guardrail_name: airlock-semantic-guard
     litellm_params:
       guardrail: airlock.guardrails.semantic.AirlockSemanticGuard
       mode: during_call         # ML classifiers run in parallel with LLM call
+      default_on: true
 
   - guardrail_name: airlock-orchestrator
     litellm_params:
       guardrail: airlock.guardrails.orchestrator.AirlockOrchestrator
       mode: during_call         # zero-cost observation + weighted evaluation
+      default_on: true
 
 # ---------------------------------------------------------------------------
 # General proxy behaviour
