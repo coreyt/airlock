@@ -26,6 +26,8 @@ class ProxyManager:
         self._output_queue: queue.Queue[str] = queue.Queue()
         self._ring: collections.deque[str] = collections.deque(maxlen=_MAX_LOG_LINES)
         self._reader_thread: threading.Thread | None = None
+        self._log_file: IO[str] | None = None
+        self._line_count: int = 0
 
     # -- config discovery (same logic as proxy.py, without sys.exit) ------
 
@@ -79,7 +81,7 @@ class ProxyManager:
             pass
 
     def _reader_loop(self) -> None:
-        """Read subprocess stdout, tee to ring buffer and output queue."""
+        """Read subprocess stdout, tee to ring buffer, log file, and queue."""
         assert self._process is not None
         stdout = self._process.stdout
         if stdout is None:
@@ -89,6 +91,18 @@ class ProxyManager:
                 line = raw_line.rstrip("\n")
                 self._ring.append(line)
                 self._output_queue.put(line)
+                self._line_count += 1
+                # Write to log file immediately
+                if self._log_file is not None:
+                    try:
+                        self._log_file.write(line + "\n")
+                        self._log_file.flush()
+                    except OSError:
+                        pass
+                # Compact log file periodically to enforce ring limit
+                if self._line_count >= _MAX_LOG_LINES:
+                    self._flush_ring()
+                    self._line_count = 0
         except ValueError:
             pass  # stream closed
 
@@ -123,6 +137,14 @@ class ProxyManager:
         # Load existing log lines into ring buffer
         self._load_ring()
 
+        # Open log file for live writing
+        try:
+            self.log_path.parent.mkdir(parents=True, exist_ok=True)
+            self._log_file = open(self.log_path, "a", encoding="utf-8")  # noqa: SIM115
+            self._line_count = 0
+        except OSError:
+            self._log_file = None
+
         self._process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -156,7 +178,15 @@ class ProxyManager:
             self._reader_thread.join(timeout=2)
             self._reader_thread = None
 
-        # Persist ring buffer to disk
+        # Close live log file handle
+        if self._log_file is not None:
+            try:
+                self._log_file.close()
+            except OSError:
+                pass
+            self._log_file = None
+
+        # Compact log file to ring buffer (enforces max lines on disk)
         self._flush_ring()
 
     # -- properties -------------------------------------------------------
