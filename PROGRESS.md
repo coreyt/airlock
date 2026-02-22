@@ -164,6 +164,44 @@ retrieval. Reciprocal rank fusion scoring. Local index storage
 (SQLite + faiss). Optional `pip install airlock[search]` dependencies.
 Depends on #10 completing first.
 
+## Performance Benchmark — 2026-02-22
+
+Live test: 7 sequential queries through a running Airlock proxy (5× claude-haiku, 2× gpt-4o-mini).
+
+### Latency
+
+| Metric | Value |
+|--------|-------|
+| Avg proxy time (Airlock-measured) | 1113ms |
+| Avg client wall clock | 1137ms |
+| **Avg proxy overhead** | **~23ms** |
+| Fastest request | gpt-4o-mini math (482ms proxy) |
+| Slowest request | gpt-4o-mini story (2010ms proxy) |
+
+The 23ms overhead is local loopback + LiteLLM routing. Calling Airlock vs calling the provider directly is effectively zero-cost.
+
+### Guardrails
+
+Each request ran 3 during_call guardrails (pii_scan, keyword_scan, threat_read) concurrently with the LLM call:
+
+- Guardrail wall time: **~0.03ms per request** (runs inside `asyncio.gather` alongside the API call — adds zero latency)
+- Composite threat score: 0.000 on all requests
+- Blocks triggered: 0
+
+### Raw data (proxy-measured `duration_ms` vs client wall clock)
+
+| Query | Model | Proxy ms | Client ms | Overhead |
+|---|---|---|---|---|
+| simple-math | claude-haiku | 948 | 1004 | +56ms |
+| short-story | claude-haiku | 853 | 870 | +17ms |
+| code-snippet | claude-haiku | 1842 | 1859 | +17ms |
+| explain-concept | claude-haiku | 980 | 996 | +16ms |
+| haiku | claude-haiku | 679 | 696 | +17ms |
+| gpt-simple | gpt-4o-mini | 482 | 512 | +30ms |
+| gpt-story | gpt-4o-mini | 2010 | 2019 | +9ms |
+
+All 7 succeeded. JSONL logs confirmed written to `logs/airlock-2026-02-22.jsonl`.
+
 ## Test Suite
 
 - **557 tests** across 27 test files
