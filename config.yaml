@@ -38,13 +38,39 @@ model_list:
   # --- Google (Gemini) ---
   - model_name: gemini-flash
     litellm_params:
-      model: gemini/gemini-2.0-flash
-      api_key: os.environ/GOOGLE_VERTEX_API_KEY
+      model: gemini/gemini-2.5-flash
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+
+  - model_name: gemini-flash-lite
+    litellm_params:
+      model: gemini/gemini-2.5-flash-lite
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
 
   - model_name: gemini-pro
     litellm_params:
-      model: gemini/gemini-1.5-pro
-      api_key: os.environ/GOOGLE_VERTEX_API_KEY
+      model: gemini/gemini-2.5-pro
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+
+  # --- Google (Gemini 3) ---
+  - model_name: gemini-3-flash
+    litellm_params:
+      model: gemini/gemini-3-flash-preview
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+
+  - model_name: gemini-3-pro
+    litellm_params:
+      model: gemini/gemini-3-pro-preview
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+
+  - model_name: gemini-3.1-pro
+    litellm_params:
+      model: gemini/gemini-3.1-pro-preview
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+
+  - model_name: gemini-3.1-pro-tools
+    litellm_params:
+      model: gemini/gemini-3.1-pro-preview-customtools
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
 
   # --- Internal RAG (Phase 3 — uncomment when ready) ---
   # - model_name: internal-docs
