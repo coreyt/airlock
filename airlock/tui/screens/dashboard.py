@@ -103,18 +103,19 @@ class DashboardPane(Vertical):
 
     @work(thread=True, group="proxy-stdout")
     def _stream_proxy_output(self) -> None:
-        """Read proxy stdout line-by-line into the RichLog."""
+        """Read proxy output lines into the RichLog."""
+        import queue as _queue
+
         if self._proxy_manager is None:
             return
-        stream = self._proxy_manager.stdout_stream
-        if stream is None:
-            return
+        q = self._proxy_manager.output_queue
         console = self.query_one("#dash-console-log", RichLog)
-        try:
-            for line in stream:
-                console.write(line.rstrip("\n"))
-        except ValueError:
-            pass  # stream closed
+        while self._proxy_manager.is_tui_owned:
+            try:
+                line = q.get(timeout=0.5)
+                console.write(line)
+            except _queue.Empty:
+                continue
 
     # -- health check with button state -----------------------------------
 

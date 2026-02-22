@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import collections
 import os
-import signal
+import queue
 import subprocess
 import sys
-from io import TextIOWrapper
+import threading
 from pathlib import Path
 from typing import IO
 
 from dotenv import load_dotenv
+
+_MAX_LOG_LINES = 1000
 
 
 class ProxyManager:
@@ -20,6 +23,9 @@ class ProxyManager:
         self._host = host
         self._port = port
         self._process: subprocess.Popen[str] | None = None
+        self._output_queue: queue.Queue[str] = queue.Queue()
+        self._ring: collections.deque[str] = collections.deque(maxlen=_MAX_LOG_LINES)
+        self._reader_thread: threading.Thread | None = None
 
     # -- config discovery (same logic as proxy.py, without sys.exit) ------
 
@@ -42,6 +48,49 @@ class ProxyManager:
         if self.find_config() is None:
             return "config.yaml not found. Run 'airlock init' first."
         return None
+
+    # -- log file ---------------------------------------------------------
+
+    @property
+    def log_path(self) -> Path:
+        """Path to the proxy console ring log."""
+        return Path(os.getenv("AIRLOCK_LOG_DIR", "./logs")) / "proxy-console.log"
+
+    def _load_ring(self) -> None:
+        """Load existing log file lines into the ring buffer."""
+        path = self.log_path
+        if path.is_file():
+            try:
+                with open(path, encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        self._ring.append(line.rstrip("\n"))
+            except OSError:
+                pass
+
+    def _flush_ring(self) -> None:
+        """Write ring buffer contents to the log file."""
+        path = self.log_path
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                for line in self._ring:
+                    f.write(line + "\n")
+        except OSError:
+            pass
+
+    def _reader_loop(self) -> None:
+        """Read subprocess stdout, tee to ring buffer and output queue."""
+        assert self._process is not None
+        stdout = self._process.stdout
+        if stdout is None:
+            return
+        try:
+            for raw_line in stdout:
+                line = raw_line.rstrip("\n")
+                self._ring.append(line)
+                self._output_queue.put(line)
+        except ValueError:
+            pass  # stream closed
 
     # -- lifecycle --------------------------------------------------------
 
@@ -71,6 +120,9 @@ class ProxyManager:
             self._port,
         ]
 
+        # Load existing log lines into ring buffer
+        self._load_ring()
+
         self._process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -78,21 +130,34 @@ class ProxyManager:
             text=True,
             bufsize=1,
         )
+
+        self._reader_thread = threading.Thread(
+            target=self._reader_loop, daemon=True,
+        )
+        self._reader_thread.start()
+
         return None
 
     def stop(self) -> None:
         """Terminate the proxy subprocess (SIGTERM → wait → SIGKILL)."""
         if self._process is None or self._process.poll() is not None:
             self._process = None
-            return
+        else:
+            self._process.terminate()
+            try:
+                self._process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._process.kill()
+                self._process.wait(timeout=2)
+            self._process = None
 
-        self._process.terminate()
-        try:
-            self._process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            self._process.kill()
-            self._process.wait(timeout=2)
-        self._process = None
+        # Wait for reader thread to drain remaining output
+        if self._reader_thread is not None:
+            self._reader_thread.join(timeout=2)
+            self._reader_thread = None
+
+        # Persist ring buffer to disk
+        self._flush_ring()
 
     # -- properties -------------------------------------------------------
 
@@ -102,8 +167,15 @@ class ProxyManager:
         return self._process is not None and self._process.poll() is None
 
     @property
+    def output_queue(self) -> queue.Queue[str]:
+        """Queue of output lines from the proxy subprocess."""
+        return self._output_queue
+
+    @property
     def stdout_stream(self) -> IO[str] | None:
-        """Stdout pipe of the managed process, or *None*."""
-        if self._process is not None and self._process.stdout is not None:
-            return self._process.stdout
+        """Stdout pipe of the managed process, or *None*.
+
+        .. deprecated:: Use :attr:`output_queue` instead.  The raw pipe is
+           now consumed by the internal reader thread.
+        """
         return None
