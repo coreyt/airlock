@@ -25,7 +25,9 @@ from airlock.cli.post_cmd import (
     check_model_list,
     check_presidio,
     check_provider_anthropic,
+    check_provider_gemini,
     check_provider_keys,
+    check_provider_mistral,
     check_provider_openai,
     check_s3,
     check_sql,
@@ -107,6 +109,14 @@ class TestExtractProvider:
     def test_openai(self):
         entry = {"litellm_params": {"model": "openai/gpt-4o"}}
         assert _extract_provider(entry) == "openai"
+
+    def test_gemini(self):
+        entry = {"litellm_params": {"model": "gemini/gemini-2.5-flash"}}
+        assert _extract_provider(entry) == "gemini"
+
+    def test_mistral(self):
+        entry = {"litellm_params": {"model": "mistral/mistral-large-latest"}}
+        assert _extract_provider(entry) == "mistral"
 
     def test_no_slash(self):
         entry = {"litellm_params": {"model": "gpt-4o"}}
@@ -324,6 +334,130 @@ class TestCheckProviderAnthropic:
         exc = urllib.error.URLError("Connection refused")
         with mock.patch("airlock.cli.post_cmd.urllib.request.urlopen", side_effect=exc):
             result = check_provider_anthropic(config, False)
+        assert result.status == CheckStatus.WARN
+        assert "connection error" in result.detail
+
+
+class TestCheckProviderMistral:
+    def test_skip_when_no_mistral_models(self):
+        config = {"model_list": [{"litellm_params": {"model": "anthropic/claude"}}]}
+        result = check_provider_mistral(config, False)
+        assert result.status == CheckStatus.SKIP
+        assert "no Mistral models" in result.detail
+
+    def test_skip_when_no_api_key(self, monkeypatch):
+        monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+        config = {
+            "model_list": [
+                {"litellm_params": {"model": "mistral/mistral-large-latest", "api_key": "os.environ/MISTRAL_API_KEY"}},
+            ]
+        }
+        result = check_provider_mistral(config, False)
+        assert result.status == CheckStatus.SKIP
+        assert "API key not set" in result.detail
+
+    def test_pass_on_200(self, monkeypatch):
+        monkeypatch.setenv("MISTRAL_API_KEY", "sk-test")
+        config = {
+            "model_list": [
+                {"litellm_params": {"model": "mistral/mistral-large-latest", "api_key": "os.environ/MISTRAL_API_KEY"}},
+            ]
+        }
+        mock_resp = mock.MagicMock()
+        with mock.patch("airlock.cli.post_cmd.urllib.request.urlopen", return_value=mock_resp):
+            result = check_provider_mistral(config, False)
+        assert result.status == CheckStatus.PASS
+        assert "authenticated" in result.detail
+
+    def test_fail_on_401(self, monkeypatch):
+        monkeypatch.setenv("MISTRAL_API_KEY", "sk-bad")
+        config = {
+            "model_list": [
+                {"litellm_params": {"model": "mistral/mistral-large-latest", "api_key": "os.environ/MISTRAL_API_KEY"}},
+            ]
+        }
+        import urllib.error
+
+        exc = urllib.error.HTTPError("url", 401, "Unauthorized", {}, None)
+        with mock.patch("airlock.cli.post_cmd.urllib.request.urlopen", side_effect=exc):
+            result = check_provider_mistral(config, False)
+        assert result.status == CheckStatus.FAIL
+        assert "401" in result.detail
+
+    def test_warn_on_connection_error(self, monkeypatch):
+        monkeypatch.setenv("MISTRAL_API_KEY", "sk-test")
+        config = {
+            "model_list": [
+                {"litellm_params": {"model": "mistral/mistral-large-latest", "api_key": "os.environ/MISTRAL_API_KEY"}},
+            ]
+        }
+        import urllib.error
+
+        exc = urllib.error.URLError("Connection refused")
+        with mock.patch("airlock.cli.post_cmd.urllib.request.urlopen", side_effect=exc):
+            result = check_provider_mistral(config, False)
+        assert result.status == CheckStatus.WARN
+        assert "connection error" in result.detail
+
+
+class TestCheckProviderGemini:
+    def test_skip_when_no_gemini_models(self):
+        config = {"model_list": [{"litellm_params": {"model": "anthropic/claude"}}]}
+        result = check_provider_gemini(config, False)
+        assert result.status == CheckStatus.SKIP
+        assert "no Gemini models" in result.detail
+
+    def test_skip_when_no_api_key(self, monkeypatch):
+        monkeypatch.delenv("GOOGLE_AISTUDIO_API_KEY", raising=False)
+        config = {
+            "model_list": [
+                {"litellm_params": {"model": "gemini/gemini-2.5-flash", "api_key": "os.environ/GOOGLE_AISTUDIO_API_KEY"}},
+            ]
+        }
+        result = check_provider_gemini(config, False)
+        assert result.status == CheckStatus.SKIP
+        assert "API key not set" in result.detail
+
+    def test_pass_on_200(self, monkeypatch):
+        monkeypatch.setenv("GOOGLE_AISTUDIO_API_KEY", "AIza-test")
+        config = {
+            "model_list": [
+                {"litellm_params": {"model": "gemini/gemini-2.5-flash", "api_key": "os.environ/GOOGLE_AISTUDIO_API_KEY"}},
+            ]
+        }
+        mock_resp = mock.MagicMock()
+        with mock.patch("airlock.cli.post_cmd.urllib.request.urlopen", return_value=mock_resp):
+            result = check_provider_gemini(config, False)
+        assert result.status == CheckStatus.PASS
+        assert "authenticated" in result.detail
+
+    def test_fail_on_401(self, monkeypatch):
+        monkeypatch.setenv("GOOGLE_AISTUDIO_API_KEY", "AIza-bad")
+        config = {
+            "model_list": [
+                {"litellm_params": {"model": "gemini/gemini-2.5-flash", "api_key": "os.environ/GOOGLE_AISTUDIO_API_KEY"}},
+            ]
+        }
+        import urllib.error
+
+        exc = urllib.error.HTTPError("url", 401, "Unauthorized", {}, None)
+        with mock.patch("airlock.cli.post_cmd.urllib.request.urlopen", side_effect=exc):
+            result = check_provider_gemini(config, False)
+        assert result.status == CheckStatus.FAIL
+        assert "401" in result.detail
+
+    def test_warn_on_connection_error(self, monkeypatch):
+        monkeypatch.setenv("GOOGLE_AISTUDIO_API_KEY", "AIza-test")
+        config = {
+            "model_list": [
+                {"litellm_params": {"model": "gemini/gemini-2.5-flash", "api_key": "os.environ/GOOGLE_AISTUDIO_API_KEY"}},
+            ]
+        }
+        import urllib.error
+
+        exc = urllib.error.URLError("Connection refused")
+        with mock.patch("airlock.cli.post_cmd.urllib.request.urlopen", side_effect=exc):
+            result = check_provider_gemini(config, False)
         assert result.status == CheckStatus.WARN
         assert "connection error" in result.detail
 

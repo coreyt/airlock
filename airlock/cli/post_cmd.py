@@ -430,6 +430,138 @@ def check_provider_openai(config: dict, verbose: bool) -> CheckResult:
         )
 
 
+@_register("provider_mistral", "Mistral AI API", "Providers", skip_flag="skip_llm")
+def check_provider_mistral(config: dict, verbose: bool) -> CheckResult:
+    if not _has_provider(config, "mistral"):
+        return CheckResult(
+            name="provider_mistral",
+            status=CheckStatus.SKIP,
+            label="Mistral AI API",
+            detail="no Mistral models configured",
+            group="Providers",
+        )
+
+    api_key = _get_api_key_for_provider(config, "mistral")
+    if not api_key:
+        return CheckResult(
+            name="provider_mistral",
+            status=CheckStatus.SKIP,
+            label="Mistral AI API",
+            detail="API key not set",
+            group="Providers",
+        )
+
+    # GET /v1/models (free, just checks auth — same pattern as OpenAI)
+    t0 = time.monotonic()
+    try:
+        req = urllib.request.Request(
+            "https://api.mistral.ai/v1/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        ctx = ssl.create_default_context()
+        urllib.request.urlopen(req, timeout=15, context=ctx)  # noqa: S310
+        elapsed = (time.monotonic() - t0) * 1000
+        return CheckResult(
+            name="provider_mistral",
+            status=CheckStatus.PASS,
+            label="Mistral AI API",
+            detail=f"authenticated ({elapsed:.0f}ms)",
+            duration_ms=elapsed,
+            group="Providers",
+        )
+    except urllib.error.HTTPError as exc:
+        elapsed = (time.monotonic() - t0) * 1000
+        return CheckResult(
+            name="provider_mistral",
+            status=CheckStatus.FAIL,
+            label="Mistral AI API",
+            detail=f"{exc.code} {exc.reason}",
+            duration_ms=elapsed,
+            group="Providers",
+        )
+    except (urllib.error.URLError, OSError) as exc:
+        elapsed = (time.monotonic() - t0) * 1000
+        reason = str(getattr(exc, "reason", exc))
+        return CheckResult(
+            name="provider_mistral",
+            status=CheckStatus.WARN,
+            label="Mistral AI API",
+            detail=f"connection error: {reason}",
+            duration_ms=elapsed,
+            group="Providers",
+        )
+
+
+@_register("provider_gemini", "Google Gemini API", "Providers", skip_flag="skip_llm")
+def check_provider_gemini(config: dict, verbose: bool) -> CheckResult:
+    if not _has_provider(config, "gemini"):
+        return CheckResult(
+            name="provider_gemini",
+            status=CheckStatus.SKIP,
+            label="Google Gemini API",
+            detail="no Gemini models configured",
+            group="Providers",
+        )
+
+    api_key = _get_api_key_for_provider(config, "gemini")
+    if not api_key:
+        return CheckResult(
+            name="provider_gemini",
+            status=CheckStatus.SKIP,
+            label="Google Gemini API",
+            detail="API key not set",
+            group="Providers",
+        )
+
+    # 1-token generation to verify auth (x-goog-api-key header avoids key in URL)
+    t0 = time.monotonic()
+    try:
+        payload = json.dumps({
+            "contents": [{"parts": [{"text": "hi"}]}],
+            "generationConfig": {"maxOutputTokens": 1},
+        }).encode()
+        req = urllib.request.Request(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": api_key,
+            },
+        )
+        ctx = ssl.create_default_context()
+        urllib.request.urlopen(req, timeout=15, context=ctx)  # noqa: S310
+        elapsed = (time.monotonic() - t0) * 1000
+        return CheckResult(
+            name="provider_gemini",
+            status=CheckStatus.PASS,
+            label="Google Gemini API",
+            detail=f"authenticated ({elapsed:.0f}ms)",
+            duration_ms=elapsed,
+            group="Providers",
+        )
+    except urllib.error.HTTPError as exc:
+        elapsed = (time.monotonic() - t0) * 1000
+        return CheckResult(
+            name="provider_gemini",
+            status=CheckStatus.FAIL,
+            label="Google Gemini API",
+            detail=f"{exc.code} {exc.reason}",
+            duration_ms=elapsed,
+            group="Providers",
+        )
+    except (urllib.error.URLError, OSError) as exc:
+        elapsed = (time.monotonic() - t0) * 1000
+        reason = str(getattr(exc, "reason", exc))
+        return CheckResult(
+            name="provider_gemini",
+            status=CheckStatus.WARN,
+            label="Google Gemini API",
+            detail=f"connection error: {reason}",
+            duration_ms=elapsed,
+            group="Providers",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Storage group checks
 # ---------------------------------------------------------------------------

@@ -20,9 +20,26 @@
             "command": "aural plan-check"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/git-commit-check.sh"
+          }
+        ]
       }
     ],
     "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"
+          }
+        ]
+      },
       {
         "hooks": [
           {
@@ -38,6 +55,14 @@
           {
             "type": "command",
             "command": "aural session-end && aural snapshot && aural render-projection && aural render-aural-dir"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-stop.sh"
           }
         ]
       }
