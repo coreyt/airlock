@@ -1,6 +1,6 @@
 # Airlock — Project Progress
 
-## Status: Intelligent Routing Complete
+## Status: Smart Complexity Routing Complete
 
 Last updated: 2026-02-28
 
@@ -149,6 +149,28 @@ Directive priority: session affinity > cost tier > provider preference > budget
 awareness. Router runs in guardian between threat check and circuit breaker so
 the routed model gets circuit-checked. 43 new tests (612 total).
 
+### Native Complexity Routing (`model: smart`)
+Clients send `model: "smart"` and Airlock auto-classifies prompt complexity to
+route to the appropriate cost tier. Native heuristic classifier in `router.py`
+— no ML dependencies, ~50μs latency.
+
+Six weighted text features (sum to 1.0):
+- Token count (0.30) — sigmoid mapping 20–150 words
+- Code blocks (0.25) — fenced ``` or inline backticks
+- Reasoning keywords (0.20) — 20-word frozenset, saturates at 3 hits
+- Multi-step indicators (0.10) — compiled regex for numbered lists + sequencing words
+- Vocabulary richness (0.10) — unique/total word ratio
+- Sentence length (0.05) — weak tiebreaker
+
+Composite score 0–1 maps to: `<0.30` → simple (low tier), `0.30–0.60` →
+moderate (medium tier), `≥0.60` → complex (high tier). Thresholds configurable
+via `AIRLOCK_SMART_THRESHOLDS` env var.
+
+Composes with all other directives: `model: smart` + `prefer_provider: gemini` +
+`session_id: X` all work together. Classification metadata attached to
+`airlock_routing.smart_classify` for slow analyzer observability. 25 new tests
+(637 total).
+
 ## Readiness
 
 All subsystems are real, wired into LiteLLM, and tested. The end-to-end flow
@@ -229,8 +251,8 @@ All 7 succeeded. JSONL logs confirmed written to `logs/airlock-2026-02-22.jsonl`
 
 ## Test Suite
 
-- **612 tests** across 28 test files
-- **612 passing**, 0 failing
+- **637 tests** across 28 test files
+- **637 passing**, 0 failing
 - Presidio engines shared via session fixture to avoid OOM
 - TUI tests use async `app.run_test()` pattern
 - ProxyManager tests cover subprocess lifecycle, ring log, and output queue

@@ -94,14 +94,13 @@ model_list:
       api_key: os.environ/MISTRAL_API_KEY
 
   # --- Smart Router (auto-selects model by query complexity) ---
-  # Requires: pip install semantic-router, an embedding model, and route configs.
-  # See: https://docs.litellm.ai/docs/proxy/auto_router
-  # - model_name: smart
-  #   litellm_params:
-  #     model: auto_router/smart
-  #     auto_router_config: '{"routes":[...]}'
-  #     auto_router_default_model: claude-sonnet
-  #     auto_router_embedding_model: text-embedding-3-small
+  # Send model: "smart" and Airlock auto-classifies prompt complexity:
+  #   simple → low-cost tier (claude-haiku, gemini-flash, gpt-4o-mini)
+  #   moderate → balanced tier (claude-sonnet, gemini-pro, gpt-4o)
+  #   complex → powerful tier (claude-opus, gemini-3-pro)
+  # Native heuristic classifier in router.py — no ML deps, ~50μs latency.
+  # Thresholds configurable via AIRLOCK_SMART_THRESHOLDS env var.
+  # Composes with other directives: session_id, prefer_provider, cost_tier.
 
   # --- Internal RAG (Phase 3 — uncomment when ready) ---
   # - model_name: internal-docs

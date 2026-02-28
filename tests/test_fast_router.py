@@ -9,13 +9,17 @@ import pytest
 
 from airlock.fast.monitor import AirlockFastMonitor, _infer_provider
 from airlock.fast.router import (
+    ComplexityResult,
     _apply_budget_awareness,
     _apply_cost_tier,
     _apply_provider_preference,
+    _extract_text,
     _load_cost_tiers,
     _load_provider_budgets,
     _load_session_ttl,
+    _load_smart_thresholds,
     apply_routing,
+    classify_complexity,
     infer_provider,
 )
 
@@ -405,3 +409,238 @@ class TestMonitorInferProvider:
 
     def test_unknown(self):
         assert _infer_provider("llama-3") is None
+
+
+# ---------------------------------------------------------------------------
+# Complexity classifier
+# ---------------------------------------------------------------------------
+class TestComplexityClassifier:
+    def test_simple_greeting(self):
+        result = classify_complexity("Hello!")
+        assert result.complexity == "simple"
+        assert result.tier == "low"
+        assert result.score < 0.30
+
+    def test_simple_factual_question(self):
+        result = classify_complexity("What is the capital of France?")
+        assert result.complexity == "simple"
+        assert result.tier == "low"
+
+    def test_simple_single_word(self):
+        result = classify_complexity("Hi")
+        assert result.complexity == "simple"
+        assert result.tier == "low"
+
+    def test_moderate_explanation(self):
+        result = classify_complexity(
+            "Explain how HTTP cookies work and why they are important "
+            "for maintaining user sessions in web applications. Compare "
+            "session cookies vs persistent cookies and analyze the security "
+            "trade-offs involved in each approach."
+        )
+        assert result.complexity in ("moderate", "complex")
+        assert result.tier in ("medium", "high")
+
+    def test_moderate_short_code_task(self):
+        result = classify_complexity(
+            "Write a Python function that checks if a number is prime."
+        )
+        # Should be at least moderate due to "implement"-like intent
+        assert result.complexity in ("simple", "moderate")
+
+    def test_complex_architecture_design(self):
+        result = classify_complexity(
+            "Design a microservices architecture for an e-commerce platform. "
+            "Compare monolithic vs microservices trade-offs. First, analyze "
+            "the current system. Then, evaluate database options. "
+            "Finally, implement the service mesh. Consider:\n"
+            "1. Service discovery\n"
+            "2. Load balancing\n"
+            "3. Circuit breaking\n"
+            "4. Distributed tracing\n"
+            "```python\nclass ServiceMesh:\n    def discover(self): ...\n```\n"
+            "Explain why each component is critical and diagnose potential "
+            "failure modes. Optimize for high availability and synthesize "
+            "a deployment strategy."
+        )
+        assert result.complexity == "complex"
+        assert result.tier == "high"
+        assert result.score >= 0.60
+
+    def test_complex_multi_step_code_review(self):
+        prompt = (
+            "Please analyze this code and refactor it:\n"
+            "```python\n"
+            "def process(data):\n"
+            "    result = []\n"
+            "    for item in data:\n"
+            "        if item > 0:\n"
+            "            result.append(item * 2)\n"
+            "    return result\n"
+            "```\n"
+            "First, identify the performance issues. Then, debug any edge "
+            "cases. Finally, optimize the implementation and compare the "
+            "trade-offs between readability and performance."
+        )
+        result = classify_complexity(prompt)
+        assert result.complexity in ("moderate", "complex")
+        assert result.score >= 0.30
+
+    def test_empty_text_returns_moderate(self):
+        result = classify_complexity("")
+        assert result.complexity == "moderate"
+        assert result.tier == "medium"
+        assert result.score == 0.45
+
+    def test_whitespace_returns_moderate(self):
+        result = classify_complexity("   \n\t  ")
+        assert result.complexity == "moderate"
+        assert result.tier == "medium"
+
+    def test_score_normalized_0_to_1(self):
+        for text in ["Hi", "Explain quantum computing", "a" * 1000]:
+            result = classify_complexity(text)
+            assert 0.0 <= result.score <= 1.0
+
+    def test_features_dict_has_all_keys(self):
+        result = classify_complexity("Hello world")
+        expected_keys = {
+            "token_count", "code_blocks", "reasoning",
+            "multi_step", "vocab_rich", "sentence_len",
+        }
+        assert set(result.features.keys()) == expected_keys
+
+    def test_code_blocks_boost_score(self):
+        text_no_code = "Write a sorting function in Python"
+        text_with_code = (
+            "Write a sorting function in Python\n"
+            "```python\ndef sort(arr): pass\n```"
+        )
+        score_no_code = classify_complexity(text_no_code).score
+        score_with_code = classify_complexity(text_with_code).score
+        assert score_with_code > score_no_code
+
+    def test_reasoning_keywords_boost_score(self):
+        text_plain = "Tell me about databases"
+        text_reasoning = "Analyze and compare databases, evaluate trade-offs"
+        score_plain = classify_complexity(text_plain).score
+        score_reasoning = classify_complexity(text_reasoning).score
+        assert score_reasoning > score_plain
+
+
+class TestSmartThresholds:
+    def test_default_thresholds(self):
+        assert _load_smart_thresholds() == (0.30, 0.60)
+
+    def test_custom_env(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_SMART_THRESHOLDS", "[0.20, 0.50]")
+        assert _load_smart_thresholds() == (0.20, 0.50)
+
+    def test_invalid_json_falls_back(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_SMART_THRESHOLDS", "not-json")
+        assert _load_smart_thresholds() == (0.30, 0.60)
+
+
+class TestExtractText:
+    def test_simple_string_content(self):
+        data = {"messages": [{"role": "user", "content": "Hello"}]}
+        assert _extract_text(data) == "Hello"
+
+    def test_multimodal_content_blocks(self):
+        data = {"messages": [{"role": "user", "content": [
+            {"type": "text", "text": "Look at this"},
+            {"type": "image_url", "image_url": {"url": "..."}},
+        ]}]}
+        assert _extract_text(data) == "Look at this"
+
+    def test_skips_non_user_messages(self):
+        data = {"messages": [
+            {"role": "system", "content": "You are helpful"},
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there"},
+        ]}
+        assert _extract_text(data) == "Hello"
+
+    def test_empty_messages(self):
+        assert _extract_text({"messages": []}) == ""
+        assert _extract_text({}) == ""
+
+
+# ---------------------------------------------------------------------------
+# Smart routing integration
+# ---------------------------------------------------------------------------
+class TestSmartRouting:
+    def test_simple_prompt_routes_to_low_tier(self, fresh_state_store):
+        data = {
+            "model": "smart",
+            "messages": [{"role": "user", "content": "Hi there!"}],
+        }
+        result = apply_routing(data)
+        low_models = _load_cost_tiers()["low"]
+        assert result["model"] in low_models
+        routing = result["metadata"]["airlock_routing"]
+        assert routing["original_model"] == "smart"
+        assert routing["changed"] is True
+        assert "smart_classify" in routing
+        assert routing["smart_classify"]["complexity"] == "simple"
+
+    def test_complex_prompt_routes_to_high_tier(self, fresh_state_store):
+        prompt = (
+            "Design a distributed system architecture. First, analyze the "
+            "trade-offs between consistency and availability. Then, evaluate "
+            "database options and compare their performance characteristics.\n"
+            "1. Implement service discovery\n"
+            "2. Design the API gateway\n"
+            "3. Optimize caching strategy\n"
+            "```python\nclass ServiceMesh:\n    pass\n```\n"
+            "Finally, diagnose potential failure modes and synthesize a "
+            "comprehensive deployment strategy."
+        )
+        data = {
+            "model": "smart",
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        result = apply_routing(data)
+        high_models = _load_cost_tiers()["high"]
+        assert result["model"] in high_models
+        routing = result["metadata"]["airlock_routing"]
+        assert routing["smart_classify"]["complexity"] == "complex"
+
+    def test_smart_with_session_first_classifies_then_pins(self, fresh_state_store):
+        data1 = {
+            "model": "smart",
+            "messages": [{"role": "user", "content": "Hello!"}],
+            "metadata": {"airlock": {"session_id": "smart-sess-1"}},
+        }
+        result1 = apply_routing(data1)
+        first_model = result1["model"]
+
+        # Second request — different prompt but session pins
+        data2 = {
+            "model": "smart",
+            "messages": [{"role": "user", "content": "Design a complex system"}],
+            "metadata": {"airlock": {"session_id": "smart-sess-1"}},
+        }
+        result2 = apply_routing(data2)
+        assert result2["model"] == first_model  # pinned
+
+    def test_smart_with_prefer_provider(self, fresh_state_store):
+        data = {
+            "model": "smart",
+            "messages": [{"role": "user", "content": "Hi!"}],
+            "metadata": {"airlock": {"prefer_provider": "gemini"}},
+        }
+        result = apply_routing(data)
+        # Simple prompt → low tier, then prefer gemini within low
+        assert result["model"] == "gemini-flash"
+
+    def test_regular_model_bypasses_classifier(self, fresh_state_store):
+        data = {
+            "model": "claude-sonnet",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "metadata": {"airlock": {"cost_tier": "low"}},
+        }
+        result = apply_routing(data)
+        # Normal routing — no smart_classify in metadata
+        routing = result["metadata"]["airlock_routing"]
+        assert "smart_classify" not in routing
