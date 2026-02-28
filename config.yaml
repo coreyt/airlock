@@ -94,16 +94,14 @@ model_list:
       api_key: os.environ/MISTRAL_API_KEY
 
   # --- Smart Router (auto-selects model by query complexity) ---
-  - model_name: smart
-    litellm_params:
-      model: auto_router/complexity_router
-      complexity_router_config:
-        tiers:
-          SIMPLE: claude-haiku
-          MEDIUM: claude-sonnet
-          COMPLEX: claude-opus
-          REASONING: claude-opus
-      complexity_router_default_model: claude-sonnet
+  # Requires: pip install semantic-router, an embedding model, and route configs.
+  # See: https://docs.litellm.ai/docs/proxy/auto_router
+  # - model_name: smart
+  #   litellm_params:
+  #     model: auto_router/smart
+  #     auto_router_config: '{"routes":[...]}'
+  #     auto_router_default_model: claude-sonnet
+  #     auto_router_embedding_model: text-embedding-3-small
 
   # --- Internal RAG (Phase 3 — uncomment when ready) ---
   # - model_name: internal-docs
@@ -164,7 +162,6 @@ router_settings:
     - mistral-large: [claude-sonnet, gpt-4o, gemini-pro]
     - codestral: [claude-sonnet, gpt-4o, gemini-pro]
     - magistral-medium: [claude-opus, gemini-3.1-pro, gpt-4o]
-    - smart: [claude-sonnet]
 
 # ---------------------------------------------------------------------------
 # Guardrails
