@@ -328,17 +328,14 @@ class TestApplyRouting:
         assert routing["changed"] is True
         assert len(routing["reasons"]) == 2
 
-    def test_smart_model_not_overridden(self, fresh_state_store):
-        """The 'smart' model is handled by LiteLLM's complexity router,
-        not by Airlock routing directives."""
+    def test_unknown_model_with_cost_tier(self, fresh_state_store):
+        """Unknown model names get tier-swapped like any other model."""
         data = {
-            "model": "smart",
+            "model": "some-unknown-model",
             "metadata": {"airlock": {"cost_tier": "low"}},
         }
         result = apply_routing(data)
-        # "smart" is not in the low tier, so it gets swapped to the first low model.
-        # This is correct behavior — if a client explicitly says cost_tier=low
-        # and model=smart, they want a cheap model.
+        # Not in the low tier, so gets swapped to the first low model
         assert result["model"] in _load_cost_tiers()["low"]
 
 

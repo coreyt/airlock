@@ -129,8 +129,8 @@ Seven routing features — 3 config-only leveraging LiteLLM built-ins, 4 requiri
 new Airlock code — giving clients composable routing directives.
 
 **Config-only (Tier 1):**
-1. **Smart complexity router** — `model_name: smart` using LiteLLM's
-   `auto_router/complexity_router` (SIMPLE→haiku, MEDIUM→sonnet, COMPLEX→opus)
+1. ~~**Smart complexity router**~~ — commented out; LiteLLM auto-router requires
+   `semantic_router` package + embedding model, not a lightweight classifier
 2. **Cost-based routing** — `router_settings.routing_strategy: cost-based-routing`
 3. **Provider budget caps + fallbacks** — daily budget limits per provider plus
    cross-provider fallback chains for all 14 models
