@@ -1,0 +1,308 @@
+"""
+Airlock Fast Router — Intelligent model routing via client directives.
+
+Clients influence model selection by passing directives in ``metadata.airlock``:
+
+    {"model": "claude-sonnet", "metadata": {"airlock": {
+        "session_id": "abc123",    # pin to a model for session duration
+        "cost_tier": "low",        # restrict to low-cost models
+        "prefer_provider": "anthropic"  # soft tiebreaker
+    }}}
+
+Directive application order:
+  1. Session affinity — existing sessions pin to their recorded model
+  2. Cost tier — restrict to models in the requested cost tier
+  3. Provider preference — soft tiebreaker among viable models
+  4. Budget awareness — proactively avoid providers near daily budget
+
+Called from guardian.py between threat assessment and circuit breaker.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import time
+
+from .state import store
+
+logger = logging.getLogger("airlock.fast.router")
+
+# ---------------------------------------------------------------------------
+# Default cost tiers
+# ---------------------------------------------------------------------------
+_DEFAULT_COST_TIERS: dict[str, list[str]] = {
+    "low": [
+        "claude-haiku", "gemini-flash", "gemini-flash-lite",
+        "gpt-4o-mini", "mistral-small",
+    ],
+    "medium": [
+        "claude-sonnet", "gemini-pro", "gpt-4o",
+        "mistral-large", "codestral",
+    ],
+    "high": [
+        "claude-opus", "gemini-3-pro", "gemini-3.1-pro",
+        "magistral-medium",
+    ],
+}
+
+_DEFAULT_SESSION_TTL = 3600  # 1 hour
+
+_DEFAULT_PROVIDER_BUDGETS: dict[str, float] = {
+    "anthropic": 50.0,
+    "openai": 50.0,
+    "gemini": 25.0,
+    "mistral": 25.0,
+}
+
+_BUDGET_WARN_THRESHOLD = 0.9  # 90% of budget triggers proactive swap
+
+# Provider inference — prefix heuristic (duplicated from monitor to avoid
+# circular imports; both modules import state).
+_PROVIDER_PREFIXES = {
+    "claude": "anthropic",
+    "gpt": "openai",
+    "gemini": "gemini",
+    "mistral": "mistral",
+    "codestral": "mistral",
+    "magistral": "mistral",
+}
+
+
+# ---------------------------------------------------------------------------
+# Env-var loaders
+# ---------------------------------------------------------------------------
+def _load_cost_tiers() -> dict[str, list[str]]:
+    raw = os.environ.get("AIRLOCK_COST_TIERS")
+    if not raw:
+        return dict(_DEFAULT_COST_TIERS)
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("Invalid AIRLOCK_COST_TIERS JSON, using defaults")
+        return dict(_DEFAULT_COST_TIERS)
+
+
+def _load_session_ttl() -> int:
+    raw = os.environ.get("AIRLOCK_SESSION_TTL")
+    if raw:
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+    return _DEFAULT_SESSION_TTL
+
+
+def _load_provider_budgets() -> dict[str, float]:
+    raw = os.environ.get("AIRLOCK_PROVIDER_BUDGETS")
+    if not raw:
+        return dict(_DEFAULT_PROVIDER_BUDGETS)
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("Invalid AIRLOCK_PROVIDER_BUDGETS JSON, using defaults")
+        return dict(_DEFAULT_PROVIDER_BUDGETS)
+
+
+# ---------------------------------------------------------------------------
+# Provider inference
+# ---------------------------------------------------------------------------
+def infer_provider(model_name: str) -> str | None:
+    """Map a model alias to its provider name via prefix matching."""
+    for prefix, provider in _PROVIDER_PREFIXES.items():
+        if model_name.startswith(prefix):
+            return provider
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Individual directive handlers
+# ---------------------------------------------------------------------------
+def _apply_cost_tier(
+    tier: str, model: str
+) -> tuple[str, str | None]:
+    """Restrict model to the requested cost tier.
+
+    Returns (model, reason) — reason is None if no change.
+    """
+    if tier == "any":
+        return model, None
+
+    tiers = _load_cost_tiers()
+    tier_models = tiers.get(tier)
+    if not tier_models:
+        logger.warning("Unknown cost tier %r, ignoring", tier)
+        return model, None
+
+    if model in tier_models:
+        return model, None
+
+    # Swap to first model in the tier list
+    new_model = tier_models[0]
+    return new_model, f"cost_tier({tier}\u2192{new_model})"
+
+
+def _apply_provider_preference(
+    provider: str, model: str, candidates: list[str] | None
+) -> tuple[str, str | None]:
+    """Soft tiebreaker: prefer models from the requested provider.
+
+    Returns (model, reason) — reason is None if no change.
+    """
+    current_provider = infer_provider(model)
+    if current_provider == provider:
+        return model, None
+
+    # Look for a candidate from the preferred provider
+    search_pool = candidates if candidates else []
+    for candidate in search_pool:
+        if infer_provider(candidate) == provider:
+            return candidate, f"prefer_provider({provider}\u2192{candidate})"
+
+    return model, None
+
+
+def _apply_budget_awareness(
+    model: str, candidates: list[str] | None
+) -> tuple[str, str | None]:
+    """Proactively swap away from providers near their daily budget.
+
+    Returns (model, reason) — reason is None if no change.
+    """
+    provider = infer_provider(model)
+    if not provider:
+        return model, None
+
+    budgets = _load_provider_budgets()
+    budget_limit = budgets.get(provider)
+    if not budget_limit:
+        return model, None
+
+    spend = store.get_provider_spend(provider).recent_spend()
+    if spend < budget_limit * _BUDGET_WARN_THRESHOLD:
+        return model, None
+
+    # Current provider is near budget — find an alternative
+    search_pool = candidates if candidates else []
+    for candidate in search_pool:
+        alt_provider = infer_provider(candidate)
+        if not alt_provider or alt_provider == provider:
+            continue
+        alt_budget = budgets.get(alt_provider)
+        if not alt_budget:
+            # No budget configured for this provider — safe to use
+            return candidate, f"budget({provider}@{spend:.1f}/{budget_limit:.1f}\u2192{candidate})"
+        alt_spend = store.get_provider_spend(alt_provider).recent_spend()
+        if alt_spend < alt_budget * _BUDGET_WARN_THRESHOLD:
+            return candidate, f"budget({provider}@{spend:.1f}/{budget_limit:.1f}\u2192{candidate})"
+
+    logger.warning(
+        "All providers near budget, staying on %s (%s: $%.1f/$%.1f)",
+        model, provider, spend, budget_limit,
+    )
+    return model, None
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
+def apply_routing(data: dict) -> dict:
+    """Apply intelligent routing directives from metadata.airlock.
+
+    Called from guardian.py between threat assessment and circuit breaker.
+    Mutates ``data["model"]`` and attaches ``metadata.airlock_routing``.
+    """
+    metadata = data.get("metadata") or {}
+    airlock_meta = metadata.get("airlock") or {}
+
+    if not airlock_meta:
+        return data
+
+    original_model = data.get("model", "unknown")
+    model = original_model
+    reasons: list[str] = []
+
+    session_id = airlock_meta.get("session_id")
+    cost_tier = airlock_meta.get("cost_tier")
+    prefer_provider = airlock_meta.get("prefer_provider")
+
+    # Determine candidate pool (cost-tier-filtered if applicable)
+    tier_candidates: list[str] | None = None
+    if cost_tier and cost_tier != "any":
+        tiers = _load_cost_tiers()
+        tier_candidates = tiers.get(cost_tier)
+
+    # ---- 1. Session affinity ----
+    session_ttl = _load_session_ttl()
+    if session_id:
+        existing = store.get_session(session_id)
+        if existing and (time.time() - existing.last_used) < session_ttl:
+            # Active session — pin to recorded model
+            model = existing.model
+            existing.last_used = time.time()
+            reasons.append(f"session_pin({existing.model})")
+        else:
+            # New or expired session — apply other directives first,
+            # then pin the result
+            if cost_tier:
+                model, reason = _apply_cost_tier(cost_tier, model)
+                if reason:
+                    reasons.append(reason)
+
+            if prefer_provider:
+                model, reason = _apply_provider_preference(
+                    prefer_provider, model, tier_candidates,
+                )
+                if reason:
+                    reasons.append(reason)
+
+            model, reason = _apply_budget_awareness(model, tier_candidates)
+            if reason:
+                reasons.append(reason)
+
+            # Pin the resolved model
+            store.set_session(session_id, model)
+            reasons.append(f"session_new({model})")
+    else:
+        # No session — apply directives in order
+        if cost_tier:
+            model, reason = _apply_cost_tier(cost_tier, model)
+            if reason:
+                reasons.append(reason)
+
+        if prefer_provider:
+            model, reason = _apply_provider_preference(
+                prefer_provider, model, tier_candidates,
+            )
+            if reason:
+                reasons.append(reason)
+
+        model, reason = _apply_budget_awareness(model, tier_candidates)
+        if reason:
+            reasons.append(reason)
+
+    # ---- Attach routing metadata ----
+    changed = model != original_model
+    if reasons:
+        data["model"] = model
+        metadata = data.setdefault("metadata", {})
+        routing_meta: dict = {
+            "original_model": original_model,
+            "routed_model": model,
+            "changed": changed,
+            "reasons": reasons,
+        }
+        if session_id:
+            routing_meta["session_id"] = session_id
+        if cost_tier:
+            routing_meta["cost_tier"] = cost_tier
+        metadata["airlock_routing"] = routing_meta
+
+        if changed:
+            logger.info(
+                "routed %s\u2192%s reasons=%s",
+                original_model, model, reasons,
+            )
+
+    return data

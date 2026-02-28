@@ -5,7 +5,8 @@ Tracks per-client and per-model metrics in real-time using sliding
 windows.  Thread-safe for concurrent async request handlers.
 
 The state store is the single source of truth that the priority scorer,
-circuit breaker, and threat detector all read from and write to.
+circuit breaker, threat detector, and intelligent router all read from
+and write to.
 """
 
 from __future__ import annotations
@@ -77,6 +78,37 @@ class ClientState:
 
     def is_in_backoff(self) -> bool:
         return time.time() < self.backoff_until
+
+
+# ---------------------------------------------------------------------------
+# Session affinity
+# ---------------------------------------------------------------------------
+@dataclass
+class SessionRecord:
+    """Tracks which model a session is pinned to."""
+
+    session_id: str
+    model: str
+    created_at: float = 0.0
+    last_used: float = 0.0
+
+
+# ---------------------------------------------------------------------------
+# Provider spend tracking
+# ---------------------------------------------------------------------------
+@dataclass
+class ProviderSpend:
+    """Tracks cumulative spend for a provider in a rolling window."""
+
+    provider: str
+    spend_records: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
+
+    def record_spend(self, timestamp: float, cost_usd: float) -> None:
+        self.spend_records.append((timestamp, cost_usd))
+
+    def recent_spend(self, window_seconds: float = 86400.0) -> float:
+        cutoff = time.time() - window_seconds
+        return sum(cost for t, cost in self.spend_records if t > cutoff)
 
 
 # ---------------------------------------------------------------------------
@@ -152,6 +184,8 @@ class StateStore:
         self._lock = threading.Lock()
         self._clients: dict[str, ClientState] = {}
         self._models: dict[str, ModelState] = {}
+        self._sessions: dict[str, SessionRecord] = {}
+        self._provider_spend: dict[str, ProviderSpend] = {}
 
     def get_client(self, client_id: str) -> ClientState:
         with self._lock:
@@ -172,6 +206,37 @@ class StateStore:
     def all_models(self) -> dict[str, ModelState]:
         with self._lock:
             return dict(self._models)
+
+    # -- Session affinity --------------------------------------------------
+
+    def get_session(self, session_id: str) -> SessionRecord | None:
+        with self._lock:
+            return self._sessions.get(session_id)
+
+    def set_session(self, session_id: str, model: str) -> SessionRecord:
+        now = time.time()
+        with self._lock:
+            if session_id in self._sessions:
+                rec = self._sessions[session_id]
+                rec.model = model
+                rec.last_used = now
+            else:
+                rec = SessionRecord(
+                    session_id=session_id,
+                    model=model,
+                    created_at=now,
+                    last_used=now,
+                )
+                self._sessions[session_id] = rec
+            return rec
+
+    # -- Provider spend ----------------------------------------------------
+
+    def get_provider_spend(self, provider: str) -> ProviderSpend:
+        with self._lock:
+            if provider not in self._provider_spend:
+                self._provider_spend[provider] = ProviderSpend(provider=provider)
+            return self._provider_spend[provider]
 
 
 store = StateStore()

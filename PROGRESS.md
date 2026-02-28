@@ -1,8 +1,8 @@
 # Airlock — Project Progress
 
-## Status: End-to-End Trial Confirmed Working
+## Status: Intelligent Routing Complete
 
-Last updated: 2026-02-22
+Last updated: 2026-02-28
 
 ## Completed Work
 
@@ -124,6 +124,31 @@ Four issues found and fixed during first real-traffic trial:
    `default_on: true` in `litellm_params` to fire on every request. Added to
    all 6 guardrails.
 
+### Intelligent Routing
+Seven routing features — 3 config-only leveraging LiteLLM built-ins, 4 requiring
+new Airlock code — giving clients composable routing directives.
+
+**Config-only (Tier 1):**
+1. **Smart complexity router** — `model_name: smart` using LiteLLM's
+   `auto_router/complexity_router` (SIMPLE→haiku, MEDIUM→sonnet, COMPLEX→opus)
+2. **Cost-based routing** — `router_settings.routing_strategy: cost-based-routing`
+3. **Provider budget caps + fallbacks** — daily budget limits per provider plus
+   cross-provider fallback chains for all 14 models
+
+**Airlock code (Tier 2):**
+4. **Session affinity** — pin requests with the same `session_id` to a consistent
+   model for the session TTL (default 1 hour)
+5. **Cost tiers** — restrict model selection to low/medium/high cost tier via
+   `metadata.airlock.cost_tier`
+6. **Provider preference** — soft tiebreaker among viable models via
+   `metadata.airlock.prefer_provider`
+7. **Budget awareness** — proactively swap away from providers at >90% of daily
+   budget to avoid 429s
+
+Directive priority: session affinity > cost tier > provider preference > budget
+awareness. Router runs in guardian between threat check and circuit breaker so
+the routed model gets circuit-checked. 43 new tests (612 total).
+
 ## Readiness
 
 All subsystems are real, wired into LiteLLM, and tested. The end-to-end flow
@@ -138,7 +163,8 @@ airlock tui --start           # launch proxy + TUI in one command
 ```
 
 Requests flow through PII redaction → keyword blocking → threat scoring →
-upstream LLM → observation guardrails → JSONL logging → TUI dashboard.
+intelligent routing → circuit breaker → upstream LLM → observation guardrails →
+JSONL logging → TUI dashboard.
 
 PII redaction confirmed: email, credit card, and phone numbers scrubbed by
 Presidio before reaching upstream providers. JSONL logs capture full structured
@@ -149,7 +175,6 @@ records with request/response, token counts, and timing.
 - Hybrid sparse+dense search (issue #11, depends on #10)
 - Semantic ML classifiers (orchestrator is wired, no models plugged in)
 - Default enforce mode is `observe` (collects data, doesn't block via weighted system)
-- `claude-haiku` model ID stale in config (404 from Anthropic)
 
 ## Open Issues
 
@@ -204,8 +229,8 @@ All 7 succeeded. JSONL logs confirmed written to `logs/airlock-2026-02-22.jsonl`
 
 ## Test Suite
 
-- **557 tests** across 27 test files
-- **557 passing**, 0 failing
+- **612 tests** across 28 test files
+- **612 passing**, 0 failing
 - Presidio engines shared via session fixture to avoid OOM
 - TUI tests use async `app.run_test()` pattern
 - ProxyManager tests cover subprocess lifecycle, ring log, and output queue
@@ -219,7 +244,7 @@ All 7 succeeded. JSONL logs confirmed written to `logs/airlock-2026-02-22.jsonl`
 | Guardrails | `airlock/guardrails/` | Complete (7 guardrails wired) |
 | Semantic Guard | `airlock/guardrails/semantic.py` | Orchestrator complete — awaiting classifiers |
 | Callbacks | `airlock/callbacks/` | Complete — JSONL confirmed working with real traffic |
-| Fast (real-time) | `airlock/fast/` | Complete |
+| Fast (real-time) | `airlock/fast/` | Complete — intelligent routing, circuit breaker, threat detection |
 | Slow (offline) | `airlock/slow/` | Complete — 5 dimensions (incl. semantic) |
 | Hooks | `airlock/hooks/` | Complete |
 | CLI | `airlock/cli/` | Complete (init, start, status, post, tui, analyze, hooks, dogfood) |

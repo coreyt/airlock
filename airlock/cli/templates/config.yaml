@@ -35,6 +35,76 @@ model_list:
       model: openai/gpt-4o-mini
       api_key: os.environ/OPENAI_API_KEY
 
+  # --- Google (Gemini) ---
+  - model_name: gemini-flash
+    litellm_params:
+      model: gemini/gemini-2.5-flash
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+
+  - model_name: gemini-flash-lite
+    litellm_params:
+      model: gemini/gemini-2.5-flash-lite
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+
+  - model_name: gemini-pro
+    litellm_params:
+      model: gemini/gemini-2.5-pro
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+
+  # --- Google (Gemini 3) ---
+  - model_name: gemini-3-flash
+    litellm_params:
+      model: gemini/gemini-3-flash-preview
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+
+  - model_name: gemini-3-pro
+    litellm_params:
+      model: gemini/gemini-3-pro-preview
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+
+  - model_name: gemini-3.1-pro
+    litellm_params:
+      model: gemini/gemini-3.1-pro-preview
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+
+  - model_name: gemini-3.1-pro-tools
+    litellm_params:
+      model: gemini/gemini-3.1-pro-preview-customtools
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+
+  # --- Mistral AI ---
+  - model_name: mistral-small
+    litellm_params:
+      model: mistral/mistral-small-latest
+      api_key: os.environ/MISTRAL_API_KEY
+
+  - model_name: mistral-large
+    litellm_params:
+      model: mistral/mistral-large-latest
+      api_key: os.environ/MISTRAL_API_KEY
+
+  - model_name: codestral
+    litellm_params:
+      model: mistral/codestral-latest
+      api_key: os.environ/MISTRAL_API_KEY
+
+  - model_name: magistral-medium
+    litellm_params:
+      model: mistral/magistral-medium-2509
+      api_key: os.environ/MISTRAL_API_KEY
+
+  # --- Smart Router (auto-selects model by query complexity) ---
+  - model_name: smart
+    litellm_params:
+      model: auto_router/complexity_router
+      complexity_router_config:
+        tiers:
+          SIMPLE: claude-haiku
+          MEDIUM: claude-sonnet
+          COMPLEX: claude-opus
+          REASONING: claude-opus
+      complexity_router_default_model: claude-sonnet
+
   # --- Internal RAG (Phase 3 — uncomment when ready) ---
   # - model_name: internal-docs
   #   litellm_params:
@@ -61,6 +131,40 @@ litellm_settings:
 
   # Request timeout (seconds)
   request_timeout: 300
+
+# ---------------------------------------------------------------------------
+# Router settings
+# ---------------------------------------------------------------------------
+router_settings:
+  routing_strategy: cost-based-routing
+  provider_budget_config:
+    anthropic:
+      budget_limit: 50.0
+      time_period: "1d"
+    openai:
+      budget_limit: 50.0
+      time_period: "1d"
+    gemini:
+      budget_limit: 25.0
+      time_period: "1d"
+    mistral:
+      budget_limit: 25.0
+      time_period: "1d"
+  fallbacks:
+    - claude-sonnet: [claude-haiku, gpt-4o, gemini-pro]
+    - claude-haiku: [gemini-flash, gpt-4o-mini, mistral-small]
+    - claude-opus: [claude-sonnet, gemini-3.1-pro, gpt-4o]
+    - gpt-4o: [claude-sonnet, gemini-pro, mistral-large]
+    - gpt-4o-mini: [claude-haiku, gemini-flash, mistral-small]
+    - gemini-flash: [claude-haiku, gpt-4o-mini, mistral-small]
+    - gemini-pro: [claude-sonnet, gpt-4o, mistral-large]
+    - gemini-3-pro: [gemini-3.1-pro, claude-opus, gpt-4o]
+    - gemini-3.1-pro: [gemini-3-pro, claude-opus, gpt-4o]
+    - mistral-small: [claude-haiku, gemini-flash, gpt-4o-mini]
+    - mistral-large: [claude-sonnet, gpt-4o, gemini-pro]
+    - codestral: [claude-sonnet, gpt-4o, gemini-pro]
+    - magistral-medium: [claude-opus, gemini-3.1-pro, gpt-4o]
+    - smart: [claude-sonnet]
 
 # ---------------------------------------------------------------------------
 # Guardrails

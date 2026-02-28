@@ -287,6 +287,7 @@ def fresh_state_store(monkeypatch):
     import airlock.fast.circuit_breaker as cb_mod
     import airlock.fast.guardian as guardian_mod
     import airlock.fast.monitor as monitor_mod
+    import airlock.fast.router as router_mod
     import airlock.fast.state as state_mod
     import airlock.guardrails.observer as observer_mod
 
@@ -294,5 +295,6 @@ def fresh_state_store(monkeypatch):
     monkeypatch.setattr(cb_mod, "store", fresh)
     monkeypatch.setattr(guardian_mod, "store", fresh)
     monkeypatch.setattr(monitor_mod, "store", fresh)
+    monkeypatch.setattr(router_mod, "store", fresh)
     monkeypatch.setattr(observer_mod, "store", fresh)
     return fresh

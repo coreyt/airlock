@@ -33,6 +33,7 @@ from litellm.types.guardrails import GuardrailEventHooks
 
 from .circuit_breaker import check_model
 from .priority import compute_priority
+from .router import apply_routing
 from .state import store
 from .threat_detector import assess_threat
 
@@ -114,6 +115,10 @@ class AirlockFastGuardian(CustomGuardrail):
                 "Request blocked due to unusual activity. "
                 f"Please retry after {int(threat.backoff_seconds)} seconds."
             )
+
+        # ---- Step 2.5: Intelligent routing ----
+        data = apply_routing(data)
+        model_name = data.get("model", model_name)  # re-read after routing
 
         # ---- Step 3: Circuit breaker / failover ----
         failover = check_model(model_name)

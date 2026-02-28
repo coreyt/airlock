@@ -25,6 +25,24 @@ from .state import store
 
 logger = logging.getLogger("airlock.fast.monitor")
 
+# Provider inference for spend tracking — prefix heuristic.
+_PROVIDER_PREFIXES = {
+    "claude": "anthropic",
+    "gpt": "openai",
+    "gemini": "gemini",
+    "mistral": "mistral",
+    "codestral": "mistral",
+    "magistral": "mistral",
+}
+
+
+def _infer_provider(model_name: str) -> str | None:
+    """Map a model alias to its provider name via prefix matching."""
+    for prefix, provider in _PROVIDER_PREFIXES.items():
+        if model_name.startswith(prefix):
+            return provider
+    return None
+
 
 def _extract_client_id(kwargs: dict) -> str:
     """Derive a client identifier from LiteLLM callback kwargs."""
@@ -66,6 +84,13 @@ class AirlockFastMonitor(CustomLogger):
 
         store.get_client(client_id).record_success(now, duration_ms)
         store.get_model(model_name).record_success(now, duration_ms)
+
+        # Track spend per provider for budget-aware routing
+        cost = kwargs.get("response_cost", 0.0)
+        if cost and cost > 0:
+            provider = _infer_provider(model_name)
+            if provider:
+                store.get_provider_spend(provider).record_spend(now, cost)
 
         logger.debug(
             "monitor_success client=%s model=%s latency=%.0fms",
