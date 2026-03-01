@@ -451,8 +451,9 @@ async def test_dashboard_has_start_button() -> None:
 
         btn = app.query_one("#proxy-start-btn", Button)
         assert btn is not None
-        assert btn.label.plain == "Start Proxy"
-        assert btn.variant == "success"
+        # Initial state is "Checking..." (disabled) until first health check
+        assert btn.label.plain == "Checking..."
+        assert btn.disabled is True
 
 
 async def test_dashboard_has_console_log() -> None:
@@ -481,8 +482,8 @@ async def test_start_shows_error_without_config() -> None:
         from textual.widgets import Button
 
         btn = app.query_one("#proxy-start-btn", Button)
-        # Should stay as "Start Proxy" since start failed
-        assert btn.label.plain == "Start Proxy"
+        # Should not change to "Stop Proxy" since start failed
+        assert btn.label.plain != "Stop Proxy"
 
 
 def test_tui_start_flag_passed_through() -> None:
@@ -517,3 +518,61 @@ async def test_externally_running_proxy_disables_button() -> None:
 
         assert btn.disabled is True
         assert btn.label.plain == "Running Externally"
+
+
+async def test_health_check_http_error_treated_as_reachable() -> None:
+    """A 401/403 from the proxy still means it's running."""
+    import urllib.error
+
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        from textual.widgets import Button
+
+        from airlock.tui.screens.dashboard import DashboardPane
+        from airlock.tui.widgets.status_indicator import StatusIndicator
+
+        dashboard = app.query_one(DashboardPane)
+
+        with mock.patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.HTTPError(
+                "http://localhost:4000/health", 401, "Unauthorized", {}, None
+            ),
+        ):
+            dashboard._check_health()
+            await pilot.pause()
+
+        indicator = app.query_one("#proxy-indicator", StatusIndicator)
+        btn = app.query_one("#proxy-start-btn", Button)
+        assert "Running" in indicator._label
+        assert btn.label.plain == "Running Externally"
+        assert btn.disabled is True
+
+
+async def test_tui_owned_not_reachable_shows_starting() -> None:
+    """When proxy subprocess is alive but HTTP isn't ready, show Starting."""
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        from textual.widgets import Button
+
+        from airlock.tui.screens.dashboard import DashboardPane
+        from airlock.tui.widgets.status_indicator import StatusIndicator
+
+        dashboard = app.query_one(DashboardPane)
+        # Simulate: TUI owns a running process but HTTP not ready yet
+        mgr = dashboard._proxy_manager
+        mgr._process = mock.Mock()
+        mgr._process.poll.return_value = None  # process alive
+
+        with mock.patch(
+            "urllib.request.urlopen",
+            side_effect=ConnectionRefusedError,
+        ):
+            dashboard._check_health()
+            await pilot.pause()
+
+        indicator = app.query_one("#proxy-indicator", StatusIndicator)
+        btn = app.query_one("#proxy-start-btn", Button)
+        assert "Starting" in indicator._label
+        assert btn.label.plain == "Stop Proxy"
+        assert btn.disabled is False

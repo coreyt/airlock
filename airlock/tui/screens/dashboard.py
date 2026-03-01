@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import urllib.error
 import urllib.request
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -44,9 +45,10 @@ class DashboardPane(Vertical):
                 )
                 yield Static("", id="proxy-detail")
                 yield Button(
-                    "Start Proxy",
+                    "Checking...",
                     id="proxy-start-btn",
-                    variant="success",
+                    variant="default",
+                    disabled=True,
                 )
             with Vertical(id="dash-guardrails"):
                 yield Static("[bold]Guardrails[/]")
@@ -135,6 +137,9 @@ class DashboardPane(Vertical):
                 req.add_header("Authorization", f"Bearer {master_key}")
             urllib.request.urlopen(req, timeout=3)  # noqa: S310
             proxy_reachable = True
+        except urllib.error.HTTPError:
+            # Any HTTP response (even 401/403) means the proxy is alive
+            proxy_reachable = True
         except Exception:
             pass
 
@@ -152,6 +157,12 @@ class DashboardPane(Vertical):
                 btn.variant = "default"
                 btn.disabled = True
                 self._externally_running = True
+        elif tui_owned:
+            # Process alive but not responding to HTTP yet (startup lag)
+            indicator.set_status("warn", "Starting...")
+            btn.label = "Stop Proxy"
+            btn.variant = "error"
+            btn.disabled = False
         else:
             indicator.set_status(
                 "error", f"Not reachable at {self._host}:{self._port}"
