@@ -28,12 +28,18 @@ def extract_text_from_messages(messages: list[dict[str, Any]]) -> str:
     return "\n".join(parts)
 
 
-def _collect_strings(value: Any) -> list[str]:
+_MAX_DEPTH = 20
+
+
+def _collect_strings(value: Any, _depth: int = 0) -> list[str]:
     """Recursively collect all string representations from a value.
 
     Handles nested dicts and lists so that keywords and PII buried
     in structured MCP arguments are not invisible to guardrails.
+    Stops at _MAX_DEPTH to guard against adversarial payloads.
     """
+    if _depth >= _MAX_DEPTH:
+        return []
     parts: list[str] = []
     if isinstance(value, str):
         parts.append(value)
@@ -44,10 +50,10 @@ def _collect_strings(value: Any) -> list[str]:
         parts.append(str(value))
     elif isinstance(value, dict):
         for v in value.values():
-            parts.extend(_collect_strings(v))
+            parts.extend(_collect_strings(v, _depth + 1))
     elif isinstance(value, list):
         for item in value:
-            parts.extend(_collect_strings(item))
+            parts.extend(_collect_strings(item, _depth + 1))
     return parts
 
 

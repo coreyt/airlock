@@ -13,7 +13,6 @@ from airlock.guardrails.response_scanner import (
     _check_patterns,
     _extract_mcp_response_text,
     _extract_response_text,
-    _reconstruct_text_from_chunks,
     _scan_text,
     _EXFILTRATION_PATTERNS,
     _INJECTION_PATTERNS,
@@ -30,16 +29,6 @@ def _make_response(content: str = "", tool_calls: list | None = None):
     msg = SimpleNamespace(content=content, tool_calls=tool_calls)
     choice = SimpleNamespace(message=msg)
     return SimpleNamespace(choices=[choice])
-
-
-def _make_chunks(texts: list[str]):
-    """Build list of fake streaming chunks."""
-    chunks = []
-    for t in texts:
-        delta = SimpleNamespace(content=t)
-        choice = SimpleNamespace(delta=delta)
-        chunks.append(SimpleNamespace(choices=[choice]))
-    return chunks
 
 
 def _make_mcp_response(texts: list[str]):
@@ -279,22 +268,6 @@ class TestExtractMCPResponseText:
     def test_no_items(self):
         resp = SimpleNamespace(mcp_tool_call_response=None)
         assert _extract_mcp_response_text(resp) == ""
-
-
-class TestReconstructChunks:
-    def test_basic_chunks(self):
-        chunks = _make_chunks(["Hello", ", ", "world!"])
-        assert _reconstruct_text_from_chunks(chunks) == "Hello, world!"
-
-    def test_empty_chunks(self):
-        assert _reconstruct_text_from_chunks([]) == ""
-
-    def test_none_content(self):
-        """Chunks with None content should be skipped."""
-        delta = SimpleNamespace(content=None)
-        choice = SimpleNamespace(delta=delta)
-        chunk = SimpleNamespace(choices=[choice])
-        assert _reconstruct_text_from_chunks([chunk]) == ""
 
 
 # =====================================================================

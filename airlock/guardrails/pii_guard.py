@@ -107,10 +107,26 @@ class AirlockPIIGuard(CustomGuardrail):
 
 
 def _scrub_mcp_arguments(data: dict) -> None:
-    """Scrub PII from MCP tool call argument values in place."""
+    """Scrub PII from MCP tool call argument values in place.
+
+    Recurses into nested dicts and lists so PII in structured
+    arguments (e.g. {"config": {"email": "user@example.com"}}) is caught.
+    """
     args = data.get("mcp_arguments")
-    if not isinstance(args, dict):
-        return
-    for key, value in args.items():
-        if isinstance(value, str):
-            args[key] = _scrub_text(value)
+    if args is not None:
+        _scrub_value_recursive(args)
+
+
+def _scrub_value_recursive(value: Any, _depth: int = 0) -> Any:
+    """Recursively scrub PII from a value, modifying dicts/lists in place."""
+    if _depth >= 20:
+        return value
+    if isinstance(value, str):
+        return _scrub_text(value)
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            value[k] = _scrub_value_recursive(v, _depth + 1)
+    elif isinstance(value, list):
+        for i, item in enumerate(value):
+            value[i] = _scrub_value_recursive(item, _depth + 1)
+    return value

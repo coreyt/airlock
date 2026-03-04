@@ -210,6 +210,29 @@ class TestMCPPIIScrubbing:
         # Non-PII argument should be untouched
         assert result["mcp_arguments"]["limit"] == "10"
 
+    async def test_mcp_nested_arguments_scrubbed(
+        self, mock_cache, mock_user_api_key_dict, reset_presidio_singletons, presidio_available,
+    ):
+        if not presidio_available:
+            pytest.skip("Presidio not installed")
+        guard = AirlockPIIGuard()
+        data = {
+            "mcp_tool_name": "search",
+            "mcp_arguments": {
+                "config": {"email": "user@example.com"},
+                "tags": ["safe", "Contact: user@example.com"],
+            },
+        }
+        result = await guard.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "call_mcp_tool"
+        )
+        # Nested dict PII should be redacted
+        assert "user@example.com" not in result["mcp_arguments"]["config"]["email"]
+        # Nested list PII should be redacted
+        assert "user@example.com" not in result["mcp_arguments"]["tags"][1]
+        # Non-PII values untouched
+        assert result["mcp_arguments"]["tags"][0] == "safe"
+
     async def test_mcp_no_arguments_passes(
         self, mock_cache, mock_user_api_key_dict,
     ):

@@ -12,6 +12,12 @@ Three response paths:
 
 Default mode: observe (log detections, don't block).
 
+Note: the streaming path (async_post_call_streaming_iterator_hook) yields
+chunks as they arrive, then scans after the stream completes. It cannot
+block retroactively — detection is logged + attached as metadata for the
+slow analyzer. This is acceptable because streaming goes to user-facing
+agents that process further before acting.
+
 Env vars:
     AIRLOCK_RESPONSE_SCAN_MODE      — observe (default) or enforce
     AIRLOCK_RESPONSE_SCAN_THRESHOLD — composite score threshold (default 0.5)
@@ -60,6 +66,8 @@ _CATEGORY_WEIGHTS = {
     "tool_call": 0.7,
 }
 
+_TOTAL_WEIGHT = sum(_CATEGORY_WEIGHTS.values())
+
 _INJECTION_PATTERNS: list[re.Pattern] = [
     re.compile(r"ignore\s+(?:all\s+)?(?:previous|prior|above)\s+(?:instructions|prompts|rules)", re.IGNORECASE),
     re.compile(r"disregard\s+(?:your\s+)?(?:system\s+)?(?:prompt|instructions|rules)", re.IGNORECASE),
@@ -103,13 +111,12 @@ def _check_patterns(text: str, patterns: list[re.Pattern]) -> list[str]:
 # ---------------------------------------------------------------------------
 # Scoring
 # ---------------------------------------------------------------------------
-def _scan_text(text: str) -> ScanResult:
+def _scan_text(text: str, mode: str = "observe") -> ScanResult:
     """Scan text against all pattern categories and compute composite score."""
     if not text:
         return ScanResult()
 
     threshold = float(os.getenv("AIRLOCK_RESPONSE_SCAN_THRESHOLD", "0.5"))
-    mode = os.getenv("AIRLOCK_RESPONSE_SCAN_MODE", "observe")
 
     categories: dict[str, list[str]] = {}
     injection_hits = _check_patterns(text, _INJECTION_PATTERNS)
@@ -132,8 +139,7 @@ def _scan_text(text: str) -> ScanResult:
         return ScanResult()
 
     detected_weight = sum(_CATEGORY_WEIGHTS[c] for c in categories)
-    total_weight = sum(_CATEGORY_WEIGHTS.values())
-    composite = detected_weight / total_weight
+    composite = detected_weight / _TOTAL_WEIGHT
 
     for cat in categories:
         record_response_scan_detection(cat, mode)
@@ -191,21 +197,6 @@ def _extract_mcp_response_text(response_obj: Any) -> str:
     return "\n".join(parts)
 
 
-def _reconstruct_text_from_chunks(chunks: list[Any]) -> str:
-    """Reconstruct full text from streaming delta chunks."""
-    parts: list[str] = []
-    for chunk in chunks:
-        if not hasattr(chunk, "choices"):
-            continue
-        for choice in chunk.choices:
-            delta = getattr(choice, "delta", None)
-            if delta:
-                content = getattr(delta, "content", None)
-                if content:
-                    parts.append(content)
-    return "".join(parts)
-
-
 # ---------------------------------------------------------------------------
 # Guardrail class
 # ---------------------------------------------------------------------------
@@ -227,21 +218,21 @@ class AirlockResponseScanner(CustomGuardrail):
         if not text:
             return response
 
-        result = _scan_text(text)
+        mode = _mode()
+        result = _scan_text(text, mode)
         if not result.detected_categories:
             return response
 
         _attach_metadata(data, result)
 
-        if result.detected_categories:
-            logger.warning(
-                "response_scan_detected categories=%s score=%.4f model=%s",
-                result.detected_categories,
-                result.composite_score,
-                data.get("model", "unknown"),
-            )
+        logger.warning(
+            "response_scan_detected categories=%s score=%.4f model=%s",
+            result.detected_categories,
+            result.composite_score,
+            data.get("model", "unknown"),
+        )
 
-        if result.should_block and _mode() == "enforce":
+        if result.should_block and mode == "enforce":
             raise ValueError(
                 "Response blocked: potential injection content detected"
             )
@@ -256,21 +247,29 @@ class AirlockResponseScanner(CustomGuardrail):
         response: Any,
         request_data: dict,
     ) -> AsyncGenerator:
-        buffer: list[Any] = []
+        # Accumulate only text content, not full chunk objects
+        text_parts: list[str] = []
         async for chunk in response:
-            buffer.append(chunk)
             yield chunk
+            for choice in getattr(chunk, "choices", []):
+                delta = getattr(choice, "delta", None)
+                if delta:
+                    content = getattr(delta, "content", None)
+                    if content:
+                        text_parts.append(content)
 
         # Scan accumulated text after stream completes
-        full_text = _reconstruct_text_from_chunks(buffer)
+        full_text = "".join(text_parts)
         if full_text:
-            result = _scan_text(full_text)
+            mode = _mode()
+            result = _scan_text(full_text, mode)
             _attach_metadata(request_data, result)
             if result.detected_categories:
                 logger.warning(
-                    "response_scan_detected_in_stream categories=%s score=%.4f",
+                    "response_scan_detected_in_stream categories=%s score=%.4f mode=%s",
                     result.detected_categories,
                     result.composite_score,
+                    mode,
                 )
 
     # Path 3 — MCP tool results (via success_callback registration)
@@ -285,7 +284,8 @@ class AirlockResponseScanner(CustomGuardrail):
         if not text:
             return None
 
-        result = _scan_text(text)
+        mode = _mode()
+        result = _scan_text(text, mode)
 
         # Attach to kwargs metadata for enterprise logger
         metadata = kwargs.setdefault("litellm_params", {}).setdefault(
@@ -330,7 +330,7 @@ def _self_register() -> None:
         mgr.add_litellm_success_callback(response_scanner)
         mgr.add_litellm_async_success_callback(response_scanner)
     except Exception:
-        pass
+        logger.debug("response_scanner self-registration deferred", exc_info=True)
 
 
 _self_register()

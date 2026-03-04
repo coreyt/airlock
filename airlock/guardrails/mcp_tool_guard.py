@@ -20,6 +20,8 @@ from litellm import DualCache
 from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
+from .extract import _collect_strings
+
 logger = logging.getLogger("airlock.guardrails.mcp_tool")
 
 # Shell metacharacters and path traversal patterns to reject
@@ -60,25 +62,15 @@ def _check_tool_access(tool_name: str) -> str | None:
 def _check_arguments(args: Any) -> str | None:
     """Return an error message if any argument value contains dangerous patterns.
 
-    Recurses into nested dicts and lists so structured arguments cannot
-    bypass sanitization by wrapping values one level deeper.
+    Uses _collect_strings from extract.py for recursive traversal with
+    depth limit, then checks each leaf string against dangerous patterns.
     """
-    if isinstance(args, str):
-        if _DANGEROUS_PATTERNS.search(args):
+    for s in _collect_strings(args):
+        if _DANGEROUS_PATTERNS.search(s):
             return (
                 "MCP tool argument contains potentially dangerous content. "
                 "Path traversal and shell metacharacters are not allowed."
             )
-    elif isinstance(args, dict):
-        for value in args.values():
-            result = _check_arguments(value)
-            if result:
-                return result
-    elif isinstance(args, list):
-        for item in args:
-            result = _check_arguments(item)
-            if result:
-                return result
     return None
 
 
