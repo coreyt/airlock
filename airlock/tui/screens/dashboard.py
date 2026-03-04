@@ -13,6 +13,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Collapsible, DataTable, RichLog, Static
 
+from airlock.tui.widgets.metric_card import MetricCard
 from airlock.tui.widgets.status_indicator import StatusIndicator
 
 if TYPE_CHECKING:
@@ -55,6 +56,16 @@ class DashboardPane(Vertical):
                 yield StatusIndicator("PII Guard", status="ok", id="guard-pii")
                 yield StatusIndicator("Keyword Guard", status="ok", id="guard-kw")
                 yield StatusIndicator("Fast Guardian", status="ok", id="guard-fast")
+            with Vertical(id="dash-mcp-status"):
+                yield Static("[bold]MCP Gateway[/]")
+                yield StatusIndicator(
+                    "No MCP traffic", status="warn", id="mcp-indicator"
+                )
+                yield MetricCard(
+                    title="Traffic Split",
+                    value="LLM: 0 | MCP: 0",
+                    id="mcp-traffic-split",
+                )
         with Collapsible(title="Proxy Console Output", id="dash-console-collapsible"):
             yield RichLog(id="dash-console-log", max_lines=500)
         table = DataTable(id="dash-model-table")
@@ -195,3 +206,25 @@ class DashboardPane(Vertical):
 
         if not store.all_models():
             table.add_row("-", "-", "-", "-", "-")
+
+        # MCP Gateway panel
+        llm_count, mcp_count = store.traffic_split()
+        traffic_total = llm_count + mcp_count
+        split_card = self.query_one("#mcp-traffic-split", MetricCard)
+        if traffic_total > 0:
+            llm_pct = llm_count * 100 // traffic_total
+            mcp_pct = mcp_count * 100 // traffic_total
+            split_card.set_value(
+                f"LLM: {llm_count} ({llm_pct}%) | MCP: {mcp_count} ({mcp_pct}%)"
+            )
+        else:
+            split_card.set_value("LLM: 0 | MCP: 0")
+
+        mcp_indicator = self.query_one("#mcp-indicator", StatusIndicator)
+        mcp_tools = store.all_mcp_tools()
+        if not mcp_tools and mcp_count == 0:
+            mcp_indicator.set_status("warn", "No MCP traffic")
+        elif any(t.recent_error_rate() > 0.5 for t in mcp_tools.values()):
+            mcp_indicator.set_status("error", "High error rate")
+        else:
+            mcp_indicator.set_status("ok", f"{len(mcp_tools)} tools active")

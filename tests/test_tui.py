@@ -520,6 +520,132 @@ async def test_externally_running_proxy_disables_button() -> None:
         assert btn.label.plain == "Running Externally"
 
 
+async def test_dashboard_has_mcp_widgets() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        assert app.query_one("#mcp-indicator") is not None
+        assert app.query_one("#mcp-traffic-split") is not None
+
+
+async def test_models_has_mcp_tools_table() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("2")
+        assert app.query_one("#mcp-tools-table") is not None
+
+
+async def test_settings_has_mcp_tab() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("6")
+        assert app.query_one("#tab-mcp") is not None
+        assert app.query_one("#settings-mcp-allowed") is not None
+        assert app.query_one("#settings-mcp-blocked") is not None
+
+
+async def test_logs_has_type_and_tool_filters() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("4")
+        assert app.query_one("#logs-type-filter") is not None
+        assert app.query_one("#logs-tool-filter") is not None
+
+
+async def test_flow_has_tool_result_tab() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("7")
+        assert app.query_one("#flow-tool-result") is not None
+
+
+async def test_flow_tool_result_rendering() -> None:
+    """Test _render_tool_result for MCP and non-MCP entries."""
+    from airlock.tui.screens.flow import FlowEntry, _render_tool_result
+
+    # Non-MCP entry
+    llm_entry = FlowEntry(
+        timestamp="2024-01-15T10:31:42Z",
+        request_id="req-001",
+        model="claude-sonnet",
+        client_id="key:testkey1",
+        success=True,
+        composite_score=0.4,
+        would_block=False,
+        orchestrator_version=None,
+        signals=[],
+        enforcement=None,
+        raw_observation={},
+        raw_record={},
+        call_type="",
+    )
+    assert _render_tool_result(llm_entry) == "(Not an MCP call)"
+
+    # MCP entry
+    mcp_entry = FlowEntry(
+        timestamp="2024-01-15T10:31:42Z",
+        request_id="req-002",
+        model="mcp-proxy",
+        client_id="key:testkey1",
+        success=True,
+        composite_score=None,
+        would_block=None,
+        orchestrator_version=None,
+        signals=[],
+        enforcement=None,
+        raw_observation={},
+        raw_record={"messages": [{"role": "user", "content": "test"}]},
+        call_type="call_mcp_tool",
+        mcp_tool_name="read_file",
+        mcp_server_name="filesystem",
+    )
+    rendered = _render_tool_result(mcp_entry)
+    assert "read_file" in rendered
+    assert "filesystem" in rendered
+    assert "Yes" in rendered
+
+
+async def test_logs_mcp_filtering(tmp_path: Path) -> None:
+    """Test that MCP type filter works on logs."""
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    today = datetime.utcnow().date().isoformat()
+    log_file = log_dir / f"airlock-{today}.jsonl"
+    records = [
+        {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "success": True,
+            "model": "claude-sonnet",
+            "user": "alice",
+            "total_tokens": 100,
+            "duration_ms": 1200,
+        },
+        {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "success": True,
+            "model": "mcp-proxy",
+            "user": "alice",
+            "call_type": "call_mcp_tool",
+            "mcp_tool_name": "read_file",
+        },
+    ]
+    log_file.write_text("\n".join(json.dumps(r) for r in records) + "\n")
+
+    with mock.patch.dict(os.environ, {"AIRLOCK_LOG_DIR": str(log_dir)}):
+        app = AirlockApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.press("4")
+            await pilot.pause()
+
+            from airlock.tui.screens.logs import LogsPane
+
+            logs_pane = app.query_one(LogsPane)
+            assert len(logs_pane._records) == 2
+
+            # Filter by MCP type
+            logs_pane._records = records
+            logs_pane._apply_filters()
+
+
 async def test_health_check_http_error_treated_as_reachable() -> None:
     """A 401/403 from the proxy still means it's running."""
     import urllib.error

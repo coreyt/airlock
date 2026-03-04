@@ -92,6 +92,19 @@ class AirlockFastMonitor(CustomLogger):
             if provider:
                 store.get_provider_spend(provider).record_spend(now, cost)
 
+        # Track MCP tool state and traffic split
+        is_mcp = (
+            kwargs.get("call_type") == "call_mcp_tool"
+            or "mcp_tool_name" in kwargs
+        )
+        store.record_call_type(is_mcp)
+        if is_mcp:
+            tool_name = kwargs.get("mcp_tool_name", "unknown")
+            server_name = kwargs.get("mcp_server_name", "")
+            store.get_mcp_tool(tool_name, server_name).record_success(
+                now, duration_ms,
+            )
+
         logger.debug(
             "monitor_success client=%s model=%s latency=%.0fms",
             client_id,
@@ -125,6 +138,17 @@ class AirlockFastMonitor(CustomLogger):
 
         store.get_client(client_id).record_error(now, error_type)
         store.get_model(model_name).record_failure(now)
+
+        # Track MCP tool state and traffic split
+        is_mcp = (
+            kwargs.get("call_type") == "call_mcp_tool"
+            or "mcp_tool_name" in kwargs
+        )
+        store.record_call_type(is_mcp)
+        if is_mcp:
+            tool_name = kwargs.get("mcp_tool_name", "unknown")
+            server_name = kwargs.get("mcp_server_name", "")
+            store.get_mcp_tool(tool_name, server_name).record_failure(now)
 
         logger.debug(
             "monitor_failure client=%s model=%s error=%s",

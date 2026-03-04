@@ -43,6 +43,7 @@ class FlowEntry:
     raw_record: dict
     call_type: str = ""
     mcp_tool_name: str = ""
+    mcp_server_name: str = ""
 
 
 def _parse_entry(record: dict) -> FlowEntry | None:
@@ -65,6 +66,7 @@ def _parse_entry(record: dict) -> FlowEntry | None:
         raw_record=record,
         call_type=record.get("call_type", ""),
         mcp_tool_name=record.get("mcp_tool_name") or "",
+        mcp_server_name=record.get("mcp_server_name") or "",
     )
 
 
@@ -266,6 +268,39 @@ def _render_raw(entry: FlowEntry) -> str:
     return raw
 
 
+def _render_tool_result(entry: FlowEntry) -> str:
+    """Render MCP tool call details for the Tool Result tab."""
+    if entry.call_type != "call_mcp_tool":
+        return "(Not an MCP call)"
+
+    lines: list[str] = []
+    lines.append(f"[bold]Tool:[/] {entry.mcp_tool_name or '-'}")
+    lines.append(f"[bold]Server:[/] {entry.mcp_server_name or '-'}")
+    lines.append(f"[bold]Success:[/] {'Yes' if entry.success else 'No'}")
+
+    # Show request messages
+    messages = entry.raw_record.get("messages")
+    if messages:
+        msg_str = json.dumps(messages, indent=2, default=str)
+        if len(msg_str) > 1000:
+            msg_str = msg_str[:1000] + "\n... (truncated)"
+        lines.append(f"\n[bold]Request:[/]\n{msg_str}")
+
+    # Show response
+    response = entry.raw_record.get("response")
+    if response:
+        resp_str = json.dumps(response, indent=2, default=str)
+        if len(resp_str) > 1000:
+            resp_str = resp_str[:1000] + "\n... (truncated)"
+        lines.append(f"\n[bold]Response:[/]\n{resp_str}")
+
+    error = entry.raw_record.get("error")
+    if error:
+        lines.append(f"\n[bold red]Error:[/] {error}")
+
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # Verdict formatting
 # ---------------------------------------------------------------------------
@@ -316,7 +351,7 @@ class FlowPane(Vertical):
             id="flow-status",
         )
         table = DataTable(id="flow-table", cursor_type="row")
-        table.add_columns("Time", "Type", "Model", "Client", "Score", "Verdict", "Enforce")
+        table.add_columns("Time", "Type", "Server", "Model", "Client", "Score", "Verdict", "Enforce")
         yield table
         with TabbedContent(id="flow-detail-tabs"):
             with TabPane("Signals", id="flow-tab-signals"):
@@ -328,6 +363,8 @@ class FlowPane(Vertical):
                 yield Static("Select a request to view pipeline stages.", id="flow-pipeline")
             with TabPane("Raw", id="flow-tab-raw"):
                 yield Static("Select a request to view raw JSON.", id="flow-raw")
+            with TabPane("Tool Result", id="flow-tab-tool"):
+                yield Static("Select an MCP request...", id="flow-tool-result")
 
     def on_mount(self) -> None:
         self._poll_logs()
@@ -435,16 +472,17 @@ class FlowPane(Vertical):
             else:
                 ts = entry.timestamp
             call_type = (entry.mcp_tool_name or "MCP") if entry.call_type == "call_mcp_tool" else "LLM"
+            server = entry.mcp_server_name[:12] if entry.mcp_server_name else "-"
             model = entry.model[:16]
             client = entry.client_id[-12:] if len(entry.client_id) > 12 else entry.client_id
             score = f"{entry.composite_score:.2f}" if entry.composite_score is not None else "-"
             verdict = _verdict_text(entry)
             enforce = _enforce_text(entry)
-            table.add_row(ts, call_type, model, client, score, verdict, enforce, key=str(i))
+            table.add_row(ts, call_type, server, model, client, score, verdict, enforce, key=str(i))
 
         if not self._entries:
             table.add_row(
-                "(waiting)", "-", "-", "-", "-", "-", "-", key="_empty"
+                "(waiting)", "-", "-", "-", "-", "-", "-", "-", key="_empty"
             )
 
     def _refresh_status(self) -> None:
@@ -468,7 +506,9 @@ class FlowPane(Vertical):
         signals = self.query_one("#flow-signals", Static)
         pipeline = self.query_one("#flow-pipeline", Static)
         raw = self.query_one("#flow-raw", Static)
+        tool_result = self.query_one("#flow-tool-result", Static)
 
         signals.update(_render_signals(entry))
         pipeline.update(_render_pipeline(entry))
         raw.update(_render_raw(entry))
+        tool_result.update(_render_tool_result(entry))

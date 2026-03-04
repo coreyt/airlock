@@ -11,6 +11,7 @@ import pytest
 from airlock.fast.state import (
     CircuitState,
     ClientState,
+    McpToolState,
     ModelState,
     StateStore,
     MAX_SAMPLES,
@@ -247,3 +248,127 @@ class TestStateStore:
 
         assert len(errors) == 0
         assert len(store.all_clients()) == 10
+
+
+# ---------------------------------------------------------------------------
+# McpToolState
+# ---------------------------------------------------------------------------
+class TestMcpToolState:
+    def test_record_success(self):
+        tool = McpToolState(tool_name="read_file", server_name="fs")
+        now = time.time()
+        tool.record_success(now, 50.0)
+        assert len(tool.success_times) == 1
+        assert len(tool.latencies_ms) == 1
+
+    def test_record_failure(self):
+        tool = McpToolState(tool_name="read_file")
+        now = time.time()
+        tool.record_failure(now)
+        assert len(tool.failure_times) == 1
+
+    def test_recent_error_rate(self):
+        tool = McpToolState(tool_name="read_file")
+        now = time.time()
+        for i in range(7):
+            tool.record_success(now - i, 100.0)
+        for i in range(3):
+            tool.record_failure(now - i)
+        rate = tool.recent_error_rate(window_seconds=300)
+        assert abs(rate - 0.3) < 0.01
+
+    def test_recent_error_rate_no_data(self):
+        tool = McpToolState(tool_name="x")
+        assert tool.recent_error_rate() == 0.0
+
+    def test_recent_call_count(self):
+        tool = McpToolState(tool_name="read_file")
+        now = time.time()
+        tool.record_success(now, 10.0)
+        tool.record_success(now, 20.0)
+        tool.record_failure(now)
+        assert tool.recent_call_count(window_seconds=300) == 3
+
+    def test_recent_call_count_window(self):
+        tool = McpToolState(tool_name="x")
+        now = time.time()
+        tool.record_success(now - 600, 10.0)  # outside window
+        tool.record_success(now, 10.0)
+        assert tool.recent_call_count(window_seconds=300) == 1
+
+    def test_recent_avg_latency(self):
+        tool = McpToolState(tool_name="x")
+        now = time.time()
+        tool.record_success(now, 100.0)
+        tool.record_success(now, 200.0)
+        assert tool.recent_avg_latency() == 150.0
+
+    def test_recent_avg_latency_no_data(self):
+        tool = McpToolState(tool_name="x")
+        assert tool.recent_avg_latency() is None
+
+    def test_deque_bounded(self):
+        tool = McpToolState(tool_name="x")
+        for i in range(MAX_SAMPLES + 100):
+            tool.record_success(float(i), 1.0)
+        assert len(tool.success_times) == MAX_SAMPLES
+
+
+# ---------------------------------------------------------------------------
+# StateStore MCP methods
+# ---------------------------------------------------------------------------
+class TestStateStoreMcp:
+    def test_get_mcp_tool_creates_new(self):
+        store = StateStore()
+        tool = store.get_mcp_tool("read_file", "fs")
+        assert tool.tool_name == "read_file"
+        assert tool.server_name == "fs"
+
+    def test_get_mcp_tool_returns_same_instance(self):
+        store = StateStore()
+        t1 = store.get_mcp_tool("read_file", "fs")
+        t2 = store.get_mcp_tool("read_file", "fs")
+        assert t1 is t2
+
+    def test_get_mcp_tool_different_servers(self):
+        store = StateStore()
+        t1 = store.get_mcp_tool("read_file", "fs1")
+        t2 = store.get_mcp_tool("read_file", "fs2")
+        assert t1 is not t2
+
+    def test_all_mcp_tools(self):
+        store = StateStore()
+        store.get_mcp_tool("read_file", "fs")
+        store.get_mcp_tool("write_file", "fs")
+        tools = store.all_mcp_tools()
+        assert len(tools) == 2
+
+    def test_traffic_split_initial(self):
+        store = StateStore()
+        llm, mcp = store.traffic_split()
+        assert llm == 0
+        assert mcp == 0
+
+    def test_record_call_type_llm(self):
+        store = StateStore()
+        store.record_call_type(is_mcp=False)
+        store.record_call_type(is_mcp=False)
+        llm, mcp = store.traffic_split()
+        assert llm == 2
+        assert mcp == 0
+
+    def test_record_call_type_mcp(self):
+        store = StateStore()
+        store.record_call_type(is_mcp=True)
+        llm, mcp = store.traffic_split()
+        assert llm == 0
+        assert mcp == 1
+
+    def test_traffic_split_mixed(self):
+        store = StateStore()
+        store.record_call_type(is_mcp=False)
+        store.record_call_type(is_mcp=True)
+        store.record_call_type(is_mcp=False)
+        llm, mcp = store.traffic_split()
+        assert llm == 2
+        assert mcp == 1

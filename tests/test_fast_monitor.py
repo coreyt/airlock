@@ -149,3 +149,56 @@ class TestMonitorCallbacks:
         model = fresh_state_store.get_model("claude-sonnet")
         assert len(model.success_times) == 5
         assert model.consecutive_failures == 0
+
+    def test_mcp_success_tracks_tool_state(
+        self, monitor, fresh_state_store, mock_start_end_times,
+    ):
+        start, end = mock_start_end_times
+        kwargs = {
+            "model": "mcp-proxy",
+            "call_type": "call_mcp_tool",
+            "mcp_tool_name": "read_file",
+            "mcp_server_name": "filesystem",
+            "litellm_params": {"metadata": {}},
+        }
+        monitor.log_success_event(kwargs, None, start, end)
+
+        tool = fresh_state_store.get_mcp_tool("read_file", "filesystem")
+        assert len(tool.success_times) == 1
+        assert len(tool.latencies_ms) == 1
+
+        llm, mcp = fresh_state_store.traffic_split()
+        assert mcp == 1
+        assert llm == 0
+
+    def test_mcp_failure_tracks_tool_state(
+        self, monitor, fresh_state_store, mock_start_end_times,
+    ):
+        start, end = mock_start_end_times
+        kwargs = {
+            "model": "mcp-proxy",
+            "call_type": "call_mcp_tool",
+            "mcp_tool_name": "write_file",
+            "mcp_server_name": "filesystem",
+            "exception": Exception("tool error"),
+            "litellm_params": {"metadata": {}},
+        }
+        monitor.log_failure_event(kwargs, None, start, end)
+
+        tool = fresh_state_store.get_mcp_tool("write_file", "filesystem")
+        assert len(tool.failure_times) == 1
+
+        llm, mcp = fresh_state_store.traffic_split()
+        assert mcp == 1
+
+    def test_llm_call_tracks_as_llm(
+        self, monitor, fresh_state_store, mock_logger_kwargs,
+        mock_response_obj, mock_start_end_times,
+    ):
+        start, end = mock_start_end_times
+        monitor.log_success_event(
+            mock_logger_kwargs, mock_response_obj, start, end
+        )
+        llm, mcp = fresh_state_store.traffic_split()
+        assert llm == 1
+        assert mcp == 0

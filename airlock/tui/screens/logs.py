@@ -37,8 +37,15 @@ class LogsPane(Vertical):
                 id="logs-status-filter",
                 allow_blank=False,
             )
+            yield Select(
+                [("All Types", "all"), ("LLM", "llm"), ("MCP", "mcp")],
+                value="all",
+                id="logs-type-filter",
+                allow_blank=False,
+            )
+            yield Input(placeholder="Tool name", id="logs-tool-filter")
         table = DataTable(id="logs-table", cursor_type="row")
-        table.add_columns("Timestamp", "Model", "User", "Tokens", "Duration", "OK")
+        table.add_columns("Timestamp", "Type", "Model", "User", "Tokens", "Duration", "OK")
         yield table
         yield Static("Select a log entry to view details.", id="logs-detail")
 
@@ -59,7 +66,7 @@ class LogsPane(Vertical):
         self._apply_filters()
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id == "logs-user-filter":
+        if event.input.id in ("logs-user-filter", "logs-tool-filter"):
             self._apply_filters()
 
     @work(exclusive=True, thread=True)
@@ -97,6 +104,8 @@ class LogsPane(Vertical):
         model_val = self.query_one("#logs-model-filter", Select).value
         user_val = self.query_one("#logs-user-filter", Input).value.strip().lower()
         status_val = self.query_one("#logs-status-filter", Select).value
+        type_val = self.query_one("#logs-type-filter", Select).value
+        tool_val = self.query_one("#logs-tool-filter", Input).value.strip().lower()
 
         filtered = self._records
         if model_val and model_val != "all":
@@ -110,6 +119,15 @@ class LogsPane(Vertical):
             filtered = [r for r in filtered if r.get("success")]
         elif status_val == "err":
             filtered = [r for r in filtered if not r.get("success")]
+        if type_val == "mcp":
+            filtered = [r for r in filtered if r.get("call_type") == "call_mcp_tool"]
+        elif type_val == "llm":
+            filtered = [r for r in filtered if r.get("call_type") != "call_mcp_tool"]
+        if tool_val:
+            filtered = [
+                r for r in filtered
+                if tool_val in (r.get("mcp_tool_name") or "").lower()
+            ]
 
         self._filtered = filtered
         self._populate_table()
@@ -120,16 +138,20 @@ class LogsPane(Vertical):
 
         for i, r in enumerate(self._filtered[:200]):
             ts = r.get("timestamp", "")[:19]
+            if r.get("call_type") == "call_mcp_tool":
+                call_type = r.get("mcp_tool_name") or "MCP"
+            else:
+                call_type = "LLM"
             model = r.get("model", "-")
             user = r.get("user") or "-"
             tokens = str(r.get("total_tokens", "-"))
             dur = r.get("duration_ms")
             dur_str = f"{dur}ms" if dur else "-"
             ok = "\u2713" if r.get("success") else "\u2717"
-            table.add_row(ts, model, user, tokens, dur_str, ok, key=str(i))
+            table.add_row(ts, call_type, model, user, tokens, dur_str, ok, key=str(i))
 
         if not self._filtered:
-            table.add_row("(no entries)", "-", "-", "-", "-", "-", key="_empty")
+            table.add_row("(no entries)", "-", "-", "-", "-", "-", "-", key="_empty")
 
     def _show_detail(self, record: dict[str, Any]) -> None:
         detail = self.query_one("#logs-detail", Static)
@@ -138,6 +160,10 @@ class LogsPane(Vertical):
         messages = record.get("messages")
 
         parts = [f"[bold]Request ID:[/] {req_id}"]
+        if record.get("mcp_tool_name"):
+            parts.append(f"[bold]MCP Tool:[/] {record['mcp_tool_name']}")
+        if record.get("mcp_server_name"):
+            parts.append(f"[bold]MCP Server:[/] {record['mcp_server_name']}")
         if error:
             parts.append(f"[bold]Error:[/] {error}")
         if messages:

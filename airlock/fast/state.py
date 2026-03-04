@@ -112,6 +112,46 @@ class ProviderSpend:
 
 
 # ---------------------------------------------------------------------------
+# Per-MCP-tool state
+# ---------------------------------------------------------------------------
+@dataclass
+class McpToolState:
+    """Tracks a single MCP tool's health (modeled after ModelState)."""
+
+    tool_name: str
+    server_name: str = ""
+    success_times: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
+    failure_times: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
+    latencies_ms: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
+
+    def record_success(self, timestamp: float, latency_ms: float) -> None:
+        self.success_times.append(timestamp)
+        self.latencies_ms.append((timestamp, latency_ms))
+
+    def record_failure(self, timestamp: float) -> None:
+        self.failure_times.append(timestamp)
+
+    def recent_avg_latency(self, window_seconds: float = WINDOW_SECONDS) -> float | None:
+        cutoff = time.time() - window_seconds
+        recent = [lat for t, lat in self.latencies_ms if t > cutoff]
+        return sum(recent) / len(recent) if recent else None
+
+    def recent_error_rate(self, window_seconds: float = WINDOW_SECONDS) -> float:
+        cutoff = time.time() - window_seconds
+        errors = sum(1 for t in self.failure_times if t > cutoff)
+        successes = sum(1 for t in self.success_times if t > cutoff)
+        total = errors + successes
+        return errors / total if total > 0 else 0.0
+
+    def recent_call_count(self, window_seconds: float = WINDOW_SECONDS) -> int:
+        cutoff = time.time() - window_seconds
+        return (
+            sum(1 for t in self.success_times if t > cutoff)
+            + sum(1 for t in self.failure_times if t > cutoff)
+        )
+
+
+# ---------------------------------------------------------------------------
 # Per-model state
 # ---------------------------------------------------------------------------
 @dataclass
@@ -186,6 +226,9 @@ class StateStore:
         self._models: dict[str, ModelState] = {}
         self._sessions: dict[str, SessionRecord] = {}
         self._provider_spend: dict[str, ProviderSpend] = {}
+        self._mcp_tools: dict[str, McpToolState] = {}
+        self._mcp_call_count: int = 0
+        self._llm_call_count: int = 0
 
     def get_client(self, client_id: str) -> ClientState:
         with self._lock:
@@ -237,6 +280,32 @@ class StateStore:
             if provider not in self._provider_spend:
                 self._provider_spend[provider] = ProviderSpend(provider=provider)
             return self._provider_spend[provider]
+
+    # -- MCP tool tracking -------------------------------------------------
+
+    def get_mcp_tool(self, tool_name: str, server_name: str = "") -> McpToolState:
+        key = f"{server_name}/{tool_name}" if server_name else tool_name
+        with self._lock:
+            if key not in self._mcp_tools:
+                self._mcp_tools[key] = McpToolState(
+                    tool_name=tool_name, server_name=server_name,
+                )
+            return self._mcp_tools[key]
+
+    def all_mcp_tools(self) -> dict[str, McpToolState]:
+        with self._lock:
+            return dict(self._mcp_tools)
+
+    def record_call_type(self, is_mcp: bool) -> None:
+        with self._lock:
+            if is_mcp:
+                self._mcp_call_count += 1
+            else:
+                self._llm_call_count += 1
+
+    def traffic_split(self) -> tuple[int, int]:
+        with self._lock:
+            return self._llm_call_count, self._mcp_call_count
 
 
 store = StateStore()

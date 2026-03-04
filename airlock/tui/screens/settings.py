@@ -103,6 +103,21 @@ class SettingsPane(Vertical):
                         value=os.getenv("AIRLOCK_FAILOVER_MAP", ""),
                         id="settings-failover-map",
                     )
+            with TabPane("MCP", id="tab-mcp"):
+                with Vertical(classes="settings-form"):
+                    yield Static(
+                        self._load_mcp_config(), id="settings-mcp-config",
+                    )
+                    yield Label("Allowed Tools (comma-separated)")
+                    yield Input(
+                        value=os.getenv("AIRLOCK_MCP_ALLOWED_TOOLS", ""),
+                        id="settings-mcp-allowed",
+                    )
+                    yield Label("Blocked Tools (comma-separated)")
+                    yield Input(
+                        value=os.getenv("AIRLOCK_MCP_BLOCKED_TOOLS", ""),
+                        id="settings-mcp-blocked",
+                    )
         yield Button(
             "Apply Changes", id="settings-apply", variant="primary"
         )
@@ -125,6 +140,8 @@ class SettingsPane(Vertical):
                 "AIRLOCK_HOST": "#settings-host",
                 "AIRLOCK_PORT": "#settings-port",
                 "AIRLOCK_FAILOVER_MAP": "#settings-failover-map",
+                "AIRLOCK_MCP_ALLOWED_TOOLS": "#settings-mcp-allowed",
+                "AIRLOCK_MCP_BLOCKED_TOOLS": "#settings-mcp-blocked",
             }
             for env_var, widget_id in env_map.items():
                 val = self.query_one(widget_id, Input).value.strip()
@@ -137,6 +154,27 @@ class SettingsPane(Vertical):
             )
         except Exception as exc:
             status.update(f"[red]Error: {exc}[/]")
+
+    @staticmethod
+    def _load_mcp_config() -> str:
+        """Read MCP server config from config.yaml (read-only display)."""
+        config_path = os.getenv("AIRLOCK_CONFIG", "config.yaml")
+        try:
+            import yaml
+
+            with open(config_path, encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+            mcp = cfg.get("mcp_servers") or cfg.get("mcp", {})
+            if mcp:
+                import json
+
+                return (
+                    "[bold]MCP Server Config[/] (from config.yaml)\n"
+                    + json.dumps(mcp, indent=2, default=str)[:500]
+                )
+            return "[bold]MCP Server Config[/]\n(none configured in config.yaml)"
+        except Exception:
+            return "[bold]MCP Server Config[/]\n(could not read config.yaml)"
 
     @staticmethod
     def _mask_env(var: str) -> str:

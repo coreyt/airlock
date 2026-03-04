@@ -20,10 +20,16 @@ class ModelsPane(Vertical):
         )
         yield table
         yield Static("Select a model to view details.", id="models-detail")
+        yield Static("[bold]MCP Tools[/]", id="mcp-tools-header")
+        mcp_table = DataTable(id="mcp-tools-table", cursor_type="row")
+        mcp_table.add_columns("Tool", "Server", "Calls", "Err%", "Avg Latency")
+        yield mcp_table
 
     def on_mount(self) -> None:
         self._refresh_models()
+        self._refresh_mcp_tools()
         self.set_interval(5.0, self._refresh_models)
+        self.set_interval(5.0, self._refresh_mcp_tools)
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         if event.row_key is None:
@@ -94,3 +100,27 @@ class ModelsPane(Vertical):
             f"  {percentiles}\n\n"
             f"  {circuit_cfg}"
         )
+
+    @work(exclusive=True, thread=True, group="mcp-tools")
+    def _refresh_mcp_tools(self) -> None:
+        try:
+            from airlock.fast.state import store
+        except ImportError:
+            return
+
+        table = self.query_one("#mcp-tools-table", DataTable)
+        table.clear()
+
+        for key, tool in store.all_mcp_tools().items():
+            calls = tool.recent_call_count()
+            err_rate = tool.recent_error_rate()
+            err_str = f"{err_rate * 100:.1f}%" if calls > 0 else "-"
+            avg_lat = tool.recent_avg_latency()
+            lat_str = f"{avg_lat:.0f}ms" if avg_lat else "-"
+            table.add_row(
+                tool.tool_name, tool.server_name or "-",
+                str(calls), err_str, lat_str, key=key,
+            )
+
+        if not store.all_mcp_tools():
+            table.add_row("(no tools tracked)", "-", "-", "-", "-", key="_empty")
