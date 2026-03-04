@@ -8,8 +8,8 @@ fi
 
 cd "$CLAUDE_PROJECT_DIR"
 
-# Install aural for session continuity
-pip install -e /home/coreyt/projects/aural
-
-# Install airlock in editable mode
+# Install the project in editable mode (pulls in pydantic, mcp, etc.)
 pip install -e .
+
+# Install test runner
+pip install pytest

@@ -7,8 +7,8 @@ import pytest
 from airlock.guardrails.keyword_guard import (
     AirlockKeywordGuard,
     _blocked_keywords,
-    _extract_text,
 )
+from airlock.guardrails.extract import extract_text_from_messages as _extract_text
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +45,7 @@ class TestBlockedKeywords:
 class TestExtractText:
     def test_string_content(self):
         messages = [{"role": "user", "content": "Hello world"}]
-        assert "hello world" in _extract_text(messages)
+        assert "Hello world" in _extract_text(messages)
 
     def test_multipart_text(self):
         messages = [
@@ -58,8 +58,8 @@ class TestExtractText:
             }
         ]
         result = _extract_text(messages)
-        assert "first part" in result
-        assert "second part" in result
+        assert "First part" in result
+        assert "Second part" in result
 
     def test_image_parts_ignored(self):
         messages = [
@@ -72,7 +72,7 @@ class TestExtractText:
             }
         ]
         result = _extract_text(messages)
-        assert "describe this" in result
+        assert "Describe this" in result
         assert "image" not in result
         assert "base64" not in result
 
@@ -82,7 +82,7 @@ class TestExtractText:
             {"role": "user", "content": "Tell me about project-x"},
         ]
         result = _extract_text(messages)
-        assert "be helpful" in result
+        assert "Be helpful" in result
         assert "project-x" in result
 
     def test_empty_messages(self):
@@ -213,3 +213,50 @@ class TestAsyncPreCallHook:
             await guard.async_pre_call_hook(
                 mock_user_api_key_dict, mock_cache, data, "completion"
             )
+
+
+# ---------------------------------------------------------------------------
+# MCP tool call tests
+# ---------------------------------------------------------------------------
+class TestMCPKeywordBlocking:
+    async def test_keyword_in_tool_name_blocked(
+        self, monkeypatch, mock_cache, mock_user_api_key_dict
+    ):
+        monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "secret")
+        guard = AirlockKeywordGuard()
+        data = {
+            "mcp_tool_name": "get_secret_data",
+            "mcp_arguments": {"key": "safe-value"},
+        }
+        with pytest.raises(ValueError, match="restricted content"):
+            await guard.async_pre_call_hook(
+                mock_user_api_key_dict, mock_cache, data, "call_mcp_tool"
+            )
+
+    async def test_keyword_in_mcp_arguments_blocked(
+        self, monkeypatch, mock_cache, mock_user_api_key_dict
+    ):
+        monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "project manhattan")
+        guard = AirlockKeywordGuard()
+        data = {
+            "mcp_tool_name": "search",
+            "mcp_arguments": {"query": "Tell me about Project Manhattan"},
+        }
+        with pytest.raises(ValueError, match="restricted content"):
+            await guard.async_pre_call_hook(
+                mock_user_api_key_dict, mock_cache, data, "call_mcp_tool"
+            )
+
+    async def test_safe_mcp_call_passes(
+        self, monkeypatch, mock_cache, mock_user_api_key_dict
+    ):
+        monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "forbidden")
+        guard = AirlockKeywordGuard()
+        data = {
+            "mcp_tool_name": "read_file",
+            "mcp_arguments": {"path": "/tmp/safe.txt"},
+        }
+        result = await guard.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "call_mcp_tool"
+        )
+        assert result is data

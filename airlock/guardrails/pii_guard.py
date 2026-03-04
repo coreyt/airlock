@@ -19,6 +19,8 @@ from litellm import DualCache
 from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
+from .extract import is_mcp_call
+
 logger = logging.getLogger("airlock.guardrails.pii")
 
 DEFAULT_ENTITIES = "CREDIT_CARD,US_SSN,EMAIL_ADDRESS,PHONE_NUMBER"
@@ -81,7 +83,10 @@ class AirlockPIIGuard(CustomGuardrail):
     """Pre-call guardrail that strips PII from outbound prompts."""
 
     def __init__(self, **kwargs):
-        supported_event_hooks = [GuardrailEventHooks.pre_call]
+        supported_event_hooks = [
+            GuardrailEventHooks.pre_call,
+            GuardrailEventHooks.pre_mcp_call,
+        ]
         super().__init__(supported_event_hooks=supported_event_hooks, **kwargs)
 
     async def async_pre_call_hook(
@@ -91,7 +96,21 @@ class AirlockPIIGuard(CustomGuardrail):
         data: dict,
         call_type: str,
     ) -> dict:
+        # Scrub MCP tool arguments directly
+        if is_mcp_call(data, call_type):
+            _scrub_mcp_arguments(data)
+
         messages = data.get("messages")
         if messages:
             data["messages"] = _scrub_messages(messages)
         return data
+
+
+def _scrub_mcp_arguments(data: dict) -> None:
+    """Scrub PII from MCP tool call argument values in place."""
+    args = data.get("mcp_arguments")
+    if not isinstance(args, dict):
+        return
+    for key, value in args.items():
+        if isinstance(value, str):
+            args[key] = _scrub_text(value)

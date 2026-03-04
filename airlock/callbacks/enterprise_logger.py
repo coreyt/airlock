@@ -117,6 +117,23 @@ class AirlockLogger(CustomLogger):
             k: v for k, v in metadata.items() if k.startswith("airlock_")
         }
 
+        # MCP tool call metadata
+        call_type = kwargs.get("call_type", "")
+        litellm_params = kwargs.get("litellm_params", {})
+        mcp_meta: dict[str, Any] = {}
+        if call_type == "call_mcp_tool" or "mcp_tool_name" in kwargs:
+            mcp_meta["call_type"] = call_type or "call_mcp_tool"
+            mcp_meta["mcp_tool_name"] = (
+                kwargs.get("mcp_tool_name")
+                or litellm_params.get("mcp_tool_name")
+                or metadata.get("mcp_tool_name")
+            )
+            mcp_meta["mcp_server_name"] = (
+                kwargs.get("mcp_server_name")
+                or litellm_params.get("mcp_server_name")
+                or metadata.get("mcp_server_name")
+            )
+
         return {
             "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
             "success": success,
@@ -135,6 +152,7 @@ class AirlockLogger(CustomLogger):
                 else None
             ),
             **usage,
+            **mcp_meta,
             **guardrail_meta,
         }
 

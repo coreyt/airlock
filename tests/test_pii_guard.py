@@ -183,3 +183,39 @@ class TestAsyncPreCallHook:
             mock_user_api_key_dict, mock_cache, data, "completion"
         )
         assert result["messages"] == []
+
+
+# ---------------------------------------------------------------------------
+# MCP tool call PII tests
+# ---------------------------------------------------------------------------
+class TestMCPPIIScrubbing:
+    async def test_mcp_arguments_scrubbed(
+        self, mock_cache, mock_user_api_key_dict, reset_presidio_singletons, presidio_available,
+    ):
+        if not presidio_available:
+            pytest.skip("Presidio not installed")
+        guard = AirlockPIIGuard()
+        data = {
+            "mcp_tool_name": "search",
+            "mcp_arguments": {
+                "query": "Find records for user@example.com",
+                "limit": "10",
+            },
+        }
+        result = await guard.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "call_mcp_tool"
+        )
+        # Email in arguments should be redacted
+        assert "user@example.com" not in result["mcp_arguments"]["query"]
+        # Non-PII argument should be untouched
+        assert result["mcp_arguments"]["limit"] == "10"
+
+    async def test_mcp_no_arguments_passes(
+        self, mock_cache, mock_user_api_key_dict,
+    ):
+        guard = AirlockPIIGuard()
+        data = {"mcp_tool_name": "list_tools"}
+        result = await guard.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "call_mcp_tool"
+        )
+        assert result is data

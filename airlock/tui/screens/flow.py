@@ -41,6 +41,8 @@ class FlowEntry:
     enforcement: dict | None
     raw_observation: dict | None
     raw_record: dict
+    call_type: str = ""
+    mcp_tool_name: str = ""
 
 
 def _parse_entry(record: dict) -> FlowEntry | None:
@@ -61,6 +63,8 @@ def _parse_entry(record: dict) -> FlowEntry | None:
         enforcement=record.get("airlock_enforcement"),
         raw_observation=obs,
         raw_record=record,
+        call_type=record.get("call_type", ""),
+        mcp_tool_name=record.get("mcp_tool_name") or "",
     )
 
 
@@ -312,7 +316,7 @@ class FlowPane(Vertical):
             id="flow-status",
         )
         table = DataTable(id="flow-table", cursor_type="row")
-        table.add_columns("Time", "Model", "Client", "Score", "Verdict", "Enforce")
+        table.add_columns("Time", "Type", "Model", "Client", "Score", "Verdict", "Enforce")
         yield table
         with TabbedContent(id="flow-detail-tabs"):
             with TabPane("Signals", id="flow-tab-signals"):
@@ -423,20 +427,24 @@ class FlowPane(Vertical):
         table.clear()
 
         for i, entry in enumerate(self._entries[:200]):
-            ts = entry.timestamp[-8:] if len(entry.timestamp) >= 8 else entry.timestamp
             # Extract just HH:MM:SS from ISO timestamp
-            if "T" in ts:
-                ts = ts.split("T")[1][:8]
+            if "T" in entry.timestamp:
+                ts = entry.timestamp.split("T")[1][:8]
+            elif len(entry.timestamp) >= 8:
+                ts = entry.timestamp[-8:]
+            else:
+                ts = entry.timestamp
+            call_type = (entry.mcp_tool_name or "MCP") if entry.call_type == "call_mcp_tool" else "LLM"
             model = entry.model[:16]
             client = entry.client_id[-12:] if len(entry.client_id) > 12 else entry.client_id
             score = f"{entry.composite_score:.2f}" if entry.composite_score is not None else "-"
             verdict = _verdict_text(entry)
             enforce = _enforce_text(entry)
-            table.add_row(ts, model, client, score, verdict, enforce, key=str(i))
+            table.add_row(ts, call_type, model, client, score, verdict, enforce, key=str(i))
 
         if not self._entries:
             table.add_row(
-                "(waiting)", "-", "-", "-", "-", "-", key="_empty"
+                "(waiting)", "-", "-", "-", "-", "-", "-", key="_empty"
             )
 
     def _refresh_status(self) -> None:

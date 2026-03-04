@@ -22,6 +22,8 @@ from airlock.cli.post_cmd import (
     check_guardrail_modules,
     check_keywords,
     check_log_dir,
+    check_mcp_config,
+    check_mcp_guardrail_hooks,
     check_model_list,
     check_presidio,
     check_provider_anthropic,
@@ -669,6 +671,72 @@ class TestCheckGuardrailModules:
 
 
 # ---------------------------------------------------------------------------
+# MCP checks
+# ---------------------------------------------------------------------------
+
+
+class TestCheckMCPConfig:
+    def test_no_mcp_servers_skips(self):
+        config = {"model_list": []}
+        result = check_mcp_config(config, False)
+        assert result.status == CheckStatus.SKIP
+
+    def test_mcp_servers_list(self):
+        config = {"mcp_servers": [{"name": "fs", "url": "http://localhost:3001/sse"}]}
+        result = check_mcp_config(config, False)
+        assert result.status == CheckStatus.PASS
+        assert "1 MCP server" in result.detail
+
+    def test_mcp_servers_not_list(self):
+        config = {"mcp_servers": "invalid"}
+        result = check_mcp_config(config, False)
+        assert result.status == CheckStatus.FAIL
+
+    def test_multiple_mcp_servers(self):
+        config = {"mcp_servers": [{"name": "a"}, {"name": "b"}]}
+        result = check_mcp_config(config, False)
+        assert result.status == CheckStatus.PASS
+        assert "2 MCP servers" in result.detail
+
+
+class TestCheckMCPGuardrailHooks:
+    def test_no_guardrails_skips(self):
+        config = {}
+        result = check_mcp_guardrail_hooks(config, False)
+        assert result.status == CheckStatus.SKIP
+
+    def test_no_mcp_hooks_warns(self):
+        config = {
+            "guardrails": [
+                {"guardrail_name": "test", "litellm_params": {"mode": "pre_call"}},
+            ]
+        }
+        result = check_mcp_guardrail_hooks(config, False)
+        assert result.status == CheckStatus.WARN
+
+    def test_mcp_hooks_found(self):
+        config = {
+            "guardrails": [
+                {"guardrail_name": "pii", "litellm_params": {"mode": ["pre_call", "pre_mcp_call"]}},
+                {"guardrail_name": "semantic", "litellm_params": {"mode": ["during_call", "during_mcp_call"]}},
+            ]
+        }
+        result = check_mcp_guardrail_hooks(config, False)
+        assert result.status == CheckStatus.PASS
+        assert "2 guardrails" in result.detail
+
+    def test_bare_string_mcp_mode(self):
+        config = {
+            "guardrails": [
+                {"guardrail_name": "mcp-guard", "litellm_params": {"mode": "pre_mcp_call"}},
+            ]
+        }
+        result = check_mcp_guardrail_hooks(config, False)
+        assert result.status == CheckStatus.PASS
+        assert "1 guardrail" in result.detail
+
+
+# ---------------------------------------------------------------------------
 # run_checks integration
 # ---------------------------------------------------------------------------
 
@@ -685,11 +753,11 @@ class TestRunChecks:
         config_results = [r for r in results if r.group == "Config"]
         assert all(r.status != CheckStatus.SKIP or r.name == "env_file" for r in config_results)
 
-        # Provider/Storage/Guardrail checks should be skipped
+        # Provider/Storage/Guardrail/MCP checks should be skipped
         skipped = [r for r in results if r.detail == "skipped by flag"]
         assert len(skipped) > 0
         for r in skipped:
-            assert r.group in ("Providers", "Storage", "Guardrails")
+            assert r.group in ("Providers", "Storage", "Guardrails", "MCP")
 
     def test_timeout_produces_fail(self, config_dir, monkeypatch):
         """A check that exceeds timeout should FAIL."""

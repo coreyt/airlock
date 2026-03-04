@@ -800,6 +800,80 @@ def check_guardrail_modules(config: dict, verbose: bool) -> CheckResult:
 
 
 # ---------------------------------------------------------------------------
+# MCP group checks
+# ---------------------------------------------------------------------------
+
+
+@_register("mcp_config", "MCP server config", "MCP", skip_flag="skip_guardrails")
+def check_mcp_config(config: dict, verbose: bool) -> CheckResult:
+    mcp_servers = config.get("mcp_servers")
+    if not mcp_servers:
+        return CheckResult(
+            name="mcp_config",
+            status=CheckStatus.SKIP,
+            label="MCP server config",
+            detail="no mcp_servers configured (optional)",
+            group="MCP",
+        )
+    if not isinstance(mcp_servers, list):
+        return CheckResult(
+            name="mcp_config",
+            status=CheckStatus.FAIL,
+            label="MCP server config",
+            detail="mcp_servers must be a list",
+            group="MCP",
+        )
+    count = len(mcp_servers)
+    return CheckResult(
+        name="mcp_config",
+        status=CheckStatus.PASS,
+        label="MCP server config",
+        detail=f"{count} MCP server{'s' if count != 1 else ''} configured",
+        group="MCP",
+    )
+
+
+@_register("mcp_guardrail_hooks", "MCP guardrail hooks", "MCP", skip_flag="skip_guardrails")
+def check_mcp_guardrail_hooks(config: dict, verbose: bool) -> CheckResult:
+    guardrails = config.get("guardrails", [])
+    if not guardrails:
+        return CheckResult(
+            name="mcp_guardrail_hooks",
+            status=CheckStatus.SKIP,
+            label="MCP guardrail hooks",
+            detail="no guardrails configured",
+            group="MCP",
+        )
+
+    mcp_modes = {"pre_mcp_call", "during_mcp_call"}
+    mcp_registered = []
+    for entry in guardrails:
+        params = entry.get("litellm_params", {})
+        mode = params.get("mode", "")
+        modes = mode if isinstance(mode, list) else [mode]
+        if any(m in mcp_modes for m in modes):
+            mcp_registered.append(entry.get("guardrail_name", "?"))
+
+    if not mcp_registered:
+        return CheckResult(
+            name="mcp_guardrail_hooks",
+            status=CheckStatus.WARN,
+            label="MCP guardrail hooks",
+            detail="no guardrails registered for MCP hooks",
+            group="MCP",
+        )
+
+    count = len(mcp_registered)
+    return CheckResult(
+        name="mcp_guardrail_hooks",
+        status=CheckStatus.PASS,
+        label="MCP guardrail hooks",
+        detail=f"{count} guardrail{'s' if count != 1 else ''} with MCP hooks",
+        group="MCP",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Runner — execute checks with per-check timeout
 # ---------------------------------------------------------------------------
 

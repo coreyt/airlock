@@ -6,10 +6,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from airlock.guardrails.extract import extract_text_from_messages as extract_text
 from airlock.guardrails.observer import (
     AirlockObserver,
     collect_signals,
-    extract_text,
     scan_keywords,
     scan_pii,
     read_threat,
@@ -246,3 +246,50 @@ class TestAirlockObserver:
         assert len(obs["signals"]) == 3
         pii_signal = next(s for s in obs["signals"] if s["guardrail_name"] == "pii_scan")
         assert pii_signal["detected"] is False
+
+
+# ---------------------------------------------------------------------------
+# MCP observation
+# ---------------------------------------------------------------------------
+class TestMCPObservation:
+    @pytest.fixture
+    def observer(self):
+        return AirlockObserver()
+
+    async def test_mcp_call_observed(
+        self, observer, fresh_state_store, mock_user_api_key_dict, monkeypatch
+    ):
+        monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "secret")
+        data = {
+            "mcp_tool_name": "search",
+            "mcp_arguments": {"query": "find secret docs"},
+            "model": "unknown",
+        }
+        await observer.async_moderation_hook(
+            data, mock_user_api_key_dict, "call_mcp_tool"
+        )
+
+        obs = data["metadata"]["airlock_observation"]
+        assert len(obs["signals"]) == 3
+        kw_signal = next(
+            s for s in obs["signals"] if s["guardrail_name"] == "keyword_scan"
+        )
+        assert kw_signal["detected"] is True
+
+    async def test_mcp_pii_in_arguments(
+        self, observer, fresh_state_store, mock_user_api_key_dict
+    ):
+        data = {
+            "mcp_tool_name": "send_email",
+            "mcp_arguments": {"to": "user@example.com", "body": "Hello"},
+            "model": "unknown",
+        }
+        await observer.async_moderation_hook(
+            data, mock_user_api_key_dict, "call_mcp_tool"
+        )
+
+        obs = data["metadata"]["airlock_observation"]
+        pii_signal = next(
+            s for s in obs["signals"] if s["guardrail_name"] == "pii_scan"
+        )
+        assert pii_signal["detected"] is True

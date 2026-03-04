@@ -40,4 +40,6 @@ Thumbs.db
 litellm_uuid.txt
 
 # Aural
-.aural/
+
+.wake/*
+!.wake/shared/

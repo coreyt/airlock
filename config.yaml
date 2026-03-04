@@ -169,38 +169,69 @@ guardrails:
   - guardrail_name: airlock-pii-guard
     litellm_params:
       guardrail: airlock.guardrails.pii_guard.AirlockPIIGuard
-      mode: pre_call            # runs before the request leaves the building
+      mode: [pre_call, pre_mcp_call]
       default_on: true
 
   - guardrail_name: airlock-keyword-guard
     litellm_params:
       guardrail: airlock.guardrails.keyword_guard.AirlockKeywordGuard
-      mode: pre_call
+      mode: [pre_call, pre_mcp_call]
       default_on: true
 
   - guardrail_name: airlock-fast-guardian
     litellm_params:
       guardrail: airlock.fast.guardian.AirlockFastGuardian
-      mode: pre_call            # threat gate, circuit breaker, priority scoring
+      mode: [pre_call, pre_mcp_call]
       default_on: true
 
   - guardrail_name: airlock-enforcer
     litellm_params:
       guardrail: airlock.guardrails.enforcer.AirlockEnforcer
-      mode: pre_call            # adaptive weighted blocking (AIRLOCK_ENFORCE_MODE)
+      mode: [pre_call, pre_mcp_call]
       default_on: true
 
   - guardrail_name: airlock-semantic-guard
     litellm_params:
       guardrail: airlock.guardrails.semantic.AirlockSemanticGuard
-      mode: during_call         # ML classifiers run in parallel with LLM call
+      mode: [during_call, during_mcp_call]
       default_on: true
 
   - guardrail_name: airlock-orchestrator
     litellm_params:
       guardrail: airlock.guardrails.orchestrator.AirlockOrchestrator
-      mode: during_call         # zero-cost observation + weighted evaluation
+      mode: [during_call, during_mcp_call]
       default_on: true
+
+  - guardrail_name: airlock-mcp-tool-guard
+    litellm_params:
+      guardrail: airlock.guardrails.mcp_tool_guard.AirlockMCPToolGuard
+      mode: pre_mcp_call          # MCP-only: tool allowlist/blocklist + arg sanitization
+      default_on: true
+
+  - guardrail_name: airlock-response-scanner
+    litellm_params:
+      guardrail: airlock.guardrails.response_scanner.AirlockResponseScanner
+      mode: post_call
+      default_on: true
+
+# ---------------------------------------------------------------------------
+# MCP Servers (uncomment and configure to enable MCP tool proxying)
+# ---------------------------------------------------------------------------
+# mcp_servers:
+#   # --- SSE transport ---
+#   - name: filesystem
+#     url: http://localhost:3001/sse
+#
+#   # --- HTTP (Streamable HTTP) transport ---
+#   - name: database
+#     url: http://localhost:3002/mcp
+#
+#   # --- stdio transport ---
+#   - name: search
+#     command: npx
+#     args: ["-y", "@anthropic/mcp-search"]
+#     env:
+#       SEARCH_API_KEY: os.environ/SEARCH_API_KEY
 
 # ---------------------------------------------------------------------------
 # General proxy behaviour

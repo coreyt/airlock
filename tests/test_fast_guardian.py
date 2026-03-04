@@ -10,8 +10,8 @@ import pytest
 from airlock.fast.guardian import (
     AirlockFastGuardian,
     _extract_client_id,
-    _extract_text,
 )
+from airlock.guardrails.extract import extract_text_from_messages as _extract_text
 from airlock.fast.state import CircuitState
 
 
@@ -188,3 +188,48 @@ class TestGuardianPreCallHook:
             None, mock_cache, data, "completion"
         )
         assert "airlock_priority" in result.get("metadata", {})
+
+
+# ---------------------------------------------------------------------------
+# MCP call handling
+# ---------------------------------------------------------------------------
+class TestMCPCallHandling:
+    @pytest.fixture
+    def guardian(self):
+        return AirlockFastGuardian()
+
+    async def test_mcp_skips_routing_and_circuit_breaker(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        """MCP calls should skip routing and circuit breaker but still run threat + priority."""
+        data = {
+            "mcp_tool_name": "read_file",
+            "mcp_arguments": {"path": "/tmp/test.txt"},
+            "model": "unknown",
+        }
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "call_mcp_tool"
+        )
+        # Priority should be set
+        assert "airlock_priority" in result.get("metadata", {})
+        # No failover metadata (circuit breaker didn't run)
+        assert "airlock_failover" not in result.get("metadata", {})
+
+    async def test_mcp_threat_still_applies(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        """MCP calls still get threat-checked (backoff applies)."""
+        import time
+
+        client_id = _extract_client_id(mock_user_api_key_dict)
+        client = fresh_state_store.get_client(client_id)
+        client.backoff_until = time.time() + 60  # force backoff
+
+        data = {
+            "mcp_tool_name": "search",
+            "mcp_arguments": {"q": "test"},
+        }
+        with pytest.raises(ValueError, match="Too many requests"):
+            await guardian.async_pre_call_hook(
+                mock_user_api_key_dict, mock_cache, data, "call_mcp_tool"
+            )

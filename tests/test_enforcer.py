@@ -236,3 +236,45 @@ class TestEnforceMode2:
         assert "score" not in msg.lower()
         assert "threshold" not in msg.lower()
         assert "Airlock" in msg
+
+
+# ---------------------------------------------------------------------------
+# MCP enforcement
+# ---------------------------------------------------------------------------
+class TestMCPEnforcement:
+    async def test_mcp_enforce_mode_blocks(
+        self, enforcer, fresh_state_store, mock_cache, mock_user_api_key_dict,
+        knobs_dir, monkeypatch,
+    ):
+        monkeypatch.setenv("AIRLOCK_ENFORCE_MODE", "enforce")
+        monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "forbidden")
+
+        knobs = GuardrailKnobs(
+            version="test",
+            weights={"pii_scan": 0.1, "keyword_scan": 0.8, "threat_read": 0.1},
+            threshold=0.3,
+        )
+        write_knobs(knobs, directory=knobs_dir)
+
+        data = {
+            "mcp_tool_name": "search",
+            "mcp_arguments": {"query": "forbidden topic"},
+        }
+        with pytest.raises(ValueError, match="Airlock"):
+            await enforcer.async_pre_call_hook(
+                mock_user_api_key_dict, mock_cache, data, "call_mcp_tool"
+            )
+
+    async def test_mcp_observe_mode_passes(
+        self, enforcer, fresh_state_store, mock_cache, mock_user_api_key_dict,
+        monkeypatch,
+    ):
+        monkeypatch.setenv("AIRLOCK_ENFORCE_MODE", "observe")
+        data = {
+            "mcp_tool_name": "search",
+            "mcp_arguments": {"query": "anything"},
+        }
+        result = await enforcer.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "call_mcp_tool"
+        )
+        assert result is data

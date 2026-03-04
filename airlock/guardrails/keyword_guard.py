@@ -17,6 +17,8 @@ from litellm import DualCache
 from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
+from .extract import extract_text
+
 logger = logging.getLogger("airlock.guardrails.keyword")
 
 
@@ -25,25 +27,14 @@ def _blocked_keywords() -> list[str]:
     return [kw.strip().lower() for kw in raw.split(",") if kw.strip()]
 
 
-def _extract_text(messages: list[dict[str, Any]]) -> str:
-    """Flatten all message content into a single lowercase string for scanning."""
-    parts: list[str] = []
-    for msg in messages:
-        content = msg.get("content")
-        if isinstance(content, str):
-            parts.append(content)
-        elif isinstance(content, list):
-            for part in content:
-                if isinstance(part, dict) and part.get("type") == "text":
-                    parts.append(part.get("text", ""))
-    return "\n".join(parts).lower()
-
-
 class AirlockKeywordGuard(CustomGuardrail):
     """Pre-call guardrail that rejects prompts containing blocked keywords."""
 
     def __init__(self, **kwargs):
-        supported_event_hooks = [GuardrailEventHooks.pre_call]
+        supported_event_hooks = [
+            GuardrailEventHooks.pre_call,
+            GuardrailEventHooks.pre_mcp_call,
+        ]
         super().__init__(supported_event_hooks=supported_event_hooks, **kwargs)
 
     async def async_pre_call_hook(
@@ -57,11 +48,9 @@ class AirlockKeywordGuard(CustomGuardrail):
         if not keywords:
             return data
 
-        messages = data.get("messages")
-        if not messages:
+        text = extract_text(data, call_type).lower()
+        if not text:
             return data
-
-        text = _extract_text(messages)
 
         for kw in keywords:
             if kw in text:

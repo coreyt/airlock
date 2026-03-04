@@ -30,3 +30,15 @@ AIRLOCK_PII_ENTITIES=CREDIT_CARD,US_SSN,EMAIL_ADDRESS,PHONE_NUMBER,US_BANK_NUMBE
 # Model failover map — JSON mapping model name → ordered fallback list.
 # Omit to use built-in defaults derived from config.yaml models.
 # AIRLOCK_FAILOVER_MAP={"claude-sonnet":["claude-haiku","gpt-4o"],"gpt-4o":["claude-sonnet","gpt-4o-mini"]}
+
+# --- Response Scanner ---
+# Mode: observe (log only, default) or enforce (block suspicious responses)
+AIRLOCK_RESPONSE_SCAN_MODE=observe
+# Composite score threshold for blocking (0.0-1.0, default 0.5)
+# AIRLOCK_RESPONSE_SCAN_THRESHOLD=0.5
+
+# --- MCP Tool Access Control ---
+# Comma-separated tool allowlist (empty = allow all configured tools)
+# AIRLOCK_MCP_ALLOWED_TOOLS=read_file,search,query_db
+# Comma-separated tool blocklist (takes precedence when both set)
+# AIRLOCK_MCP_BLOCKED_TOOLS=execute_command,delete_file

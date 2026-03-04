@@ -42,7 +42,10 @@ class AirlockEnforcer(CustomGuardrail):
     """Pre-call guardrail with adaptive weighted blocking."""
 
     def __init__(self, **kwargs):
-        supported_event_hooks = [GuardrailEventHooks.pre_call]
+        supported_event_hooks = [
+            GuardrailEventHooks.pre_call,
+            GuardrailEventHooks.pre_mcp_call,
+        ]
         super().__init__(supported_event_hooks=supported_event_hooks, **kwargs)
 
     async def async_pre_call_hook(
@@ -56,7 +59,7 @@ class AirlockEnforcer(CustomGuardrail):
         if mode == "observe":
             return data
 
-        signals = collect_signals(data, user_api_key_dict)
+        signals = collect_signals(data, user_api_key_dict, call_type)
         knobs = _get_knobs()
         composite_score = evaluate(signals, knobs)
         should_block = composite_score >= knobs.threshold

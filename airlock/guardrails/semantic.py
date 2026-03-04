@@ -52,6 +52,8 @@ sys.modules.setdefault(__name__, type(sys)(__name__))
 from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
+from .extract import extract_text as _extract_text_unified
+
 logger = logging.getLogger("airlock.guardrails.semantic")
 
 
@@ -96,23 +98,6 @@ class OrchestratorVerdict:
     blocking_classifier: str | None  # name of the classifier that triggered the block
     results: list[ClassifierResult]
     total_duration_ms: float
-
-
-# ---------------------------------------------------------------------------
-# Text extraction (reused pattern from keyword_guard / guardian)
-# ---------------------------------------------------------------------------
-def _extract_text(messages: list[dict[str, Any]]) -> str:
-    """Flatten all message content into a single string for classification."""
-    parts: list[str] = []
-    for msg in messages:
-        content = msg.get("content")
-        if isinstance(content, str):
-            parts.append(content)
-        elif isinstance(content, list):
-            for part in content:
-                if isinstance(part, dict) and part.get("type") == "text":
-                    parts.append(part.get("text", ""))
-    return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +198,10 @@ class AirlockSemanticGuard(CustomGuardrail):
     """
 
     def __init__(self, **kwargs: Any) -> None:
-        supported_event_hooks = [GuardrailEventHooks.during_call]
+        supported_event_hooks = [
+            GuardrailEventHooks.during_call,
+            GuardrailEventHooks.during_mcp_call,
+        ]
         super().__init__(supported_event_hooks=supported_event_hooks, **kwargs)
 
     async def async_moderation_hook(
@@ -222,10 +210,6 @@ class AirlockSemanticGuard(CustomGuardrail):
         user_api_key_dict: Any,
         call_type: str,
     ) -> None:
-        messages = data.get("messages")
-        if not messages:
-            return
-
         classifiers = registered_classifiers()
         if not classifiers:
             # No classifiers registered yet — nothing to do.
@@ -238,7 +222,7 @@ class AirlockSemanticGuard(CustomGuardrail):
             }
             return
 
-        text = _extract_text(messages)
+        text = _extract_text_unified(data, call_type)
         if not text.strip():
             return
 

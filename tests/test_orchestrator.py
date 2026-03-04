@@ -239,3 +239,29 @@ class TestAirlockOrchestrator:
 
         obs = data["metadata"]["airlock_observation"]
         assert obs["orchestrator_version"] == "2024-01-15T10:00:00Z"
+
+
+# ---------------------------------------------------------------------------
+# MCP call handling
+# ---------------------------------------------------------------------------
+class TestMCPOrchestration:
+    @pytest.fixture
+    def orchestrator(self):
+        return AirlockOrchestrator()
+
+    async def test_mcp_call_evaluated(
+        self, orchestrator, fresh_state_store, mock_user_api_key_dict, monkeypatch
+    ):
+        monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "classified")
+        _invalidate_knobs_cache()
+        data = {
+            "mcp_tool_name": "search",
+            "mcp_arguments": {"query": "classified documents"},
+            "model": "unknown",
+        }
+        await orchestrator.async_moderation_hook(
+            data, mock_user_api_key_dict, "call_mcp_tool"
+        )
+        obs = data["metadata"]["airlock_observation"]
+        assert "composite_score" in obs
+        assert obs["composite_score"] is not None

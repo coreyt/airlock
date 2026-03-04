@@ -342,3 +342,48 @@ class TestCallbackMethods:
         today = datetime.date.today().isoformat()
         log_path = log_dir / f"airlock-{today}.jsonl"
         assert log_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# MCP metadata in JSONL records
+# ---------------------------------------------------------------------------
+class TestMCPLogging:
+    def test_mcp_fields_in_record(self, log_dir, mock_start_end_times):
+        """MCP call_type, tool name, and server name appear in JSONL."""
+        start, end = mock_start_end_times
+        kwargs = {
+            "model": "unknown",
+            "call_type": "call_mcp_tool",
+            "mcp_tool_name": "read_file",
+            "messages": [{"role": "user", "content": "synthetic"}],
+            "litellm_call_id": "call-mcp-123",
+            "litellm_params": {
+                "metadata": {
+                    "mcp_server_name": "filesystem",
+                },
+            },
+        }
+
+        logger = AirlockLogger()
+        logger.log_success_event(kwargs, None, start, end)
+
+        today = datetime.date.today().isoformat()
+        log_path = log_dir / f"airlock-{today}.jsonl"
+        record = json.loads(log_path.read_text().strip())
+
+        assert record["call_type"] == "call_mcp_tool"
+        assert record["mcp_tool_name"] == "read_file"
+        assert record["mcp_server_name"] == "filesystem"
+
+    def test_llm_call_no_mcp_fields(self, log_dir, mock_logger_kwargs, mock_response_obj, mock_start_end_times):
+        """Regular LLM calls should NOT have MCP fields in the record."""
+        start, end = mock_start_end_times
+        logger = AirlockLogger()
+        logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
+
+        today = datetime.date.today().isoformat()
+        log_path = log_dir / f"airlock-{today}.jsonl"
+        record = json.loads(log_path.read_text().strip())
+
+        assert "call_type" not in record
+        assert "mcp_tool_name" not in record

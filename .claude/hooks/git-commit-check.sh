@@ -9,4 +9,4 @@ print(d.get('tool_input', {}).get('command', ''))
 
 [[ "$COMMAND" != git\ commit* ]] && exit 0
 
-aural commit-check
+wake commit-check

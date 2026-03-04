@@ -88,7 +88,10 @@ class AirlockOrchestrator(CustomGuardrail):
     """During-call guardrail with weighted evaluation — never blocks."""
 
     def __init__(self, **kwargs):
-        supported_event_hooks = [GuardrailEventHooks.during_call]
+        supported_event_hooks = [
+            GuardrailEventHooks.during_call,
+            GuardrailEventHooks.during_mcp_call,
+        ]
         super().__init__(supported_event_hooks=supported_event_hooks, **kwargs)
 
     async def async_moderation_hook(
@@ -98,7 +101,7 @@ class AirlockOrchestrator(CustomGuardrail):
         call_type: str,
     ) -> None:
         try:
-            signals = collect_signals(data, user_api_key_dict)
+            signals = collect_signals(data, user_api_key_dict, call_type)
             knobs = _get_knobs()
             composite_score = evaluate(signals, knobs)
             would_block = composite_score >= knobs.threshold

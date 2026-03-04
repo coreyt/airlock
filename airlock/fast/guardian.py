@@ -31,6 +31,8 @@ from litellm import DualCache
 from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
+from airlock.guardrails.extract import extract_text, is_mcp_call
+
 from .circuit_breaker import check_model
 from .priority import compute_priority
 from .router import apply_routing
@@ -55,20 +57,6 @@ def _extract_client_id(user_api_key_dict: Any) -> str:
     return "unknown"
 
 
-def _extract_text(messages: list[dict[str, Any]]) -> str:
-    """Flatten messages to a single string for payload analysis."""
-    parts: list[str] = []
-    for msg in messages:
-        content = msg.get("content")
-        if isinstance(content, str):
-            parts.append(content)
-        elif isinstance(content, list):
-            for part in content:
-                if isinstance(part, dict) and part.get("type") == "text":
-                    parts.append(part.get("text", ""))
-    return "\n".join(parts)
-
-
 # ---------------------------------------------------------------------------
 # Guardrail
 # ---------------------------------------------------------------------------
@@ -76,7 +64,10 @@ class AirlockFastGuardian(CustomGuardrail):
     """Pre-call guardrail implementing the fast reactive subsystem."""
 
     def __init__(self, **kwargs):
-        supported_event_hooks = [GuardrailEventHooks.pre_call]
+        supported_event_hooks = [
+            GuardrailEventHooks.pre_call,
+            GuardrailEventHooks.pre_mcp_call,
+        ]
         super().__init__(supported_event_hooks=supported_event_hooks, **kwargs)
 
     async def async_pre_call_hook(
@@ -90,7 +81,7 @@ class AirlockFastGuardian(CustomGuardrail):
         client_id = _extract_client_id(user_api_key_dict)
         client = store.get_client(client_id)
         model_name = data.get("model", "unknown")
-        messages = data.get("messages", [])
+        mcp = is_mcp_call(data, call_type)
 
         # Record the inbound request
         client.record_request(now)
@@ -108,7 +99,7 @@ class AirlockFastGuardian(CustomGuardrail):
             )
 
         # ---- Step 2: Threat assessment ----
-        message_text = _extract_text(messages) if messages else None
+        message_text = extract_text(data, call_type) or None
         threat = assess_threat(client, message_text)
         if threat.blocked:
             raise ValueError(
@@ -116,32 +107,34 @@ class AirlockFastGuardian(CustomGuardrail):
                 f"Please retry after {int(threat.backoff_seconds)} seconds."
             )
 
-        # ---- Step 2.5: Intelligent routing ----
-        data = apply_routing(data)
-        model_name = data.get("model", model_name)  # re-read after routing
+        # Routing and circuit breaker are model-specific — skip for MCP calls
+        if not mcp:
+            # ---- Step 2.5: Intelligent routing ----
+            data = apply_routing(data)
+            model_name = data.get("model", model_name)  # re-read after routing
 
-        # ---- Step 3: Circuit breaker / failover ----
-        failover = check_model(model_name)
-        if not failover.allowed:
-            if failover.failover_model:
-                logger.info(
-                    "model_failover original=%s failover=%s reason=%s",
-                    model_name,
-                    failover.failover_model,
-                    failover.reason,
-                )
-                data["model"] = failover.failover_model
-                metadata = data.setdefault("metadata", {})
-                metadata["airlock_failover"] = {
-                    "original_model": model_name,
-                    "failover_model": failover.failover_model,
-                    "reason": failover.reason,
-                }
-            else:
-                raise ValueError(
-                    f"Model {model_name} is currently unavailable and no "
-                    f"fallback models are healthy. Please try again shortly."
-                )
+            # ---- Step 3: Circuit breaker / failover ----
+            failover = check_model(model_name)
+            if not failover.allowed:
+                if failover.failover_model:
+                    logger.info(
+                        "model_failover original=%s failover=%s reason=%s",
+                        model_name,
+                        failover.failover_model,
+                        failover.reason,
+                    )
+                    data["model"] = failover.failover_model
+                    metadata = data.setdefault("metadata", {})
+                    metadata["airlock_failover"] = {
+                        "original_model": model_name,
+                        "failover_model": failover.failover_model,
+                        "reason": failover.reason,
+                    }
+                else:
+                    raise ValueError(
+                        f"Model {model_name} is currently unavailable and no "
+                        f"fallback models are healthy. Please try again shortly."
+                    )
 
         # ---- Step 4: Priority scoring ----
         priority = compute_priority(client)

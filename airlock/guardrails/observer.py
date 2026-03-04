@@ -33,6 +33,7 @@ from airlock.callbacks.metrics import (
 )
 from airlock.fast.state import store
 
+from .extract import extract_text as _extract_text_unified
 from .schemas import GuardrailObservation, GuardrailSignal
 
 logger = logging.getLogger("airlock.guardrails.observer")
@@ -46,23 +47,6 @@ _PII_PATTERNS: dict[str, re.Pattern] = {
     "US_SSN": re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
     "CREDIT_CARD": re.compile(r"\b(?:\d[ -]*?){13,19}\b"),
 }
-
-
-# ---------------------------------------------------------------------------
-# Text extraction (shared with orchestrator/enforcer)
-# ---------------------------------------------------------------------------
-def extract_text(messages: list[dict[str, Any]]) -> str:
-    """Flatten all message content into a single lowercase string for scanning."""
-    parts: list[str] = []
-    for msg in messages:
-        content = msg.get("content")
-        if isinstance(content, str):
-            parts.append(content)
-        elif isinstance(content, list):
-            for part in content:
-                if isinstance(part, dict) and part.get("type") == "text":
-                    parts.append(part.get("text", ""))
-    return "\n".join(parts)
 
 
 def _blocked_keywords() -> list[str]:
@@ -152,10 +136,10 @@ def _extract_client_id(user_api_key_dict: Any) -> str:
 
 
 def collect_signals(
-    data: dict, user_api_key_dict: Any
+    data: dict, user_api_key_dict: Any, call_type: str = ""
 ) -> list[GuardrailSignal]:
     """Run all signal scanners and return a list of signals."""
-    text = extract_text(data.get("messages", []))
+    text = _extract_text_unified(data, call_type)
     return [
         scan_pii(text),
         scan_keywords(text),
@@ -170,7 +154,10 @@ class AirlockObserver(CustomGuardrail):
     """During-call guardrail that observes and records without blocking."""
 
     def __init__(self, **kwargs):
-        supported_event_hooks = [GuardrailEventHooks.during_call]
+        supported_event_hooks = [
+            GuardrailEventHooks.during_call,
+            GuardrailEventHooks.during_mcp_call,
+        ]
         super().__init__(supported_event_hooks=supported_event_hooks, **kwargs)
 
     async def async_moderation_hook(
@@ -180,7 +167,7 @@ class AirlockObserver(CustomGuardrail):
         call_type: str,
     ) -> None:
         try:
-            signals = collect_signals(data, user_api_key_dict)
+            signals = collect_signals(data, user_api_key_dict, call_type)
             client_id = _extract_client_id(user_api_key_dict)
 
             observation = GuardrailObservation(

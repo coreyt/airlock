@@ -10,11 +10,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from airlock.guardrails.extract import extract_text_from_messages as _extract_text
 from airlock.guardrails.semantic import (
     AirlockSemanticGuard,
     ClassifierResult,
     OrchestratorVerdict,
-    _extract_text,
     _fail_open,
     clear_classifiers,
     register_classifier,
@@ -336,8 +336,8 @@ class TestSemanticGuardHook:
     async def test_no_messages_noop(self, guard):
         data = {"model": "claude-sonnet"}
         await guard.async_moderation_hook(data, MagicMock(), "completion")
-        # No crash, no metadata added
-        assert "airlock_semantic" not in data.get("metadata", {})
+        # No crash; with no classifiers registered, still records status
+        assert data.get("metadata", {}).get("airlock_semantic", {}).get("status") == "no_classifiers"
 
     async def test_empty_text_noop(self, guard):
         data = {
@@ -503,3 +503,43 @@ class TestSemanticGuardHook:
 
         result = data["metadata"]["airlock_semantic"]["results"][0]
         assert "metadata" not in result
+
+
+# ---------------------------------------------------------------------------
+# MCP semantic classification
+# ---------------------------------------------------------------------------
+class TestMCPSemanticGuard:
+    @pytest.fixture(autouse=True)
+    def clear_registry(self):
+        clear_classifiers()
+        yield
+        clear_classifiers()
+
+    @pytest.fixture
+    def guard(self):
+        return AirlockSemanticGuard()
+
+    async def test_mcp_text_classified(self, guard):
+        """MCP tool arguments should be extracted and classified."""
+        register_classifier(StubClassifier(name="topic", score=0.2, threshold=0.5))
+        data = {
+            "mcp_tool_name": "search",
+            "mcp_arguments": {"query": "find sensitive docs"},
+            "model": "unknown",
+        }
+        await guard.async_moderation_hook(data, MagicMock(), "call_mcp_tool")
+
+        semantic = data["metadata"]["airlock_semantic"]
+        assert semantic["status"] == "passed"
+        assert len(semantic["results"]) == 1
+
+    async def test_mcp_blocked_by_classifier(self, guard):
+        """A classifier that exceeds threshold should block MCP call."""
+        register_classifier(StubClassifier(name="injection", score=0.9, threshold=0.5))
+        data = {
+            "mcp_tool_name": "execute",
+            "mcp_arguments": {"cmd": "malicious payload"},
+            "model": "unknown",
+        }
+        with pytest.raises(ValueError, match="content policy"):
+            await guard.async_moderation_hook(data, MagicMock(), "call_mcp_tool")

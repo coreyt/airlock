@@ -64,6 +64,11 @@ def _build_metrics() -> dict[str, Any]:
             "airlock_threat_blocks_total",
             "Total requests blocked by threat detector",
         ),
+        "response_scan_detections": Counter(
+            "airlock_response_scan_detections_total",
+            "Total response scan detections",
+            ["category", "mode"],
+        ),
     }
 
 
@@ -84,6 +89,12 @@ def record_keyword_block() -> None:
     """Increment keyword block counter. Called by keyword_guard."""
     if "keyword_blocks" in _metrics:
         _metrics["keyword_blocks"].inc()
+
+
+def record_response_scan_detection(category: str, mode: str) -> None:
+    """Increment response scan detection counter. Called by response_scanner."""
+    if "response_scan_detections" in _metrics:
+        _metrics["response_scan_detections"].labels(category=category, mode=mode).inc()
 
 
 def record_threat_block() -> None:
