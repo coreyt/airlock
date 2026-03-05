@@ -215,34 +215,28 @@ guardrails:
       default_on: true
 
 # ---------------------------------------------------------------------------
-# MCP Servers (uncomment and configure to enable MCP tool proxying)
+# MCP Servers
 # ---------------------------------------------------------------------------
-# mcp_servers:
-#   # --- Remote (SSE transport) — health-check only ---
-#   - name: filesystem
-#     url: http://localhost:3001/sse
-#
-#   # --- Remote (HTTP transport) — health-check only ---
-#   - name: database
-#     url: http://localhost:3002/mcp
-#
-#   # --- Local (Airlock-managed) — TUI can start/stop ---
-#   - name: ado
-#     url: http://localhost:3003/sse
-#     airlock_managed:
-#       command: node
-#       args: ["dist/index.js"]
-#       cwd: ~/projects/ado-mcp
-#       env:
-#         ADO_TOKEN: os.environ/ADO_TOKEN
-#       health_url: http://localhost:3003/health
-#
-#   # --- stdio transport — LiteLLM spawns per-call ---
-#   - name: search
-#     command: npx
-#     args: ["-y", "@anthropic/mcp-search"]
-#     env:
-#       SEARCH_API_KEY: os.environ/SEARCH_API_KEY
+mcp_servers:
+  # --- Azure DevOps (stdio) ---
+  - name: ado-mcp
+    command: uv
+    args: ["run", "python", "-m", "ado_mcp.mcp.server"]
+    env:
+      ADO_ORG_URL: os.environ/ADO_ORG_URL
+      ADO_PAT: os.environ/ADO_PAT
+
+  # --- Armada GraphRAG (stdio) ---
+  - name: armada
+    command: uv
+    args: ["run", "armada-mcp"]
+    env:
+      ARMADA_PROFILE: essential
+
+  # --- Monospace Design TUI (stdio) ---
+  - name: mono-tui
+    command: python3
+    args: ["mcp-server/server.py"]
 
 # ---------------------------------------------------------------------------
 # General proxy behaviour
