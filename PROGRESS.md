@@ -1,8 +1,8 @@
 # Airlock — Project Progress
 
-## Status: Smart Complexity Routing Complete
+## Status: End-to-End Trial Ready + MCP Gateway
 
-Last updated: 2026-02-28
+Last updated: 2026-03-05
 
 ## Completed Work
 
@@ -100,9 +100,9 @@ Graceful cleanup on TUI exit (SIGTERM → wait → SIGKILL). 22 new tests.
 
 ### Power-On Self-Test (commit 5eea760)
 `airlock post` command validates every external dependency before sending real
-traffic. 12 checks across 4 groups (config, providers, storage, guardrails).
-Per-check timeout, colored/JSON output, `--skip-*` flags. Exit 0 if all pass,
-1 if any fail. 72 new tests.
+traffic. 14 checks across 5 groups (config, providers, storage, guardrails,
+MCP). Per-check timeout, colored/JSON output, `--skip-*` flags. Exit 0 if all
+pass, 1 if any fail.
 
 ### Proxy Console Ring Log (commits ec92dbe, 605a669)
 ProxyManager now persists subprocess output to `logs/proxy-console.log` via a
@@ -147,7 +147,7 @@ new Airlock code — giving clients composable routing directives.
 
 Directive priority: session affinity > cost tier > provider preference > budget
 awareness. Router runs in guardian between threat check and circuit breaker so
-the routed model gets circuit-checked. 43 new tests (612 total).
+the routed model gets circuit-checked. 43 new tests.
 
 ### Native Complexity Routing (`model: smart`)
 Clients send `model: "smart"` and Airlock auto-classifies prompt complexity to
@@ -164,12 +164,54 @@ Six weighted text features (sum to 1.0):
 
 Composite score 0–1 maps to: `<0.30` → simple (low tier), `0.30–0.60` →
 moderate (medium tier), `≥0.60` → complex (high tier). Thresholds configurable
-via `AIRLOCK_SMART_THRESHOLDS` env var.
+via `AIRLOCK_SMART_THRESHOLDS` env var. 25 new tests.
 
-Composes with all other directives: `model: smart` + `prefer_provider: gemini` +
-`session_id: X` all work together. Classification metadata attached to
-`airlock_routing.smart_classify` for slow analyzer observability. 25 new tests
-(637 total).
+### MCP Server Gateway
+Dual-registration of all 7 guardrails for both LLM and MCP hooks. Unified text
+extraction in `airlock/guardrails/extract.py` dispatches by `call_type`. MCP
+tool guard (`mcp_tool_guard.py`) provides allowlist/blocklist + argument
+sanitization (path traversal, shell metacharacters). Guardian skips
+routing/circuit breaker for MCP calls but still applies threat detection and
+priority scoring. Enterprise logger includes `call_type`, `mcp_tool_name`,
+`mcp_server_name` in JSONL. TUI flow screen shows tool name for MCP calls.
+POST checks include MCP config validation + guardrail hook registration.
+
+### MCP Server Management
+Three server types: remote (health-check only), local/managed (Airlock
+starts/stops), stdio (LiteLLM per-call). `McpServerManager` follows
+`ProxyManager` pattern — subprocess lifecycle, ring buffers, reader threads.
+TUI screen 8 (MCP Servers) with DataTable, detail tabs (Info/Console/Tools),
+Start/Stop/Restart/Probe buttons. Health probes: HTTP GET for URL-based,
+`shutil.which()` for stdio binaries.
+
+### MCP Visibility Across TUI (commit d062c97)
+MCP indicators on all 5 existing TUI screens. `McpToolState` in state layer
+with deque sliding windows for success/failure/latency tracking (modeled after
+`ModelState` but without circuit breaker). Monitor callbacks track MCP tool
+calls via `mcp_tool_name` metadata.
+
+### Code Review Fixes (commit e01d0eb)
+8 issues fixed: memory (McpToolState deque limits), security (PII guard
+recursive scrubbing, `_collect_strings` depth limit), deduplication
+(`_check_arguments` reuses `_collect_strings`), streaming response scanner
+accumulates text only, response scan metadata only on detection.
+
+### Response Scanner (commit 08033c5)
+`airlock/guardrails/response_scanner.py` — regex-only detection with 4 weighted
+categories (injection 1.0, exfiltration 0.9, override 0.8, tool_call 0.7) and
+composite scoring. Three separate hook methods for non-streaming, streaming, and
+MCP response paths. Runs in critical path — microsecond-fast.
+
+### Application-Level File Logging (commit 23ee6bd)
+`configure_logging()` in `airlock/cli/main.py` sets up file handler (DEBUG+ to
+`logs/airlock-YYYYMMDD-HHMMSS.log`) and stderr handler (WARNING+) on the
+`airlock` root logger. All 20 child loggers inherit. Idempotent guard prevents
+duplicate handlers. Only activates for real subcommands, not `--help`.
+
+### MCP Server Config Validation (commit 4c1b95f)
+Pre-validate `os.environ/` references in `mcp_servers` config before LiteLLM
+startup. Clear error messages naming the missing variable and where to set it.
+Validation runs in both `proxy.py` and `ProxyManager.preflight()`.
 
 ## Readiness
 
@@ -179,37 +221,33 @@ has been **confirmed working with real API traffic**:
 ```bash
 airlock init --dir ~/trial    # scaffold config, .env, logs/
 # edit .env with real API keys
-airlock post                  # validate config, keys, storage, guardrails
+airlock post                  # validate config, keys, storage, guardrails, MCP
 airlock tui --start           # launch proxy + TUI in one command
 # send requests to localhost:4000
 ```
 
 Requests flow through PII redaction → keyword blocking → threat scoring →
-intelligent routing → circuit breaker → upstream LLM → observation guardrails →
-JSONL logging → TUI dashboard.
+intelligent routing → circuit breaker → upstream LLM → response scanning →
+observation guardrails → JSONL logging → TUI dashboard.
 
-PII redaction confirmed: email, credit card, and phone numbers scrubbed by
-Presidio before reaching upstream providers. JSONL logs capture full structured
-records with request/response, token counts, and timing.
+MCP tool calls flow through the same guardrail pipeline (except routing and
+circuit breaker which are model-specific).
 
 ### Not yet present (does not block trial)
 - TUI log search (issue #10)
 - Hybrid sparse+dense search (issue #11, depends on #10)
 - Semantic ML classifiers (orchestrator is wired, no models plugged in)
+- Per-server MCP startup timeout (issue #20)
 - Default enforce mode is `observe` (collects data, doesn't block via weighted system)
 
 ## Open Issues
 
-### Issue #10 — Basic Keyword Search for TUI Logs
-Add free-text keyword search to the Logs screen. Case-insensitive substring
-matching against request messages and response content. Wire up `/` keybinding
-per TUI design doc. Client-side filtering over loaded records.
-
-### Issue #11 — Hybrid Sparse+Dense Search Backend
-Combine BM25 keyword search with embedding-based semantic search for log
-retrieval. Reciprocal rank fusion scoring. Local index storage
-(SQLite + faiss). Optional `pip install airlock[search]` dependencies.
-Depends on #10 completing first.
+| # | Title | Status |
+|---|-------|--------|
+| 10 | Basic keyword search for TUI logs | Open |
+| 11 | Hybrid sparse+dense search backend (depends on #10) | Open |
+| 16 | Code-as-tool-call detection (security guardrail) | Open |
+| 20 | Per-server MCP startup timeout | Open |
 
 ## Performance Benchmark — 2026-02-22
 
@@ -251,23 +289,24 @@ All 7 succeeded. JSONL logs confirmed written to `logs/airlock-2026-02-22.jsonl`
 
 ## Test Suite
 
-- **637 tests** across 28 test files
-- **637 passing**, 0 failing
+- **876 tests** across 32 test files
+- **876 passing**, 0 failing
 - Presidio engines shared via session fixture to avoid OOM
 - TUI tests use async `app.run_test()` pattern
 - ProxyManager tests cover subprocess lifecycle, ring log, and output queue
-- POST tests cover all 12 checks, rendering, JSON output, skip flags, timeouts
+- POST tests cover all 14 checks, rendering, JSON output, skip flags, timeouts
 
 ## Architecture Summary
 
 | Subsystem | Location | Status |
 |-----------|----------|--------|
 | Proxy | `airlock/proxy.py` | Complete |
-| Guardrails | `airlock/guardrails/` | Complete (7 guardrails wired) |
+| Guardrails | `airlock/guardrails/` | Complete (8 guardrails wired, incl. response scanner) |
 | Semantic Guard | `airlock/guardrails/semantic.py` | Orchestrator complete — awaiting classifiers |
 | Callbacks | `airlock/callbacks/` | Complete — JSONL confirmed working with real traffic |
 | Fast (real-time) | `airlock/fast/` | Complete — intelligent routing, circuit breaker, threat detection |
 | Slow (offline) | `airlock/slow/` | Complete — 5 dimensions (incl. semantic) |
 | Hooks | `airlock/hooks/` | Complete |
 | CLI | `airlock/cli/` | Complete (init, start, status, post, tui, analyze, hooks, dogfood) |
-| TUI | `airlock/tui/` | Complete — 7 screens, proxy launch, search pending (#10) |
+| TUI | `airlock/tui/` | Complete — 8 screens, proxy launch, MCP management |
+| MCP Gateway | `airlock/guardrails/extract.py`, `mcp_tool_guard.py` | Complete — dual LLM+MCP guardrail protection |
