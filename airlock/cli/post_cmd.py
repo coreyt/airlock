@@ -833,6 +833,118 @@ def check_mcp_config(config: dict, verbose: bool) -> CheckResult:
     )
 
 
+@_register("mcp_server_health", "MCP server health", "MCP", skip_flag="skip_mcp")
+def check_mcp_server_health(config: dict, verbose: bool) -> CheckResult:
+    mcp_servers = config.get("mcp_servers")
+    if not mcp_servers or not isinstance(mcp_servers, list):
+        return CheckResult(
+            name="mcp_server_health",
+            status=CheckStatus.SKIP,
+            label="MCP server health",
+            detail="no mcp_servers configured",
+            group="MCP",
+        )
+
+    import shutil
+    from airlock.tui.mcp_manager import _resolve_health_url, probe_http
+
+    healthy: list[str] = []
+    unhealthy: list[str] = []
+    for srv in mcp_servers:
+        name = srv.get("name", "?")
+        managed = srv.get("airlock_managed") if isinstance(srv.get("airlock_managed"), dict) else None
+        url = _resolve_health_url(srv, managed)
+
+        if url:
+            ok, latency = probe_http(url, timeout=5.0)
+            if ok:
+                healthy.append(f"{name} ({latency:.0f}ms)")
+            else:
+                unhealthy.append(name)
+        elif srv.get("command"):
+            # stdio — check binary exists
+            if shutil.which(srv["command"]):
+                healthy.append(f"{name} (binary found)")
+            else:
+                unhealthy.append(f"{name} (binary not found)")
+        else:
+            unhealthy.append(f"{name} (no url or command)")
+
+    if unhealthy:
+        return CheckResult(
+            name="mcp_server_health",
+            status=CheckStatus.WARN,
+            label="MCP server health",
+            detail=f"{len(healthy)} healthy, {len(unhealthy)} unreachable: {', '.join(unhealthy)}",
+            group="MCP",
+        )
+
+    count = len(healthy)
+    return CheckResult(
+        name="mcp_server_health",
+        status=CheckStatus.PASS,
+        label="MCP server health",
+        detail=f"{count} server{'s' if count != 1 else ''} healthy",
+        group="MCP",
+    )
+
+
+@_register("mcp_managed_config", "MCP managed server config", "MCP", skip_flag="skip_mcp")
+def check_mcp_managed_config(config: dict, verbose: bool) -> CheckResult:
+    mcp_servers = config.get("mcp_servers")
+    if not mcp_servers or not isinstance(mcp_servers, list):
+        return CheckResult(
+            name="mcp_managed_config",
+            status=CheckStatus.SKIP,
+            label="MCP managed server config",
+            detail="no mcp_servers configured",
+            group="MCP",
+        )
+
+    import shutil
+
+    managed = [s for s in mcp_servers if isinstance(s.get("airlock_managed"), dict)]
+    if not managed:
+        return CheckResult(
+            name="mcp_managed_config",
+            status=CheckStatus.SKIP,
+            label="MCP managed server config",
+            detail="no airlock_managed servers",
+            group="MCP",
+        )
+
+    issues: list[str] = []
+    for srv in managed:
+        name = srv.get("name", "?")
+        mcfg = srv["airlock_managed"]
+        cmd = mcfg.get("command", "")
+        if not cmd:
+            issues.append(f"{name}: missing command")
+        elif not shutil.which(cmd):
+            issues.append(f"{name}: command '{cmd}' not found")
+        cwd = mcfg.get("cwd", "")
+        if cwd and not Path(cwd).expanduser().is_dir():
+            issues.append(f"{name}: cwd does not exist: {cwd}")
+
+    if issues:
+        return CheckResult(
+            name="mcp_managed_config",
+            status=CheckStatus.WARN,
+            label="MCP managed server config",
+            detail="; ".join(issues),
+            group="MCP",
+        )
+
+    count = len(managed)
+    return CheckResult(
+        name="mcp_managed_config",
+        status=CheckStatus.PASS,
+        label="MCP managed server config",
+        detail=f"{count} managed server{'s' if count != 1 else ''} valid",
+        group="MCP",
+    )
+
+
 @_register("mcp_guardrail_hooks", "MCP guardrail hooks", "MCP", skip_flag="skip_guardrails")
 def check_mcp_guardrail_hooks(config: dict, verbose: bool) -> CheckResult:
     guardrails = config.get("guardrails", [])
@@ -924,6 +1036,7 @@ def run_checks(
     skip_llm: bool = False,
     skip_storage: bool = False,
     skip_guardrails: bool = False,
+    skip_mcp: bool = False,
     verbose: bool = False,
     timeout: float = 30.0,
 ) -> list[CheckResult]:
@@ -935,6 +1048,8 @@ def run_checks(
         skip_flags.add("skip_storage")
     if skip_guardrails:
         skip_flags.add("skip_guardrails")
+    if skip_mcp:
+        skip_flags.add("skip_mcp")
 
     # Load config once for all checks
     config_path = _find_config_path()
@@ -1071,6 +1186,7 @@ def run(args: Any) -> None:
         skip_llm=getattr(args, "skip_llm", False),
         skip_storage=getattr(args, "skip_storage", False),
         skip_guardrails=getattr(args, "skip_guardrails", False),
+        skip_mcp=getattr(args, "skip_mcp", False),
         verbose=getattr(args, "verbose", False),
         timeout=getattr(args, "timeout", 30.0),
     )

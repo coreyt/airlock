@@ -152,6 +152,63 @@ class McpToolState:
 
 
 # ---------------------------------------------------------------------------
+# Per-MCP-server state
+# ---------------------------------------------------------------------------
+class McpServerHealth(Enum):
+    """MCP server health states."""
+    UNKNOWN = "unknown"         # never probed
+    HEALTHY = "healthy"         # last probe succeeded
+    UNHEALTHY = "unhealthy"     # last probe failed
+    STARTING = "starting"       # managed server launching
+    STOPPED = "stopped"         # managed server not running
+
+
+@dataclass
+class McpServerState:
+    """Tracks an MCP server's health and lifecycle."""
+
+    name: str
+    transport: str = ""                   # "sse", "http", "stdio"
+    url: str = ""
+    is_managed: bool = False
+    health: McpServerHealth = McpServerHealth.UNKNOWN
+    last_health_check: float = 0.0
+    last_health_latency_ms: float = 0.0
+    consecutive_failures: int = 0
+    started_at: float = 0.0               # unix ts; 0 = not started by Airlock
+    pid: int = 0                          # PID of managed process; 0 = none
+    health_history: deque = field(
+        default_factory=lambda: deque(maxlen=50),
+    )
+
+    def record_health_check(
+        self, timestamp: float, healthy: bool, latency_ms: float,
+    ) -> None:
+        self.last_health_check = timestamp
+        self.last_health_latency_ms = latency_ms
+        self.health_history.append((timestamp, healthy))
+        if healthy:
+            self.health = McpServerHealth.HEALTHY
+            self.consecutive_failures = 0
+        else:
+            self.consecutive_failures += 1
+            if self.health != McpServerHealth.STARTING:
+                self.health = McpServerHealth.UNHEALTHY
+
+    def uptime_seconds(self) -> float:
+        if self.started_at > 0:
+            return time.time() - self.started_at
+        return 0.0
+
+    def recent_success_rate(self) -> float:
+        """Fraction of recent health checks that succeeded."""
+        if not self.health_history:
+            return 0.0
+        ok = sum(1 for _, healthy in self.health_history if healthy)
+        return ok / len(self.health_history)
+
+
+# ---------------------------------------------------------------------------
 # Per-model state
 # ---------------------------------------------------------------------------
 @dataclass
@@ -226,6 +283,7 @@ class StateStore:
         self._models: dict[str, ModelState] = {}
         self._sessions: dict[str, SessionRecord] = {}
         self._provider_spend: dict[str, ProviderSpend] = {}
+        self._mcp_servers: dict[str, McpServerState] = {}
         self._mcp_tools: dict[str, McpToolState] = {}
         self._mcp_call_count: int = 0
         self._llm_call_count: int = 0
@@ -280,6 +338,22 @@ class StateStore:
             if provider not in self._provider_spend:
                 self._provider_spend[provider] = ProviderSpend(provider=provider)
             return self._provider_spend[provider]
+
+    # -- MCP server tracking -----------------------------------------------
+
+    def get_mcp_server(self, name: str) -> McpServerState:
+        with self._lock:
+            if name not in self._mcp_servers:
+                self._mcp_servers[name] = McpServerState(name=name)
+            return self._mcp_servers[name]
+
+    def all_mcp_servers(self) -> dict[str, McpServerState]:
+        with self._lock:
+            return dict(self._mcp_servers)
+
+    def set_mcp_server(self, name: str, state: McpServerState) -> None:
+        with self._lock:
+            self._mcp_servers[name] = state
 
     # -- MCP tool tracking -------------------------------------------------
 

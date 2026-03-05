@@ -8,6 +8,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import ContentSwitcher, Footer, Header, ListItem, ListView, Label
 
+from airlock.tui.mcp_manager import McpServerManager
 from airlock.tui.proxy_manager import ProxyManager
 from airlock.tui.screens.dashboard import DashboardPane
 from airlock.tui.screens.models import ModelsPane
@@ -16,6 +17,7 @@ from airlock.tui.screens.logs import LogsPane
 from airlock.tui.screens.analysis import AnalysisPane
 from airlock.tui.screens.settings import SettingsPane
 from airlock.tui.screens.flow import FlowPane
+from airlock.tui.screens.mcp_servers import McpServersPane
 
 CSS_PATH = Path(__file__).parent / "styles" / "app.tcss"
 
@@ -27,6 +29,7 @@ _SCREENS = [
     ("analysis", "5 Analysis"),
     ("settings", "6 Settings"),
     ("flow", "7 Flow"),
+    ("mcp_servers", "8 MCP Servers"),
 ]
 
 
@@ -45,6 +48,7 @@ class AirlockApp(App):
         ("5", "switch_screen('analysis')", "Analysis"),
         ("6", "switch_screen('settings')", "Settings"),
         ("7", "switch_screen('flow')", "Flow"),
+        ("8", "switch_screen('mcp_servers')", "MCP Servers"),
         ("q", "quit", "Quit"),
     ]
 
@@ -59,6 +63,8 @@ class AirlockApp(App):
         self._proxy_port = port
         self._auto_start = auto_start
         self._proxy_manager = ProxyManager(host=host, port=port)
+        self._mcp_manager = McpServerManager()
+        self._mcp_manager.load_config()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -81,14 +87,19 @@ class AirlockApp(App):
                 yield AnalysisPane(id="analysis")
                 yield SettingsPane(id="settings")
                 yield FlowPane(id="flow")
+                yield McpServersPane(
+                    mcp_manager=self._mcp_manager, id="mcp_servers",
+                )
         yield Footer()
 
     def on_mount(self) -> None:
+        self._mcp_manager.start_health_loop()
         if self._auto_start:
             dashboard = self.query_one(DashboardPane)
             dashboard.action_start_proxy()
 
     def on_unmount(self) -> None:
+        self._mcp_manager.stop_all()
         self._proxy_manager.stop()
 
     def action_switch_screen(self, screen_id: str) -> None:

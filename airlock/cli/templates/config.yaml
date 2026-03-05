@@ -218,15 +218,26 @@ guardrails:
 # MCP Servers (uncomment and configure to enable MCP tool proxying)
 # ---------------------------------------------------------------------------
 # mcp_servers:
-#   # --- SSE transport ---
+#   # --- Remote (SSE transport) — health-check only ---
 #   - name: filesystem
 #     url: http://localhost:3001/sse
 #
-#   # --- HTTP (Streamable HTTP) transport ---
+#   # --- Remote (HTTP transport) — health-check only ---
 #   - name: database
 #     url: http://localhost:3002/mcp
 #
-#   # --- stdio transport ---
+#   # --- Local (Airlock-managed) — TUI can start/stop ---
+#   - name: ado
+#     url: http://localhost:3003/sse
+#     airlock_managed:
+#       command: node
+#       args: ["dist/index.js"]
+#       cwd: ~/projects/ado-mcp
+#       env:
+#         ADO_TOKEN: os.environ/ADO_TOKEN
+#       health_url: http://localhost:3003/health
+#
+#   # --- stdio transport — LiteLLM spawns per-call ---
 #   - name: search
 #     command: npx
 #     args: ["-y", "@anthropic/mcp-search"]

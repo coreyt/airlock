@@ -24,6 +24,8 @@ from airlock.cli.post_cmd import (
     check_log_dir,
     check_mcp_config,
     check_mcp_guardrail_hooks,
+    check_mcp_managed_config,
+    check_mcp_server_health,
     check_model_list,
     check_presidio,
     check_provider_anthropic,
@@ -734,6 +736,98 @@ class TestCheckMCPGuardrailHooks:
         result = check_mcp_guardrail_hooks(config, False)
         assert result.status == CheckStatus.PASS
         assert "1 guardrail" in result.detail
+
+
+class TestCheckMCPServerHealth:
+    def test_no_servers_skips(self):
+        result = check_mcp_server_health({}, False)
+        assert result.status == CheckStatus.SKIP
+
+    def test_http_healthy(self):
+        config = {"mcp_servers": [{"name": "fs", "url": "http://localhost:3001/sse"}]}
+        with mock.patch("airlock.tui.mcp_manager.probe_http", return_value=(True, 15.0)):
+            result = check_mcp_server_health(config, False)
+        assert result.status == CheckStatus.PASS
+        assert "1 server" in result.detail
+
+    def test_http_unhealthy(self):
+        config = {"mcp_servers": [{"name": "fs", "url": "http://localhost:3001/sse"}]}
+        with mock.patch("airlock.tui.mcp_manager.probe_http", return_value=(False, 5000.0)):
+            result = check_mcp_server_health(config, False)
+        assert result.status == CheckStatus.WARN
+        assert "unreachable" in result.detail
+
+    def test_stdio_binary_found(self):
+        config = {"mcp_servers": [{"name": "search", "command": "npx"}]}
+        with mock.patch("shutil.which", return_value="/usr/bin/npx"):
+            result = check_mcp_server_health(config, False)
+        assert result.status == CheckStatus.PASS
+
+    def test_stdio_binary_missing(self):
+        config = {"mcp_servers": [{"name": "search", "command": "nonexistent_xyz"}]}
+        with mock.patch("shutil.which", return_value=None):
+            result = check_mcp_server_health(config, False)
+        assert result.status == CheckStatus.WARN
+
+    def test_managed_health_url_used(self):
+        config = {
+            "mcp_servers": [{
+                "name": "ado",
+                "url": "http://localhost:3003/sse",
+                "airlock_managed": {"health_url": "http://localhost:3003/health", "command": "node"},
+            }]
+        }
+        with mock.patch("airlock.tui.mcp_manager.probe_http", return_value=(True, 5.0)) as m:
+            result = check_mcp_server_health(config, False)
+        # Should use health_url, not sse url
+        m.assert_called_once_with("http://localhost:3003/health", timeout=5.0)
+        assert result.status == CheckStatus.PASS
+
+
+class TestCheckMCPManagedConfig:
+    def test_no_servers_skips(self):
+        result = check_mcp_managed_config({}, False)
+        assert result.status == CheckStatus.SKIP
+
+    def test_no_managed_skips(self):
+        config = {"mcp_servers": [{"name": "fs", "url": "http://localhost/sse"}]}
+        result = check_mcp_managed_config(config, False)
+        assert result.status == CheckStatus.SKIP
+
+    def test_valid_managed(self):
+        config = {
+            "mcp_servers": [{
+                "name": "ado",
+                "url": "http://localhost:3003",
+                "airlock_managed": {"command": "node", "cwd": "/tmp"},
+            }]
+        }
+        with mock.patch("shutil.which", return_value="/usr/bin/node"):
+            result = check_mcp_managed_config(config, False)
+        assert result.status == CheckStatus.PASS
+
+    def test_missing_command_warns(self):
+        config = {
+            "mcp_servers": [{
+                "name": "bad",
+                "airlock_managed": {"cwd": "/tmp"},
+            }]
+        }
+        result = check_mcp_managed_config(config, False)
+        assert result.status == CheckStatus.WARN
+        assert "missing command" in result.detail
+
+    def test_bad_cwd_warns(self):
+        config = {
+            "mcp_servers": [{
+                "name": "bad",
+                "airlock_managed": {"command": "node", "cwd": "/nonexistent/xyz"},
+            }]
+        }
+        with mock.patch("shutil.which", return_value="/usr/bin/node"):
+            result = check_mcp_managed_config(config, False)
+        assert result.status == CheckStatus.WARN
+        assert "cwd does not exist" in result.detail
 
 
 # ---------------------------------------------------------------------------

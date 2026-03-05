@@ -172,6 +172,11 @@ def main(argv: list[str] | None = None) -> None:
         help="Skip guardrail dependency checks.",
     )
     post_parser.add_argument(
+        "--skip-mcp",
+        action="store_true",
+        help="Skip MCP server health and config checks.",
+    )
+    post_parser.add_argument(
         "--json",
         action="store_true",
         dest="json_output",

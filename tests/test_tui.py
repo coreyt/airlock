@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
-from textual.widgets import DataTable
+from textual.widgets import Button, DataTable
 
 from airlock.tui.app import AirlockApp
 
@@ -33,6 +33,7 @@ async def test_app_has_bindings(app) -> None:
     binding_keys = [b[0] for b in app.BINDINGS]
     assert "1" in binding_keys
     assert "7" in binding_keys
+    assert "8" in binding_keys
     assert "q" in binding_keys
 
 
@@ -47,8 +48,8 @@ async def test_app_composes_all_panes() -> None:
         workspace = app.query_one("#workspace")
         assert workspace is not None
 
-        # All 7 panes exist
-        for pane_id in ("dashboard", "models", "threats", "logs", "analysis", "settings", "flow"):
+        # All 8 panes exist
+        for pane_id in ("dashboard", "models", "threats", "logs", "analysis", "settings", "flow", "mcp_servers"):
             pane = app.query_one(f"#{pane_id}")
             assert pane is not None, f"Missing pane: {pane_id}"
 
@@ -702,3 +703,87 @@ async def test_tui_owned_not_reachable_shows_starting() -> None:
         assert "Starting" in indicator._label
         assert btn.label.plain == "Stop Proxy"
         assert btn.disabled is False
+
+
+# ---------------------------------------------------------------------------
+# MCP Servers screen (screen 8)
+# ---------------------------------------------------------------------------
+
+
+async def test_mcp_servers_screen_navigable() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        workspace = app.query_one("#workspace")
+        await pilot.press("8")
+        assert workspace.current == "mcp_servers"
+
+
+async def test_mcp_servers_has_widgets() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("8")
+        await pilot.pause()
+
+        # Status bar
+        status = app.query_one("#mcp-srv-status")
+        assert status is not None
+
+        # Action buttons
+        for bid in ("mcp-srv-start", "mcp-srv-stop", "mcp-srv-restart", "mcp-srv-probe"):
+            btn = app.query_one(f"#{bid}")
+            assert btn is not None
+
+        # Server table
+        table = app.query_one("#mcp-srv-table")
+        assert table is not None
+
+        # Detail tabs
+        tabs = app.query_one("#mcp-srv-detail-tabs")
+        assert tabs is not None
+
+        # Tools table
+        tools = app.query_one("#mcp-srv-tools-table")
+        assert tools is not None
+
+
+async def test_mcp_servers_buttons_disabled_by_default() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("8")
+        await pilot.pause()
+
+        start_btn = app.query_one("#mcp-srv-start", Button)
+        stop_btn = app.query_one("#mcp-srv-stop", Button)
+        restart_btn = app.query_one("#mcp-srv-restart", Button)
+
+        # Start/Stop/Restart disabled until a managed server is selected
+        assert start_btn.disabled is True
+        assert stop_btn.disabled is True
+        assert restart_btn.disabled is True
+
+        # Probe Now always enabled
+        probe_btn = app.query_one("#mcp-srv-probe", Button)
+        assert probe_btn.disabled is False
+
+
+async def test_mcp_servers_shows_state_from_store() -> None:
+    from airlock.fast.state import McpServerHealth, McpServerState, store
+
+    # Seed state
+    store.set_mcp_server("test-srv", McpServerState(
+        name="test-srv", transport="sse", url="http://localhost:3001",
+        health=McpServerHealth.HEALTHY, last_health_latency_ms=15.0,
+    ))
+
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("8")
+        await pilot.pause()
+        await pilot.pause()  # allow refresh work to complete
+
+        status = app.query_one("#mcp-srv-status")
+        rendered = status.render()
+        assert "1 configured" in str(rendered) or "test-srv" in str(rendered)
+
+    # Clean up
+    store._mcp_servers.pop("test-srv", None)

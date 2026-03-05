@@ -259,6 +259,46 @@
     margin-top: 1;
 }
 
+/* ── MCP Servers ─────────────────────────────────────── */
+
+#mcp-srv-status {
+    height: 3;
+    border: solid $accent;
+    padding: 0 2;
+    content-align: left middle;
+}
+
+#mcp-srv-actions {
+    height: auto;
+    layout: horizontal;
+    padding: 1 0;
+}
+
+#mcp-srv-actions Button {
+    margin-right: 1;
+}
+
+#mcp-srv-table {
+    height: 2fr;
+    border: solid $accent;
+}
+
+#mcp-srv-detail-tabs {
+    height: 1fr;
+    margin-top: 1;
+}
+
+#mcp-srv-console {
+    height: 1fr;
+    border: solid $accent;
+    background: $surface;
+}
+
+#mcp-srv-tools-table {
+    height: 1fr;
+    border: solid $accent;
+}
+
 /* ── Semantic colors ──────────────────────────────────── */
 
 .status-ok {
