@@ -142,7 +142,9 @@ The main configuration file defines models, callbacks, and guardrails. See the i
 Key sections:
 - **`model_list`** — which LLM providers/models to expose
 - **`litellm_settings`** — callbacks, timeouts, budgets
+- **`router_settings`** — routing strategy, fallbacks, provider budgets
 - **`guardrails`** — PII and keyword guards
+- **`mcp_servers`** — MCP tool servers (Armada, ADO, etc.) accessible via the proxy
 - **`general_settings`** — master key, host/port
 
 ### Environment variables
@@ -158,6 +160,70 @@ Key sections:
 | `AIRLOCK_BLOCKED_KEYWORDS` | Comma-separated restricted phrases | — |
 | `AIRLOCK_PII_ENTITIES` | Presidio entity types to redact | `CREDIT_CARD,US_SSN,EMAIL_ADDRESS,PHONE_NUMBER` |
 
+## Adding MCP servers
+
+Airlock can proxy MCP tool servers alongside LLM providers. Add entries to `mcp_servers` in `config.yaml`. LiteLLM spawns stdio servers from the proxy's working directory, so command resolution matters.
+
+### Command resolution patterns
+
+**Module via `python -m`** — cwd-independent, requires package installed in the proxy's venv:
+```yaml
+mcp_servers:
+  ado_mcp:
+    command: uv
+    args: ["run", "python", "-m", "ado_mcp.mcp.server"]
+    env:
+      ADO_ORG_URL: os.environ/ADO_ORG_URL
+      ADO_PAT: os.environ/ADO_PAT
+```
+
+**Installed script via `uv run`** — cwd-independent, resolves from PATH/venv:
+```yaml
+  armada:
+    command: uv
+    args: ["run", "armada-mcp"]
+    env:
+      ARMADA_PROFILE: essential
+```
+
+**Script file** — must use an absolute path (relative paths resolve against the proxy's cwd, not the server's project directory):
+```yaml
+  mono_tui:
+    command: python3
+    args: ["/home/user/projects/my-mcp-server/server.py"]
+```
+
+**Other runtimes:**
+```yaml
+  # Node.js
+  my_node_server:
+    command: node
+    args: ["/path/to/server.js"]
+
+  # npx (installed package)
+  my_npx_server:
+    command: npx
+    args: ["my-mcp-server"]
+
+  # Bun
+  my_bun_server:
+    command: bun
+    args: ["run", "/path/to/server.ts"]
+
+  # Poetry
+  my_poetry_server:
+    command: poetry
+    args: ["run", "python", "-m", "my_server"]
+```
+
+### Environment variables
+
+Use `os.environ/VAR_NAME` to pass environment variables from Airlock's `.env` to the MCP server. Airlock validates these references at startup and gives clear error messages for missing values.
+
+### Guardrail coverage
+
+All MCP tool calls flow through the same guardrail pipeline as LLM requests (PII redaction, keyword blocking, threat detection). MCP-specific guards add tool allowlist/blocklist and argument sanitization. No extra configuration needed — guardrails apply automatically.
+
 ## Project structure
 
 ```
@@ -169,7 +235,7 @@ airlock/
 ├── slow/                 # Offline: log analysis, trend detection, tuning
 ├── hooks/                # Claude Code client-side hooks (session, prompt, audit)
 ├── cli/                  # Unified CLI: init, start, status, tui, analyze, hooks
-└── tui/                  # Textual terminal dashboard (7 screens, proxy control)
+└── tui/                  # Textual terminal dashboard (8 screens, proxy control)
 ```
 
 ## License
