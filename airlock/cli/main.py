@@ -3,11 +3,46 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+
+def configure_logging() -> None:
+    """Set up file + stderr logging for the airlock package.
+
+    Idempotent — skips if handlers are already attached.
+    """
+    airlock_logger = logging.getLogger("airlock")
+    if airlock_logger.handlers:
+        return
+
+    log_dir = Path(os.getenv("AIRLOCK_LOG_DIR", "./logs"))
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    log_file = log_dir / f"airlock-{timestamp}.log"
+
+    formatter = logging.Formatter(
+        "%(asctime)s %(levelname)-8s %(name)s  %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    fh = logging.FileHandler(log_file, encoding="utf-8")
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(formatter)
+
+    sh = logging.StreamHandler()
+    sh.setLevel(logging.WARNING)
+    sh.setFormatter(formatter)
+
+    airlock_logger.setLevel(logging.DEBUG)
+    airlock_logger.addHandler(fh)
+    airlock_logger.addHandler(sh)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -232,6 +267,8 @@ def main(argv: list[str] | None = None) -> None:
     if args.command is None:
         parser.print_help()
         raise SystemExit(0)
+
+    configure_logging()
 
     if args.command == "init":
         from airlock.cli.init_cmd import run
