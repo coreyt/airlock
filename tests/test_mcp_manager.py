@@ -31,13 +31,13 @@ from airlock.tui.mcp_manager import (
 
 _SAMPLE_CONFIG = textwrap.dedent("""\
     mcp_servers:
-      - name: remote-sse
+      remote-sse:
         url: http://localhost:3001/sse
 
-      - name: remote-http
+      remote-http:
         url: http://localhost:3002/mcp
 
-      - name: local-ado
+      local-ado:
         url: http://localhost:3003/sse
         airlock_managed:
           command: node
@@ -47,7 +47,7 @@ _SAMPLE_CONFIG = textwrap.dedent("""\
             TOKEN: os.environ/ADO_TOKEN
           health_url: http://localhost:3003/health
 
-      - name: stdio-search
+      stdio-search:
         command: npx
         args: ["-y", "@anthropic/mcp-search"]
 """)

@@ -219,7 +219,7 @@ guardrails:
 # ---------------------------------------------------------------------------
 mcp_servers:
   # --- Azure DevOps (stdio) ---
-  - name: ado-mcp
+  ado-mcp:
     command: uv
     args: ["run", "python", "-m", "ado_mcp.mcp.server"]
     env:
@@ -227,14 +227,14 @@ mcp_servers:
       ADO_PAT: os.environ/ADO_PAT
 
   # --- Armada GraphRAG (stdio) ---
-  - name: armada
+  armada:
     command: uv
     args: ["run", "armada-mcp"]
     env:
       ARMADA_PROFILE: essential
 
   # --- Monospace Design TUI (stdio) ---
-  - name: mono-tui
+  mono-tui:
     command: python3
     args: ["mcp-server/server.py"]
 

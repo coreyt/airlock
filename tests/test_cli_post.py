@@ -683,19 +683,19 @@ class TestCheckMCPConfig:
         result = check_mcp_config(config, False)
         assert result.status == CheckStatus.SKIP
 
-    def test_mcp_servers_list(self):
-        config = {"mcp_servers": [{"name": "fs", "url": "http://localhost:3001/sse"}]}
+    def test_mcp_servers_dict(self):
+        config = {"mcp_servers": {"fs": {"url": "http://localhost:3001/sse"}}}
         result = check_mcp_config(config, False)
         assert result.status == CheckStatus.PASS
         assert "1 MCP server" in result.detail
 
-    def test_mcp_servers_not_list(self):
+    def test_mcp_servers_not_dict(self):
         config = {"mcp_servers": "invalid"}
         result = check_mcp_config(config, False)
         assert result.status == CheckStatus.FAIL
 
     def test_multiple_mcp_servers(self):
-        config = {"mcp_servers": [{"name": "a"}, {"name": "b"}]}
+        config = {"mcp_servers": {"a": {}, "b": {}}}
         result = check_mcp_config(config, False)
         assert result.status == CheckStatus.PASS
         assert "2 MCP servers" in result.detail
@@ -744,38 +744,37 @@ class TestCheckMCPServerHealth:
         assert result.status == CheckStatus.SKIP
 
     def test_http_healthy(self):
-        config = {"mcp_servers": [{"name": "fs", "url": "http://localhost:3001/sse"}]}
+        config = {"mcp_servers": {"fs": {"url": "http://localhost:3001/sse"}}}
         with mock.patch("airlock.tui.mcp_manager.probe_http", return_value=(True, 15.0)):
             result = check_mcp_server_health(config, False)
         assert result.status == CheckStatus.PASS
         assert "1 server" in result.detail
 
     def test_http_unhealthy(self):
-        config = {"mcp_servers": [{"name": "fs", "url": "http://localhost:3001/sse"}]}
+        config = {"mcp_servers": {"fs": {"url": "http://localhost:3001/sse"}}}
         with mock.patch("airlock.tui.mcp_manager.probe_http", return_value=(False, 5000.0)):
             result = check_mcp_server_health(config, False)
         assert result.status == CheckStatus.WARN
         assert "unreachable" in result.detail
 
     def test_stdio_binary_found(self):
-        config = {"mcp_servers": [{"name": "search", "command": "npx"}]}
+        config = {"mcp_servers": {"search": {"command": "npx"}}}
         with mock.patch("shutil.which", return_value="/usr/bin/npx"):
             result = check_mcp_server_health(config, False)
         assert result.status == CheckStatus.PASS
 
     def test_stdio_binary_missing(self):
-        config = {"mcp_servers": [{"name": "search", "command": "nonexistent_xyz"}]}
+        config = {"mcp_servers": {"search": {"command": "nonexistent_xyz"}}}
         with mock.patch("shutil.which", return_value=None):
             result = check_mcp_server_health(config, False)
         assert result.status == CheckStatus.WARN
 
     def test_managed_health_url_used(self):
         config = {
-            "mcp_servers": [{
-                "name": "ado",
+            "mcp_servers": {"ado": {
                 "url": "http://localhost:3003/sse",
                 "airlock_managed": {"health_url": "http://localhost:3003/health", "command": "node"},
-            }]
+            }}
         }
         with mock.patch("airlock.tui.mcp_manager.probe_http", return_value=(True, 5.0)) as m:
             result = check_mcp_server_health(config, False)
@@ -790,17 +789,16 @@ class TestCheckMCPManagedConfig:
         assert result.status == CheckStatus.SKIP
 
     def test_no_managed_skips(self):
-        config = {"mcp_servers": [{"name": "fs", "url": "http://localhost/sse"}]}
+        config = {"mcp_servers": {"fs": {"url": "http://localhost/sse"}}}
         result = check_mcp_managed_config(config, False)
         assert result.status == CheckStatus.SKIP
 
     def test_valid_managed(self):
         config = {
-            "mcp_servers": [{
-                "name": "ado",
+            "mcp_servers": {"ado": {
                 "url": "http://localhost:3003",
                 "airlock_managed": {"command": "node", "cwd": "/tmp"},
-            }]
+            }}
         }
         with mock.patch("shutil.which", return_value="/usr/bin/node"):
             result = check_mcp_managed_config(config, False)
@@ -808,10 +806,9 @@ class TestCheckMCPManagedConfig:
 
     def test_missing_command_warns(self):
         config = {
-            "mcp_servers": [{
-                "name": "bad",
+            "mcp_servers": {"bad": {
                 "airlock_managed": {"cwd": "/tmp"},
-            }]
+            }}
         }
         result = check_mcp_managed_config(config, False)
         assert result.status == CheckStatus.WARN
@@ -819,10 +816,9 @@ class TestCheckMCPManagedConfig:
 
     def test_bad_cwd_warns(self):
         config = {
-            "mcp_servers": [{
-                "name": "bad",
+            "mcp_servers": {"bad": {
                 "airlock_managed": {"command": "node", "cwd": "/nonexistent/xyz"},
-            }]
+            }}
         }
         with mock.patch("shutil.which", return_value="/usr/bin/node"):
             result = check_mcp_managed_config(config, False)

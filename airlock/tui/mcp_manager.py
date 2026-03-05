@@ -105,13 +105,12 @@ class McpServerManager:
             cfg = yaml.safe_load(f) or {}
 
         mcp_servers = cfg.get("mcp_servers")
-        if not isinstance(mcp_servers, list):
+        if not isinstance(mcp_servers, dict):
             return []
 
         names: list[str] = []
-        for srv_cfg in mcp_servers:
-            name = srv_cfg.get("name", "")
-            if not name:
+        for name, srv_cfg in mcp_servers.items():
+            if not name or not isinstance(srv_cfg, dict):
                 continue
 
             transport = _classify_transport(srv_cfg)

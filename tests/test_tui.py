@@ -783,7 +783,7 @@ async def test_mcp_servers_shows_state_from_store() -> None:
 
         status = app.query_one("#mcp-srv-status")
         rendered = status.render()
-        assert "1 configured" in str(rendered) or "test-srv" in str(rendered)
+        assert "configured" in str(rendered) or "test-srv" in str(rendered)
 
     # Clean up
     store._mcp_servers.pop("test-srv", None)

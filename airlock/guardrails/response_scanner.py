@@ -23,8 +23,6 @@ Env vars:
     AIRLOCK_RESPONSE_SCAN_THRESHOLD — composite score threshold (default 0.5)
 """
 
-from __future__ import annotations
-
 import logging
 import os
 import re

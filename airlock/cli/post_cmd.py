@@ -815,12 +815,12 @@ def check_mcp_config(config: dict, verbose: bool) -> CheckResult:
             detail="no mcp_servers configured (optional)",
             group="MCP",
         )
-    if not isinstance(mcp_servers, list):
+    if not isinstance(mcp_servers, dict):
         return CheckResult(
             name="mcp_config",
             status=CheckStatus.FAIL,
             label="MCP server config",
-            detail="mcp_servers must be a list",
+            detail="mcp_servers must be a dict (server_name: config)",
             group="MCP",
         )
     count = len(mcp_servers)
@@ -836,7 +836,7 @@ def check_mcp_config(config: dict, verbose: bool) -> CheckResult:
 @_register("mcp_server_health", "MCP server health", "MCP", skip_flag="skip_mcp")
 def check_mcp_server_health(config: dict, verbose: bool) -> CheckResult:
     mcp_servers = config.get("mcp_servers")
-    if not mcp_servers or not isinstance(mcp_servers, list):
+    if not mcp_servers or not isinstance(mcp_servers, dict):
         return CheckResult(
             name="mcp_server_health",
             status=CheckStatus.SKIP,
@@ -850,8 +850,7 @@ def check_mcp_server_health(config: dict, verbose: bool) -> CheckResult:
 
     healthy: list[str] = []
     unhealthy: list[str] = []
-    for srv in mcp_servers:
-        name = srv.get("name", "?")
+    for name, srv in mcp_servers.items():
         managed = srv.get("airlock_managed") if isinstance(srv.get("airlock_managed"), dict) else None
         url = _resolve_health_url(srv, managed)
 
@@ -892,7 +891,7 @@ def check_mcp_server_health(config: dict, verbose: bool) -> CheckResult:
 @_register("mcp_managed_config", "MCP managed server config", "MCP", skip_flag="skip_mcp")
 def check_mcp_managed_config(config: dict, verbose: bool) -> CheckResult:
     mcp_servers = config.get("mcp_servers")
-    if not mcp_servers or not isinstance(mcp_servers, list):
+    if not mcp_servers or not isinstance(mcp_servers, dict):
         return CheckResult(
             name="mcp_managed_config",
             status=CheckStatus.SKIP,
@@ -903,7 +902,7 @@ def check_mcp_managed_config(config: dict, verbose: bool) -> CheckResult:
 
     import shutil
 
-    managed = [s for s in mcp_servers if isinstance(s.get("airlock_managed"), dict)]
+    managed = {n: s for n, s in mcp_servers.items() if isinstance(s.get("airlock_managed"), dict)}
     if not managed:
         return CheckResult(
             name="mcp_managed_config",
@@ -914,8 +913,7 @@ def check_mcp_managed_config(config: dict, verbose: bool) -> CheckResult:
         )
 
     issues: list[str] = []
-    for srv in managed:
-        name = srv.get("name", "?")
+    for name, srv in managed.items():
         mcfg = srv["airlock_managed"]
         cmd = mcfg.get("command", "")
         if not cmd:
