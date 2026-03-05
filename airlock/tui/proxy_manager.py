@@ -11,7 +11,10 @@ import threading
 from pathlib import Path
 from typing import IO
 
+import yaml
 from dotenv import load_dotenv
+
+_ENV_REF_PREFIX = "os.environ/"
 
 _MAX_LOG_LINES = 1000
 
@@ -47,9 +50,42 @@ class ProxyManager:
 
     def preflight(self) -> str | None:
         """Validate prerequisites.  Returns an error message or *None*."""
-        if self.find_config() is None:
+        config_path = self.find_config()
+        if config_path is None:
             return "config.yaml not found. Run 'airlock init' first."
+
+        missing = self._check_mcp_env_refs(config_path)
+        if missing:
+            return (
+                "Missing environment variables for MCP servers:\n"
+                + "\n".join(missing)
+                + "\nSet these in .env or export them in your shell."
+            )
         return None
+
+    @staticmethod
+    def _check_mcp_env_refs(config_path: Path) -> list[str]:
+        """Return list of error strings for missing os.environ/ refs in MCP config."""
+        try:
+            with open(config_path) as f:
+                cfg = yaml.safe_load(f) or {}
+        except (OSError, yaml.YAMLError):
+            return []
+
+        errors: list[str] = []
+        for server_name, server_cfg in (cfg.get("mcp_servers") or {}).items():
+            if not isinstance(server_cfg, dict):
+                continue
+            for _key, value in (server_cfg.get("env") or {}).items():
+                if not isinstance(value, str) or not value.startswith(_ENV_REF_PREFIX):
+                    continue
+                var_name = value[len(_ENV_REF_PREFIX):]
+                if not os.environ.get(var_name):
+                    errors.append(
+                        f"  MCP server '{server_name}' requires {var_name} "
+                        f"(set in .env or shell environment)"
+                    )
+        return errors
 
     # -- log file ---------------------------------------------------------
 
