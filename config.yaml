@@ -219,7 +219,7 @@ guardrails:
 # ---------------------------------------------------------------------------
 mcp_servers:
   # --- Azure DevOps (stdio) ---
-  ado-mcp:
+  ado_mcp:
     command: uv
     args: ["run", "python", "-m", "ado_mcp.mcp.server"]
     env:
@@ -234,7 +234,7 @@ mcp_servers:
       ARMADA_PROFILE: essential
 
   # --- Monospace Design TUI (stdio) ---
-  mono-tui:
+  mono_tui:
     command: python3
     args: ["mcp-server/server.py"]
 
