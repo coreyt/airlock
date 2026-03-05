@@ -221,12 +221,32 @@ mcp_servers:
   # --- Azure DevOps (stdio) ---
   ado_mcp:
     command: uv
-    args: ["run", "python", "-m", "ado_mcp.mcp.server"]
+    args: ["run", "python", "-m", "ado_mcp.mcp.server", "--profile", "full"]
     env:
       ADO_ORG_URL: os.environ/ADO_ORG_URL
       ADO_PAT: os.environ/ADO_PAT
 
   # --- Armada GraphRAG (stdio) ---
+  # Single instance — auto-discovers workspace config from cwd.
+  # Supports --config <path> to target a specific armada-workspace.yaml
+  # and --profile <name> to control tool tier (essential/standard/full).
+  # Env vars: ARMADA_CONFIG, ARMADA_PROFILE (CLI args override env vars).
+  #
+  # To run multiple instances against different projects or backends:
+  #
+  #   armada_project_a:
+  #     command: uv
+  #     args: ["run", "armada-mcp", "--config", "/path/to/project-a/armada-workspace.yaml"]
+  #     env:
+  #       ARMADA_PROFILE: essential
+  #
+  #   armada_project_b:
+  #     command: uv
+  #     args: ["run", "armada-mcp", "--config", "/path/to/project-b/armada-workspace.yaml"]
+  #     env:
+  #       ARMADA_PROFILE: full
+  #
+  # Each workspace config can specify its own Memgraph/Qdrant backends.
   armada:
     command: uv
     args: ["run", "armada-mcp"]
@@ -236,7 +256,7 @@ mcp_servers:
   # --- Monospace Design TUI (stdio) ---
   mono_tui:
     command: python3
-    args: ["mcp-server/server.py"]
+    args: ["/home/coreyt/projects/monospace-design-tui/mcp-server/server.py"]
 
 # ---------------------------------------------------------------------------
 # General proxy behaviour
