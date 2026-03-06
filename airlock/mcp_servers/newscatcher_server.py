@@ -31,24 +31,36 @@ except ImportError:
 _DEFAULT_POLL_TIMEOUT = 180  # 3 minutes
 _QUICK_POLL_TIMEOUT = 60  # 1 minute
 _POLL_INTERVAL = 10  # seconds
+_INITIAL_POLL_DELAY = 3  # shorter first poll
 
 server = Server("newscatcher")
 
+# Module-level client cache to avoid per-call instantiation
+_client = None
+
 
 def _get_client():
-    """Lazy-init the CatchAll client."""
+    """Lazy-init and cache the CatchAll client."""
+    global _client
+    if _client is not None:
+        return _client
     api_key = os.environ.get("NEWS_CATCHER_API_KEY", "")
     if not api_key:
         raise ValueError("NEWS_CATCHER_API_KEY environment variable is required")
     from newscatcher_catchall import CatchAllApi
-    return CatchAllApi(api_key=api_key)
+    _client = CatchAllApi(api_key=api_key)
+    return _client
 
 
 def _extract_snippet(record) -> str:
     """Extract a useful snippet from a CatchAll record."""
     enrichment = getattr(record, "enrichment", None)
-    if enrichment and isinstance(enrichment, dict):
-        key_dev = enrichment.get("key_development", "")
+    if enrichment:
+        # Handle both dict and object-style enrichment
+        if isinstance(enrichment, dict):
+            key_dev = enrichment.get("key_development", "")
+        else:
+            key_dev = getattr(enrichment, "key_development", "")
         if key_dev:
             return str(key_dev)
     for attr in ("snippet", "text_preview", "description", "summary"):
@@ -61,17 +73,26 @@ def _extract_snippet(record) -> str:
 async def _do_search(query: str, max_results: int, poll_timeout: int) -> str:
     """Submit a CatchAll job, poll for results, return formatted text."""
     client = _get_client()
-    limit = max(max_results, 10)  # CatchAll minimum is 10
+    api_limit = max(max_results, 10)  # CatchAll minimum is 10
 
-    job = await asyncio.to_thread(client.jobs.create_job, query=query, limit=limit)
-    job_id = job.job_id
+    job = await asyncio.to_thread(client.jobs.create_job, query=query, limit=api_limit)
+    job_id = getattr(job, "job_id", None)
+    if not job_id:
+        return "NewsCatcher API error: no job_id returned from create_job."
     logger.info("NewsCatcher job %s created for query=%.60r", job_id, query)
 
     deadline = time.monotonic() + poll_timeout
     completed = False
+    first_poll = True
     while time.monotonic() < deadline:
-        await asyncio.sleep(_POLL_INTERVAL)
-        status = await asyncio.to_thread(client.jobs.get_job_status, job_id)
+        delay = _INITIAL_POLL_DELAY if first_poll else _POLL_INTERVAL
+        first_poll = False
+        await asyncio.sleep(delay)
+        try:
+            status = await asyncio.to_thread(client.jobs.get_job_status, job_id)
+        except Exception as exc:
+            logger.warning("Transient error polling job %s: %s", job_id, exc)
+            continue
         state = getattr(status, "status", "unknown")
         if state == "completed":
             completed = True
@@ -80,7 +101,10 @@ async def _do_search(query: str, max_results: int, poll_timeout: int) -> str:
             return f"NewsCatcher job {job_id} failed with status: {state}"
 
     if not completed:
-        return f"NewsCatcher job {job_id} still processing after {poll_timeout}s. Check back later."
+        return (
+            f"NewsCatcher job {job_id} did not complete within {poll_timeout}s. "
+            f"The job is still running — results are not yet available."
+        )
 
     results = await asyncio.to_thread(client.jobs.get_job_results, job_id)
     records = getattr(results, "all_records", []) or []
@@ -128,7 +152,7 @@ async def list_tools() -> list[Tool]:
             name="newscatcher_search_quick",
             description=(
                 "Quick NewsCatcher search with 60-second timeout. "
-                "Returns partial results if the job hasn't completed."
+                "Returns a timeout notice if the job hasn't completed."
             ),
             inputSchema={
                 "type": "object",
@@ -152,6 +176,9 @@ async def list_tools() -> list[Tool]:
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     query = arguments.get("query", "")
+    if not query or not query.strip():
+        return [TextContent(type="text", text="Error: query is required and cannot be empty.")]
+
     max_results = arguments.get("max_results", 10)
 
     if name == "newscatcher_search":
@@ -162,9 +189,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
     try:
-        result = await _do_search(query, max_results, timeout)
+        result = await _do_search(query.strip(), max_results, timeout)
     except Exception as e:
-        result = f"Error: {e}"
+        logger.exception("NewsCatcher search failed for query=%.60r", query)
+        result = f"Error: {type(e).__name__}: {e}"
 
     return [TextContent(type="text", text=result)]
 

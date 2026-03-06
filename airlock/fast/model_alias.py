@@ -38,6 +38,8 @@ _QUALIFIER_RE = re.compile(
 )
 # Trailing pure-numeric version segments: -4-20250514, -4-6, -2509
 _TRAILING_DIGITS_RE = re.compile(r"[-_](\d[\d._-]*\d|\d)$")
+# Separator split for tokenization
+_SEPARATOR_RE = re.compile(r"[-_/.]")
 
 # Provider prefixes — shared with router.py (duplicated to avoid import)
 _PROVIDER_PREFIXES = {
@@ -65,8 +67,7 @@ def _infer_provider(name: str) -> str | None:
 
 def _tokenize(name: str) -> set[str]:
     """Split a model name into meaningful tokens."""
-    # Replace common separators with spaces, then split
-    normalized = re.sub(r"[-_/.]", " ", name.lower())
+    normalized = _SEPARATOR_RE.sub(" ", name.lower())
     return {t for t in normalized.split() if t}
 
 
@@ -212,9 +213,14 @@ class ModelAliasTable:
 
         try:
             with open(path) as f:
-                cfg = yaml.safe_load(f) or {}
+                cfg = yaml.safe_load(f)
         except (OSError, yaml.YAMLError) as exc:
             logger.error("Failed to load config for alias table: %s", exc)
+            self._loaded = True
+            return
+
+        if not isinstance(cfg, dict):
+            logger.warning("Config is not a dict — alias table empty")
             self._loaded = True
             return
 
@@ -297,21 +303,18 @@ class ModelAliasTable:
                 best_score = score
                 best_alias = entry.alias
 
-        if best_score >= _AUTO_ROUTE_THRESHOLD:
-            # Cache for future O(1) hits
-            self._exact[lower] = best_alias  # type: ignore[assignment]
-            logger.debug(
-                "model_alias_resolved %s -> %s (score=%.3f)",
-                model_name, best_alias, best_score,
-            )
-            return best_alias
-
-        if best_score >= _WARN_THRESHOLD:
-            self._exact[lower] = best_alias  # type: ignore[assignment]
-            logger.warning(
-                "model_alias_fuzzy %s -> %s (score=%.3f, below auto threshold)",
-                model_name, best_alias, best_score,
-            )
+        if best_score >= _WARN_THRESHOLD and best_alias is not None:
+            self._exact[lower] = best_alias
+            if best_score >= _AUTO_ROUTE_THRESHOLD:
+                logger.debug(
+                    "model_alias_resolved %s -> %s (score=%.3f)",
+                    model_name, best_alias, best_score,
+                )
+            else:
+                logger.warning(
+                    "model_alias_fuzzy %s -> %s (score=%.3f, below auto threshold)",
+                    model_name, best_alias, best_score,
+                )
             return best_alias
 
         logger.debug(

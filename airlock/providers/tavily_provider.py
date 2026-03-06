@@ -7,6 +7,7 @@ titles, URLs, and snippets.
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from typing import Callable, Optional, Union
@@ -15,6 +16,8 @@ import httpx
 from litellm.llms.custom_llm import CustomLLM
 from litellm.types.utils import Choices, Message, ModelResponse, Usage
 
+logger = logging.getLogger("airlock.providers.tavily")
+
 
 def _extract_query(messages: list) -> str:
     """Pull the user query from the last message."""
@@ -22,7 +25,14 @@ def _extract_query(messages: list) -> str:
         role = msg.get("role", "")
         content = msg.get("content", "")
         if role == "user" and content:
-            return content.strip()
+            # Handle multimodal list-of-dicts content
+            if isinstance(content, list):
+                parts = []
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        parts.append(block.get("text", ""))
+                return " ".join(parts).strip()
+            return str(content).strip()
     return ""
 
 
@@ -56,14 +66,35 @@ def _build_response(
             finish_reason="stop",
         )
     ]
-    # Approximate token counts (Tavily doesn't report tokens)
-    completion_tokens = len(text.split())
+    # Approximate token counts (~4 chars per token)
+    completion_tokens = len(text) // 4 or 1
     model_response.usage = Usage(  # type: ignore[assignment]
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         total_tokens=prompt_tokens + completion_tokens,
     )
     return model_response
+
+
+def _do_search(api_key: str, query: str, max_results: int) -> str:
+    """Run the Tavily search and return formatted text."""
+    from tavily import TavilyClient
+
+    if not api_key:
+        raise ValueError("Tavily API key is required. Set TAVILY_API_KEY in .env.")
+
+    tavily = TavilyClient(api_key=api_key)
+    try:
+        response = tavily.search(query=query, max_results=max_results)
+    except Exception as exc:
+        logger.error("Tavily search failed: %s", exc)
+        raise ValueError(f"Tavily search failed: {exc}") from exc
+
+    text = _format_results(response.get("results", []))
+    answer = response.get("answer")
+    if answer:
+        text = f"**Summary:** {answer}\n\n---\n\n{text}"
+    return text
 
 
 class TavilySearchProvider(CustomLLM):
@@ -84,27 +115,17 @@ class TavilySearchProvider(CustomLLM):
         acompletion=None,
         litellm_params=None,
         logger_fn=None,
-        headers={},
+        headers=None,
         timeout: Optional[Union[float, httpx.Timeout]] = None,
         client=None,
     ) -> ModelResponse:
-        from tavily import TavilyClient
-
         query = _extract_query(messages)
         if not query:
-            return _build_response(model, "No query provided.", model_response, 0)
+            raise ValueError("No user message found in request.")
 
         max_results = optional_params.get("max_results", 5)
-        tavily = TavilyClient(api_key=api_key)
-        response = tavily.search(query=query, max_results=max_results)
-        text = _format_results(response.get("results", []))
-
-        # Include the answer summary if Tavily provides one
-        answer = response.get("answer")
-        if answer:
-            text = f"**Summary:** {answer}\n\n---\n\n{text}"
-
-        prompt_tokens = len(query.split())
+        text = _do_search(api_key, query, max_results)
+        prompt_tokens = len(query) // 4 or 1
         return _build_response(model, text, model_response, prompt_tokens)
 
     async def acompletion(
@@ -122,30 +143,19 @@ class TavilySearchProvider(CustomLLM):
         acompletion=None,
         litellm_params=None,
         logger_fn=None,
-        headers={},
+        headers=None,
         timeout: Optional[Union[float, httpx.Timeout]] = None,
         client=None,
     ) -> ModelResponse:
         import asyncio
 
-        from tavily import TavilyClient
-
         query = _extract_query(messages)
         if not query:
-            return _build_response(model, "No query provided.", model_response, 0)
+            raise ValueError("No user message found in request.")
 
         max_results = optional_params.get("max_results", 5)
-        tavily = TavilyClient(api_key=api_key)
-        response = await asyncio.to_thread(
-            tavily.search, query=query, max_results=max_results
-        )
-        text = _format_results(response.get("results", []))
-
-        answer = response.get("answer")
-        if answer:
-            text = f"**Summary:** {answer}\n\n---\n\n{text}"
-
-        prompt_tokens = len(query.split())
+        text = await asyncio.to_thread(_do_search, api_key, query, max_results)
+        prompt_tokens = len(query) // 4 or 1
         return _build_response(model, text, model_response, prompt_tokens)
 
 

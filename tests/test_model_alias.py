@@ -127,6 +127,9 @@ class TestTokenize:
         assert "gemini" in tokens
         assert "pro" in tokens
 
+    def test_empty_string(self):
+        assert _tokenize("") == set()
+
 
 class TestStripVersion:
     def test_date_stamp(self):
@@ -145,9 +148,10 @@ class TestStripVersion:
         assert _strip_version("claude-sonnet") == "claude-sonnet"
 
     def test_gpt_4o(self):
-        # gpt-4o should NOT strip "4o" since it's the model family
-        result = _strip_version("gpt-4o")
-        assert "gpt" in result
+        assert _strip_version("gpt-4o") == "gpt-4o"
+
+    def test_empty_string(self):
+        assert _strip_version("") == ""
 
 
 class TestStripProviderPrefix:
@@ -156,6 +160,12 @@ class TestStripProviderPrefix:
 
     def test_without_prefix(self):
         assert _strip_provider_prefix("claude-sonnet") == "claude-sonnet"
+
+    def test_multiple_slashes(self):
+        assert _strip_provider_prefix("a/b/c") == "b/c"
+
+    def test_leading_slash(self):
+        assert _strip_provider_prefix("/leading") == "leading"
 
 
 class TestInferProvider:
@@ -170,6 +180,21 @@ class TestInferProvider:
 
     def test_unknown(self):
         assert _infer_provider("llama-3") is None
+
+    def test_o1(self):
+        assert _infer_provider("o1-preview") == "openai"
+
+    def test_o3(self):
+        assert _infer_provider("o3-mini") == "openai"
+
+    def test_magistral(self):
+        assert _infer_provider("magistral-medium") == "mistral"
+
+    def test_codestral(self):
+        assert _infer_provider("codestral-latest") == "mistral"
+
+    def test_sonar(self):
+        assert _infer_provider("sonar") == "perplexity"
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +267,25 @@ class TestScoreMatch:
         score = _score_match("mistral-small-latest", entry)
         assert score == 1.0  # exact bare model match
 
+    def test_empty_query(self):
+        entry = _AliasEntry(
+            alias="claude-sonnet",
+            provider_model="anthropic/claude-sonnet-4-20250514",
+            provider="anthropic",
+        )
+        score = _score_match("", entry)
+        assert score < 0.50
+
+    def test_provider_bonus(self):
+        """Provider match + version core match should trigger the bonus."""
+        entry = _AliasEntry(
+            alias="claude-sonnet",
+            provider_model="anthropic/claude-sonnet-4-20250514",
+            provider="anthropic",
+        )
+        score = _score_match("claude-sonnet-4-6", entry)
+        assert score >= 0.85, f"Expected bonus to kick in, got {score}"
+
 
 # ---------------------------------------------------------------------------
 # Full table resolution tests
@@ -282,19 +326,17 @@ class TestModelAliasTable:
         assert table.resolve("llama-3-70b") is None
 
     def test_cross_provider_no_match(self, table):
-        """Should not match claude-sonnet-4-6 to any openai model."""
-        result = table.resolve("claude-sonnet-4-6")
-        assert result is not None
-        assert result.startswith("claude")
+        """Should resolve claude-sonnet-4-6 to claude-sonnet, not openai."""
+        assert table.resolve("claude-sonnet-4-6") == "claude-sonnet"
 
     def test_case_insensitive(self, table):
         assert table.resolve("Claude-Sonnet") == "claude-sonnet"
 
     def test_cached_after_first_resolve(self, table):
-        """Second resolve for same name should hit cache."""
-        table.resolve("claude-sonnet-4-6")
-        # Now it should be in _exact
-        assert "claude-sonnet-4-6" in table._exact
+        """Second resolve for same name should hit cache with correct value."""
+        result = table.resolve("claude-sonnet-4-6")
+        assert result == "claude-sonnet"
+        assert table._exact["claude-sonnet-4-6"] == "claude-sonnet"
 
     def test_empty_config(self, tmp_path):
         """Empty config should produce empty table."""
@@ -316,6 +358,95 @@ class TestModelAliasTable:
     def test_sonar_bare(self, table):
         """sonar (bare provider model) should resolve to perplexity-sonar."""
         assert table.resolve("sonar") == "perplexity-sonar"
+
+    def test_empty_string_resolve(self, table):
+        """Empty string should not crash."""
+        result = table.resolve("")
+        # Should return None or an alias, but not crash
+        assert result is None or isinstance(result, str)
+
+    def test_provider_prefixed_query(self, table):
+        """Query with provider/ prefix should still resolve."""
+        result = table.resolve("anthropic/claude-sonnet-4-20250514")
+        assert result == "claude-sonnet"
+
+    def test_ambiguous_claude_resolves_to_one(self, table):
+        """Bare 'claude' alone should resolve to a claude model, not crash."""
+        result = table.resolve("claude")
+        if result is not None:
+            assert result.startswith("claude")
+
+    def test_reload_clears_cache(self, sample_config):
+        """Reloading config should clear cached fuzzy results."""
+        t = ModelAliasTable()
+        t.load_from_config(sample_config)
+        t.resolve("claude-sonnet-4-6")
+        assert "claude-sonnet-4-6" in t._exact
+        # Reload should clear
+        t.load_from_config(sample_config)
+        assert "claude-sonnet-4-6" not in t._exact
+
+    def test_malformed_entry_missing_model_name(self, tmp_path):
+        """Entry without model_name should be skipped."""
+        config = {
+            "model_list": [
+                {"litellm_params": {"model": "anthropic/claude-sonnet-4"}},
+                {
+                    "model_name": "gpt-4o",
+                    "litellm_params": {"model": "openai/gpt-4o"},
+                },
+            ],
+        }
+        path = tmp_path / "config.yaml"
+        path.write_text(yaml.dump(config))
+        t = ModelAliasTable()
+        t.load_from_config(path)
+        assert t.resolve("gpt-4o") == "gpt-4o"
+
+    def test_malformed_entry_missing_litellm_params(self, tmp_path):
+        """Entry without litellm_params should be skipped."""
+        config = {
+            "model_list": [
+                {"model_name": "broken-model"},
+                {
+                    "model_name": "gpt-4o",
+                    "litellm_params": {"model": "openai/gpt-4o"},
+                },
+            ],
+        }
+        path = tmp_path / "config.yaml"
+        path.write_text(yaml.dump(config))
+        t = ModelAliasTable()
+        t.load_from_config(path)
+        assert t.resolve("gpt-4o") == "gpt-4o"
+
+    def test_malformed_entry_empty_model(self, tmp_path):
+        """Entry with empty litellm_params.model should be skipped."""
+        config = {
+            "model_list": [
+                {
+                    "model_name": "broken",
+                    "litellm_params": {"model": ""},
+                },
+                {
+                    "model_name": "gpt-4o",
+                    "litellm_params": {"model": "openai/gpt-4o"},
+                },
+            ],
+        }
+        path = tmp_path / "config.yaml"
+        path.write_text(yaml.dump(config))
+        t = ModelAliasTable()
+        t.load_from_config(path)
+        assert t.resolve("gpt-4o") == "gpt-4o"
+
+    def test_corrupt_yaml(self, tmp_path):
+        """Corrupt YAML should not crash, just produce empty table."""
+        path = tmp_path / "bad.yaml"
+        path.write_text(":::not yaml{{{}}")
+        t = ModelAliasTable()
+        t.load_from_config(path)
+        assert t.resolve("anything") is None
 
 
 class TestAllLoggedModels:
