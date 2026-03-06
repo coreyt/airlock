@@ -93,6 +93,18 @@ model_list:
       model: mistral/magistral-medium-2509
       api_key: os.environ/MISTRAL_API_KEY
 
+  # --- Perplexity ---
+  - model_name: perplexity-sonar
+    litellm_params:
+      model: perplexity/sonar
+      api_key: os.environ/PERPLEXITY_API_KEY
+
+  # --- Tavily (web search as chat completion) ---
+  - model_name: tavily-search
+    litellm_params:
+      model: tavily/web-search
+      api_key: os.environ/TAVILY_API_KEY
+
   # --- Smart Router (auto-selects model by query complexity) ---
   # Send model: "smart" and Airlock auto-classifies prompt complexity:
   #   simple → low-cost tier (claude-haiku, gemini-flash, gpt-4o-mini)
@@ -115,6 +127,11 @@ model_list:
 litellm_settings:
   # Drop any unsupported params instead of erroring
   drop_params: true
+
+  # Custom LLM providers — Tavily search exposed as a chat completion model.
+  custom_provider_map:
+    - provider: tavily
+      custom_handler: airlock.providers.tavily_provider.tavily_handler
 
   # Callbacks — enterprise logging + fast subsystem metrics
   # NOTE: these must point at module-level *instances*, not classes.
@@ -237,12 +254,23 @@ guardrails:
 #         ADO_TOKEN: os.environ/ADO_TOKEN
 #       health_url: http://localhost:3003/health
 #
-#   # --- stdio transport — LiteLLM spawns per-call ---
+#   # --- stdio transport — MUST set transport: stdio ---
+#   # LiteLLM defaults to http transport; without explicit stdio
+#   # the tool listing will fail (connects to empty URL).
 #   search:
+#     transport: stdio
 #     command: npx
 #     args: ["-y", "@anthropic/mcp-search"]
 #     env:
 #       SEARCH_API_KEY: os.environ/SEARCH_API_KEY
+#
+#   # --- NewsCatcher CatchAll (stdio) ---
+#   newscatcher:
+#     transport: stdio
+#     command: python3
+#     args: ["-m", "airlock.mcp_servers.newscatcher_server"]
+#     env:
+#       NEWS_CATCHER_API_KEY: os.environ/NEWS_CATCHER_API_KEY
 
 # ---------------------------------------------------------------------------
 # General proxy behaviour

@@ -93,6 +93,18 @@ model_list:
       model: mistral/magistral-medium-2509
       api_key: os.environ/MISTRAL_API_KEY
 
+  # --- Perplexity ---
+  - model_name: perplexity-sonar
+    litellm_params:
+      model: perplexity/sonar
+      api_key: os.environ/PERPLEXITY_API_KEY
+
+  # --- Tavily (web search as chat completion) ---
+  - model_name: tavily-search
+    litellm_params:
+      model: tavily/web-search
+      api_key: os.environ/TAVILY_API_KEY
+
   # --- Smart Router (auto-selects model by query complexity) ---
   # Send model: "smart" and Airlock auto-classifies prompt complexity:
   #   simple → low-cost tier (claude-haiku, gemini-flash, gpt-4o-mini)
@@ -115,6 +127,12 @@ model_list:
 litellm_settings:
   # Drop any unsupported params instead of erroring
   drop_params: true
+
+  # Custom LLM providers — Tavily search exposed as a chat completion model.
+  # get_instance_fn resolves the dotted path to a module-level instance.
+  custom_provider_map:
+    - provider: tavily
+      custom_handler: airlock.providers.tavily_provider.tavily_handler
 
   # Callbacks — enterprise logging + fast subsystem metrics
   # NOTE: these must point at module-level *instances*, not classes.
@@ -220,6 +238,7 @@ guardrails:
 mcp_servers:
   # --- Azure DevOps (stdio) ---
   ado_mcp:
+    transport: stdio
     command: uv
     args: ["run", "python", "-m", "ado_mcp.mcp.server", "--profile", "full"]
     env:
@@ -235,12 +254,14 @@ mcp_servers:
   # To run multiple instances against different projects or backends:
   #
   #   armada_project_a:
+  #     transport: stdio
   #     command: uv
   #     args: ["run", "armada-mcp", "--config", "/path/to/project-a/armada-workspace.yaml"]
   #     env:
   #       ARMADA_PROFILE: essential
   #
   #   armada_project_b:
+  #     transport: stdio
   #     command: uv
   #     args: ["run", "armada-mcp", "--config", "/path/to/project-b/armada-workspace.yaml"]
   #     env:
@@ -248,6 +269,7 @@ mcp_servers:
   #
   # Each workspace config can specify its own Memgraph/Qdrant backends.
   armada:
+    transport: stdio
     command: uv
     args: ["run", "armada-mcp"]
     env:
@@ -255,8 +277,19 @@ mcp_servers:
 
   # --- Monospace Design TUI (stdio) ---
   mono_tui:
+    transport: stdio
     command: python3
     args: ["/home/coreyt/projects/monospace-design-tui/mcp-server/server.py"]
+
+  # --- NewsCatcher CatchAll (stdio) ---
+  # Web search with NLP enrichment via CatchAll API (jobs-based, async).
+  # Jobs take 2-10+ minutes. Best for batch research, not real-time.
+  newscatcher:
+    transport: stdio
+    command: python3
+    args: ["-m", "airlock.mcp_servers.newscatcher_server"]
+    env:
+      NEWS_CATCHER_API_KEY: os.environ/NEWS_CATCHER_API_KEY
 
 # ---------------------------------------------------------------------------
 # General proxy behaviour
