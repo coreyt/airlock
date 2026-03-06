@@ -34,6 +34,7 @@ from litellm.types.guardrails import GuardrailEventHooks
 from airlock.guardrails.extract import extract_text, is_mcp_call
 
 from .circuit_breaker import check_model
+from .model_alias import alias_table
 from .priority import compute_priority
 from .router import apply_routing
 from .state import store
@@ -109,7 +110,21 @@ class AirlockFastGuardian(CustomGuardrail):
 
         # Routing and circuit breaker are model-specific — skip for MCP calls
         if not mcp:
-            # ---- Step 2.5: Intelligent routing ----
+            # ---- Step 2.5a: Model alias resolution ----
+            resolved = alias_table.resolve(model_name)
+            if resolved and resolved != model_name:
+                logger.info(
+                    "model_alias %s -> %s", model_name, resolved,
+                )
+                data["model"] = resolved
+                metadata = data.setdefault("metadata", {})
+                metadata["airlock_alias"] = {
+                    "original": model_name,
+                    "resolved": resolved,
+                }
+                model_name = resolved
+
+            # ---- Step 2.5b: Intelligent routing ----
             data = apply_routing(data)
             model_name = data.get("model", model_name)  # re-read after routing
 
