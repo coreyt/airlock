@@ -78,6 +78,15 @@ class DashboardPane(Vertical):
         self.set_interval(5.0, self._check_health)
         self.set_interval(5.0, self._refresh_state)
 
+    # -- collapsible toggle -----------------------------------------------
+
+    def on_collapsible_toggled(self, event: Collapsible.Toggled) -> None:
+        if event.collapsible.id == "dash-console-collapsible":
+            if event.collapsible.collapsed:
+                event.collapsible.remove_class("-expanded")
+            else:
+                event.collapsible.add_class("-expanded")
+
     # -- button handling --------------------------------------------------
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -100,7 +109,9 @@ class DashboardPane(Vertical):
             return
         btn.label = "Stop Proxy"
         btn.variant = "error"
-        self.query_one("#dash-console-collapsible", Collapsible).collapsed = False
+        collapsible = self.query_one("#dash-console-collapsible", Collapsible)
+        collapsible.collapsed = False
+        collapsible.add_class("-expanded")
         console.write("[green]Proxy started.[/]")
         self._stream_proxy_output()
 
