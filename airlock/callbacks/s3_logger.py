@@ -12,6 +12,7 @@ Env vars:
 
 from __future__ import annotations
 
+import atexit
 import datetime
 import json
 import logging
@@ -74,7 +75,7 @@ class AirlockS3Logger(CustomLogger):
             }
 
         return {
-            "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "success": success,
             "model": kwargs.get("model", "unknown"),
             "user": metadata.get("user_api_key_alias") or metadata.get("user_api_key_user_id"),
@@ -103,7 +104,7 @@ class AirlockS3Logger(CustomLogger):
             return
 
         body = "\n".join(json.dumps(r, default=_serialize) for r in records) + "\n"
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc)
         key = (
             f"{self._prefix}/{now.year:04d}/{now.month:02d}/{now.day:02d}/"
             f"airlock-{now.isoformat()}.jsonl"
@@ -131,7 +132,8 @@ class AirlockS3Logger(CustomLogger):
         self._append(record)
 
     async def async_log_success_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
-        self.log_success_event(kwargs, response_obj, start_time, end_time)
+        import asyncio
+        await asyncio.to_thread(self.log_success_event, kwargs, response_obj, start_time, end_time)
 
     # ------------------------------------------------------------------
     # Failure
@@ -141,4 +143,14 @@ class AirlockS3Logger(CustomLogger):
         self._append(record)
 
     async def async_log_failure_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
-        self.log_failure_event(kwargs, response_obj, start_time, end_time)
+        import asyncio
+        await asyncio.to_thread(self.log_failure_event, kwargs, response_obj, start_time, end_time)
+
+    def flush(self) -> None:
+        """Flush any buffered records to S3. Call on shutdown."""
+        self._flush()
+
+
+# Module-level instance for LiteLLM config.yaml callback registration.
+proxy_s3_logger = AirlockS3Logger()
+atexit.register(proxy_s3_logger.flush)

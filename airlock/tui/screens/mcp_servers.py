@@ -127,7 +127,7 @@ class McpServersPane(Vertical):
             try:
                 table.add_row(*cells, key=key)
             except Exception:
-                break  # table was cleared by another refresh
+                break  # table may have been cleared by another refresh
 
         total = len(servers)
         if total:
@@ -164,7 +164,7 @@ class McpServersPane(Vertical):
         elif bid == "mcp-srv-probe":
             self._do_probe()
 
-    @work(thread=True, group="mcp-lifecycle")
+    @work(thread=True, group="mcp-lifecycle", exclusive=True)
     def _do_start(self, name: str) -> None:
         if self._mcp_manager is None:
             return
@@ -174,14 +174,14 @@ class McpServersPane(Vertical):
         else:
             self._refresh_servers()
 
-    @work(thread=True, group="mcp-lifecycle")
+    @work(thread=True, group="mcp-lifecycle", exclusive=True)
     def _do_stop(self, name: str) -> None:
         if self._mcp_manager is None:
             return
         self._mcp_manager.stop_server(name)
         self._refresh_servers()
 
-    @work(thread=True, group="mcp-lifecycle")
+    @work(thread=True, group="mcp-lifecycle", exclusive=True)
     def _do_restart(self, name: str) -> None:
         if self._mcp_manager is None:
             return

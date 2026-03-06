@@ -21,8 +21,9 @@ pytestmark = pytest.mark.skipif(not _SA_AVAILABLE, reason="sqlalchemy not instal
 
 class TestSQLLogger:
     @pytest.fixture
-    def sql_logger(self, monkeypatch):
-        monkeypatch.setenv("AIRLOCK_SQL_URL", "sqlite:///:memory:")
+    def sql_logger(self, monkeypatch, tmp_path):
+        db_path = tmp_path / "test.db"
+        monkeypatch.setenv("AIRLOCK_SQL_URL", f"sqlite:///{db_path}")
         logger = AirlockSQLLogger()
         return logger
 

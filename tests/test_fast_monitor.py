@@ -13,13 +13,27 @@ from airlock.fast.monitor import AirlockFastMonitor, _extract_client_id
 # _extract_client_id()
 # ---------------------------------------------------------------------------
 class TestExtractClientId:
-    def test_alias_preferred(self):
+    def test_api_key_preferred_over_alias(self):
+        """API key is preferred when present (matches guardian's client ID logic)."""
         kwargs = {
             "litellm_params": {
                 "metadata": {
                     "user_api_key_alias": "dev-alice",
                     "user_api_key_user_id": "alice",
                     "user_api_key": "sk-1234567890abcdef",
+                }
+            }
+        }
+        assert _extract_client_id(kwargs) == "key:90abcdef"
+
+    def test_alias_fallback_no_key(self):
+        """Falls back to alias when API key is short/missing."""
+        kwargs = {
+            "litellm_params": {
+                "metadata": {
+                    "user_api_key_alias": "dev-alice",
+                    "user_api_key_user_id": "alice",
+                    "user_api_key": "sk-short",
                 }
             }
         }
@@ -30,7 +44,6 @@ class TestExtractClientId:
             "litellm_params": {
                 "metadata": {
                     "user_api_key_user_id": "alice",
-                    "user_api_key": "sk-1234567890abcdef",
                 }
             }
         }

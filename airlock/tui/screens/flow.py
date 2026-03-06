@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -186,7 +186,7 @@ def _render_pipeline(entry: FlowEntry) -> str:
     lines.append("─" * 40)
 
     # We can infer pre_call stages from the record
-    pii_ok = "✓" if entry.success or True else "✗"  # PII always runs
+    pii_ok = "✓"  # PII always runs as pre_call
     kw_ok = "✓"
     guardian_ok = "✓"
     enforcer_mode = "-"
@@ -395,7 +395,7 @@ class FlowPane(Vertical):
     def _poll_logs(self) -> None:
         try:
             log_dir = Path(os.getenv("AIRLOCK_LOG_DIR", "./logs"))
-            today = datetime.utcnow().date()
+            today = datetime.now(timezone.utc).date()
             path = log_dir / f"airlock-{today.isoformat()}.jsonl"
 
             if not path.exists():
@@ -454,7 +454,7 @@ class FlowPane(Vertical):
                 self._show_detail(self._entries[0])
 
         except Exception:
-            pass  # Never crash the poller
+            pass  # Poller must not crash; errors are transient (file rotation, etc.)
 
     # ------------------------------------------------------------------
     # UI updates

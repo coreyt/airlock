@@ -38,7 +38,8 @@ from typing import Any
 
 logger = logging.getLogger("airlock.slow")
 
-LOG_DIR = Path(os.getenv("AIRLOCK_LOG_DIR", "./logs"))
+def _log_dir() -> Path:
+    return Path(os.getenv("AIRLOCK_LOG_DIR", "./logs"))
 
 
 # ---------------------------------------------------------------------------
@@ -136,7 +137,7 @@ def _load_logs(days: int = 7) -> list[dict[str, Any]]:
 
     for i in range(days):
         day = today - timedelta(days=i)
-        log_path = LOG_DIR / f"airlock-{day.isoformat()}.jsonl"
+        log_path = _log_dir() / f"airlock-{day.isoformat()}.jsonl"
         if not log_path.exists():
             continue
         with open(log_path, "r", encoding="utf-8") as f:

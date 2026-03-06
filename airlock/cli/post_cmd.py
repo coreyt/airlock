@@ -16,7 +16,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
@@ -804,7 +804,7 @@ def check_guardrail_modules(config: dict, verbose: bool) -> CheckResult:
 # ---------------------------------------------------------------------------
 
 
-@_register("mcp_config", "MCP server config", "MCP", skip_flag="skip_guardrails")
+@_register("mcp_config", "MCP server config", "MCP", skip_flag="skip_mcp")
 def check_mcp_config(config: dict, verbose: bool) -> CheckResult:
     mcp_servers = config.get("mcp_servers")
     if not mcp_servers:

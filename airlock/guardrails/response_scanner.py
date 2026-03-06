@@ -305,8 +305,15 @@ class AirlockResponseScanner(CustomGuardrail):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+_VALID_SCAN_MODES = {"observe", "enforce"}
+
+
 def _mode() -> str:
-    return os.getenv("AIRLOCK_RESPONSE_SCAN_MODE", "observe")
+    raw = os.getenv("AIRLOCK_RESPONSE_SCAN_MODE", "observe").strip().lower()
+    if raw not in _VALID_SCAN_MODES:
+        logger.warning("Invalid AIRLOCK_RESPONSE_SCAN_MODE=%r, falling back to 'observe'", raw)
+        return "observe"
+    return raw
 
 
 def _attach_metadata(data: dict, result: ScanResult) -> None:
@@ -328,7 +335,7 @@ def _self_register() -> None:
         mgr.add_litellm_success_callback(response_scanner)
         mgr.add_litellm_async_success_callback(response_scanner)
     except Exception:
-        logger.debug("response_scanner self-registration deferred", exc_info=True)
+        logger.warning("response_scanner self-registration deferred", exc_info=True)
 
 
 _self_register()

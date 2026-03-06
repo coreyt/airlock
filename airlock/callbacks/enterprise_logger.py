@@ -26,11 +26,14 @@ from litellm.integrations.custom_logger import CustomLogger
 
 logger = logging.getLogger("airlock.logger")
 
-LOG_DIR = Path(os.getenv("AIRLOCK_LOG_DIR", "./logs"))
+def _log_dir() -> Path:
+    return Path(os.getenv("AIRLOCK_LOG_DIR", "./logs"))
 
 
-def _ensure_log_dir() -> None:
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+def _ensure_log_dir() -> Path:
+    d = _log_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def _serialize(obj: Any) -> Any:
@@ -48,9 +51,9 @@ def _serialize(obj: Any) -> Any:
 
 def _write_log(record: dict[str, Any]) -> None:
     """Append a JSON record to today's log file."""
-    _ensure_log_dir()
+    log_dir = _ensure_log_dir()
     today = datetime.date.today().isoformat()
-    log_path = LOG_DIR / f"airlock-{today}.jsonl"
+    log_path = log_dir / f"airlock-{today}.jsonl"
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, default=_serialize) + "\n")
 
@@ -74,7 +77,8 @@ class AirlockLogger(CustomLogger):
         logger.info("request_logged model=%s user=%s tokens=%s", record["model"], record.get("user"), record.get("total_tokens"))
 
     async def async_log_success_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
-        self.log_success_event(kwargs, response_obj, start_time, end_time)
+        import asyncio
+        await asyncio.to_thread(self.log_success_event, kwargs, response_obj, start_time, end_time)
 
     # ------------------------------------------------------------------
     # Failure
@@ -85,7 +89,8 @@ class AirlockLogger(CustomLogger):
         logger.warning("request_failed model=%s user=%s error=%s", record["model"], record.get("user"), record.get("error"))
 
     async def async_log_failure_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
-        self.log_failure_event(kwargs, response_obj, start_time, end_time)
+        import asyncio
+        await asyncio.to_thread(self.log_failure_event, kwargs, response_obj, start_time, end_time)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -135,7 +140,7 @@ class AirlockLogger(CustomLogger):
             )
 
         return {
-            "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "success": success,
             "model": kwargs.get("model", "unknown"),
             "user": metadata.get("user_api_key_alias") or metadata.get("user_api_key_user_id"),
@@ -175,7 +180,7 @@ def _self_register() -> None:
         mgr.add_litellm_async_success_callback(proxy_logger)
         mgr.add_litellm_async_failure_callback(proxy_logger)
     except Exception:
-        pass  # litellm not fully loaded yet — config path will handle it
+        logger.warning("enterprise_logger self-registration deferred — litellm not fully loaded")
 
 
 _self_register()

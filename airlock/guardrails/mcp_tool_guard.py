@@ -27,12 +27,15 @@ logger = logging.getLogger("airlock.guardrails.mcp_tool")
 # Shell metacharacters and path traversal patterns to reject
 _DANGEROUS_PATTERNS = re.compile(
     r"(?:"
-    r"\.\./|"           # path traversal
-    r"[;|&`$]|"         # shell metacharacters
-    r"\$\(|"            # command substitution
-    r">\s*/|"           # redirect to root
-    r"<\s*/"            # read from root
-    r")"
+    r"\.\./|"                    # path traversal (literal)
+    r"%2e%2e[%2f/\\]|"          # path traversal (URL-encoded)
+    r"\.\.\\|"                   # path traversal (backslash)
+    r"[;|&`$\n\r]|"             # shell metacharacters + newlines
+    r"\$\(|"                     # command substitution
+    r">\s*/|"                    # redirect to root
+    r"<\s*/"                     # read from root
+    r")",
+    re.IGNORECASE,
 )
 
 
@@ -48,12 +51,13 @@ def _blocked_tools() -> list[str]:
 
 def _check_tool_access(tool_name: str) -> str | None:
     """Return an error message if the tool is not allowed, else None."""
+    tool_lower = tool_name.lower()
     allowed = _allowed_tools()
-    if allowed and tool_name not in allowed:
+    if allowed and tool_lower not in [t.lower() for t in allowed]:
         return f"Tool '{tool_name}' is not in the allowed tools list."
 
     blocked = _blocked_tools()
-    if tool_name in blocked:
+    if tool_lower in [t.lower() for t in blocked]:
         return f"Tool '{tool_name}' is blocked by policy."
 
     return None

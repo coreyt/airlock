@@ -45,17 +45,23 @@ def _infer_provider(model_name: str) -> str | None:
 
 
 def _extract_client_id(kwargs: dict) -> str:
-    """Derive a client identifier from LiteLLM callback kwargs."""
+    """Derive a client identifier from LiteLLM callback kwargs.
+
+    Must match guardian._extract_client_id() to ensure the same ClientState
+    object is used for pre-call threat/priority and post-call metrics.
+    """
     metadata = kwargs.get("litellm_params", {}).get("metadata", {}) or {}
+    # Primary: raw API key (same as guardian uses from user_api_key_dict.api_key)
+    api_key = metadata.get("user_api_key") or ""
+    if len(api_key) > 8:
+        return f"key:{api_key[-8:]}"
+    # Fallback: user alias or user ID
     user = (
         metadata.get("user_api_key_alias")
         or metadata.get("user_api_key_user_id")
     )
     if user:
         return f"user:{user}"
-    api_key = metadata.get("user_api_key")
-    if api_key and len(api_key) > 8:
-        return f"key:{api_key[-8:]}"
     return "unknown"
 
 
@@ -185,7 +191,7 @@ def _self_register() -> None:
         mgr.add_litellm_async_success_callback(proxy_monitor)
         mgr.add_litellm_async_failure_callback(proxy_monitor)
     except Exception:
-        pass  # litellm not fully loaded yet — config path will handle it
+        logger.warning("monitor self-registration deferred — litellm not fully loaded")
 
 
 _self_register()

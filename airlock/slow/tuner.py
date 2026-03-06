@@ -24,7 +24,8 @@ from airlock.guardrails.schemas import GuardrailKnobs, default_knobs
 
 logger = logging.getLogger("airlock.slow.tuner")
 
-LOG_DIR = Path(os.getenv("AIRLOCK_LOG_DIR", "./logs"))
+def _log_dir() -> Path:
+    return Path(os.getenv("AIRLOCK_LOG_DIR", "./logs"))
 KNOBS_FILENAME = "airlock-knobs.json"
 
 
@@ -50,7 +51,7 @@ def tune_guardrails(records: list[dict]) -> GuardrailKnobs:
 
 def write_knobs(knobs: GuardrailKnobs, directory: Path | None = None) -> Path:
     """Write airlock-knobs.json to the specified or default directory."""
-    target_dir = directory or LOG_DIR
+    target_dir = directory or _log_dir()
     target_dir.mkdir(parents=True, exist_ok=True)
     path = target_dir / KNOBS_FILENAME
     path.write_text(json.dumps(asdict(knobs), indent=2) + "\n")
@@ -60,7 +61,7 @@ def write_knobs(knobs: GuardrailKnobs, directory: Path | None = None) -> Path:
 
 def load_knobs(directory: Path | None = None) -> GuardrailKnobs | None:
     """Read airlock-knobs.json. Returns None if missing."""
-    target_dir = directory or LOG_DIR
+    target_dir = directory or _log_dir()
     path = target_dir / KNOBS_FILENAME
     if not path.exists():
         return None

@@ -34,10 +34,8 @@ def clear_knobs_cache():
 
 @pytest.fixture
 def knobs_dir(tmp_path, monkeypatch):
-    """Point tuner LOG_DIR at tmp_path for loading."""
-    import airlock.slow.tuner as tuner_mod
-
-    monkeypatch.setattr(tuner_mod, "LOG_DIR", tmp_path)
+    """Point tuner log dir at tmp_path for loading."""
+    monkeypatch.setenv("AIRLOCK_LOG_DIR", str(tmp_path))
     return tmp_path
 
 

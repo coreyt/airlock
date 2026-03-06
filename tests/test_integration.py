@@ -395,8 +395,7 @@ class TestEnforcerIntegration:
 
     @pytest.fixture
     def knobs_dir(self, tmp_path, monkeypatch):
-        import airlock.slow.tuner as tuner_mod
-        monkeypatch.setattr(tuner_mod, "LOG_DIR", tmp_path)
+        monkeypatch.setenv("AIRLOCK_LOG_DIR", str(tmp_path))
         return tmp_path
 
     async def test_enforcer_observe_in_chain(

@@ -194,9 +194,10 @@ def test_is_tui_owned_false_when_exited() -> None:
     assert pm.is_tui_owned is False
 
 
-def test_stdout_stream_deprecated_returns_none() -> None:
-    pm = ProxyManager()
-    assert pm.stdout_stream is None
+def test_find_config_static_returns_path_or_none() -> None:
+    result = ProxyManager.find_config_static()
+    # Returns a Path if config.yaml exists, None otherwise
+    assert result is None or hasattr(result, "is_file")
 
 
 def test_output_queue_exists() -> None:

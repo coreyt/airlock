@@ -114,7 +114,7 @@ def _scrub_mcp_arguments(data: dict) -> None:
     """
     args = data.get("mcp_arguments")
     if args is not None:
-        _scrub_value_recursive(args)
+        data["mcp_arguments"] = _scrub_value_recursive(args)
 
 
 def _scrub_value_recursive(value: Any, _depth: int = 0) -> Any:

@@ -75,6 +75,7 @@ class AirlockSQLLogger(CustomLogger):
             raise ImportError("sqlalchemy is required for SQL logging: pip install airlock[sql]")
         if not self._url:
             logger.warning("AIRLOCK_SQL_URL not set, SQL logging disabled")
+            self._initialized = True
             return
 
         self._engine = sa.create_engine(self._url)
@@ -102,7 +103,7 @@ class AirlockSQLLogger(CustomLogger):
             }
 
         return {
-            "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "success": success,
             "model": kwargs.get("model", "unknown"),
             "user": lp_metadata.get("user_api_key_alias") or lp_metadata.get("user_api_key_user_id"),
@@ -139,7 +140,8 @@ class AirlockSQLLogger(CustomLogger):
         self._insert(record)
 
     async def async_log_success_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
-        self.log_success_event(kwargs, response_obj, start_time, end_time)
+        import asyncio
+        await asyncio.to_thread(self.log_success_event, kwargs, response_obj, start_time, end_time)
 
     # ------------------------------------------------------------------
     # Failure
@@ -149,4 +151,9 @@ class AirlockSQLLogger(CustomLogger):
         self._insert(record)
 
     async def async_log_failure_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
-        self.log_failure_event(kwargs, response_obj, start_time, end_time)
+        import asyncio
+        await asyncio.to_thread(self.log_failure_event, kwargs, response_obj, start_time, end_time)
+
+
+# Module-level instance for LiteLLM config.yaml callback registration.
+proxy_sql_logger = AirlockSQLLogger()

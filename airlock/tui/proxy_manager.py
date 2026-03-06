@@ -26,7 +26,7 @@ class ProxyManager:
         self._host = host
         self._port = port
         self._process: subprocess.Popen[str] | None = None
-        self._output_queue: queue.Queue[str] = queue.Queue()
+        self._output_queue: queue.Queue[str] = queue.Queue(maxsize=1000)
         self._ring: collections.deque[str] = collections.deque(maxlen=_MAX_LOG_LINES)
         self._reader_thread: threading.Thread | None = None
         self._log_file: IO[str] | None = None
@@ -67,7 +67,7 @@ class ProxyManager:
     def _check_mcp_env_refs(config_path: Path) -> list[str]:
         """Return list of error strings for missing os.environ/ refs in MCP config."""
         try:
-            with open(config_path) as f:
+            with open(config_path, encoding="utf-8") as f:
                 cfg = yaml.safe_load(f) or {}
         except (OSError, yaml.YAMLError):
             return []
@@ -148,6 +148,14 @@ class ProxyManager:
         """Launch the proxy subprocess.  Returns error message or *None*."""
         if self._process is not None and self._process.poll() is None:
             return "Proxy is already running."
+
+        # Close stale log file from a previous crashed run
+        if self._log_file is not None:
+            try:
+                self._log_file.close()
+            except OSError:
+                pass
+            self._log_file = None
 
         err = self.preflight()
         if err:
@@ -237,11 +245,15 @@ class ProxyManager:
         """Queue of output lines from the proxy subprocess."""
         return self._output_queue
 
-    @property
-    def stdout_stream(self) -> IO[str] | None:
-        """Stdout pipe of the managed process, or *None*.
-
-        .. deprecated:: Use :attr:`output_queue` instead.  The raw pipe is
-           now consumed by the internal reader thread.
-        """
+    @staticmethod
+    def find_config_static() -> Path | None:
+        """Locate config.yaml without instantiating a ProxyManager."""
+        candidates = [
+            Path(os.getenv("AIRLOCK_CONFIG", "config.yaml")),
+            Path(__file__).resolve().parent.parent.parent / "config.yaml",
+            Path("/etc/airlock/config.yaml"),
+        ]
+        for path in candidates:
+            if path.is_file():
+                return path
         return None

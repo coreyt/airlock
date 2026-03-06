@@ -174,12 +174,6 @@ def log_dir(tmp_path, monkeypatch):
     log_path = tmp_path / "logs"
     log_path.mkdir()
     monkeypatch.setenv("AIRLOCK_LOG_DIR", str(log_path))
-
-    import airlock.callbacks.enterprise_logger as logger_mod
-    import airlock.slow.analyzer as analyzer_mod
-
-    monkeypatch.setattr(logger_mod, "LOG_DIR", log_path)
-    monkeypatch.setattr(analyzer_mod, "LOG_DIR", log_path)
     return log_path
 
 

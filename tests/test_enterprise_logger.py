@@ -246,7 +246,7 @@ class TestWriteLog:
         import airlock.callbacks.enterprise_logger as mod
 
         log_path = tmp_path / "new_logs"
-        monkeypatch.setattr(mod, "LOG_DIR", log_path)
+        monkeypatch.setenv("AIRLOCK_LOG_DIR", str(log_path))
         _write_log({"test": "record"})
         assert log_path.exists()
 

@@ -222,6 +222,7 @@ class ModelState:
     latencies_ms: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     last_state_change: float = 0.0
     consecutive_failures: int = 0
+    _half_open_admitted: bool = False  # gate: only one probe in half-open
 
     # Thresholds (class-level defaults)
     FAILURE_THRESHOLD: int = 5          # consecutive failures → open
@@ -234,6 +235,7 @@ class ModelState:
         self.consecutive_failures = 0
 
         if self.circuit == CircuitState.HALF_OPEN:
+            self._half_open_admitted = False
             recent_ok = sum(
                 1 for t in self.success_times if t > self.last_state_change
             )
@@ -247,6 +249,7 @@ class ModelState:
 
         if self.circuit == CircuitState.HALF_OPEN:
             self.circuit = CircuitState.OPEN
+            self._half_open_admitted = False
             self.last_state_change = timestamp
         elif self.circuit == CircuitState.CLOSED:
             if self.consecutive_failures >= self.FAILURE_THRESHOLD:
@@ -260,10 +263,14 @@ class ModelState:
             if time.time() - self.last_state_change >= self.RECOVERY_TIMEOUT:
                 self.circuit = CircuitState.HALF_OPEN
                 self.last_state_change = time.time()
+                self._half_open_admitted = True
                 return True          # allow a single probe
             return False
-        # HALF_OPEN → allow (probe in progress)
-        return True
+        # HALF_OPEN → only allow if no probe is already in flight
+        if not self._half_open_admitted:
+            self._half_open_admitted = True
+            return True
+        return False
 
     def recent_avg_latency(self, window_seconds: float = WINDOW_SECONDS) -> float | None:
         cutoff = time.time() - window_seconds

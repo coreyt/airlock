@@ -256,6 +256,13 @@ class McpServerManager:
                 bufsize=1,
             )
         except OSError as exc:
+            # Close the log file we opened before the failed Popen
+            if entry.log_file is not None:
+                try:
+                    entry.log_file.close()
+                except OSError:
+                    pass
+                entry.log_file = None
             srv_state.health = McpServerHealth.STOPPED
             srv_state.started_at = 0.0
             return f"Server '{name}': failed to start: {exc}"
@@ -381,7 +388,7 @@ class McpServerManager:
     @staticmethod
     def _find_config() -> Path | None:
         from airlock.tui.proxy_manager import ProxyManager
-        return ProxyManager().find_config()
+        return ProxyManager.find_config_static()
 
 
 # ---------------------------------------------------------------------------
