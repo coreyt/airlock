@@ -7,6 +7,15 @@ import os
 import sys
 import urllib.request
 
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Hooks are spawned as separate processes by Claude Code — CWD may not be
+# the project root.  Walk up from this file to find the project .env.
+_project_root = Path(__file__).resolve().parent.parent.parent
+load_dotenv(_project_root / ".env")
+
 
 def read_hook_input() -> dict:
     """Parse JSON from stdin (Claude Code hook protocol)."""
@@ -30,9 +39,11 @@ def respond_json(data: dict) -> None:
     raise SystemExit(0)
 
 
-def probe_health(host: str, port: str, timeout: int = 3) -> bool:
+def probe_health(host: str, port: str, timeout: int = 3, *, client: str = "hook") -> bool:
     """Check if the Airlock proxy is reachable."""
-    url = f"http://{host}:{port}/health"
+    # 0.0.0.0 is a bind address, not connectable — probe via loopback
+    probe_host = "127.0.0.1" if host == "0.0.0.0" else host
+    url = f"http://{probe_host}:{port}/health?client={client}"
     req = urllib.request.Request(url)
     master_key = os.environ.get("AIRLOCK_MASTER_KEY")
     if master_key:

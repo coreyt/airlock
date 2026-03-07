@@ -39,14 +39,13 @@
 /* ── Dashboard ────────────────────────────────────────── */
 
 #dash-top-row {
-    height: auto;
-    max-height: 12;
+    height: 9;
     layout: horizontal;
 }
 
 #dash-proxy-status {
     width: 1fr;
-    height: auto;
+    height: 1fr;
     border: solid $accent;
     padding: 1 2;
 }
@@ -59,7 +58,7 @@
 
 #dash-guardrails {
     width: 1fr;
-    height: auto;
+    height: 1fr;
     border: solid $accent;
     padding: 1 2;
     margin-left: 1;
@@ -67,7 +66,7 @@
 
 #dash-mcp-status {
     width: 1fr;
-    height: auto;
+    height: 1fr;
     border: solid $accent;
     padding: 1 2;
     margin-left: 1;
@@ -79,13 +78,22 @@
 }
 
 #dash-console-collapsible.-expanded {
-    height: 4fr;
+    height: 3fr;
 }
 
 #dash-console-log {
     height: 1fr;
     border: solid $accent;
     background: $surface;
+}
+
+#dash-export-row {
+    height: 3;
+    align-vertical: middle;
+}
+
+#export-log-btn {
+    min-width: 16;
 }
 
 #dash-model-table {

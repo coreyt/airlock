@@ -169,6 +169,29 @@ class AirlockLogger(CustomLogger):
 proxy_logger = AirlockLogger()
 
 
+def _patch_lowest_cost_none_guard() -> None:
+    """Monkey-patch LiteLLM lowest_cost router strategy to guard against None litellm_params.
+
+    LiteLLM's LowestCostLoggingHandler.async_log_success_event does
+    ``kwargs["litellm_params"].get(...)`` without guarding against None,
+    which crashes for call types (MCP, custom providers) that don't
+    fully populate litellm_params.
+    """
+    try:
+        from litellm.router_strategy.lowest_cost import LowestCostLoggingHandler
+
+        _orig = LowestCostLoggingHandler.async_log_success_event
+
+        async def _safe_async_log_success(self, kwargs, response_obj, start_time, end_time):
+            if kwargs.get("litellm_params") is None:
+                kwargs["litellm_params"] = {}
+            return await _orig(self, kwargs, response_obj, start_time, end_time)
+
+        LowestCostLoggingHandler.async_log_success_event = _safe_async_log_success
+    except Exception:
+        pass
+
+
 def _self_register() -> None:
     """Ensure proxy_logger is in both sync and async callback lists."""
     try:
@@ -181,6 +204,8 @@ def _self_register() -> None:
         mgr.add_litellm_async_failure_callback(proxy_logger)
     except Exception:
         logger.warning("enterprise_logger self-registration deferred — litellm not fully loaded")
+
+    _patch_lowest_cost_none_guard()
 
 
 _self_register()

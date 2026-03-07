@@ -20,7 +20,9 @@ def run(args) -> None:
     """Probe the proxy health endpoint and report status."""
     host = args.host or os.environ.get("AIRLOCK_HOST", "localhost")
     port = args.port or os.environ.get("AIRLOCK_PORT", "4000")
-    url = f"http://{host}:{port}/health"
+    # 0.0.0.0 is a bind address, not connectable — probe via loopback
+    probe_host = "127.0.0.1" if host == "0.0.0.0" else host
+    url = f"http://{probe_host}:{port}/health?client=cli-status"
 
     try:
         urllib.request.urlopen(_health_request(url), timeout=5)  # noqa: S310

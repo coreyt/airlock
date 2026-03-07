@@ -283,9 +283,11 @@ class McpServersPane(Vertical):
         if entry is None:
             return
 
+        from rich.text import Text
+
         # Snapshot ring buffer to avoid RuntimeError from concurrent append
         for line in list(entry.ring):
-            console.write(line)
+            console.write(Text.from_ansi(line))
 
         # Stream new output
         current = get_current_worker()
@@ -294,7 +296,7 @@ class McpServersPane(Vertical):
                 break
             try:
                 line = entry.output_queue.get(timeout=0.5)
-                console.write(line)
+                console.write(Text.from_ansi(line))
             except _queue.Empty:
                 continue
 

@@ -5,9 +5,11 @@ from __future__ import annotations
 import collections
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import IO
 
@@ -17,6 +19,11 @@ from dotenv import load_dotenv
 _ENV_REF_PREFIX = "os.environ/"
 
 _MAX_LOG_LINES = 1000
+
+# Matches lines that already have a timestamp prefix (HH:MM:SS or ISO-like)
+_HAS_TIMESTAMP = re.compile(
+    r"^(?:\d{4}-\d{2}-\d{2}[T ])?(\d{2}:\d{2}:\d{2})"
+)
 
 
 class ProxyManager:
@@ -125,6 +132,8 @@ class ProxyManager:
         try:
             for raw_line in stdout:
                 line = raw_line.rstrip("\n")
+                if line and not _HAS_TIMESTAMP.match(line):
+                    line = f"{datetime.now():%H:%M:%S} {line}"
                 self._ring.append(line)
                 self._output_queue.put(line)
                 self._line_count += 1
@@ -164,7 +173,8 @@ class ProxyManager:
         config_path = self.find_config()
         assert config_path is not None  # preflight passed
 
-        load_dotenv()
+        _project_env = Path(__file__).resolve().parent.parent.parent / ".env"
+        load_dotenv(_project_env)
 
         litellm_bin = str(Path(sys.executable).parent / "litellm")
 

@@ -48,7 +48,10 @@ def configure_logging() -> None:
 def main(argv: list[str] | None = None) -> None:
     """Parse arguments and dispatch to the appropriate subcommand."""
     # Load .env early so AIRLOCK_* vars are available for arg defaults.
-    load_dotenv()
+    # Explicit path: bare load_dotenv() uses find_dotenv() which walks from
+    # CWD — fails when CLI is invoked from a different directory.
+    _project_env = Path(__file__).resolve().parent.parent.parent / ".env"
+    load_dotenv(_project_env)
 
     parser = argparse.ArgumentParser(
         prog="airlock",

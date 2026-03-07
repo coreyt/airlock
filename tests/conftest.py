@@ -34,7 +34,7 @@ def clean_env(monkeypatch):
     """
     for var in [k for k in os.environ if k.startswith("AIRLOCK_")]:
         monkeypatch.delenv(var, raising=False)
-    monkeypatch.setattr("airlock.cli.main.load_dotenv", lambda **kw: None)
+    monkeypatch.setattr("airlock.cli.main.load_dotenv", lambda *a, **kw: None)
 
 
 # ---------------------------------------------------------------------------

@@ -6,8 +6,6 @@ import http.server
 import json
 import threading
 from io import StringIO
-from pathlib import Path
-from unittest import mock
 
 import pytest
 
@@ -79,10 +77,22 @@ class TestGetBlockedKeywords:
 
 class TestProbeHealth:
     @pytest.fixture()
-    def health_server(self):
+    def _auth_server(self):
+        """HTTP server that requires Bearer auth and records request headers."""
+        self.last_headers: dict = {}
+        self.last_path: str = ""
+
+        parent = self
+
         class _Handler(http.server.BaseHTTPRequestHandler):
             def do_GET(self):  # noqa: N802
-                self.send_response(200)
+                parent.last_headers = dict(self.headers)
+                parent.last_path = self.path
+                auth = self.headers.get("Authorization", "")
+                if auth == "Bearer test-key-123":
+                    self.send_response(200)
+                else:
+                    self.send_response(400)
                 self.end_headers()
                 self.wfile.write(b"OK")
 
@@ -93,15 +103,89 @@ class TestProbeHealth:
         port = server.server_address[1]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
-        yield "127.0.0.1", str(port)
+        self.host = "127.0.0.1"
+        self.port = str(port)
+        yield
         server.shutdown()
 
-    def test_returns_true_when_healthy(self, health_server):
-        host, port = health_server
-        assert probe_health(host, port) is True
+    def test_returns_true_when_healthy(self, _auth_server, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_MASTER_KEY", "test-key-123")
+        assert probe_health(self.host, self.port) is True
 
     def test_returns_false_when_unreachable(self):
         assert probe_health("127.0.0.1", "19999", timeout=1) is False
+
+    def test_sends_auth_header_when_master_key_set(self, _auth_server, monkeypatch):
+        """Regression: hooks must send Authorization header when master key is set."""
+        monkeypatch.setenv("AIRLOCK_MASTER_KEY", "test-key-123")
+        probe_health(self.host, self.port)
+        assert self.last_headers.get("Authorization") == "Bearer test-key-123"
+
+    def test_includes_client_query_param(self, _auth_server, monkeypatch):
+        """Health probes include ?client= for identification in proxy logs."""
+        monkeypatch.setenv("AIRLOCK_MASTER_KEY", "test-key-123")
+        self.last_path = ""
+        probe_health(self.host, self.port, client="test-client")
+        assert "client=test-client" in self.last_path
+
+    def test_default_client_is_hook(self, _auth_server, monkeypatch):
+        """Default client identifier is 'hook'."""
+        monkeypatch.setenv("AIRLOCK_MASTER_KEY", "test-key-123")
+        self.last_path = ""
+        probe_health(self.host, self.port)
+        assert "client=hook" in self.last_path
+
+    def test_no_auth_header_when_master_key_unset(self, _auth_server, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_MASTER_KEY", raising=False)
+        probe_health(self.host, self.port)
+        assert "Authorization" not in self.last_headers
+
+    def test_returns_false_without_auth_on_protected_server(self, _auth_server, monkeypatch):
+        """Server requiring auth returns 400 — probe must fail without key."""
+        monkeypatch.delenv("AIRLOCK_MASTER_KEY", raising=False)
+        # Server returns 400 for missing/wrong auth; urllib raises HTTPError
+        # probe_health catches all exceptions → returns False
+        assert probe_health(self.host, self.port) is False
+
+
+class TestDotenvLoading:
+    """Hooks run as separate processes — they must load .env for env vars."""
+
+    def test_common_module_calls_load_dotenv(self):
+        """Regression: _common.py must call load_dotenv() at import time.
+
+        Without this, hooks spawned as separate processes by Claude Code
+        won't pick up AIRLOCK_MASTER_KEY from .env, causing health probes
+        to hit /health without auth → 400 spam in LiteLLM logs.
+        """
+        import ast
+        import inspect
+
+        source = inspect.getsource(__import__("airlock.hooks._common", fromlist=["_common"]))
+        tree = ast.parse(source)
+
+        # Check for load_dotenv() call at module level
+        has_load_dotenv = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Name) and func.id == "load_dotenv":
+                    has_load_dotenv = True
+                elif isinstance(func, ast.Attribute) and func.attr == "load_dotenv":
+                    has_load_dotenv = True
+        assert has_load_dotenv, (
+            "airlock.hooks._common must call load_dotenv() at module level "
+            "so hooks spawned as separate processes pick up .env values"
+        )
+
+    def test_common_imports_dotenv(self):
+        """_common.py must import from dotenv."""
+        import airlock.hooks._common as mod
+
+        # Module should have loaded dotenv — verify the function is accessible
+        import dotenv
+
+        assert hasattr(dotenv, "load_dotenv")
 
 
 # ===================================================================

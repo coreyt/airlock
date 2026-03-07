@@ -239,14 +239,79 @@ def test_reader_thread_tees_to_queue_and_ring(tmp_path: Path, monkeypatch) -> No
     # Run reader loop directly (not in a thread, for determinism)
     pm._reader_loop()
 
-    # Check ring buffer
-    assert list(pm._ring) == ["line one", "line two", "line three"]
+    # Check ring buffer — lines get timestamps prepended
+    for entry, expected in zip(pm._ring, ["line one", "line two", "line three"]):
+        assert entry.endswith(expected)
 
-    # Check output queue
+    # Check output queue — same timestamped lines
     queued = []
     while not pm._output_queue.empty():
         queued.append(pm._output_queue.get_nowait())
-    assert queued == ["line one", "line two", "line three"]
+    for entry, expected in zip(queued, ["line one", "line two", "line three"]):
+        assert entry.endswith(expected)
+
+
+def test_reader_prepends_timestamp_to_plain_lines(tmp_path: Path, monkeypatch) -> None:
+    """Lines without timestamps get HH:MM:SS prepended."""
+    monkeypatch.setenv("AIRLOCK_LOG_DIR", str(tmp_path))
+    pm = ProxyManager()
+
+    lines = ["INFO: some log message\n", "WARNING: another one\n"]
+    fake_stdout = io.StringIO("".join(lines))
+
+    fake_proc = mock.MagicMock(spec=subprocess.Popen)
+    fake_proc.stdout = fake_stdout
+    pm._process = fake_proc
+
+    pm._reader_loop()
+
+    import re
+
+    ts_pattern = re.compile(r"^\d{2}:\d{2}:\d{2} ")
+    for entry in pm._ring:
+        assert ts_pattern.match(entry), f"Missing timestamp prefix: {entry!r}"
+
+
+def test_reader_preserves_existing_timestamps(tmp_path: Path, monkeypatch) -> None:
+    """Lines that already have timestamps are not double-stamped."""
+    monkeypatch.setenv("AIRLOCK_LOG_DIR", str(tmp_path))
+    pm = ProxyManager()
+
+    lines = [
+        "12:30:00 - LiteLLM Proxy:INFO: started\n",
+        "2026-03-07 12:30:01 INFO something\n",
+        "2026-03-07T12:30:02 DEBUG else\n",
+    ]
+    fake_stdout = io.StringIO("".join(lines))
+
+    fake_proc = mock.MagicMock(spec=subprocess.Popen)
+    fake_proc.stdout = fake_stdout
+    pm._process = fake_proc
+
+    pm._reader_loop()
+
+    ring = list(pm._ring)
+    # Lines already had timestamps — should pass through unchanged
+    assert ring[0] == "12:30:00 - LiteLLM Proxy:INFO: started"
+    assert ring[1] == "2026-03-07 12:30:01 INFO something"
+    assert ring[2] == "2026-03-07T12:30:02 DEBUG else"
+
+
+def test_reader_skips_empty_lines(tmp_path: Path, monkeypatch) -> None:
+    """Empty lines are not timestamped."""
+    monkeypatch.setenv("AIRLOCK_LOG_DIR", str(tmp_path))
+    pm = ProxyManager()
+
+    fake_stdout = io.StringIO("hello\n\nworld\n")
+
+    fake_proc = mock.MagicMock(spec=subprocess.Popen)
+    fake_proc.stdout = fake_stdout
+    pm._process = fake_proc
+
+    pm._reader_loop()
+
+    ring = list(pm._ring)
+    assert ring[1] == ""  # empty line stays empty
 
 
 def test_stop_flushes_ring_to_file(tmp_path: Path, monkeypatch) -> None:

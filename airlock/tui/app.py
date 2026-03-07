@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import threading
 from pathlib import Path
 
 from textual.app import App, ComposeResult
@@ -65,6 +67,8 @@ class AirlockApp(App):
         self._proxy_manager = ProxyManager(host=host, port=port)
         self._mcp_manager = McpServerManager()
         self._mcp_manager.load_config()
+        self._jsonl_stop = threading.Event()
+        self._jsonl_thread: threading.Thread | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -94,11 +98,28 @@ class AirlockApp(App):
 
     def on_mount(self) -> None:
         self._mcp_manager.start_health_loop()
+        self._start_jsonl_tailer()
         if self._auto_start:
             dashboard = self.query_one(DashboardPane)
             dashboard.action_start_proxy()
 
+    def _start_jsonl_tailer(self) -> None:
+        """Start background thread that tails JSONL logs into StateStore."""
+        from airlock.fast.state import tail_jsonl
+
+        log_dir = os.getenv("AIRLOCK_LOG_DIR", "./logs")
+        self._jsonl_stop.clear()
+        self._jsonl_thread = threading.Thread(
+            target=tail_jsonl,
+            args=(log_dir, self._jsonl_stop),
+            daemon=True,
+        )
+        self._jsonl_thread.start()
+
     def on_unmount(self) -> None:
+        self._jsonl_stop.set()
+        if self._jsonl_thread is not None:
+            self._jsonl_thread.join(timeout=3)
         self._mcp_manager.stop_all()
         self._proxy_manager.stop()
 

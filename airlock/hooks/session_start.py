@@ -11,7 +11,7 @@ def main() -> None:
     host = os.environ.get("AIRLOCK_HOST", "localhost")
     port = os.environ.get("AIRLOCK_PORT", "4000")
 
-    if probe_health(host, port):
+    if probe_health(host, port, client="hook-session-start"):
         status = f"Airlock proxy is running at {host}:{port}."
     else:
         status = (

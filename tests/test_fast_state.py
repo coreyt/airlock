@@ -15,6 +15,7 @@ from airlock.fast.state import (
     ModelState,
     StateStore,
     MAX_SAMPLES,
+    tail_jsonl,
 )
 
 
@@ -372,3 +373,175 @@ class TestStateStoreMcp:
         llm, mcp = store.traffic_split()
         assert llm == 2
         assert mcp == 1
+
+
+# ---------------------------------------------------------------------------
+# JSONL ingestion (cross-process state sync for TUI)
+# ---------------------------------------------------------------------------
+class TestIngestJsonlRecord:
+    @staticmethod
+    def _now_iso() -> str:
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).isoformat()
+
+    def test_success_record_populates_model(self):
+        store = StateStore()
+        store.ingest_jsonl_record({
+            "model": "claude-sonnet",
+            "success": True,
+            "duration_ms": 250.0,
+            "timestamp": self._now_iso(),
+        })
+        models = store.all_models()
+        assert "claude-sonnet" in models
+        assert len(models["claude-sonnet"].success_times) == 1
+        assert models["claude-sonnet"].recent_avg_latency() == 250.0
+
+    def test_failure_record_populates_model(self):
+        store = StateStore()
+        store.ingest_jsonl_record({
+            "model": "gpt-4o",
+            "success": False,
+            "duration_ms": 0,
+            "timestamp": self._now_iso(),
+        })
+        models = store.all_models()
+        assert "gpt-4o" in models
+        assert len(models["gpt-4o"].failure_times) == 1
+
+    def test_tracks_llm_call_type(self):
+        store = StateStore()
+        store.ingest_jsonl_record({
+            "model": "claude-sonnet",
+            "success": True,
+            "timestamp": self._now_iso(),
+        })
+        llm, mcp = store.traffic_split()
+        assert llm == 1
+        assert mcp == 0
+
+    def test_tracks_mcp_call_type(self):
+        store = StateStore()
+        store.ingest_jsonl_record({
+            "model": "mcp-tool",
+            "success": True,
+            "call_type": "call_mcp_tool",
+            "mcp_tool_name": "read_file",
+            "mcp_server_name": "fs",
+            "timestamp": self._now_iso(),
+        })
+        llm, mcp = store.traffic_split()
+        assert llm == 0
+        assert mcp == 1
+        tools = store.all_mcp_tools()
+        assert len(tools) == 1
+
+    def test_skips_record_without_model(self):
+        store = StateStore()
+        store.ingest_jsonl_record({"success": True, "timestamp": self._now_iso()})
+        assert len(store.all_models()) == 0
+
+    def test_handles_missing_timestamp(self):
+        store = StateStore()
+        store.ingest_jsonl_record({"model": "test", "success": True})
+        assert len(store.all_models()) == 1
+
+    def test_multiple_records(self):
+        store = StateStore()
+        for i in range(5):
+            store.ingest_jsonl_record({
+                "model": "claude-sonnet",
+                "success": True,
+                "duration_ms": 100.0 + i * 10,
+                "timestamp": self._now_iso(),
+            })
+        model = store.all_models()["claude-sonnet"]
+        assert len(model.success_times) == 5
+
+
+class TestTailJsonl:
+    @staticmethod
+    def _now_iso() -> str:
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).isoformat()
+
+    def test_tails_new_lines(self, tmp_path):
+        """tail_jsonl picks up new lines appended to today's log."""
+        import json
+        from datetime import date
+
+        today = date.today().isoformat()
+        log_file = tmp_path / f"airlock-{today}.jsonl"
+
+        # Write initial line before tailer starts
+        log_file.write_text("")
+
+        stop = threading.Event()
+
+        # Patch the global store so we can inspect it
+        test_store = StateStore()
+        with patch("airlock.fast.state.store", test_store):
+            # Start tailer
+            t = threading.Thread(
+                target=tail_jsonl,
+                args=(str(tmp_path), stop, 0.1),
+                daemon=True,
+            )
+            t.start()
+
+            # Give tailer time to open file and seek to end
+            time.sleep(0.3)
+
+            # Append a record
+            with open(log_file, "a") as f:
+                f.write(json.dumps({
+                    "model": "claude-sonnet",
+                    "success": True,
+                    "duration_ms": 150.0,
+                    "timestamp": self._now_iso(),
+                }) + "\n")
+
+            # Wait for tailer to pick it up
+            time.sleep(0.5)
+
+            stop.set()
+            t.join(timeout=2)
+
+        assert "claude-sonnet" in test_store.all_models()
+
+    def test_ignores_malformed_lines(self, tmp_path):
+        """tail_jsonl skips invalid JSON without crashing."""
+        import json
+        from datetime import date
+
+        today = date.today().isoformat()
+        log_file = tmp_path / f"airlock-{today}.jsonl"
+        log_file.write_text("")
+
+        stop = threading.Event()
+        test_store = StateStore()
+
+        with patch("airlock.fast.state.store", test_store):
+            t = threading.Thread(
+                target=tail_jsonl,
+                args=(str(tmp_path), stop, 0.1),
+                daemon=True,
+            )
+            t.start()
+            time.sleep(0.3)
+
+            with open(log_file, "a") as f:
+                f.write("not valid json\n")
+                f.write(json.dumps({
+                    "model": "gpt-4o",
+                    "success": True,
+                    "duration_ms": 100.0,
+                    "timestamp": self._now_iso(),
+                }) + "\n")
+
+            time.sleep(0.5)
+            stop.set()
+            t.join(timeout=2)
+
+        # Bad line skipped, good line ingested
+        assert "gpt-4o" in test_store.all_models()

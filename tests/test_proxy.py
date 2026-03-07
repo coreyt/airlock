@@ -82,7 +82,7 @@ class TestMain:
         monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
         dotenv_called = []
 
-        with patch("airlock.proxy.load_dotenv", side_effect=lambda: dotenv_called.append(True)):
+        with patch("airlock.proxy.load_dotenv", side_effect=lambda *a, **kw: dotenv_called.append(True)):
             with patch("airlock.proxy.subprocess.call", return_value=0):
                 with pytest.raises(SystemExit):
                     main()

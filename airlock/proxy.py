@@ -66,7 +66,8 @@ def _validate_mcp_env_refs(config_path: str) -> list[str]:
 
 
 def main() -> None:
-    load_dotenv()
+    _project_env = Path(__file__).resolve().parent.parent / ".env"
+    load_dotenv(_project_env)
 
     config_path = _find_config()
 

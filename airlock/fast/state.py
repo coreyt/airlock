@@ -389,4 +389,118 @@ class StateStore:
             return self._llm_call_count, self._mcp_call_count
 
 
+    # -- JSONL log ingestion (for TUI cross-process visibility) ---------------
+
+    def ingest_jsonl_record(self, record: dict) -> None:
+        """Populate state from a JSONL log entry written by enterprise logger.
+
+        This bridges the process gap: the proxy subprocess writes JSONL, and
+        the TUI process reads it to populate the same StateStore interface.
+        """
+        model = record.get("model")
+        if not model:
+            return
+
+        success = record.get("success", True)
+        duration_ms = record.get("duration_ms", 0.0) or 0.0
+        ts_str = record.get("timestamp", "")
+
+        # Parse ISO timestamp to epoch
+        try:
+            from datetime import datetime, timezone
+
+            dt = datetime.fromisoformat(ts_str)
+            now = dt.timestamp()
+        except (ValueError, TypeError):
+            now = time.time()
+
+        model_state = self.get_model(model)
+        if success:
+            model_state.record_success(now, duration_ms)
+        else:
+            model_state.record_failure(now)
+
+        # Track call type
+        call_type = record.get("call_type", "")
+        is_mcp = call_type == "call_mcp_tool" or "mcp_tool_name" in record
+        self.record_call_type(is_mcp)
+
+        if is_mcp:
+            tool_name = record.get("mcp_tool_name", "unknown")
+            server_name = record.get("mcp_server_name", "")
+            tool_state = self.get_mcp_tool(tool_name, server_name)
+            if success:
+                tool_state.record_success(now, duration_ms)
+            else:
+                tool_state.record_failure(now)
+
+
 store = StateStore()
+
+
+# ---------------------------------------------------------------------------
+# JSONL log tailer for TUI cross-process state sync
+# ---------------------------------------------------------------------------
+
+def tail_jsonl(
+    log_dir: str,
+    stop_event: threading.Event,
+    poll_interval: float = 2.0,
+) -> None:
+    """Tail today's JSONL log file and feed records into the global store.
+
+    Designed to run in a daemon thread started by the TUI.  Picks up the
+    current day's log, seeks to the end, then polls for new lines.  Rolls
+    over to a new file at midnight.
+    """
+    import json
+    import os
+    from datetime import date
+    from pathlib import Path
+
+    log_path = Path(log_dir)
+    current_date = ""
+    fh = None
+    pos = 0
+
+    try:
+        while not stop_event.is_set():
+            today = date.today().isoformat()
+            target = log_path / f"airlock-{today}.jsonl"
+
+            # Roll over to new day's file
+            if today != current_date:
+                if fh is not None:
+                    fh.close()
+                current_date = today
+                if target.is_file():
+                    fh = open(target, encoding="utf-8")  # noqa: SIM115
+                    fh.seek(0, os.SEEK_END)  # skip existing entries
+                    pos = fh.tell()
+                else:
+                    fh = None
+                    pos = 0
+
+            # File may have been created since last check
+            if fh is None and target.is_file():
+                fh = open(target, encoding="utf-8")  # noqa: SIM115
+                fh.seek(0, os.SEEK_END)
+                pos = fh.tell()
+
+            if fh is not None:
+                fh.seek(pos)
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                        store.ingest_jsonl_record(record)
+                    except (json.JSONDecodeError, Exception):
+                        pass
+                pos = fh.tell()
+
+            stop_event.wait(poll_interval)
+    finally:
+        if fh is not None:
+            fh.close()
