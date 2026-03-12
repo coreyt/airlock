@@ -239,41 +239,19 @@ mcp_servers:
   # --- Azure DevOps (stdio) ---
   ado_mcp:
     transport: stdio
-    command: uv
-    args: ["run", "python", "-m", "ado_mcp.mcp.server", "--profile", "full"]
+    command: /home/coreyt/projects/ado-mcp/.venv/bin/ado-mcp
+    args: ["--profile", "full"]
     env:
       ADO_ORG_URL: os.environ/ADO_ORG_URL
       ADO_PAT: os.environ/ADO_PAT
 
-  # --- Armada GraphRAG (stdio) ---
-  # Single instance — auto-discovers workspace config from cwd.
-  # Supports --config <path> to target a specific armada-workspace.yaml
-  # and --profile <name> to control tool tier (essential/standard/full).
-  # Env vars: ARMADA_CONFIG, ARMADA_PROFILE (CLI args override env vars).
-  #
-  # To run multiple instances against different projects or backends:
-  #
-  #   armada_project_a:
-  #     transport: stdio
-  #     command: uv
-  #     args: ["run", "armada-mcp", "--config", "/path/to/project-a/armada-workspace.yaml"]
-  #     env:
-  #       ARMADA_PROFILE: essential
-  #
-  #   armada_project_b:
-  #     transport: stdio
-  #     command: uv
-  #     args: ["run", "armada-mcp", "--config", "/path/to/project-b/armada-workspace.yaml"]
-  #     env:
-  #       ARMADA_PROFILE: full
-  #
-  # Each workspace config can specify its own Memgraph/Qdrant backends.
-  armada:
-    transport: stdio
-    command: uv
-    args: ["run", "armada-mcp"]
-    env:
-      ARMADA_PROFILE: essential
+  # --- Armada GraphRAG (stdio) --- DISABLED: server hangs during MCP init
+  # armada:
+  #   transport: stdio
+  #   command: /home/coreyt/projects/armada/cartographer/.venv/bin/armada-mcp
+  #   args: []
+  #   env:
+  #     ARMADA_PROFILE: essential
 
   # --- Monospace Design TUI (stdio) ---
   mono_tui:

@@ -39,7 +39,7 @@
 /* ── Dashboard ────────────────────────────────────────── */
 
 #dash-top-row {
-    height: 9;
+    height: 12;
     layout: horizontal;
 }
 

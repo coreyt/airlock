@@ -43,3 +43,9 @@ litellm_uuid.txt
 
 .wake/*
 !.wake/shared/
+*.pyc
+*.pyo
+node_modules/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

@@ -9,6 +9,15 @@
             "command": "wake ingest"
           }
         ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "wake read-context"
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -18,6 +27,24 @@
           {
             "type": "command",
             "command": "wake plan-check"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "wake edit-check"
+          }
+        ]
+      },
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "wake plan-exit-check"
           }
         ]
       },
