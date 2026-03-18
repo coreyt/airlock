@@ -49,6 +49,65 @@ def _serialize(obj: Any) -> Any:
     return str(obj)
 
 
+def _get_airlock_client(metadata: dict[str, Any]) -> str | None:
+    """Return the best available Airlock client identifier."""
+    return (
+        os.getenv("AIRLOCK_CLIENT")
+        or metadata.get("airlock_client")
+        or metadata.get("client_id")
+    )
+
+
+def _normalize_failure(
+    kwargs: dict[str, Any],
+    response_obj: Any,
+) -> tuple[str, str | None, str]:
+    """Return a stable failure message, type, and category.
+
+    Categories:
+      - provider: request reached the model/provider layer and failed there
+      - eval: request failed before a provider response was produced
+    """
+    exc = kwargs.get("exception")
+    exc_type = type(exc).__name__ if exc is not None else None
+
+    error_text = ""
+    if exc is not None:
+        error_text = str(exc).strip()
+        if not error_text:
+            exc_repr = repr(exc).strip()
+            empty_repr = f"{type(exc).__name__}()"
+            if exc_repr != empty_repr:
+                error_text = exc_repr
+
+    messages = kwargs.get("messages") or []
+    last_content = ""
+    if messages:
+        last = messages[-1]
+        if isinstance(last, dict):
+            content = last.get("content", "")
+            last_content = str(content)
+
+    provider_failure = bool(error_text)
+    if response_obj is not None:
+        provider_failure = True
+
+    if provider_failure:
+        category = "provider"
+    elif "Evaluation question:" in last_content:
+        category = "eval"
+    else:
+        category = "eval"
+
+    if error_text:
+        return error_text, exc_type, category
+
+    synthetic = "No exception details captured before provider call"
+    if "Evaluation question:" in last_content:
+        synthetic = "Evaluation request failed before provider call"
+    return synthetic, exc_type, category
+
+
 def _write_log(record: dict[str, Any]) -> None:
     """Append a JSON record to today's log file."""
     log_dir = _ensure_log_dir()
@@ -86,7 +145,15 @@ class AirlockLogger(CustomLogger):
     def log_failure_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
         record = self._build_record(kwargs, response_obj, start_time, end_time, success=False)
         _write_log(record)
-        logger.warning("request_failed model=%s user=%s error=%s", record["model"], record.get("user"), record.get("error"))
+        logger.warning(
+            "request_failed model=%s user=%s client=%s category=%s error_type=%s error=%s",
+            record["model"],
+            record.get("user"),
+            record.get("airlock_client"),
+            record.get("failure_category"),
+            record.get("error_type"),
+            record.get("error"),
+        )
 
     async def async_log_failure_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
         import asyncio
@@ -105,6 +172,12 @@ class AirlockLogger(CustomLogger):
         success: bool,
     ) -> dict[str, Any]:
         metadata = kwargs.get("litellm_params", {}).get("metadata", {}) or {}
+        airlock_client = _get_airlock_client(metadata)
+        error = None
+        error_type = None
+        failure_category = None
+        if not success:
+            error, error_type, failure_category = _normalize_failure(kwargs, response_obj)
 
         # Token usage
         usage: dict[str, int] = {}
@@ -139,7 +212,7 @@ class AirlockLogger(CustomLogger):
                 or metadata.get("mcp_server_name")
             )
 
-        return {
+        record = {
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "success": success,
             "model": kwargs.get("model", "unknown"),
@@ -148,7 +221,9 @@ class AirlockLogger(CustomLogger):
             "request_id": kwargs.get("litellm_call_id"),
             "messages": kwargs.get("messages"),
             "response": _serialize(response_obj) if response_obj else None,
-            "error": str(kwargs.get("exception")) if not success else None,
+            "error": error,
+            "error_type": error_type,
+            "failure_category": failure_category,
             "start_time": start_time,
             "end_time": end_time,
             "duration_ms": (
@@ -160,6 +235,9 @@ class AirlockLogger(CustomLogger):
             **mcp_meta,
             **guardrail_meta,
         }
+        if airlock_client:
+            record["airlock_client"] = airlock_client
+        return record
 
 
 # Module-level instance for config.yaml callback registration.

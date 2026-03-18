@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
 from unittest.mock import MagicMock
 
 import pytest
@@ -94,7 +95,59 @@ class TestBuildRecord:
         )
         assert record["success"] is False
         assert record["error"] == "Model timeout after 300s"
+        assert record["error_type"] == "Exception"
+        assert record["failure_category"] == "provider"
         assert record["response"] is None
+
+    def test_failure_record_uses_airlock_client_env(
+        self, mock_failure_kwargs, mock_start_end_times, monkeypatch
+    ):
+        monkeypatch.setenv("AIRLOCK_CLIENT", "dashboard-test-client")
+        start, end = mock_start_end_times
+        record = AirlockLogger._build_record(
+            mock_failure_kwargs, None, start, end, success=False
+        )
+        assert record["airlock_client"] == "dashboard-test-client"
+
+    def test_blank_failure_marked_eval(
+        self, mock_logger_kwargs, mock_start_end_times
+    ):
+        start, end = mock_start_end_times
+        kwargs = {
+            **mock_logger_kwargs,
+            "messages": [
+                {"role": "system", "content": "Judge this response."},
+                {
+                    "role": "user",
+                    "content": (
+                        "User input: Save this article about Rust\n\n"
+                        "Evaluation question: Did the assistant confirm it saved it?"
+                    ),
+                },
+            ],
+            "exception": Exception(),
+        }
+        record = AirlockLogger._build_record(
+            kwargs, None, start, end, success=False
+        )
+        assert record["error"] == "Evaluation request failed before provider call"
+        assert record["error_type"] == "Exception"
+        assert record["failure_category"] == "eval"
+
+    def test_missing_exception_marked_eval(
+        self, mock_logger_kwargs, mock_start_end_times
+    ):
+        start, end = mock_start_end_times
+        kwargs = {
+            **mock_logger_kwargs,
+            "messages": [{"role": "user", "content": "Evaluation question: Did it work?"}],
+        }
+        record = AirlockLogger._build_record(
+            kwargs, None, start, end, success=False
+        )
+        assert record["error"] == "Evaluation request failed before provider call"
+        assert record["error_type"] is None
+        assert record["failure_category"] == "eval"
 
     def test_missing_response_obj(self, mock_logger_kwargs, mock_start_end_times):
         start, end = mock_start_end_times
@@ -316,6 +369,19 @@ class TestCallbackMethods:
         record = json.loads(log_path.read_text().strip())
         assert record["success"] is False
         assert "timeout" in record["error"]
+
+    def test_log_failure_event_warns_with_client_and_category(
+        self, log_dir, mock_failure_kwargs, mock_start_end_times, monkeypatch, caplog
+    ):
+        monkeypatch.setenv("AIRLOCK_CLIENT", "dashboard-test-client")
+        start, end = mock_start_end_times
+        logger = AirlockLogger()
+
+        with caplog.at_level(logging.WARNING, logger="airlock.logger"):
+            logger.log_failure_event(mock_failure_kwargs, None, start, end)
+
+        assert "client=dashboard-test-client" in caplog.text
+        assert "category=provider" in caplog.text
 
     async def test_async_log_success_delegates(
         self, log_dir, mock_logger_kwargs, mock_response_obj, mock_start_end_times
