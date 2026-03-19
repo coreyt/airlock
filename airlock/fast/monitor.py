@@ -19,6 +19,7 @@ import logging
 import time
 from typing import Any
 
+from airlock.client_identity import extract_airlock_client_from_kwargs
 from litellm.integrations.custom_logger import CustomLogger
 
 from .state import store
@@ -51,6 +52,12 @@ def _extract_client_id(kwargs: dict) -> str:
     object is used for pre-call threat/priority and post-call metrics.
     """
     metadata = kwargs.get("litellm_params", {}).get("metadata", {}) or {}
+    airlock_client = (
+        metadata.get("airlock_client")
+        or extract_airlock_client_from_kwargs(kwargs)
+    )
+    if airlock_client:
+        return f"airlock:{airlock_client}"
     # Primary: raw API key (same as guardian uses from user_api_key_dict.api_key)
     api_key = metadata.get("user_api_key") or ""
     if len(api_key) > 8:

@@ -6,10 +6,12 @@ import os
 import sys
 import urllib.request
 
+from airlock.client_identity import add_airlock_client_header
+
 
 def _health_request(url: str) -> urllib.request.Request:
     """Build a health-check request, adding auth if master key is set."""
-    req = urllib.request.Request(url)
+    req = add_airlock_client_header(urllib.request.Request(url))
     master_key = os.environ.get("AIRLOCK_MASTER_KEY")
     if master_key:
         req.add_header("Authorization", f"Bearer {master_key}")

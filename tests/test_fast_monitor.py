@@ -26,6 +26,18 @@ class TestExtractClientId:
         }
         assert _extract_client_id(kwargs) == "key:90abcdef"
 
+    def test_airlock_client_header_preferred(self):
+        kwargs = {
+            "headers": {"X-Airlock-Client": "codex-review"},
+            "litellm_params": {
+                "metadata": {
+                    "user_api_key_alias": "dev-alice",
+                    "user_api_key": "sk-1234567890abcdef",
+                }
+            },
+        }
+        assert _extract_client_id(kwargs) == "airlock:codex-review"
+
     def test_alias_fallback_no_key(self):
         """Falls back to alias when API key is short/missing."""
         kwargs = {

@@ -121,6 +121,12 @@ class TestProbeHealth:
         probe_health(self.host, self.port)
         assert self.last_headers.get("Authorization") == "Bearer test-key-123"
 
+    def test_sends_airlock_client_header_when_set(self, _auth_server, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_MASTER_KEY", "test-key-123")
+        monkeypatch.setenv("AIRLOCK_CLIENT", "codex-review")
+        probe_health(self.host, self.port, client="test-client")
+        assert self.last_headers.get("X-Airlock-Client") == "codex-review"
+
     def test_includes_client_query_param(self, _auth_server, monkeypatch):
         """Health probes include ?client= for identification in proxy logs."""
         monkeypatch.setenv("AIRLOCK_MASTER_KEY", "test-key-123")

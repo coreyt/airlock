@@ -8,6 +8,7 @@ import urllib.request
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from airlock.client_identity import add_airlock_client_header
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -175,7 +176,7 @@ class DashboardPane(Vertical):
 
         proxy_reachable = False
         try:
-            req = urllib.request.Request(url)
+            req = add_airlock_client_header(urllib.request.Request(url))
             master_key = os.environ.get("AIRLOCK_MASTER_KEY")
             if master_key:
                 req.add_header("Authorization", f"Bearer {master_key}")

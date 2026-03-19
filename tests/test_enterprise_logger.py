@@ -109,6 +109,20 @@ class TestBuildRecord:
         )
         assert record["airlock_client"] == "dashboard-test-client"
 
+    def test_record_prefers_incoming_airlock_client_header(
+        self, mock_failure_kwargs, mock_start_end_times, monkeypatch
+    ):
+        monkeypatch.setenv("AIRLOCK_CLIENT", "proxy-process-client")
+        kwargs = {
+            **mock_failure_kwargs,
+            "headers": {"X-Airlock-Client": "incoming-client"},
+        }
+        start, end = mock_start_end_times
+        record = AirlockLogger._build_record(
+            kwargs, None, start, end, success=False
+        )
+        assert record["airlock_client"] == "incoming-client"
+
     def test_blank_failure_marked_eval(
         self, mock_logger_kwargs, mock_start_end_times
     ):

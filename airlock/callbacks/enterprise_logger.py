@@ -22,6 +22,7 @@ import datetime
 from pathlib import Path
 from typing import Any
 
+from airlock.client_identity import extract_airlock_client_from_kwargs
 from litellm.integrations.custom_logger import CustomLogger
 
 logger = logging.getLogger("airlock.logger")
@@ -49,11 +50,12 @@ def _serialize(obj: Any) -> Any:
     return str(obj)
 
 
-def _get_airlock_client(metadata: dict[str, Any]) -> str | None:
+def _get_airlock_client(metadata: dict[str, Any], kwargs: dict[str, Any]) -> str | None:
     """Return the best available Airlock client identifier."""
     return (
-        os.getenv("AIRLOCK_CLIENT")
-        or metadata.get("airlock_client")
+        metadata.get("airlock_client")
+        or extract_airlock_client_from_kwargs(kwargs)
+        or os.getenv("AIRLOCK_CLIENT")
         or metadata.get("client_id")
     )
 
@@ -172,7 +174,7 @@ class AirlockLogger(CustomLogger):
         success: bool,
     ) -> dict[str, Any]:
         metadata = kwargs.get("litellm_params", {}).get("metadata", {}) or {}
-        airlock_client = _get_airlock_client(metadata)
+        airlock_client = _get_airlock_client(metadata, kwargs)
         error = None
         error_type = None
         failure_category = None

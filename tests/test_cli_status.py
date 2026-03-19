@@ -8,7 +8,7 @@ from argparse import Namespace
 
 import pytest
 
-from airlock.cli.status_cmd import run
+from airlock.cli.status_cmd import _health_request, run
 
 
 @pytest.fixture()
@@ -90,3 +90,9 @@ def test_status_flags_override_env(capsys, monkeypatch) -> None:
     err = capsys.readouterr().err
     assert "192.168.1.1" in err
     assert "5555" in err
+
+
+def test_health_request_adds_airlock_client_header(monkeypatch) -> None:
+    monkeypatch.setenv("AIRLOCK_CLIENT", "cli-status-test")
+    req = _health_request("http://127.0.0.1:4000/health?client=cli-status")
+    assert dict(req.header_items())["X-airlock-client"] == "cli-status-test"
