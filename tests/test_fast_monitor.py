@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 
 import pytest
+from litellm.exceptions import RateLimitError
 
 from airlock.fast.monitor import AirlockFastMonitor, _extract_client_id
 
@@ -73,14 +74,14 @@ class TestExtractClientId:
 
     def test_unknown_fallback(self):
         kwargs = {"litellm_params": {"metadata": {}}}
-        assert _extract_client_id(kwargs) == "unknown"
+        assert _extract_client_id(kwargs) == "no_client"
 
     def test_missing_metadata(self):
         kwargs = {"litellm_params": {}}
-        assert _extract_client_id(kwargs) == "unknown"
+        assert _extract_client_id(kwargs) == "no_client"
 
     def test_missing_litellm_params(self):
-        assert _extract_client_id({}) == "unknown"
+        assert _extract_client_id({}) == "no_client"
 
 
 # ---------------------------------------------------------------------------
@@ -227,3 +228,55 @@ class TestMonitorCallbacks:
         llm, mcp = fresh_state_store.traffic_split()
         assert llm == 1
         assert mcp == 0
+
+    def test_rate_limit_failure_quarantines_client_provider(
+        self, monitor, fresh_state_store, mock_logger_kwargs, mock_start_end_times,
+    ):
+        start, end = mock_start_end_times
+        kwargs = {
+            **mock_logger_kwargs,
+            "model": "gpt-4o",
+            "exception": RateLimitError(
+                message="You exceeded your current quota",
+                llm_provider="openai",
+                model="gpt-4o",
+            ),
+        }
+
+        monitor.log_failure_event(kwargs, None, start, end)
+
+        client_provider = fresh_state_store.get_client_provider("user:dev-alice", "openai")
+        assert client_provider.is_quarantined(end.timestamp())
+        metadata = kwargs["litellm_params"]["metadata"]
+        assert metadata["airlock_provider_protection"]["action"] == "client_quarantine"
+
+    def test_multiple_clients_escalate_provider_quarantine(
+        self, monitor, fresh_state_store, mock_start_end_times,
+    ):
+        start, end = mock_start_end_times
+        base_kwargs = {
+            "model": "gpt-4o",
+            "litellm_params": {"metadata": {}},
+            "exception": RateLimitError(
+                message="quota",
+                llm_provider="openai",
+                model="gpt-4o",
+            ),
+        }
+        kwargs1 = {
+            **base_kwargs,
+            "headers": {"X-Airlock-Client": "client-a"},
+            "litellm_params": {"metadata": {}},
+        }
+        kwargs2 = {
+            **base_kwargs,
+            "headers": {"X-Airlock-Client": "client-b"},
+            "litellm_params": {"metadata": {}},
+        }
+
+        monitor.log_failure_event(kwargs1, None, start, end)
+        monitor.log_failure_event(kwargs2, None, start, end)
+
+        provider = fresh_state_store.get_provider("openai")
+        assert provider.is_quarantined(end.timestamp())
+        assert kwargs2["litellm_params"]["metadata"]["airlock_provider_protection"]["action"] == "provider_quarantine"

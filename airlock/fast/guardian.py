@@ -27,17 +27,17 @@ import logging
 import time
 from typing import Any
 
-from litellm import DualCache
+from litellm import DualCache, RateLimitError
 from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
 from airlock.guardrails.extract import extract_text, is_mcp_call
 
-from .circuit_breaker import check_model
+from .circuit_breaker import check_model_with_filters
 from .model_alias import alias_table
 from .priority import compute_priority
-from .router import apply_routing
-from .state import store
+from .router import apply_routing, infer_provider
+from .state import normalize_client_id, store
 from .threat_detector import assess_threat
 
 logger = logging.getLogger("airlock.fast.guardian")
@@ -54,8 +54,53 @@ def _extract_client_id(user_api_key_dict: Any) -> str:
             if len(key) > 8:
                 return f"key:{key[-8:]}"
         if isinstance(user_api_key_dict, dict):
-            return f"key:{user_api_key_dict.get('api_key', 'unknown')[-8:]}"
-    return "unknown"
+            api_key = user_api_key_dict.get("api_key", "")
+            if len(api_key) > 8:
+                return f"key:{api_key[-8:]}"
+    return normalize_client_id(None)
+
+
+def _is_client_pinned(original_model: str, data: dict[str, Any]) -> bool:
+    """A request is pinned when the client sent a concrete model name."""
+    if not original_model or original_model == "smart":
+        return False
+    metadata = data.get("metadata") or {}
+    airlock_meta = metadata.get("airlock") or {}
+    if airlock_meta.get("cost_tier") or airlock_meta.get("prefer_provider"):
+        return False
+    return True
+
+
+def _set_model_override(data: dict[str, Any], requested_model: str, final_model: str, reason: str) -> None:
+    """Record an unpinned model override in metadata for logging/proxy surfaces."""
+    metadata = data.setdefault("metadata", {})
+    metadata["airlock_model_override"] = {
+        "requested_model": requested_model,
+        "final_model": final_model,
+        "reason": reason,
+    }
+    metadata["airlock_response_headers"] = {
+        "X-Airlock-Model-Override": final_model,
+    }
+
+
+def _raise_provider_protection(
+    client_id: str,
+    provider: str,
+    model_name: str,
+    reason: str,
+    cooldown_seconds: float,
+) -> None:
+    message = (
+        f"Airlock temporarily blocked client {client_id} from provider {provider} "
+        f"for model {model_name} to protect upstream standing. "
+        f"Retry after {int(max(1, cooldown_seconds))} seconds. reason={reason}"
+    )
+    raise RateLimitError(
+        message=message,
+        llm_provider=provider,
+        model=model_name,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -81,8 +126,10 @@ class AirlockFastGuardian(CustomGuardrail):
         now = time.time()
         client_id = _extract_client_id(user_api_key_dict)
         client = store.get_client(client_id)
-        model_name = data.get("model", "unknown")
+        requested_model = data.get("model", "unknown")
+        model_name = requested_model
         mcp = is_mcp_call(data, call_type)
+        pinned_model = _is_client_pinned(requested_model, data)
 
         # Record the inbound request
         client.record_request(now)
@@ -124,14 +171,114 @@ class AirlockFastGuardian(CustomGuardrail):
                 }
                 model_name = resolved
 
-            # ---- Step 2.5b: Intelligent routing ----
-            data = apply_routing(data)
-            model_name = data.get("model", model_name)  # re-read after routing
+            # ---- Step 2.5b: Provider protection / intelligent routing ----
+            if pinned_model:
+                provider = infer_provider(model_name)
+                if provider:
+                    client_provider = store.get_client_provider(client_id, provider)
+                    provider_state = store.get_provider(provider)
+                    if client_provider.is_quarantined(now):
+                        cooldown = client_provider.cooldown_remaining(now)
+                        metadata = data.setdefault("metadata", {})
+                        metadata["airlock_provider_protection"] = {
+                            "action": "blocked_429",
+                            "scope": "client_provider",
+                            "client_id": client_id,
+                            "provider": provider,
+                            "requested_model": model_name,
+                            "final_model": model_name,
+                            "reason": client_provider.last_reason or "provider_rate_limited",
+                            "cooldown_seconds": round(cooldown, 1),
+                        }
+                        logger.warning(
+                            "provider_protection action=blocked_429 scope=client_provider client=%s provider=%s model=%s cooldown=%.0fs reason=%s",
+                            client_id,
+                            provider,
+                            model_name,
+                            cooldown,
+                            client_provider.last_reason or "provider_rate_limited",
+                        )
+                        _raise_provider_protection(
+                            client_id,
+                            provider,
+                            model_name,
+                            client_provider.last_reason or "provider_rate_limited",
+                            cooldown,
+                        )
+                    if provider_state.is_quarantined(now):
+                        cooldown = provider_state.cooldown_remaining(now)
+                        metadata = data.setdefault("metadata", {})
+                        metadata["airlock_provider_protection"] = {
+                            "action": "blocked_429",
+                            "scope": "provider",
+                            "client_id": client_id,
+                            "provider": provider,
+                            "requested_model": model_name,
+                            "final_model": model_name,
+                            "reason": provider_state.last_reason or "provider_rate_limited",
+                            "cooldown_seconds": round(cooldown, 1),
+                        }
+                        logger.warning(
+                            "provider_protection action=blocked_429 scope=provider client=%s provider=%s model=%s cooldown=%.0fs reason=%s",
+                            client_id,
+                            provider,
+                            model_name,
+                            cooldown,
+                            provider_state.last_reason or "provider_rate_limited",
+                        )
+                        _raise_provider_protection(
+                            client_id,
+                            provider,
+                            model_name,
+                            provider_state.last_reason or "provider_rate_limited",
+                            cooldown,
+                        )
+            else:
+                data = apply_routing(data)
+                model_name = data.get("model", model_name)  # re-read after routing
+                if model_name != requested_model:
+                    routing_meta = data.get("metadata", {}).get("airlock_routing", {})
+                    _set_model_override(
+                        data,
+                        requested_model,
+                        model_name,
+                        ", ".join(routing_meta.get("reasons", [])) or "routed",
+                    )
 
             # ---- Step 3: Circuit breaker / failover ----
-            failover = check_model(model_name)
+            blocked_providers: set[str] = set()
+            if not pinned_model:
+                for provider_name, provider_state in store.all_providers().items():
+                    if provider_state.is_quarantined(now):
+                        blocked_providers.add(provider_name)
+                current_provider = infer_provider(model_name)
+                if current_provider:
+                    client_provider = store.get_client_provider(client_id, current_provider)
+                    if client_provider.is_quarantined(now):
+                        blocked_providers.add(current_provider)
+
+            failover = check_model_with_filters(
+                model_name,
+                blocked_providers=blocked_providers,
+            )
             if not failover.allowed:
-                if failover.failover_model:
+                if pinned_model:
+                    provider = infer_provider(model_name) or "unknown"
+                    logger.warning(
+                        "provider_protection action=blocked_429 scope=model client=%s provider=%s model=%s reason=%s",
+                        client_id,
+                        provider,
+                        model_name,
+                        failover.reason,
+                    )
+                    _raise_provider_protection(
+                        client_id,
+                        provider,
+                        model_name,
+                        failover.reason,
+                        store.get_provider(provider).cooldown_remaining(now) or 30.0,
+                    )
+                elif failover.failover_model:
                     logger.info(
                         "model_failover original=%s failover=%s reason=%s",
                         model_name,
@@ -145,6 +292,12 @@ class AirlockFastGuardian(CustomGuardrail):
                         "failover_model": failover.failover_model,
                         "reason": failover.reason,
                     }
+                    _set_model_override(
+                        data,
+                        requested_model,
+                        failover.failover_model,
+                        failover.reason,
+                    )
                 else:
                     raise ValueError(
                         f"Model {model_name} is currently unavailable and no "
@@ -158,6 +311,13 @@ class AirlockFastGuardian(CustomGuardrail):
             "score": round(priority.score, 3),
             "boost": priority.boost,
             "reasons": priority.reasons,
+        }
+        metadata["airlock_request"] = {
+            "client_id": client_id,
+            "requested_model": requested_model,
+            "final_model": data.get("model", model_name),
+            "pinned_model": pinned_model,
+            "provider": infer_provider(data.get("model", model_name)),
         }
         if priority.boost:
             logger.info(

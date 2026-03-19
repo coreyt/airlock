@@ -136,6 +136,7 @@ litellm_settings:
   # Callbacks — enterprise logging + fast subsystem metrics
   # NOTE: these must point at module-level *instances*, not classes.
   # LiteLLM's get_instance_fn does getattr — classes fail isinstance(cb, CustomLogger).
+  callbacks: ["airlock.callbacks.model_override_headers.proxy_model_override_headers"]
   success_callback: ["airlock.callbacks.enterprise_logger.proxy_logger", "airlock.fast.monitor.proxy_monitor"]
   failure_callback: ["airlock.callbacks.enterprise_logger.proxy_logger", "airlock.fast.monitor.proxy_monitor"]
 

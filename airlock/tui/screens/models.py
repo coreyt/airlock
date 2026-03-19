@@ -14,6 +14,12 @@ class ModelsPane(Vertical):
     """Per-model health with circuit breaker detail."""
 
     def compose(self) -> ComposeResult:
+        yield Static("[bold]Providers[/]", id="providers-header")
+        provider_table = DataTable(id="providers-table", cursor_type="row")
+        provider_table.add_columns(
+            "Provider", "Status", "Requests", "Err%", "Recovery", "Impacted Clients"
+        )
+        yield provider_table
         table = DataTable(id="models-table", cursor_type="row")
         table.add_columns(
             "Model", "Circuit", "Failures", "Recovery", "Failover Chain"
@@ -26,8 +32,10 @@ class ModelsPane(Vertical):
         yield mcp_table
 
     def on_mount(self) -> None:
+        self._refresh_providers()
         self._refresh_models()
         self._refresh_mcp_tools()
+        self.set_interval(5.0, self._refresh_providers)
         self.set_interval(5.0, self._refresh_models)
         self.set_interval(5.0, self._refresh_mcp_tools)
 
@@ -35,6 +43,30 @@ class ModelsPane(Vertical):
         if event.row_key is None:
             return
         self._show_detail(str(event.row_key.value))
+
+    @work(exclusive=True, thread=True)
+    def _refresh_providers(self) -> None:
+        try:
+            from airlock.fast.state import store
+        except ImportError:
+            return
+
+        table = self.query_one("#providers-table", DataTable)
+        table.clear()
+        now = time.time()
+
+        for name, provider in store.all_providers().items():
+            status = "QUARANTINED" if provider.is_quarantined(now) else "HEALTHY"
+            recovery = "-"
+            if provider.is_quarantined(now):
+                recovery = f"{provider.cooldown_remaining(now):.0f}s left"
+            requests = str(provider.recent_request_count())
+            err_rate = f"{provider.recent_error_rate() * 100:.1f}%"
+            impacted = str(len(provider.impacted_clients()))
+            table.add_row(name, status, requests, err_rate, recovery, impacted, key=name)
+
+        if not store.all_providers():
+            table.add_row("(no providers tracked)", "-", "-", "-", "-", "-", key="_empty-providers")
 
     @work(exclusive=True, thread=True)
     def _refresh_models(self) -> None:

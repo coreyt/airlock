@@ -12,6 +12,7 @@ from textual.widgets import ContentSwitcher, Footer, Header, ListItem, ListView,
 
 from airlock.tui.mcp_manager import McpServerManager
 from airlock.tui.proxy_manager import ProxyManager
+from airlock.tui.screens.clients import ClientsPane
 from airlock.tui.screens.dashboard import DashboardPane
 from airlock.tui.screens.models import ModelsPane
 from airlock.tui.screens.threats import ThreatsPane
@@ -27,11 +28,12 @@ _SCREENS = [
     ("dashboard", "1 Dashboard"),
     ("models", "2 Models"),
     ("threats", "3 Threats"),
-    ("logs", "4 Logs"),
-    ("analysis", "5 Analysis"),
-    ("settings", "6 Settings"),
-    ("flow", "7 Flow"),
-    ("mcp_servers", "8 MCP Servers"),
+    ("clients", "4 Clients"),
+    ("logs", "5 Logs"),
+    ("analysis", "6 Analysis"),
+    ("settings", "7 Settings"),
+    ("flow", "8 Flow"),
+    ("mcp_servers", "9 MCP Servers"),
 ]
 
 
@@ -46,11 +48,12 @@ class AirlockApp(App):
         ("1", "switch_screen('dashboard')", "Dashboard"),
         ("2", "switch_screen('models')", "Models"),
         ("3", "switch_screen('threats')", "Threats"),
-        ("4", "switch_screen('logs')", "Logs"),
-        ("5", "switch_screen('analysis')", "Analysis"),
-        ("6", "switch_screen('settings')", "Settings"),
-        ("7", "switch_screen('flow')", "Flow"),
-        ("8", "switch_screen('mcp_servers')", "MCP Servers"),
+        ("4", "switch_screen('clients')", "Clients"),
+        ("5", "switch_screen('logs')", "Logs"),
+        ("6", "switch_screen('analysis')", "Analysis"),
+        ("7", "switch_screen('settings')", "Settings"),
+        ("8", "switch_screen('flow')", "Flow"),
+        ("9", "switch_screen('mcp_servers')", "MCP Servers"),
         ("q", "quit", "Quit"),
     ]
 
@@ -87,6 +90,7 @@ class AirlockApp(App):
                 )
                 yield ModelsPane(id="models")
                 yield ThreatsPane(id="threats")
+                yield ClientsPane(id="clients")
                 yield LogsPane(id="logs")
                 yield AnalysisPane(id="analysis")
                 yield SettingsPane(id="settings")

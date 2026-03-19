@@ -10,11 +10,15 @@ import pytest
 
 from airlock.fast.state import (
     CircuitState,
+    ClientProviderState,
     ClientState,
     McpToolState,
     ModelState,
+    NO_CLIENT_ID,
+    ProviderState,
     StateStore,
     MAX_SAMPLES,
+    normalize_client_id,
     tail_jsonl,
 )
 
@@ -104,6 +108,12 @@ class TestClientState:
         for i in range(MAX_SAMPLES + 100):
             client.record_request(float(i))
         assert len(client.request_times) == MAX_SAMPLES
+
+
+class TestClientNormalization:
+    def test_missing_client_maps_to_no_client(self):
+        assert normalize_client_id(None) == NO_CLIENT_ID
+        assert normalize_client_id("") == NO_CLIENT_ID
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +259,41 @@ class TestStateStore:
 
         assert len(errors) == 0
         assert len(store.all_clients()) == 10
+
+    def test_record_provider_rate_limit_quarantines_client(self):
+        store = StateStore()
+        now = time.time()
+        outcome = store.record_provider_rate_limit(
+            "client-a",
+            "openai",
+            now,
+            "quota exhausted",
+            "RateLimitError",
+        )
+        client_provider = store.get_client_provider("client-a", "openai")
+        assert outcome["client_quarantined"] is True
+        assert client_provider.is_quarantined(now)
+
+    def test_record_provider_rate_limit_escalates_after_distinct_clients(self):
+        store = StateStore()
+        now = time.time()
+        store.record_provider_rate_limit(
+            "client-a",
+            "openai",
+            now,
+            "quota exhausted",
+            "RateLimitError",
+        )
+        outcome = store.record_provider_rate_limit(
+            "client-b",
+            "openai",
+            now,
+            "quota exhausted",
+            "RateLimitError",
+        )
+        provider = store.get_provider("openai")
+        assert outcome["provider_quarantined"] is True
+        assert provider.is_quarantined(now)
 
 
 # ---------------------------------------------------------------------------

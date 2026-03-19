@@ -6,6 +6,7 @@ import time
 from unittest.mock import MagicMock
 
 import pytest
+from litellm.exceptions import RateLimitError
 
 from airlock.fast.guardian import (
     AirlockFastGuardian,
@@ -37,11 +38,11 @@ class TestExtractClientId:
         assert isinstance(result, str)
 
     def test_none_returns_unknown(self):
-        assert _extract_client_id(None) == "unknown"
+        assert _extract_client_id(None) == "no_client"
 
     def test_empty_dict_returns_unknown(self):
         result = _extract_client_id({})
-        assert "unknown" in result
+        assert result == "no_client"
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +127,7 @@ class TestGuardianPreCallHook:
                 mock_user_api_key_dict, mock_cache, data, "completion"
             )
 
-    async def test_open_circuit_failover(
+    async def test_open_circuit_pinned_request_returns_429(
         self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
     ):
         # Break claude-sonnet
@@ -139,13 +140,10 @@ class TestGuardianPreCallHook:
             "messages": [{"role": "user", "content": "Hello"}],
             "model": "claude-sonnet",
         }
-        result = await guardian.async_pre_call_hook(
-            mock_user_api_key_dict, mock_cache, data, "completion"
-        )
-        # Model should be rewritten
-        assert result["model"] != "claude-sonnet"
-        assert "airlock_failover" in result["metadata"]
-        assert result["metadata"]["airlock_failover"]["original_model"] == "claude-sonnet"
+        with pytest.raises(RateLimitError, match="protect upstream standing"):
+            await guardian.async_pre_call_hook(
+                mock_user_api_key_dict, mock_cache, data, "completion"
+            )
 
     async def test_all_circuits_open_rejected(
         self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
@@ -160,7 +158,7 @@ class TestGuardianPreCallHook:
             "messages": [{"role": "user", "content": "Hello"}],
             "model": "claude-sonnet",
         }
-        with pytest.raises(ValueError, match="currently unavailable"):
+        with pytest.raises(RateLimitError, match="protect upstream standing"):
             await guardian.async_pre_call_hook(
                 mock_user_api_key_dict, mock_cache, data, "completion"
             )
@@ -188,6 +186,56 @@ class TestGuardianPreCallHook:
             None, mock_cache, data, "completion"
         )
         assert "airlock_priority" in result.get("metadata", {})
+        assert result["metadata"]["airlock_request"]["client_id"] == "no_client"
+
+    async def test_pinned_quarantined_provider_returns_429(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        client_id = _extract_client_id(mock_user_api_key_dict)
+        now = time.time()
+        fresh_state_store.record_provider_rate_limit(
+            client_id,
+            "anthropic",
+            now,
+            "quota exhausted",
+            "RateLimitError",
+        )
+
+        data = {
+            "messages": [{"role": "user", "content": "Hello"}],
+            "model": "claude-sonnet",
+        }
+        with pytest.raises(RateLimitError, match="protect upstream standing"):
+            await guardian.async_pre_call_hook(
+                mock_user_api_key_dict, mock_cache, data, "completion"
+            )
+
+    async def test_unpinned_request_fails_over_and_sets_override_metadata(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        client_id = _extract_client_id(mock_user_api_key_dict)
+        now = time.time()
+        fresh_state_store.record_provider_rate_limit(
+            client_id,
+            "anthropic",
+            now,
+            "quota exhausted",
+            "RateLimitError",
+        )
+
+        data = {
+            "messages": [{"role": "user", "content": "Hello"}],
+            "model": "smart",
+        }
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        assert result["model"] != "claude-sonnet"
+        assert result["metadata"]["airlock_model_override"]["final_model"] == result["model"]
+        assert (
+            result["metadata"]["airlock_response_headers"]["X-Airlock-Model-Override"]
+            == result["model"]
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -20,9 +20,10 @@ import time
 from typing import Any
 
 from airlock.client_identity import extract_airlock_client_from_kwargs
+from litellm.exceptions import APIError, RateLimitError
 from litellm.integrations.custom_logger import CustomLogger
 
-from .state import store
+from .state import normalize_client_id, store
 
 logger = logging.getLogger("airlock.fast.monitor")
 
@@ -69,7 +70,29 @@ def _extract_client_id(kwargs: dict) -> str:
     )
     if user:
         return f"user:{user}"
-    return "unknown"
+    return normalize_client_id(None)
+
+
+def _is_provider_rate_limited(exc: Exception | None) -> tuple[bool, str]:
+    """Detect provider 429/quota exhaustion signals."""
+    if exc is None:
+        return False, ""
+    text = str(exc).strip()
+    lowered = text.lower()
+    if isinstance(exc, RateLimitError):
+        return True, text or "provider_rate_limited"
+    if isinstance(exc, APIError) and getattr(exc, "status_code", None) == 429:
+        return True, text or "provider_rate_limited"
+    markers = (
+        "rate limit",
+        "too many requests",
+        "exceeded your current quota",
+        "insufficient_quota",
+        "quota",
+    )
+    if any(marker in lowered for marker in markers):
+        return True, text or "provider_rate_limited"
+    return False, text
 
 
 class AirlockFastMonitor(CustomLogger):
@@ -104,6 +127,13 @@ class AirlockFastMonitor(CustomLogger):
             provider = _infer_provider(model_name)
             if provider:
                 store.get_provider_spend(provider).record_spend(now, cost)
+                store.record_provider_request(client_id, provider, now)
+                store.record_provider_success(client_id, provider, now)
+        else:
+            provider = _infer_provider(model_name)
+            if provider:
+                store.record_provider_request(client_id, provider, now)
+                store.record_provider_success(client_id, provider, now)
 
         # Track MCP tool state and traffic split
         is_mcp = (
@@ -147,10 +177,58 @@ class AirlockFastMonitor(CustomLogger):
         now = time.time()
         client_id = _extract_client_id(kwargs)
         model_name = kwargs.get("model", "unknown")
-        error_type = type(kwargs.get("exception", Exception())).__name__
+        exception = kwargs.get("exception")
+        error_type = type(exception).__name__
 
         store.get_client(client_id).record_error(now, error_type)
         store.get_model(model_name).record_failure(now)
+        provider = _infer_provider(model_name)
+        if provider:
+            store.record_provider_request(client_id, provider, now)
+            store.record_provider_failure(client_id, provider, now)
+
+        is_rate_limited, reason = _is_provider_rate_limited(exception)
+        if provider and is_rate_limited:
+            litellm_params = kwargs.get("litellm_params")
+            if not isinstance(litellm_params, dict):
+                litellm_params = {}
+                kwargs["litellm_params"] = litellm_params
+            outcome = store.record_provider_rate_limit(
+                client_id,
+                provider,
+                now,
+                reason or "provider_rate_limited",
+                error_type or "RateLimitError",
+            )
+            metadata = litellm_params.setdefault("metadata", {})
+            action = "provider_quarantine" if outcome["provider_quarantined"] else "client_quarantine"
+            cooldown = (
+                outcome["provider_cooldown_seconds"]
+                if outcome["provider_quarantined"]
+                else outcome["client_cooldown_seconds"]
+            )
+            metadata["airlock_provider"] = provider
+            metadata["airlock_provider_protection"] = {
+                "action": action,
+                "scope": "provider" if outcome["provider_quarantined"] else "client_provider",
+                "client_id": client_id,
+                "provider": provider,
+                "requested_model": model_name,
+                "final_model": model_name,
+                "reason": reason or "provider_rate_limited",
+                "cooldown_seconds": round(float(cooldown), 1),
+                "impacted_clients": int(outcome["impacted_clients"]),
+            }
+            logger.warning(
+                "provider_protection action=%s client=%s provider=%s model=%s cooldown=%.0fs impacted_clients=%s reason=%s",
+                action,
+                client_id,
+                provider,
+                model_name,
+                float(cooldown),
+                int(outcome["impacted_clients"]),
+                reason or "provider_rate_limited",
+            )
 
         # Track MCP tool state and traffic split
         is_mcp = (

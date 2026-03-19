@@ -249,6 +249,20 @@ def _render_pipeline(entry: FlowEntry) -> str:
             f"  Failover: {failover.get('original_model')} → "
             f"{failover.get('failover_model')} ({failover.get('reason')})"
         )
+    override = entry.raw_record.get("airlock_model_override")
+    if override:
+        lines.append(
+            f"  Override: {override.get('requested_model')} → "
+            f"{override.get('final_model')} ({override.get('reason')})"
+        )
+    protection = entry.raw_record.get("airlock_provider_protection")
+    if protection:
+        lines.append(
+            f"  Protection: {protection.get('action')} "
+            f"provider={protection.get('provider')} "
+            f"client={protection.get('client_id')} "
+            f"cooldown={protection.get('cooldown_seconds')}"
+        )
 
     return "\n".join(lines)
 

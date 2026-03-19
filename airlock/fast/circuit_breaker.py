@@ -20,6 +20,7 @@ import logging
 import os
 from dataclasses import dataclass
 
+from .router import infer_provider
 from .state import store
 
 logger = logging.getLogger("airlock.fast.circuit_breaker")
@@ -59,10 +60,25 @@ class FailoverResult:
 
 def check_model(model_name: str) -> FailoverResult:
     """Check if *model_name* is available; suggest a failover if not."""
+    return check_model_with_filters(model_name)
+
+
+def check_model_with_filters(
+    model_name: str,
+    *,
+    blocked_providers: set[str] | None = None,
+    blocked_models: set[str] | None = None,
+) -> FailoverResult:
+    """Check if *model_name* is available; suggest a filtered failover if not."""
     model_state = store.get_model(model_name)
     failover_map = _load_failover_map()
+    blocked_providers = blocked_providers or set()
+    blocked_models = blocked_models or set()
+    current_provider = infer_provider(model_name)
 
-    if model_state.should_allow_request():
+    if model_name not in blocked_models and (
+        current_provider is None or current_provider not in blocked_providers
+    ) and model_state.should_allow_request():
         return FailoverResult(
             original_model=model_name,
             allowed=True,
@@ -71,8 +87,20 @@ def check_model(model_name: str) -> FailoverResult:
             reason="model_healthy",
         )
 
+    if model_name in blocked_models or (
+        current_provider is not None and current_provider in blocked_providers
+    ):
+        reason = f"provider_quarantined({current_provider})"
+    else:
+        reason = f"circuit_open(failures={model_state.consecutive_failures})"
+
     # Circuit is open — look for a healthy fallback
     for fallback in failover_map.get(model_name, []):
+        if fallback in blocked_models:
+            continue
+        provider = infer_provider(fallback)
+        if provider and provider in blocked_providers:
+            continue
         fallback_state = store.get_model(fallback)
         if fallback_state.should_allow_request():
             logger.warning(
@@ -86,7 +114,7 @@ def check_model(model_name: str) -> FailoverResult:
                 allowed=False,
                 failover_model=fallback,
                 circuit_state=model_state.circuit.value,
-                reason=f"circuit_open(failures={model_state.consecutive_failures})",
+                reason=reason,
             )
 
     # No healthy fallback

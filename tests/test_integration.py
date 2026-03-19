@@ -198,11 +198,11 @@ class TestLoggerReceivesScrubbed:
 # Circuit breaker failover recorded in logs
 # ---------------------------------------------------------------------------
 class TestFailoverInLogs:
-    async def test_failover_metadata_in_log(
+    async def test_unpinned_override_metadata_in_log(
         self, fresh_state_store, log_dir, mock_cache, mock_user_api_key_dict,
         mock_response_obj,
     ):
-        """When circuit breaker triggers failover, metadata is logged."""
+        """When an unpinned request reroutes, the override metadata is logged."""
         # Break claude-sonnet
         model = fresh_state_store.get_model("claude-sonnet")
         now = time.time()
@@ -212,13 +212,13 @@ class TestFailoverInLogs:
         guardian = AirlockFastGuardian()
         data = {
             "messages": [{"role": "user", "content": "Hello"}],
-            "model": "claude-sonnet",
+            "model": "smart",
         }
         result = await guardian.async_pre_call_hook(
             mock_user_api_key_dict, mock_cache, data, "completion"
         )
 
-        assert "airlock_failover" in result.get("metadata", {})
+        assert "airlock_model_override" in result.get("metadata", {})
 
         # Log it — use mock_response_obj fixture (has model_dump returning a
         # plain dict) to avoid infinite recursion in _serialize().
@@ -238,6 +238,7 @@ class TestFailoverInLogs:
         record = json.loads(log_path.read_text().strip())
         # The failover model should be logged, not the original
         assert record["model"] != "claude-sonnet"
+        assert record["airlock_model_override"]["final_model"] == record["model"]
 
 
 # ---------------------------------------------------------------------------

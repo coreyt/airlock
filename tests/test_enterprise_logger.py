@@ -257,7 +257,7 @@ class TestBuildRecord:
             mock_logger_kwargs, None, start, end, success=True
         )
         airlock_keys = [k for k in record if k.startswith("airlock_")]
-        assert airlock_keys == []
+        assert set(airlock_keys) == {"airlock_client", "airlock_provider"}
 
     def test_observation_in_record(self, mock_start_end_times):
         """airlock_observation from metadata flows into the log record."""
@@ -303,6 +303,19 @@ class TestBuildRecord:
             kwargs, None, start, end, success=True
         )
         assert record["airlock_enforcement"] == enforcement
+
+    def test_missing_client_normalized_in_record(self, mock_start_end_times):
+        kwargs = {
+            "model": "gpt-4o",
+            "messages": [],
+            "litellm_params": {"metadata": {}},
+        }
+        start, end = mock_start_end_times
+        record = AirlockLogger._build_record(
+            kwargs, None, start, end, success=True
+        )
+        assert record["airlock_client"] == "no_client"
+        assert record["airlock_provider"] == "openai"
 
 
 # ---------------------------------------------------------------------------

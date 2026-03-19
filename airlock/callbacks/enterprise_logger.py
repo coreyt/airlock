@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any
 
 from airlock.client_identity import extract_airlock_client_from_kwargs
+from airlock.fast.router import infer_provider
+from airlock.fast.state import normalize_client_id
 from litellm.integrations.custom_logger import CustomLogger
 
 logger = logging.getLogger("airlock.logger")
@@ -52,12 +54,13 @@ def _serialize(obj: Any) -> Any:
 
 def _get_airlock_client(metadata: dict[str, Any], kwargs: dict[str, Any]) -> str | None:
     """Return the best available Airlock client identifier."""
-    return (
+    client = (
         metadata.get("airlock_client")
         or extract_airlock_client_from_kwargs(kwargs)
         or os.getenv("AIRLOCK_CLIENT")
         or metadata.get("client_id")
     )
+    return normalize_client_id(client)
 
 
 def _normalize_failure(
@@ -196,6 +199,9 @@ class AirlockLogger(CustomLogger):
         guardrail_meta = {
             k: v for k, v in metadata.items() if k.startswith("airlock_")
         }
+        provider = metadata.get("airlock_provider") or infer_provider(
+            kwargs.get("model", "unknown")
+        )
 
         # MCP tool call metadata
         call_type = kwargs.get("call_type", "")
@@ -226,6 +232,7 @@ class AirlockLogger(CustomLogger):
             "error": error,
             "error_type": error_type,
             "failure_category": failure_category,
+            "airlock_provider": provider,
             "start_time": start_time,
             "end_time": end_time,
             "duration_ms": (
@@ -237,8 +244,7 @@ class AirlockLogger(CustomLogger):
             **mcp_meta,
             **guardrail_meta,
         }
-        if airlock_client:
-            record["airlock_client"] = airlock_client
+        record["airlock_client"] = airlock_client
         return record
 
 
