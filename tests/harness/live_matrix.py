@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import json
 import os
@@ -12,6 +13,26 @@ from typing import Any
 
 import pytest
 import yaml
+
+# ---------------------------------------------------------------------------
+# Per-provider rate-limit protection
+# ---------------------------------------------------------------------------
+
+# Conservative minimum gap (seconds) between harness requests to each provider.
+# Mistral magistral-medium-2509 has very tight limits; 10 s keeps the harness
+# well inside observed quotas even across repeated pytest runs.
+PROVIDER_MIN_INTERVAL: dict[str, float] = {
+    "mistral": 10.0,
+    "anthropic": 2.0,
+    "openai": 2.0,
+    "gemini": 2.0,
+}
+_DEFAULT_MIN_INTERVAL = 2.0
+
+# Process-level throttle state (reset between pytest runs automatically).
+_provider_last_request: dict[str, float] = {}
+# Providers that returned 429 this run — remaining cases are skipped.
+_provider_rate_limited: set[str] = set()
 
 
 @dataclass(frozen=True)
@@ -93,13 +114,31 @@ class LiveProxyMatrixBase:
     def _client_id_for_case(self, case: LiveMatrixCase) -> str:
         return f"harness-live:{case.id}"
 
+    async def _throttle_for_provider(self, provider: str | None) -> None:
+        if not provider:
+            return
+        min_interval = PROVIDER_MIN_INTERVAL.get(provider, _DEFAULT_MIN_INTERVAL)
+        last = _provider_last_request.get(provider, 0.0)
+        wait = min_interval - (time.time() - last)
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _provider_last_request[provider] = time.time()
+
     async def _send_case(self, http_client, case: LiveMatrixCase):
+        provider = case.provider or ""
+        if provider and provider in _provider_rate_limited:
+            pytest.skip(
+                f"{provider} rate-limited earlier in this run — skipping {case.id}"
+            )
+        await self._throttle_for_provider(case.provider)
         client_id = self._client_id_for_case(case)
         response = await http_client.post(
             "/v1/chat/completions",
             json=case.payload(),
             headers={"X-Airlock-Client": client_id},
         )
+        if response.status_code == 429 and provider:
+            _provider_rate_limited.add(provider)
         return client_id, response
 
     def _find_log_record(self, call_id: str) -> dict[str, Any] | None:
