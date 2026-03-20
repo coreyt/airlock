@@ -12,6 +12,7 @@ from airlock.client_identity import add_airlock_client_header
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
+from textual.strip import Strip
 from textual.widgets import Button, Collapsible, DataTable, RichLog, Static
 
 from airlock.tui.widgets.metric_card import MetricCard
@@ -19,6 +20,19 @@ from airlock.tui.widgets.status_indicator import StatusIndicator
 
 if TYPE_CHECKING:
     from airlock.tui.proxy_manager import ProxyManager
+
+
+class _SafeRichLog(RichLog):
+    """RichLog that guards against an out-of-bounds index when max_lines is reached.
+
+    Textual bug: when the log is exactly full and scrolled to the bottom,
+    render_line requests self.lines[max_lines] which is one past the end.
+    """
+
+    def _render_line(self, y: int, scroll_x: int, width: int) -> Strip:
+        if y >= len(self.lines):
+            return Strip.blank(width, self.rich_style)
+        return super()._render_line(y, scroll_x, width)
 
 
 class DashboardPane(Vertical):
@@ -68,7 +82,7 @@ class DashboardPane(Vertical):
                     id="mcp-traffic-split",
                 )
         with Collapsible(title="Proxy Console Output", id="dash-console-collapsible"):
-            yield RichLog(id="dash-console-log", max_lines=500)
+            yield _SafeRichLog(id="dash-console-log", max_lines=500)
         with Horizontal(id="dash-export-row"):
             yield Button("Export Log", id="export-log-btn", variant="default")
         table = DataTable(id="dash-model-table")
@@ -109,7 +123,7 @@ class DashboardPane(Vertical):
             return
         err = self._proxy_manager.start()
         btn = self.query_one("#proxy-start-btn", Button)
-        console = self.query_one("#dash-console-log", RichLog)
+        console = self.query_one("#dash-console-log", _SafeRichLog)
         if err:
             console.write(f"[red]Error:[/] {err}")
             return
@@ -129,14 +143,14 @@ class DashboardPane(Vertical):
         btn = self.query_one("#proxy-start-btn", Button)
         btn.label = "Start Proxy"
         btn.variant = "success"
-        console = self.query_one("#dash-console-log", RichLog)
+        console = self.query_one("#dash-console-log", _SafeRichLog)
         console.write("[yellow]Proxy stopped.[/]")
 
     def _export_log(self) -> None:
         """Export the proxy console ring buffer to ./exported_log."""
         from pathlib import Path
 
-        console = self.query_one("#dash-console-log", RichLog)
+        console = self.query_one("#dash-console-log", _SafeRichLog)
         if self._proxy_manager is None:
             console.write("[red]No proxy manager available.[/]")
             return
@@ -158,7 +172,7 @@ class DashboardPane(Vertical):
         if self._proxy_manager is None:
             return
         q = self._proxy_manager.output_queue
-        console = self.query_one("#dash-console-log", RichLog)
+        console = self.query_one("#dash-console-log", _SafeRichLog)
         while self._proxy_manager.is_tui_owned:
             try:
                 line = q.get(timeout=0.5)
