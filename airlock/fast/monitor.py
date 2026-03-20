@@ -192,7 +192,8 @@ class AirlockFastMonitor(CustomLogger):
                 reason or "provider_rate_limited",
                 error_type or "RateLimitError",
             )
-            metadata = litellm_params.setdefault("metadata", {})
+            metadata = litellm_params.get("metadata") or {}
+            litellm_params["metadata"] = metadata
             action = "provider_quarantine" if outcome["provider_quarantined"] else "client_quarantine"
             cooldown = (
                 outcome["provider_cooldown_seconds"]
