@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import os
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -97,6 +98,16 @@ def main() -> None:
         "--port", str(internal_port),
     ]
 
+    # Warn early if the internal port is already occupied — otherwise the sidecar
+    # starts cleanly but every proxied request silently returns 503.
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as _s:
+        if _s.connect_ex(("127.0.0.1", internal_port)) == 0:
+            print(
+                f"WARNING: port {internal_port} is already in use. "
+                f"Set AIRLOCK_INTERNAL_PORT to a free port.",
+                file=sys.stderr,
+            )
+
     print(
         f"Airlock starting on {host}:{port} "
         f"(LiteLLM internal: 127.0.0.1:{internal_port})"
@@ -114,7 +125,10 @@ def main() -> None:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 proc.kill()
-                proc.wait(timeout=2)
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    pass  # process will be reaped when the parent exits
 
     sys.exit(proc.returncode or 0)
 

@@ -25,9 +25,11 @@ from airlock.models_catalog import _load_config, build_catalog_from_config
 
 logger = logging.getLogger("airlock.sidecar")
 
-# Headers that must be dropped when forwarding to the upstream or back to the client
+# Headers that must be dropped when forwarding to the upstream or back to the client.
+# content-encoding is intentionally NOT dropped: httpx does not auto-decompress
+# streaming responses, so the raw bytes and their encoding header must travel together.
 _DROP_REQUEST_HEADERS = frozenset({"host", "content-length", "transfer-encoding"})
-_DROP_RESPONSE_HEADERS = frozenset({"transfer-encoding", "content-encoding", "content-length"})
+_DROP_RESPONSE_HEADERS = frozenset({"transfer-encoding", "content-length"})
 
 _ALL_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
 
@@ -74,7 +76,7 @@ def make_app(
         if live_fetch:
             import asyncio
             from airlock.models_catalog import fetch_live_provider_models
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             live_models = await loop.run_in_executor(
                 None,
                 fetch_live_provider_models,

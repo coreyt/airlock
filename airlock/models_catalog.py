@@ -20,7 +20,7 @@ import ssl
 import threading
 import urllib.error
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -142,15 +142,8 @@ def _fetch_openai_compatible(
 ) -> list[dict]:
     """Fetch models from any OpenAI-compatible /v1/models endpoint."""
     headers: dict[str, str] = {
-        "Content-Type": "application/json",
         auth_header: f"{auth_scheme} {api_key}" if auth_scheme else api_key,
     }
-    if auth_header == "Authorization":
-        headers["Authorization"] = f"{auth_scheme} {api_key}"
-    else:
-        headers[auth_header] = f"{auth_scheme} {api_key}" if auth_scheme else api_key
-        headers.pop("Authorization", None)
-
     if extra_headers:
         headers.update(extra_headers)
 
@@ -229,6 +222,7 @@ def _fetch_gemini_models(api_key: str, timeout: float) -> list[dict]:
     return models
 
 
+# TODO: add fetchers for perplexity and tavily once their models APIs are stable.
 _FETCHERS: list[_ProviderFetcher] = [
     _ProviderFetcher("openai", _fetch_openai_models),
     _ProviderFetcher("anthropic", _fetch_anthropic_models),

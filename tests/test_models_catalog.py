@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,6 +10,7 @@ import pytest
 
 from airlock.models_catalog import (
     _STATIC_CREATED,
+    _fetch_gemini_models,
     _get_api_key,
     _load_config,
     _owned_by,
@@ -180,32 +179,50 @@ class TestBuildCatalogFromConfig:
 
 
 # ---------------------------------------------------------------------------
-# fetch_live_provider_models — stubbed HTTP server
+# _fetch_gemini_models — name parsing
 # ---------------------------------------------------------------------------
 
-def _make_openai_server(host: str = "127.0.0.1") -> tuple[HTTPServer, int]:
-    """Return (server, port) serving a minimal /v1/models response."""
-    response_body = json.dumps({
-        "object": "list",
-        "data": [
-            {"id": "gpt-4o", "object": "model", "created": 1700000000, "owned_by": "openai"},
-            {"id": "gpt-4o-mini", "object": "model", "created": 1700000000, "owned_by": "openai"},
-        ],
-    }).encode()
+class TestFetchGeminiModels:
+    def test_name_field_parsed_to_prefixed_id(self, monkeypatch):
+        """'models/gemini-2.5-flash' in the Gemini response → 'gemini/gemini-2.5-flash'."""
+        payload = json.dumps({"models": [{"name": "models/gemini-2.5-flash"}]}).encode()
 
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):  # noqa: N802
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(response_body)
+        class _FakeResp:
+            def read(self):
+                return payload
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                pass
 
-        def log_message(self, *_):
-            pass  # silence HTTP server logs in tests
+        with patch("airlock.models_catalog.urllib.request.urlopen", return_value=_FakeResp()):
+            result = _fetch_gemini_models("fake-key", timeout=5.0)
 
-    server = HTTPServer((host, 0), Handler)
-    return server, server.server_address[1]
+        assert len(result) == 1
+        assert result[0]["id"] == "gemini/gemini-2.5-flash"
+        assert result[0]["owned_by"] == "gemini"
 
+    def test_empty_name_skipped(self, monkeypatch):
+        payload = json.dumps({"models": [{"name": ""}, {"name": "models/gemini-pro"}]}).encode()
+
+        class _FakeResp:
+            def read(self):
+                return payload
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                pass
+
+        with patch("airlock.models_catalog.urllib.request.urlopen", return_value=_FakeResp()):
+            result = _fetch_gemini_models("fake-key", timeout=5.0)
+
+        assert len(result) == 1
+        assert result[0]["id"] == "gemini/gemini-pro"
+
+
+# ---------------------------------------------------------------------------
+# fetch_live_provider_models — stubbed HTTP server
+# ---------------------------------------------------------------------------
 
 class TestFetchLiveProviderModels:
     def test_no_keys_returns_empty(self, monkeypatch):
@@ -221,26 +238,8 @@ class TestFetchLiveProviderModels:
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
         config = _cfg(_entry("gpt-4o", "openai/gpt-4o", "os.environ/OPENAI_API_KEY"))
 
-        # Patch the fetcher to raise to simulate network failure
-        from airlock import models_catalog
-        original = models_catalog._fetch_openai_models
-
-        def _fail(*_):
-            raise OSError("simulated network error")
-
-        monkeypatch.setattr(models_catalog, "_fetch_openai_models", _fail)
-        # Replace _FETCHERS temporarily
-        orig_fetchers = models_catalog._FETCHERS[:]
-        models_catalog._FETCHERS[:] = [
-            f for f in models_catalog._FETCHERS if f.prefix != "openai"
-        ]
-        models_catalog._FETCHERS.append(
-            models_catalog._ProviderFetcher("openai", _fail)
-        )
-        try:
+        with patch("airlock.models_catalog._fetch_openai_models", side_effect=OSError("refused")):
             result = fetch_live_provider_models(config, timeout=2.0)
-        finally:
-            models_catalog._FETCHERS[:] = orig_fetchers
 
         assert isinstance(result, list)  # did not raise
 

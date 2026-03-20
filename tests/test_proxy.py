@@ -79,7 +79,7 @@ class TestMain:
         proc = _fake_proc()
 
         with patch("airlock.proxy.subprocess.Popen", return_value=proc) as mock_popen, \
-             patch("uvicorn.run"), \
+             patch("airlock.proxy.uvicorn.run"), \
              patch("airlock.sidecar.make_app", return_value=MagicMock()), \
              pytest.raises(SystemExit):
             main()
@@ -120,7 +120,7 @@ class TestMain:
         proc = _fake_proc()
 
         with patch("airlock.proxy.subprocess.Popen", return_value=proc) as mock_popen, \
-             patch("uvicorn.run"), \
+             patch("airlock.proxy.uvicorn.run"), \
              patch("airlock.sidecar.make_app", return_value=MagicMock()), \
              pytest.raises(SystemExit):
             main()
@@ -134,7 +134,7 @@ class TestMain:
 
         with patch("airlock.proxy.load_dotenv", side_effect=lambda *a, **kw: dotenv_called.append(True)), \
              patch("airlock.proxy.subprocess.Popen", return_value=_fake_proc()), \
-             patch("uvicorn.run"), \
+             patch("airlock.proxy.uvicorn.run"), \
              patch("airlock.sidecar.make_app", return_value=MagicMock()), \
              pytest.raises(SystemExit):
             main()
@@ -152,7 +152,7 @@ class TestMain:
         proc.wait.return_value = None
 
         with patch("airlock.proxy.subprocess.Popen", return_value=proc), \
-             patch("uvicorn.run"),  \
+             patch("airlock.proxy.uvicorn.run"), \
              patch("airlock.sidecar.make_app", return_value=MagicMock()), \
              pytest.raises(SystemExit):
             main()
