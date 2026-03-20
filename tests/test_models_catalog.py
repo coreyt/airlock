@@ -9,13 +9,9 @@ from unittest.mock import patch
 import pytest
 
 from airlock.models_catalog import (
-    _STATIC_CREATED,
     _fetch_gemini_models,
     _get_api_key,
     _load_config,
-    _owned_by,
-    build_catalog_from_config,
-    build_full_catalog,
     fetch_live_provider_models,
 )
 
@@ -30,24 +26,6 @@ def _cfg(*entries: dict) -> dict:
 
 def _entry(alias: str, model: str, api_key: str = "os.environ/FAKE_KEY") -> dict:
     return {"model_name": alias, "litellm_params": {"model": model, "api_key": api_key}}
-
-
-# ---------------------------------------------------------------------------
-# _owned_by
-# ---------------------------------------------------------------------------
-
-class TestOwnedBy:
-    def test_provider_prefix_extracted(self):
-        assert _owned_by("anthropic/claude-sonnet-4-20250514") == "anthropic"
-
-    def test_bare_name_returns_airlock(self):
-        assert _owned_by("claude-sonnet") == "airlock"
-
-    def test_gemini_prefix(self):
-        assert _owned_by("gemini/gemini-2.5-flash") == "gemini"
-
-    def test_openai_prefix(self):
-        assert _owned_by("openai/gpt-4o") == "openai"
 
 
 # ---------------------------------------------------------------------------
@@ -97,88 +75,6 @@ class TestGetApiKey:
 
 
 # ---------------------------------------------------------------------------
-# build_catalog_from_config
-# ---------------------------------------------------------------------------
-
-class TestBuildCatalogFromConfig:
-    def test_alias_name_included(self):
-        config = _cfg(_entry("claude-sonnet", "anthropic/claude-sonnet-4-20250514"))
-        models = build_catalog_from_config(config=config)
-        ids = [m["id"] for m in models]
-        assert "claude-sonnet" in ids
-
-    def test_provider_pinned_included(self):
-        config = _cfg(_entry("claude-sonnet", "anthropic/claude-sonnet-4-20250514"))
-        models = build_catalog_from_config(config=config)
-        ids = [m["id"] for m in models]
-        assert "anthropic/claude-sonnet-4-20250514" in ids
-
-    def test_alias_owned_by_airlock(self):
-        config = _cfg(_entry("claude-sonnet", "anthropic/claude-sonnet-4-20250514"))
-        models = build_catalog_from_config(config=config)
-        alias = next(m for m in models if m["id"] == "claude-sonnet")
-        assert alias["owned_by"] == "airlock"
-
-    def test_pinned_owned_by_provider(self):
-        config = _cfg(_entry("claude-sonnet", "anthropic/claude-sonnet-4-20250514"))
-        models = build_catalog_from_config(config=config)
-        pinned = next(m for m in models if m["id"] == "anthropic/claude-sonnet-4-20250514")
-        assert pinned["owned_by"] == "anthropic"
-
-    def test_no_duplicates_when_alias_equals_model(self):
-        # model_name IS the provider-pinned id
-        config = _cfg({"model_name": "openai/gpt-4o", "litellm_params": {"model": "openai/gpt-4o"}})
-        models = build_catalog_from_config(config=config)
-        assert len([m for m in models if m["id"] == "openai/gpt-4o"]) == 1
-
-    def test_required_fields_present(self):
-        config = _cfg(_entry("gpt-4o", "openai/gpt-4o"))
-        models = build_catalog_from_config(config=config)
-        for m in models:
-            assert "id" in m
-            assert m["object"] == "model"
-            assert isinstance(m["created"], int)
-            assert "owned_by" in m
-
-    def test_created_is_static(self):
-        config = _cfg(_entry("gpt-4o", "openai/gpt-4o"))
-        models = build_catalog_from_config(config=config)
-        for m in models:
-            assert m["created"] == _STATIC_CREATED
-
-    def test_empty_model_list(self):
-        assert build_catalog_from_config(config={}) == []
-
-    def test_multiple_providers(self):
-        config = _cfg(
-            _entry("claude-sonnet", "anthropic/claude-sonnet-4-20250514"),
-            _entry("gpt-4o", "openai/gpt-4o"),
-            _entry("gemini-flash", "gemini/gemini-2.5-flash"),
-        )
-        models = build_catalog_from_config(config=config)
-        ids = [m["id"] for m in models]
-        assert "claude-sonnet" in ids
-        assert "anthropic/claude-sonnet-4-20250514" in ids
-        assert "gpt-4o" in ids
-        assert "openai/gpt-4o" in ids
-        assert "gemini-flash" in ids
-        assert "gemini/gemini-2.5-flash" in ids
-
-    def test_no_duplicate_ids_across_entries(self):
-        config = _cfg(
-            _entry("m", "openai/gpt-4o"),
-            _entry("m2", "openai/gpt-4o"),  # same provider model, different alias
-        )
-        models = build_catalog_from_config(config=config)
-        ids = [m["id"] for m in models]
-        assert ids.count("openai/gpt-4o") == 1
-
-    def test_missing_config_file_returns_empty(self, tmp_path):
-        models = build_catalog_from_config(config_path=tmp_path / "no.yaml")
-        assert models == []
-
-
-# ---------------------------------------------------------------------------
 # _fetch_gemini_models — name parsing
 # ---------------------------------------------------------------------------
 
@@ -221,7 +117,7 @@ class TestFetchGeminiModels:
 
 
 # ---------------------------------------------------------------------------
-# fetch_live_provider_models — stubbed HTTP server
+# fetch_live_provider_models
 # ---------------------------------------------------------------------------
 
 class TestFetchLiveProviderModels:
@@ -242,38 +138,3 @@ class TestFetchLiveProviderModels:
             result = fetch_live_provider_models(config, timeout=2.0)
 
         assert isinstance(result, list)  # did not raise
-
-
-# ---------------------------------------------------------------------------
-# build_full_catalog
-# ---------------------------------------------------------------------------
-
-class TestBuildFullCatalog:
-    def test_no_live_fetch(self):
-        config = _cfg(_entry("claude-sonnet", "anthropic/claude-sonnet-4-20250514"))
-        models = build_full_catalog(config=config, fetch_live=False)
-        ids = [m["id"] for m in models]
-        assert "claude-sonnet" in ids
-        assert "anthropic/claude-sonnet-4-20250514" in ids
-
-    def test_live_models_added_without_duplicates(self, monkeypatch):
-        config = _cfg(_entry("claude-sonnet", "anthropic/claude-sonnet-4-20250514"))
-
-        live_extra = [{"id": "anthropic/claude-3-haiku-20240307", "object": "model", "created": 1704067200, "owned_by": "anthropic"}]
-        live_dup = [{"id": "anthropic/claude-sonnet-4-20250514", "object": "model", "created": 1704067200, "owned_by": "anthropic"}]
-
-        with patch("airlock.models_catalog.fetch_live_provider_models", return_value=live_extra + live_dup):
-            models = build_full_catalog(config=config, fetch_live=True)
-
-        ids = [m["id"] for m in models]
-        # Config entries are there
-        assert "claude-sonnet" in ids
-        assert "anthropic/claude-sonnet-4-20250514" in ids
-        # Live extra is added
-        assert "anthropic/claude-3-haiku-20240307" in ids
-        # No duplicates
-        assert ids.count("anthropic/claude-sonnet-4-20250514") == 1
-
-    def test_empty_config_no_live_fetch(self):
-        models = build_full_catalog(config={}, fetch_live=False)
-        assert models == []

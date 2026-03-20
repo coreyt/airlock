@@ -1,10 +1,9 @@
 """
-Airlock Proxy — launches LiteLLM on an internal port and the Airlock sidecar
-on the public-facing port.
+Airlock Proxy — launches LiteLLM directly on the configured host and port.
 
-The sidecar owns GET /v1/models (augmented catalog with alias names,
-provider-pinned model IDs, and live-discovered provider models) and
-streams everything else through to LiteLLM unchanged.
+At startup, live provider model counts are logged for informational purposes.
+GET /v1/models is served by LiteLLM natively (alias names come from model_list
+in config.yaml).
 
 Usage:
     airlock start           # via the installed CLI
@@ -14,16 +13,14 @@ Usage:
 from __future__ import annotations
 
 import os
-import socket
 import subprocess
 import sys
 from pathlib import Path
 
-import uvicorn
 import yaml
 from dotenv import load_dotenv
 
-from airlock.sidecar import make_app
+from airlock.models_catalog import fetch_live_provider_models
 
 _ENV_REF_PREFIX = "os.environ/"
 
@@ -86,51 +83,25 @@ def main() -> None:
 
     host = os.getenv("AIRLOCK_HOST", "0.0.0.0")
     port = int(os.getenv("AIRLOCK_PORT", "4000"))
-    # LiteLLM listens on 127.0.0.1 at this port; sidecar owns the public-facing port.
-    internal_port = int(os.getenv("AIRLOCK_INTERNAL_PORT", str(port + 1)))
+
+    # Log live provider models at startup (informational — does not affect routing).
+    with open(config_path) as f:
+        config = yaml.safe_load(f) or {}
+    live_models = fetch_live_provider_models(config)
+    if live_models:
+        providers = sorted({m["id"].split("/")[0] for m in live_models})
+        print(f"Provider models discovered: {len(live_models)} across {', '.join(providers)}")
 
     litellm_bin = str(Path(sys.executable).parent / "litellm")
-
     litellm_cmd = [
         litellm_bin,
         "--config", config_path,
-        "--host", "127.0.0.1",
-        "--port", str(internal_port),
+        "--host", host,
+        "--port", str(port),
     ]
 
-    # Warn early if the internal port is already occupied — otherwise the sidecar
-    # starts cleanly but every proxied request silently returns 503.
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as _s:
-        if _s.connect_ex(("127.0.0.1", internal_port)) == 0:
-            print(
-                f"WARNING: port {internal_port} is already in use. "
-                f"Set AIRLOCK_INTERNAL_PORT to a free port.",
-                file=sys.stderr,
-            )
-
-    print(
-        f"Airlock starting on {host}:{port} "
-        f"(LiteLLM internal: 127.0.0.1:{internal_port})"
-    )
-
-    proc = subprocess.Popen(litellm_cmd)
-
-    try:
-        app = make_app(internal_port=internal_port, config_path=config_path)
-        uvicorn.run(app, host=host, port=port, log_level="warning")
-    finally:
-        if proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                try:
-                    proc.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    pass  # process will be reaped when the parent exits
-
-    sys.exit(proc.returncode or 0)
+    print(f"Airlock starting on {host}:{port}")
+    sys.exit(subprocess.call(litellm_cmd))
 
 
 if __name__ == "__main__":

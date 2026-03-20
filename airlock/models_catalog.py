@@ -1,14 +1,8 @@
-"""Airlock model catalog — builds /v1/models response from config + live provider queries.
+"""Airlock provider model discovery — queries provider APIs at startup to log
+available models.
 
-Two layers of discovery:
-  1. Config-based — reads model_list from config.yaml:
-       alias names (model_name)       → owned_by: "airlock"
-       provider-pinned (litellm_params.model) → owned_by: <provider>
-  2. Provider-live — queries each provider's own models API at startup and
-     returns every model they advertise, prefixed with provider/...
-
-The live queries run concurrently with a per-provider timeout and are
-best-effort: a failure skips that provider without blocking startup.
+Queries run concurrently with a per-provider timeout and are best-effort:
+a failure skips that provider without blocking startup.
 """
 
 from __future__ import annotations
@@ -28,12 +22,11 @@ import yaml
 
 logger = logging.getLogger("airlock.models_catalog")
 
-# Stable epoch used for config-derived entries (matches LiteLLM's own practice)
-_STATIC_CREATED = 1704067200  # 2024-01-01T00:00:00Z
+_STATIC_CREATED = 1704067200  # 2024-01-01T00:00:00Z — fallback for providers that omit it
 
 
 # ---------------------------------------------------------------------------
-# Config helpers (shared with post_cmd.py logic)
+# Config helpers
 # ---------------------------------------------------------------------------
 
 def _load_config(config_path: str | Path | None = None) -> dict:
@@ -50,11 +43,6 @@ def _load_config(config_path: str | Path | None = None) -> dict:
         return {}
 
 
-def _owned_by(model_id: str) -> str:
-    """Extract provider name from 'provider/model-id', or 'airlock' for bare names."""
-    return model_id.split("/", 1)[0] if "/" in model_id else "airlock"
-
-
 def _get_api_key(config: dict, provider_prefix: str) -> str | None:
     """Find the first API key configured for a given provider prefix."""
     for entry in config.get("model_list", []):
@@ -69,56 +57,6 @@ def _get_api_key(config: dict, provider_prefix: str) -> str | None:
         if api_key:
             return api_key
     return None
-
-
-# ---------------------------------------------------------------------------
-# Config-based catalog
-# ---------------------------------------------------------------------------
-
-def build_catalog_from_config(
-    config: dict | None = None,
-    config_path: str | Path | None = None,
-) -> list[dict]:
-    """Return alias + provider-pinned model entries from config.yaml.
-
-    Args:
-        config: Pre-loaded config dict (if already parsed).
-        config_path: Path to config.yaml; used when *config* is None.
-    """
-    if config is None:
-        config = _load_config(config_path)
-
-    seen: set[str] = set()
-    models: list[dict] = []
-
-    for entry in config.get("model_list") or []:
-        if not isinstance(entry, dict):
-            continue
-        alias: str = entry.get("model_name", "")
-        params: dict = entry.get("litellm_params") or {}
-        provider_model: str = params.get("model", "")
-
-        # 1. Alias name — e.g. "claude-sonnet"
-        if alias and alias not in seen:
-            seen.add(alias)
-            models.append({
-                "id": alias,
-                "object": "model",
-                "created": _STATIC_CREATED,
-                "owned_by": _owned_by(alias),
-            })
-
-        # 2. Provider-pinned — e.g. "anthropic/claude-sonnet-4-20250514"
-        if provider_model and provider_model not in seen and provider_model != alias:
-            seen.add(provider_model)
-            models.append({
-                "id": provider_model,
-                "object": "model",
-                "created": _STATIC_CREATED,
-                "owned_by": _owned_by(provider_model),
-            })
-
-    return models
 
 
 # ---------------------------------------------------------------------------
@@ -267,38 +205,3 @@ def fetch_live_provider_models(
         t.join(timeout=timeout + 1)
 
     return results
-
-
-# ---------------------------------------------------------------------------
-# Combined catalog
-# ---------------------------------------------------------------------------
-
-def build_full_catalog(
-    config: dict | None = None,
-    config_path: str | Path | None = None,
-    fetch_live: bool = True,
-    live_timeout: float = 10.0,
-) -> list[dict]:
-    """Build the complete model catalog.
-
-    Combines:
-      - Config-derived alias names and provider-pinned model IDs
-      - (Optional) Live models fetched from each provider's /v1/models API
-
-    Provider-live models that share an ID with a config entry are skipped
-    (config takes precedence for those IDs).
-    """
-    if config is None:
-        config = _load_config(config_path)
-
-    catalog = build_catalog_from_config(config=config)
-    existing_ids = {m["id"] for m in catalog}
-
-    if fetch_live:
-        live_models = fetch_live_provider_models(config, timeout=live_timeout)
-        for entry in live_models:
-            if entry["id"] not in existing_ids:
-                catalog.append(entry)
-                existing_ids.add(entry["id"])
-
-    return catalog
