@@ -676,10 +676,8 @@ async def test_logs_mcp_filtering(tmp_path: Path) -> None:
             logs_pane._apply_filters()
 
 
-async def test_health_check_http_error_treated_as_reachable() -> None:
-    """A 401/403 from the proxy still means it's running."""
-    import urllib.error
-
+async def test_health_check_connection_error_shows_not_reachable() -> None:
+    """A connection error means the proxy is not running."""
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
         from textual.widgets import Button
@@ -691,18 +689,16 @@ async def test_health_check_http_error_treated_as_reachable() -> None:
 
         with mock.patch(
             "urllib.request.urlopen",
-            side_effect=urllib.error.HTTPError(
-                "http://localhost:4000/health", 401, "Unauthorized", {}, None
-            ),
+            side_effect=OSError("Connection refused"),
         ):
             dashboard._check_health()
             await pilot.pause()
 
         indicator = app.query_one("#proxy-indicator", StatusIndicator)
         btn = app.query_one("#proxy-start-btn", Button)
-        assert "Running" in indicator._label
-        assert btn.label.plain == "Running Externally"
-        assert btn.disabled is True
+        assert "Not reachable" in indicator._label
+        assert btn.label.plain == "Start Proxy"
+        assert btn.disabled is False
 
 
 async def test_tui_owned_not_reachable_shows_starting() -> None:

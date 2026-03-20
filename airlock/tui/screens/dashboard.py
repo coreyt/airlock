@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import os
-import urllib.error
 import urllib.request
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from airlock.client_identity import add_airlock_client_header
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -186,18 +183,11 @@ class DashboardPane(Vertical):
     def _check_health(self) -> None:
         # 0.0.0.0 is a bind address, not connectable — probe via loopback
         probe_host = "127.0.0.1" if self._host == "0.0.0.0" else self._host
-        url = f"http://{probe_host}:{self._port}/health?client=tui-dashboard"
+        url = f"http://{probe_host}:{self._port}/health/liveliness"
 
         proxy_reachable = False
         try:
-            req = add_airlock_client_header(urllib.request.Request(url))
-            master_key = os.environ.get("AIRLOCK_MASTER_KEY")
-            if master_key:
-                req.add_header("Authorization", f"Bearer {master_key}")
-            urllib.request.urlopen(req, timeout=3)  # noqa: S310
-            proxy_reachable = True
-        except urllib.error.HTTPError:
-            # Any HTTP response (even 401/403) means the proxy is alive
+            urllib.request.urlopen(url, timeout=3)  # noqa: S310
             proxy_reachable = True
         except Exception:
             pass

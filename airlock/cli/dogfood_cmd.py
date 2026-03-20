@@ -6,19 +6,13 @@ import os
 import sys
 import urllib.request
 
-from airlock.client_identity import add_airlock_client_header
-
 
 def _probe_health(host: str, port: str) -> bool:
     # 0.0.0.0 is a bind address, not connectable — probe via loopback
     probe_host = "127.0.0.1" if host == "0.0.0.0" else host
-    url = f"http://{probe_host}:{port}/health?client=cli-dogfood"
-    req = add_airlock_client_header(urllib.request.Request(url))
-    master_key = os.environ.get("AIRLOCK_MASTER_KEY")
-    if master_key:
-        req.add_header("Authorization", f"Bearer {master_key}")
+    url = f"http://{probe_host}:{port}/health/liveliness"
     try:
-        urllib.request.urlopen(req, timeout=3)  # noqa: S310
+        urllib.request.urlopen(url, timeout=3)  # noqa: S310
         return True
     except Exception:
         return False

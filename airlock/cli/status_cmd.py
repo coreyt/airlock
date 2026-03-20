@@ -24,7 +24,7 @@ def run(args) -> None:
     port = args.port or os.environ.get("AIRLOCK_PORT", "4000")
     # 0.0.0.0 is a bind address, not connectable — probe via loopback
     probe_host = "127.0.0.1" if host == "0.0.0.0" else host
-    url = f"http://{probe_host}:{port}/health?client=cli-status"
+    url = f"http://{probe_host}:{port}/health/liveliness"
 
     try:
         urllib.request.urlopen(_health_request(url), timeout=5)  # noqa: S310

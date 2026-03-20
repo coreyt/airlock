@@ -9,7 +9,6 @@ import urllib.request
 
 from pathlib import Path
 
-from airlock.client_identity import add_airlock_client_header
 from dotenv import load_dotenv
 
 # Hooks are spawned as separate processes by Claude Code — CWD may not be
@@ -40,17 +39,13 @@ def respond_json(data: dict) -> None:
     raise SystemExit(0)
 
 
-def probe_health(host: str, port: str, timeout: int = 3, *, client: str = "hook") -> bool:
+def probe_health(host: str, port: str, timeout: int = 3) -> bool:
     """Check if the Airlock proxy is reachable."""
     # 0.0.0.0 is a bind address, not connectable — probe via loopback
     probe_host = "127.0.0.1" if host == "0.0.0.0" else host
-    url = f"http://{probe_host}:{port}/health?client={client}"
-    req = add_airlock_client_header(urllib.request.Request(url))
-    master_key = os.environ.get("AIRLOCK_MASTER_KEY")
-    if master_key:
-        req.add_header("Authorization", f"Bearer {master_key}")
+    url = f"http://{probe_host}:{port}/health/liveliness"
     try:
-        urllib.request.urlopen(req, timeout=timeout)  # noqa: S310
+        urllib.request.urlopen(url, timeout=timeout)  # noqa: S310
         return True
     except Exception:
         return False

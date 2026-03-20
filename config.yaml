@@ -280,3 +280,10 @@ general_settings:
   # Where the proxy listens
   # host: 0.0.0.0    # set via CLI flag or env
   # port: 4000       # set via CLI flag or env
+
+  # Run model health checks in the background rather than on every GET /health.
+  # Without this, GET /health fires a live completion call to every configured
+  # model (including Mistral), causing rate-limit errors from TUI/hook probes.
+  # Interval is in seconds; 3600 = hourly.
+  background_health_checks: true
+  health_check_interval: 3600
