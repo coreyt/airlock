@@ -109,7 +109,7 @@ class TestTUINavigation:
 
         app = AirlockApp()
         screen_ids = [
-            "dashboard", "models", "threats", "logs",
+            "dashboard", "models", "threats", "clients", "logs",
             "analysis", "settings", "flow", "mcp_servers",
         ]
         async with app.run_test(size=(120, 40)) as pilot:
@@ -120,16 +120,16 @@ class TestTUINavigation:
                     f"Key {i} should switch to {expected_id}"
                 )
 
-    async def test_all_eight_screens_accessible(self):
+    async def test_all_nine_screens_accessible(self):
         from airlock.tui.app import AirlockApp
 
         app = AirlockApp()
         async with app.run_test(size=(120, 40)) as pilot:
-            for key in "12345678":
+            for key in "123456789":
                 await pilot.press(key)
             # All panes should exist
             for pane_id in [
-                "dashboard", "models", "threats", "logs",
+                "dashboard", "models", "threats", "clients", "logs",
                 "analysis", "settings", "flow", "mcp_servers",
             ]:
                 assert app.query_one(f"#{pane_id}") is not None
