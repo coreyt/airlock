@@ -250,11 +250,7 @@ class DashboardPane(Vertical):
         def _update_ui() -> None:
             table = self.query_one("#dash-model-table", DataTable)
             table.clear()
-            if rows:
-                for row in rows:
-                    table.add_row(*row)
-            else:
-                table.add_row("-", "-", "-", "-", "-")
+            table.add_rows(rows) if rows else table.add_row("-", "-", "-", "-", "-")
 
             split_card = self.query_one("#mcp-traffic-split", MetricCard)
             if traffic_total > 0:
@@ -267,7 +263,7 @@ class DashboardPane(Vertical):
                 split_card.set_value("LLM: 0 | MCP: 0")
 
             mcp_indicator = self.query_one("#mcp-indicator", StatusIndicator)
-            if not mcp_tools and mcp_count == 0:
+            if not mcp_tools:
                 mcp_indicator.set_status("warn", "No MCP traffic")
             elif any(t.recent_error_rate() > 0.5 for t in mcp_tools.values()):
                 mcp_indicator.set_status("error", "High error rate")
