@@ -132,6 +132,11 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Automatically start the proxy when the TUI launches.",
     )
+    tui_parser.add_argument(
+        "--daemon",
+        action="store_true",
+        help="Leave the proxy running after the TUI exits.",
+    )
 
     # -- analyze --
     analyze_parser = subparsers.add_parser(
@@ -325,7 +330,12 @@ def main(argv: list[str] | None = None) -> None:
 
         from airlock.tui.app import run as tui_run
 
-        tui_run(host=host, port=port, auto_start=args.start)
+        tui_run(
+            host=host,
+            port=port,
+            auto_start=args.start,
+            daemon_mode=args.daemon,
+        )
 
     elif args.command == "analyze":
         # Rebuild sys.argv for the analyze CLI's own argparse

@@ -29,9 +29,16 @@ _HAS_TIMESTAMP = re.compile(
 class ProxyManager:
     """Start, stop, and monitor a LiteLLM proxy subprocess."""
 
-    def __init__(self, host: str = "0.0.0.0", port: str = "4000") -> None:
+    def __init__(
+        self,
+        host: str = "0.0.0.0",
+        port: str = "4000",
+        *,
+        daemon_mode: bool = False,
+    ) -> None:
         self._host = host
         self._port = port
+        self._daemon_mode = daemon_mode
         self._process: subprocess.Popen[str] | None = None
         self._output_queue: queue.Queue[str] = queue.Queue(maxsize=1000)
         self._ring: collections.deque[str] = collections.deque(maxlen=_MAX_LOG_LINES)
@@ -201,10 +208,12 @@ class ProxyManager:
 
         self._process = subprocess.Popen(
             cmd,
+            stdin=subprocess.DEVNULL if self._daemon_mode else None,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            start_new_session=self._daemon_mode,
         )
 
         self._reader_thread = threading.Thread(
@@ -249,6 +258,11 @@ class ProxyManager:
     def is_tui_owned(self) -> bool:
         """True when a TUI-started process is still alive."""
         return self._process is not None and self._process.poll() is None
+
+    @property
+    def daemon_mode(self) -> bool:
+        """True when the proxy is configured to outlive the TUI."""
+        return self._daemon_mode
 
     @property
     def output_queue(self) -> queue.Queue[str]:

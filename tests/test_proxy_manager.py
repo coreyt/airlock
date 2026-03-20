@@ -85,6 +85,27 @@ def test_start_launches_popen(tmp_path: Path) -> None:
     assert "127.0.0.1" in cmd
     assert "--port" in cmd
     assert "9999" in cmd
+    assert call_args[1]["stdin"] is None
+    assert call_args[1]["start_new_session"] is False
+
+
+def test_start_launches_detached_in_daemon_mode(tmp_path: Path) -> None:
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("model_list: []\n")
+    pm = ProxyManager(host="127.0.0.1", port="9999", daemon_mode=True)
+    pm.find_config = mock.Mock(return_value=cfg)
+
+    fake_proc = mock.MagicMock(spec=subprocess.Popen)
+    fake_proc.poll.return_value = None
+    fake_proc.stdout = None
+
+    with mock.patch("airlock.tui.proxy_manager.subprocess.Popen", return_value=fake_proc) as mock_popen:
+        err = pm.start()
+
+    assert err is None
+    call_args = mock_popen.call_args
+    assert call_args[1]["stdin"] == subprocess.DEVNULL
+    assert call_args[1]["start_new_session"] is True
 
 
 def test_start_rejects_double_start(tmp_path: Path) -> None:

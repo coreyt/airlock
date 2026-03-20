@@ -66,9 +66,9 @@ async def test_screen_switching_via_keys() -> None:
         await pilot.press("2")
         assert workspace.current == "models"
 
-        # Press 4 → logs
+        # Press 4 → clients
         await pilot.press("4")
-        assert workspace.current == "logs"
+        assert workspace.current == "clients"
 
         # Press 1 → back to dashboard
         await pilot.press("1")
@@ -140,7 +140,7 @@ async def test_threats_has_backoffs_and_config() -> None:
 async def test_logs_has_filters_and_table() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("4")
+        await pilot.press("5")
         assert app.query_one("#logs-model-filter") is not None
         assert app.query_one("#logs-user-filter") is not None
         assert app.query_one("#logs-table") is not None
@@ -165,7 +165,7 @@ async def test_logs_loads_from_jsonl(tmp_path: Path) -> None:
     with mock.patch.dict(os.environ, {"AIRLOCK_LOG_DIR": str(log_dir)}):
         app = AirlockApp()
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.press("4")  # logs
+            await pilot.press("5")  # logs
             await pilot.pause()
             # The log pane should have loaded — table should have at least
             # the row we wrote
@@ -184,7 +184,7 @@ async def test_logs_loads_from_jsonl(tmp_path: Path) -> None:
 async def test_analysis_has_controls_and_tabs() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("5")
+        await pilot.press("6")
         assert app.query_one("#analysis-days") is not None
         assert app.query_one("#analysis-run") is not None
         assert app.query_one("#analysis-tabs") is not None
@@ -198,7 +198,7 @@ async def test_analysis_has_controls_and_tabs() -> None:
 async def test_settings_has_tabs_and_apply() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("6")
+        await pilot.press("7")
         assert app.query_one("#settings-tabs") is not None
         assert app.query_one("#settings-apply") is not None
 
@@ -213,7 +213,12 @@ def test_tui_routes_to_tui_app() -> None:
 
     with mock.patch("airlock.tui.app.run") as mock_run:
         main(["tui"])
-    mock_run.assert_called_once_with(host="localhost", port="4000", auto_start=False)
+    mock_run.assert_called_once_with(
+        host="localhost",
+        port="4000",
+        auto_start=False,
+        daemon_mode=False,
+    )
 
 
 def test_tui_passes_host_port() -> None:
@@ -221,7 +226,12 @@ def test_tui_passes_host_port() -> None:
 
     with mock.patch("airlock.tui.app.run") as mock_run:
         main(["tui", "--host", "10.0.0.1", "--port", "8080"])
-    mock_run.assert_called_once_with(host="10.0.0.1", port="8080", auto_start=False)
+    mock_run.assert_called_once_with(
+        host="10.0.0.1",
+        port="8080",
+        auto_start=False,
+        daemon_mode=False,
+    )
 
 
 def test_help_includes_tui(capsys) -> None:
@@ -242,7 +252,7 @@ def test_help_includes_tui(capsys) -> None:
 async def test_flow_has_status_table_and_detail() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("7")
+        await pilot.press("8")
         assert app.query_one("#flow-status") is not None
         assert app.query_one("#flow-table") is not None
         assert app.query_one("#flow-detail-tabs") is not None
@@ -255,20 +265,20 @@ async def test_flow_screen_switching() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
         workspace = app.query_one("#workspace")
-        await pilot.press("7")
+        await pilot.press("8")
         assert workspace.current == "flow"
 
         # Switch away and back
         await pilot.press("1")
         assert workspace.current == "dashboard"
-        await pilot.press("7")
+        await pilot.press("8")
         assert workspace.current == "flow"
 
 
 async def test_flow_pause_resume() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("7")
+        await pilot.press("8")
         await pilot.pause()
 
         from airlock.tui.screens.flow import FlowPane
@@ -335,7 +345,7 @@ async def test_flow_loads_observations(tmp_path: Path) -> None:
     with mock.patch.dict(os.environ, {"AIRLOCK_LOG_DIR": str(log_dir)}):
         app = AirlockApp()
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.press("7")
+            await pilot.press("8")
             await pilot.pause()
             await pilot.pause()  # extra pause for worker to complete
 
@@ -363,7 +373,7 @@ async def test_flow_skips_records_without_observation(tmp_path: Path) -> None:
     with mock.patch.dict(os.environ, {"AIRLOCK_LOG_DIR": str(log_dir)}):
         app = AirlockApp()
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.press("7")
+            await pilot.press("8")
             await pilot.pause()
             await pilot.pause()
 
@@ -492,7 +502,25 @@ def test_tui_start_flag_passed_through() -> None:
 
     with mock.patch("airlock.tui.app.run") as mock_run:
         main(["tui", "--start"])
-    mock_run.assert_called_once_with(host="localhost", port="4000", auto_start=True)
+    mock_run.assert_called_once_with(
+        host="localhost",
+        port="4000",
+        auto_start=True,
+        daemon_mode=False,
+    )
+
+
+def test_tui_daemon_flag_passed_through() -> None:
+    from airlock.cli.main import main
+
+    with mock.patch("airlock.tui.app.run") as mock_run:
+        main(["tui", "--start", "--daemon"])
+    mock_run.assert_called_once_with(
+        host="localhost",
+        port="4000",
+        auto_start=True,
+        daemon_mode=True,
+    )
 
 
 async def test_app_has_proxy_manager() -> None:
@@ -547,7 +575,7 @@ async def test_settings_has_mcp_tab() -> None:
 async def test_logs_has_type_and_tool_filters() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("4")
+        await pilot.press("5")
         assert app.query_one("#logs-type-filter") is not None
         assert app.query_one("#logs-tool-filter") is not None
 
@@ -555,7 +583,7 @@ async def test_logs_has_type_and_tool_filters() -> None:
 async def test_flow_has_tool_result_tab() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("7")
+        await pilot.press("8")
         assert app.query_one("#flow-tool-result") is not None
 
 
@@ -634,7 +662,7 @@ async def test_logs_mcp_filtering(tmp_path: Path) -> None:
     with mock.patch.dict(os.environ, {"AIRLOCK_LOG_DIR": str(log_dir)}):
         app = AirlockApp()
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.press("4")
+            await pilot.press("5")
             await pilot.pause()
 
             from airlock.tui.screens.logs import LogsPane
@@ -714,14 +742,14 @@ async def test_mcp_servers_screen_navigable() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
         workspace = app.query_one("#workspace")
-        await pilot.press("8")
+        await pilot.press("9")
         assert workspace.current == "mcp_servers"
 
 
 async def test_mcp_servers_has_widgets() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("8")
+        await pilot.press("9")
         await pilot.pause()
 
         # Status bar
@@ -749,7 +777,7 @@ async def test_mcp_servers_has_widgets() -> None:
 async def test_mcp_servers_buttons_disabled_by_default() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("8")
+        await pilot.press("9")
         await pilot.pause()
 
         start_btn = app.query_one("#mcp-srv-start", Button)
@@ -766,6 +794,28 @@ async def test_mcp_servers_buttons_disabled_by_default() -> None:
         assert probe_btn.disabled is False
 
 
+def test_on_unmount_stops_proxy_by_default() -> None:
+    app = AirlockApp()
+    app._proxy_manager.stop = mock.Mock()
+    app._mcp_manager.stop_all = mock.Mock()
+
+    app.on_unmount()
+
+    app._mcp_manager.stop_all.assert_called_once()
+    app._proxy_manager.stop.assert_called_once()
+
+
+def test_on_unmount_keeps_proxy_in_daemon_mode() -> None:
+    app = AirlockApp(daemon_mode=True)
+    app._proxy_manager.stop = mock.Mock()
+    app._mcp_manager.stop_all = mock.Mock()
+
+    app.on_unmount()
+
+    app._mcp_manager.stop_all.assert_called_once()
+    app._proxy_manager.stop.assert_not_called()
+
+
 async def test_mcp_servers_shows_state_from_store() -> None:
     from airlock.fast.state import McpServerHealth, McpServerState, store
 
@@ -777,7 +827,7 @@ async def test_mcp_servers_shows_state_from_store() -> None:
 
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("8")
+        await pilot.press("9")
         await pilot.pause()
         await pilot.pause()  # allow refresh work to complete
 

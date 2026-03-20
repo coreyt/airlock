@@ -23,6 +23,11 @@ from pathlib import Path
 from typing import Any
 
 from airlock.client_identity import extract_airlock_client_from_kwargs
+from airlock.gemini_interface import (
+    build_gemini_response_headers,
+    classify_gemini_response,
+    is_gemini_provider,
+)
 from airlock.fast.router import infer_provider
 from airlock.fast.state import normalize_client_id
 from litellm.integrations.custom_logger import CustomLogger
@@ -122,6 +127,54 @@ def _write_log(record: dict[str, Any]) -> None:
         f.write(json.dumps(record, default=_serialize) + "\n")
 
 
+def write_precall_block_record(
+    data: dict[str, Any],
+    *,
+    error: str,
+    error_type: str,
+    failure_category: str = "provider",
+) -> dict[str, Any]:
+    """Write a structured log record for failures raised before LiteLLM callbacks fire."""
+    metadata = data.get("metadata", {}) or {}
+    provider = metadata.get("airlock_provider") or infer_provider(
+        data.get("model", "unknown")
+    )
+    guardrail_meta = {
+        key: value for key, value in metadata.items() if key.startswith("airlock_")
+    }
+    now = datetime.datetime.now(datetime.timezone.utc)
+    record = {
+        "timestamp": now.isoformat(),
+        "success": False,
+        "model": data.get("model", "unknown"),
+        "user": metadata.get("user_api_key_alias") or metadata.get("user_api_key_user_id"),
+        "team": metadata.get("user_api_key_team_alias"),
+        "request_id": metadata.get("request_id"),
+        "messages": data.get("messages"),
+        "response": None,
+        "error": error,
+        "error_type": error_type,
+        "failure_category": failure_category,
+        "airlock_provider": provider,
+        "start_time": now,
+        "end_time": now,
+        "duration_ms": 0,
+        **guardrail_meta,
+    }
+    record["airlock_client"] = _get_airlock_client(metadata, {"headers": data.get("headers")})
+    _write_log(record)
+    logger.warning(
+        "request_failed model=%s user=%s client=%s category=%s error_type=%s error=%s",
+        record["model"],
+        record.get("user"),
+        record.get("airlock_client"),
+        record.get("failure_category"),
+        record.get("error_type"),
+        record.get("error"),
+    )
+    return record
+
+
 class AirlockLogger(CustomLogger):
     """LiteLLM callback that logs requests/responses to structured JSON files.
 
@@ -176,7 +229,8 @@ class AirlockLogger(CustomLogger):
         *,
         success: bool,
     ) -> dict[str, Any]:
-        metadata = kwargs.get("litellm_params", {}).get("metadata", {}) or {}
+        litellm_params = kwargs.get("litellm_params", {}) or {}
+        metadata = litellm_params.get("metadata", {}) or {}
         airlock_client = _get_airlock_client(metadata, kwargs)
         error = None
         error_type = None
@@ -203,9 +257,32 @@ class AirlockLogger(CustomLogger):
             kwargs.get("model", "unknown")
         )
 
+        if success and is_gemini_provider(kwargs.get("model"), provider):
+            request_meta = metadata.get("airlock_gemini") or {
+                "mode": "balanced",
+                "visibility": "final_only",
+                "allow_empty_text": False,
+                "mapping_source": "implicit",
+                "explicit_controls": [],
+                "provider": "gemini",
+                "model": kwargs.get("model", "unknown"),
+            }
+            response_meta = classify_gemini_response(response_obj) or {
+                "output_shape": "unknown",
+                "empty_text_success": False,
+            }
+            metadata["airlock_gemini"] = request_meta
+            metadata["airlock_gemini_response"] = response_meta
+            response_headers = metadata.setdefault("airlock_response_headers", {})
+            response_headers.update(
+                build_gemini_response_headers(request_meta, response_meta)
+            )
+            guardrail_meta = {
+                k: v for k, v in metadata.items() if k.startswith("airlock_")
+            }
+
         # MCP tool call metadata
         call_type = kwargs.get("call_type", "")
-        litellm_params = kwargs.get("litellm_params", {})
         mcp_meta: dict[str, Any] = {}
         if call_type == "call_mcp_tool" or "mcp_tool_name" in kwargs:
             mcp_meta["call_type"] = call_type or "call_mcp_tool"

@@ -20,6 +20,7 @@ import time
 from typing import Any
 
 from airlock.client_identity import extract_airlock_client_from_kwargs
+from airlock.gemini_interface import classify_gemini_response
 from litellm.exceptions import APIError, RateLimitError
 from litellm.integrations.custom_logger import CustomLogger
 
@@ -58,7 +59,7 @@ def _extract_client_id(kwargs: dict) -> str:
         or extract_airlock_client_from_kwargs(kwargs)
     )
     if airlock_client:
-        return f"airlock:{airlock_client}"
+        return normalize_client_id(airlock_client)
     # Primary: raw API key (same as guardian uses from user_api_key_dict.api_key)
     api_key = metadata.get("user_api_key") or ""
     if len(api_key) > 8:
@@ -134,6 +135,18 @@ class AirlockFastMonitor(CustomLogger):
             if provider:
                 store.record_provider_request(client_id, provider, now)
                 store.record_provider_success(client_id, provider, now)
+                if provider == "gemini":
+                    metadata = kwargs.get("litellm_params", {}).get("metadata", {}) or {}
+                    gemini_request = metadata.get("airlock_gemini") or {}
+                    gemini_response = classify_gemini_response(response_obj) or {}
+                    if gemini_response:
+                        store.record_gemini_outcome(
+                            client_id,
+                            provider,
+                            now,
+                            str(gemini_response.get("output_shape") or "unknown"),
+                            str(gemini_request.get("mode") or "balanced"),
+                        )
 
         # Track MCP tool state and traffic split
         is_mcp = (

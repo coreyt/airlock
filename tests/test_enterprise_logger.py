@@ -13,6 +13,7 @@ from airlock.callbacks.enterprise_logger import (
     AirlockLogger,
     _serialize,
     _write_log,
+    write_precall_block_record,
 )
 
 
@@ -231,6 +232,53 @@ class TestBuildRecord:
         assert "airlock_priority" in record
         assert record["airlock_priority"]["score"] == 0.5
 
+
+class TestPrecallBlockRecord:
+    def test_writes_provider_protection_record(self, monkeypatch):
+        written: list[dict] = []
+
+        monkeypatch.setattr(
+            "airlock.callbacks.enterprise_logger._write_log",
+            lambda record: written.append(record),
+        )
+
+        record = write_precall_block_record(
+            {
+                "model": "gpt-4o-mini",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "headers": {"X-Airlock-Client": "blocked-client"},
+                "metadata": {
+                    "airlock_provider": "openai",
+                    "airlock_request": {
+                        "client_id": "blocked-client",
+                        "requested_model": "gpt-4o-mini",
+                        "final_model": "gpt-4o-mini",
+                        "pinned_model": True,
+                        "provider": "openai",
+                    },
+                    "airlock_provider_protection": {
+                        "action": "blocked_429",
+                        "scope": "client_provider",
+                        "client_id": "blocked-client",
+                        "provider": "openai",
+                        "requested_model": "gpt-4o-mini",
+                        "final_model": "gpt-4o-mini",
+                        "reason": "quota",
+                        "cooldown_seconds": 300.0,
+                    },
+                },
+            },
+            error="Airlock temporarily blocked client blocked-client from provider openai",
+            error_type="RateLimitError",
+        )
+
+        assert written
+        assert record["success"] is False
+        assert record["failure_category"] == "provider"
+        assert record["airlock_client"] == "blocked-client"
+        assert record["airlock_provider"] == "openai"
+        assert record["airlock_provider_protection"]["action"] == "blocked_429"
+
     def test_non_airlock_metadata_excluded(self):
         """Non-airlock metadata keys are not leaked to log records."""
         kwargs = {
@@ -316,6 +364,35 @@ class TestBuildRecord:
         )
         assert record["airlock_client"] == "no_client"
         assert record["airlock_provider"] == "openai"
+
+    def test_gemini_success_adds_gemini_metadata_and_headers(
+        self, mock_logger_kwargs, mock_start_end_times
+    ):
+        start, end = mock_start_end_times
+        kwargs = {
+            **mock_logger_kwargs,
+            "model": "gemini-pro",
+            "litellm_params": {
+                "metadata": {
+                    **mock_logger_kwargs["litellm_params"]["metadata"],
+                    "airlock_gemini": {"mode": "deep_reasoning"},
+                }
+            },
+        }
+        response = MagicMock()
+        response.usage.prompt_tokens = 10
+        response.usage.completion_tokens = 5
+        response.usage.total_tokens = 15
+        response.model_dump.return_value = {
+            "choices": [{"message": {"content": None}, "finish_reason": "length"}],
+            "usage": {"completion_tokens_details": {"reasoning_tokens": 5, "text_tokens": 0}},
+        }
+        record = AirlockLogger._build_record(
+            kwargs, response, start, end, success=True
+        )
+        assert record["airlock_gemini"]["mode"] == "deep_reasoning"
+        assert record["airlock_gemini_response"]["output_shape"] == "thought_only"
+        assert record["airlock_response_headers"]["X-Airlock-Provider-Mode"] == "gemini"
 
 
 # ---------------------------------------------------------------------------

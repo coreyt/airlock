@@ -31,6 +31,9 @@ from litellm import DualCache, RateLimitError
 from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
+from airlock.callbacks.enterprise_logger import write_precall_block_record
+from airlock.client_identity import extract_airlock_client_from_headers
+from airlock.gemini_interface import apply_gemini_request_semantics
 from airlock.guardrails.extract import extract_text, is_mcp_call
 
 from .circuit_breaker import check_model_with_filters
@@ -60,6 +63,19 @@ def _extract_client_id(user_api_key_dict: Any) -> str:
     return normalize_client_id(None)
 
 
+def _request_client_id(data: dict[str, Any], user_api_key_dict: Any) -> str:
+    """Prefer the inbound Airlock client header for request metadata."""
+    metadata = data.get("metadata") or {}
+    for value in (
+        metadata.get("airlock_client"),
+        extract_airlock_client_from_headers(data.get("headers")),
+        extract_airlock_client_from_headers(metadata.get("headers")),
+    ):
+        if value:
+            return normalize_client_id(str(value).strip())
+    return _extract_client_id(user_api_key_dict)
+
+
 def _is_client_pinned(original_model: str, data: dict[str, Any]) -> bool:
     """A request is pinned when the client sent a concrete model name."""
     if not original_model or original_model == "smart":
@@ -85,6 +101,7 @@ def _set_model_override(data: dict[str, Any], requested_model: str, final_model:
 
 
 def _raise_provider_protection(
+    data: dict[str, Any],
     client_id: str,
     provider: str,
     model_name: str,
@@ -96,11 +113,30 @@ def _raise_provider_protection(
         f"for model {model_name} to protect upstream standing. "
         f"Retry after {int(max(1, cooldown_seconds))} seconds. reason={reason}"
     )
+    write_precall_block_record(
+        data,
+        error=message,
+        error_type="RateLimitError",
+        failure_category="provider",
+    )
     raise RateLimitError(
         message=message,
         llm_provider=provider,
         model=model_name,
     )
+
+
+def _lock_pinned_request(data: dict[str, Any]) -> None:
+    """Prevent downstream LiteLLM retries/fallbacks for pinned requests."""
+    data["disable_fallbacks"] = True
+    data["num_retries"] = 0
+    data["max_retries"] = 0
+    metadata = data.setdefault("metadata", {})
+    metadata["airlock_pinned_request"] = {
+        "disable_fallbacks": True,
+        "num_retries": 0,
+        "max_retries": 0,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -124,12 +160,14 @@ class AirlockFastGuardian(CustomGuardrail):
         call_type: str,
     ) -> dict:
         now = time.time()
-        client_id = _extract_client_id(user_api_key_dict)
+        client_id = _request_client_id(data, user_api_key_dict)
         client = store.get_client(client_id)
         requested_model = data.get("model", "unknown")
         model_name = requested_model
         mcp = is_mcp_call(data, call_type)
         pinned_model = _is_client_pinned(requested_model, data)
+        if pinned_model and not mcp:
+            _lock_pinned_request(data)
 
         # Record the inbound request
         client.record_request(now)
@@ -199,6 +237,7 @@ class AirlockFastGuardian(CustomGuardrail):
                             client_provider.last_reason or "provider_rate_limited",
                         )
                         _raise_provider_protection(
+                            data,
                             client_id,
                             provider,
                             model_name,
@@ -227,6 +266,7 @@ class AirlockFastGuardian(CustomGuardrail):
                             provider_state.last_reason or "provider_rate_limited",
                         )
                         _raise_provider_protection(
+                            data,
                             client_id,
                             provider,
                             model_name,
@@ -272,6 +312,7 @@ class AirlockFastGuardian(CustomGuardrail):
                         failover.reason,
                     )
                     _raise_provider_protection(
+                        data,
                         client_id,
                         provider,
                         model_name,
@@ -305,6 +346,10 @@ class AirlockFastGuardian(CustomGuardrail):
                     )
 
         # ---- Step 4: Priority scoring ----
+        data = apply_gemini_request_semantics(
+            data,
+            provider=infer_provider(data.get("model", model_name)),
+        )
         priority = compute_priority(client)
         metadata = data.setdefault("metadata", {})
         metadata["airlock_priority"] = {

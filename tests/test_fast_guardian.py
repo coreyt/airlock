@@ -11,6 +11,7 @@ from litellm.exceptions import RateLimitError
 from airlock.fast.guardian import (
     AirlockFastGuardian,
     _extract_client_id,
+    _request_client_id,
 )
 from airlock.guardrails.extract import extract_text_from_messages as _extract_text
 from airlock.fast.state import CircuitState
@@ -43,6 +44,14 @@ class TestExtractClientId:
     def test_empty_dict_returns_unknown(self):
         result = _extract_client_id({})
         assert result == "no_client"
+
+    def test_request_client_id_prefers_airlock_header(self):
+        data = {
+            "headers": {"X-Airlock-Client": "harness-live:claude-sonnet"},
+            "metadata": {},
+        }
+        d = {"api_key": "sk-1234567890abcdef"}
+        assert _request_client_id(data, d) == "harness-live:claude-sonnet"
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +186,21 @@ class TestGuardianPreCallHook:
         client = fresh_state_store.get_client(client_id)
         assert len(client.request_times) == 1
 
+    async def test_pinned_request_disables_downstream_fallbacks_and_retries(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        data = {
+            "messages": [{"role": "user", "content": "Hello"}],
+            "model": "claude-sonnet",
+        }
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        assert result["disable_fallbacks"] is True
+        assert result["num_retries"] == 0
+        assert result["max_retries"] == 0
+        assert result["metadata"]["airlock_pinned_request"]["disable_fallbacks"] is True
+
     async def test_unknown_api_key(self, guardian, fresh_state_store, mock_cache):
         data = {
             "messages": [{"role": "user", "content": "Hello"}],
@@ -187,6 +211,36 @@ class TestGuardianPreCallHook:
         )
         assert "airlock_priority" in result.get("metadata", {})
         assert result["metadata"]["airlock_request"]["client_id"] == "no_client"
+
+    async def test_request_metadata_uses_airlock_header_client(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        data = {
+            "messages": [{"role": "user", "content": "Hello"}],
+            "model": "claude-sonnet",
+            "headers": {"X-Airlock-Client": "harness-live:claude-sonnet"},
+        }
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        assert (
+            result["metadata"]["airlock_request"]["client_id"]
+            == "harness-live:claude-sonnet"
+        )
+
+    async def test_gemini_text_only_mode_maps_reasoning_control(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        data = {
+            "messages": [{"role": "user", "content": "Hello"}],
+            "model": "gemini-pro",
+            "metadata": {"airlock": {"gemini": {"mode": "text_only"}}},
+        }
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        assert result["reasoning_effort"] == "disable"
+        assert result["metadata"]["airlock_gemini"]["mode"] == "text_only"
 
     async def test_pinned_quarantined_provider_returns_429(
         self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
@@ -209,6 +263,36 @@ class TestGuardianPreCallHook:
             await guardian.async_pre_call_hook(
                 mock_user_api_key_dict, mock_cache, data, "completion"
             )
+
+    async def test_pinned_quarantined_provider_writes_precall_block_record(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict, monkeypatch
+    ):
+        client_id = _extract_client_id(mock_user_api_key_dict)
+        now = time.time()
+        fresh_state_store.record_provider_rate_limit(
+            client_id,
+            "anthropic",
+            now,
+            "quota exhausted",
+            "RateLimitError",
+        )
+
+        written: list[dict] = []
+        monkeypatch.setattr(
+            "airlock.fast.guardian.write_precall_block_record",
+            lambda data, **kwargs: written.append({"data": data, **kwargs}),
+        )
+
+        data = {
+            "messages": [{"role": "user", "content": "Hello"}],
+            "model": "claude-sonnet",
+        }
+        with pytest.raises(RateLimitError):
+            await guardian.async_pre_call_hook(
+                mock_user_api_key_dict, mock_cache, data, "completion"
+            )
+        assert written
+        assert written[0]["error_type"] == "RateLimitError"
 
     async def test_unpinned_request_fails_over_and_sets_override_metadata(
         self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict

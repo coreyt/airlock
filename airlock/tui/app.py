@@ -62,12 +62,18 @@ class AirlockApp(App):
         host: str = "localhost",
         port: str = "4000",
         auto_start: bool = False,
+        daemon_mode: bool = False,
     ) -> None:
         super().__init__()
         self._proxy_host = host
         self._proxy_port = port
         self._auto_start = auto_start
-        self._proxy_manager = ProxyManager(host=host, port=port)
+        self._daemon_mode = daemon_mode
+        self._proxy_manager = ProxyManager(
+            host=host,
+            port=port,
+            daemon_mode=daemon_mode,
+        )
         self._mcp_manager = McpServerManager()
         self._mcp_manager.load_config()
         self._jsonl_stop = threading.Event()
@@ -124,8 +130,9 @@ class AirlockApp(App):
         self._jsonl_stop.set()
         if self._jsonl_thread is not None:
             self._jsonl_thread.join(timeout=3)
+        if not self._daemon_mode:
+            self._proxy_manager.stop()
         self._mcp_manager.stop_all()
-        self._proxy_manager.stop()
 
     def action_switch_screen(self, screen_id: str) -> None:
         self.query_one("#workspace", ContentSwitcher).current = screen_id
@@ -137,7 +144,17 @@ class AirlockApp(App):
             self.action_switch_screen(screen_id)
 
 
-def run(host: str = "localhost", port: str = "4000", auto_start: bool = False) -> None:
+def run(
+    host: str = "localhost",
+    port: str = "4000",
+    auto_start: bool = False,
+    daemon_mode: bool = False,
+) -> None:
     """Launch the TUI application."""
-    app = AirlockApp(host=host, port=port, auto_start=auto_start)
+    app = AirlockApp(
+        host=host,
+        port=port,
+        auto_start=auto_start,
+        daemon_mode=daemon_mode,
+    )
     app.run()

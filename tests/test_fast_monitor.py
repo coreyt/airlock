@@ -37,7 +37,7 @@ class TestExtractClientId:
                 }
             },
         }
-        assert _extract_client_id(kwargs) == "airlock:codex-review"
+        assert _extract_client_id(kwargs) == "codex-review"
 
     def test_alias_fallback_no_key(self):
         """Falls back to alias when API key is short/missing."""
@@ -280,3 +280,52 @@ class TestMonitorCallbacks:
         provider = fresh_state_store.get_provider("openai")
         assert provider.is_quarantined(end.timestamp())
         assert kwargs2["litellm_params"]["metadata"]["airlock_provider_protection"]["action"] == "provider_quarantine"
+
+    def test_gemini_success_tracks_output_shape(
+        self, monitor, fresh_state_store, mock_start_end_times,
+    ):
+        start, end = mock_start_end_times
+        kwargs = {
+            "model": "gemini-pro",
+            "headers": {"X-Airlock-Client": "gemini-client"},
+            "litellm_params": {"metadata": {"airlock_gemini": {"mode": "deep_reasoning"}}},
+        }
+        response = type(
+            "Resp",
+            (),
+            {
+                "model_dump": lambda self: {
+                    "choices": [{"message": {"content": None}, "finish_reason": "length"}],
+                    "usage": {"completion_tokens_details": {"reasoning_tokens": 4, "text_tokens": 0}},
+                }
+            },
+        )()
+
+        monitor.log_success_event(kwargs, response, start, end)
+
+        client = fresh_state_store.get_client("gemini-client")
+        provider = fresh_state_store.get_provider("gemini")
+        assert client.recent_gemini_outcome_count("thought_only") == 1
+        assert provider.recent_gemini_outcome_count("thought_only") == 1
+
+    def test_rate_limit_quarantine_uses_same_airlock_client_bucket_as_guardian(
+        self, monitor, fresh_state_store, mock_start_end_times,
+    ):
+        start, end = mock_start_end_times
+        kwargs = {
+            "model": "gpt-4o-mini",
+            "headers": {"X-Airlock-Client": "same-client"},
+            "litellm_params": {"metadata": {}},
+            "exception": RateLimitError(
+                message="quota",
+                llm_provider="openai",
+                model="gpt-4o-mini",
+            ),
+        }
+
+        monitor.log_failure_event(kwargs, None, start, end)
+
+        client_provider = fresh_state_store.get_client_provider(
+            "same-client", "openai"
+        )
+        assert client_provider.is_quarantined(end.timestamp())
