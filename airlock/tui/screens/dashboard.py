@@ -168,7 +168,7 @@ class DashboardPane(Vertical):
 
     # -- health check with button state -----------------------------------
 
-    @work(exclusive=True, thread=True)
+    @work(exclusive=True, thread=True, group="health-check")
     def _check_health(self) -> None:
         # 0.0.0.0 is a bind address, not connectable — probe via loopback
         probe_host = "127.0.0.1" if self._host == "0.0.0.0" else self._host
@@ -225,16 +225,15 @@ class DashboardPane(Vertical):
 
         self.app.call_from_thread(_update_ui)
 
-    @work(exclusive=True, thread=True)
+    @work(exclusive=True, thread=True, group="state-refresh")
     def _refresh_state(self) -> None:
         try:
             from airlock.fast.state import store
         except ImportError:
             return
 
-        table = self.query_one("#dash-model-table", DataTable)
-        table.clear()
-
+        # Collect all data on the worker thread before touching the DOM
+        rows = []
         for name, model in store.all_models().items():
             avg_lat = model.recent_avg_latency()
             lat_str = f"{avg_lat:.0f}ms" if avg_lat else "-"
@@ -242,29 +241,37 @@ class DashboardPane(Vertical):
             err_count = len(model.failure_times)
             err_pct = f"{err_count / total * 100:.1f}%" if total > 0 else "-"
             circuit = model.circuit.value.upper()
-            table.add_row(name, circuit, str(total), err_pct, lat_str)
+            rows.append((name, circuit, str(total), err_pct, lat_str))
 
-        if not store.all_models():
-            table.add_row("-", "-", "-", "-", "-")
-
-        # MCP Gateway panel
         llm_count, mcp_count = store.traffic_split()
         traffic_total = llm_count + mcp_count
-        split_card = self.query_one("#mcp-traffic-split", MetricCard)
-        if traffic_total > 0:
-            llm_pct = llm_count * 100 // traffic_total
-            mcp_pct = mcp_count * 100 // traffic_total
-            split_card.set_value(
-                f"LLM: {llm_count} ({llm_pct}%) | MCP: {mcp_count} ({mcp_pct}%)"
-            )
-        else:
-            split_card.set_value("LLM: 0 | MCP: 0")
-
-        mcp_indicator = self.query_one("#mcp-indicator", StatusIndicator)
         mcp_tools = store.all_mcp_tools()
-        if not mcp_tools and mcp_count == 0:
-            mcp_indicator.set_status("warn", "No MCP traffic")
-        elif any(t.recent_error_rate() > 0.5 for t in mcp_tools.values()):
-            mcp_indicator.set_status("error", "High error rate")
-        else:
-            mcp_indicator.set_status("ok", f"{len(mcp_tools)} tools active")
+
+        def _update_ui() -> None:
+            table = self.query_one("#dash-model-table", DataTable)
+            table.clear()
+            if rows:
+                for row in rows:
+                    table.add_row(*row)
+            else:
+                table.add_row("-", "-", "-", "-", "-")
+
+            split_card = self.query_one("#mcp-traffic-split", MetricCard)
+            if traffic_total > 0:
+                llm_pct = llm_count * 100 // traffic_total
+                mcp_pct = mcp_count * 100 // traffic_total
+                split_card.set_value(
+                    f"LLM: {llm_count} ({llm_pct}%) | MCP: {mcp_count} ({mcp_pct}%)"
+                )
+            else:
+                split_card.set_value("LLM: 0 | MCP: 0")
+
+            mcp_indicator = self.query_one("#mcp-indicator", StatusIndicator)
+            if not mcp_tools and mcp_count == 0:
+                mcp_indicator.set_status("warn", "No MCP traffic")
+            elif any(t.recent_error_rate() > 0.5 for t in mcp_tools.values()):
+                mcp_indicator.set_status("error", "High error rate")
+            else:
+                mcp_indicator.set_status("ok", f"{len(mcp_tools)} tools active")
+
+        self.app.call_from_thread(_update_ui)
