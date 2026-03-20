@@ -16,7 +16,8 @@ class ClientsPane(Vertical):
     def compose(self) -> ComposeResult:
         table = DataTable(id="clients-table", cursor_type="row")
         table.add_columns(
-            "Client", "Req/5m", "Err%", "Avg Latency", "Backoff", "Provider Quarantines"
+            "Client", "Req/5m", "Err%", "Avg Latency", "Backoff", "Provider Quarantines",
+            "Gemini Text", "Gemini Thought"
         )
         yield table
         yield Static("Select a client to view provider activity.", id="clients-detail")
@@ -58,11 +59,13 @@ class ClientsPane(Vertical):
                 f"{avg_lat:.0f}ms" if avg_lat else "-",
                 backoff,
                 str(quarantines),
+                str(client.recent_gemini_outcome_count("text")),
+                str(client.recent_gemini_outcome_count("thought_only")),
                 key=client_id,
             )
 
         if not store.all_clients():
-            table.add_row("(no clients tracked)", "-", "-", "-", "-", "-", key="_empty")
+            table.add_row("(no clients tracked)", "-", "-", "-", "-", "-", "-", "-", key="_empty")
 
     def _show_detail(self, client_id: str) -> None:
         try:
@@ -74,6 +77,14 @@ class ClientsPane(Vertical):
         rows: list[str] = [f"[bold]{client_id}[/]"]
         now = time.time()
         found = False
+        client = store.all_clients().get(client_id)
+        if client:
+            rows.append(
+                f"  gemini text={client.recent_gemini_outcome_count('text')} "
+                f"thought_only={client.recent_gemini_outcome_count('thought_only')} "
+                f"tool={client.recent_gemini_outcome_count('tool')}"
+            )
+            rows.append("")
 
         for (cp_client, provider), state in sorted(store.all_client_provider_states().items()):
             if cp_client != client_id:

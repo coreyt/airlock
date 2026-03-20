@@ -17,7 +17,8 @@ class ModelsPane(Vertical):
         yield Static("[bold]Providers[/]", id="providers-header")
         provider_table = DataTable(id="providers-table", cursor_type="row")
         provider_table.add_columns(
-            "Provider", "Status", "Requests", "Err%", "Recovery", "Impacted Clients"
+            "Provider", "Status", "Requests", "Err%", "Recovery", "Impacted Clients",
+            "Gemini Text", "Gemini Thought"
         )
         yield provider_table
         table = DataTable(id="models-table", cursor_type="row")
@@ -63,10 +64,20 @@ class ModelsPane(Vertical):
             requests = str(provider.recent_request_count())
             err_rate = f"{provider.recent_error_rate() * 100:.1f}%"
             impacted = str(len(provider.impacted_clients()))
-            table.add_row(name, status, requests, err_rate, recovery, impacted, key=name)
+            table.add_row(
+                name,
+                status,
+                requests,
+                err_rate,
+                recovery,
+                impacted,
+                str(provider.recent_gemini_outcome_count("text")),
+                str(provider.recent_gemini_outcome_count("thought_only")),
+                key=name,
+            )
 
         if not store.all_providers():
-            table.add_row("(no providers tracked)", "-", "-", "-", "-", "-", key="_empty-providers")
+            table.add_row("(no providers tracked)", "-", "-", "-", "-", "-", "-", "-", key="_empty-providers")
 
     @work(exclusive=True, thread=True)
     def _refresh_models(self) -> None:
@@ -103,6 +114,18 @@ class ModelsPane(Vertical):
         detail = self.query_one("#models-detail", Static)
         model = store.all_models().get(model_name)
         if not model:
+            provider = store.all_providers().get(model_name)
+            if provider:
+                mode = provider.recent_gemini_mode() or "-"
+                detail.update(
+                    f"[bold]{model_name}[/]\n\n"
+                    f"  Status: {'QUARANTINED' if provider.is_quarantined(time.time()) else 'HEALTHY'}\n"
+                    f"  Gemini mode: {mode}\n"
+                    f"  Gemini text: {provider.recent_gemini_outcome_count('text')}\n"
+                    f"  Gemini thought_only: {provider.recent_gemini_outcome_count('thought_only')}\n"
+                    f"  Gemini tool: {provider.recent_gemini_outcome_count('tool')}"
+                )
+                return
             detail.update(f"No data for {model_name}")
             return
 

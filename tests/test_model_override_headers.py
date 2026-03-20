@@ -44,3 +44,23 @@ class TestModelOverrideHeaders:
 
         assert result is None
         assert response._hidden_params == {}
+
+    async def test_builds_gemini_headers_from_request_and_response(self):
+        hook = AirlockModelOverrideHeaders()
+        response = SimpleNamespace(
+            _hidden_params={},
+            model_dump=lambda: {
+                "choices": [{"message": {"content": None}, "finish_reason": "length"}],
+                "usage": {"completion_tokens_details": {"reasoning_tokens": 5, "text_tokens": 0}},
+            },
+        )
+
+        result = await hook.async_post_call_response_headers_hook(
+            data={"model": "gemini-pro", "metadata": {"airlock_gemini": {"mode": "deep_reasoning"}}},
+            user_api_key_dict=None,
+            response=response,
+        )
+
+        assert result["X-Airlock-Provider-Mode"] == "gemini"
+        assert result["X-Airlock-Reasoning-Mode"] == "deep_reasoning"
+        assert result["X-Airlock-Provider-State"] == "thought_only"

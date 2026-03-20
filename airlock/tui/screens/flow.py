@@ -41,6 +41,8 @@ class FlowEntry:
     enforcement: dict | None
     raw_observation: dict | None
     raw_record: dict
+    gemini_request: dict | None = None
+    gemini_response: dict | None = None
     call_type: str = ""
     mcp_tool_name: str = ""
     mcp_server_name: str = ""
@@ -64,6 +66,8 @@ def _parse_entry(record: dict) -> FlowEntry | None:
         enforcement=record.get("airlock_enforcement"),
         raw_observation=obs,
         raw_record=record,
+        gemini_request=record.get("airlock_gemini"),
+        gemini_response=record.get("airlock_gemini_response"),
         call_type=record.get("call_type", ""),
         mcp_tool_name=record.get("mcp_tool_name") or "",
         mcp_server_name=record.get("mcp_server_name") or "",
@@ -263,6 +267,12 @@ def _render_pipeline(entry: FlowEntry) -> str:
             f"client={protection.get('client_id')} "
             f"cooldown={protection.get('cooldown_seconds')}"
         )
+    if entry.gemini_request or entry.gemini_response:
+        lines.append(
+            f"  Gemini: mode={(entry.gemini_request or {}).get('mode', '-')} "
+            f"shape={(entry.gemini_response or {}).get('output_shape', '-')} "
+            f"empty_text={(entry.gemini_response or {}).get('empty_text_success', False)}"
+        )
 
     return "\n".join(lines)
 
@@ -274,6 +284,10 @@ def _render_raw(entry: FlowEntry) -> str:
         parts["airlock_observation"] = entry.raw_observation
     if entry.enforcement:
         parts["airlock_enforcement"] = entry.enforcement
+    if entry.gemini_request:
+        parts["airlock_gemini"] = entry.gemini_request
+    if entry.gemini_response:
+        parts["airlock_gemini_response"] = entry.gemini_response
     if not parts:
         return "(no observation data)"
     raw = json.dumps(parts, indent=2, default=str)

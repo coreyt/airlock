@@ -503,6 +503,23 @@ class TestIngestJsonlRecord:
         model = store.all_models()["claude-sonnet"]
         assert len(model.success_times) == 5
 
+    def test_ingests_gemini_outcome_stats(self):
+        store = StateStore()
+        store.ingest_jsonl_record({
+            "model": "gemini-pro",
+            "success": True,
+            "airlock_provider": "gemini",
+            "airlock_client": "client-a",
+            "airlock_gemini": {"mode": "deep_reasoning"},
+            "airlock_gemini_response": {"output_shape": "thought_only"},
+            "timestamp": self._now_iso(),
+        })
+        client = store.all_clients()["client-a"]
+        provider = store.all_providers()["gemini"]
+        assert client.recent_gemini_outcome_count("thought_only") == 1
+        assert provider.recent_gemini_outcome_count("thought_only") == 1
+        assert provider.recent_gemini_mode() == "deep_reasoning"
+
 
 class TestTailJsonl:
     @staticmethod

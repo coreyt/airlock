@@ -54,6 +54,7 @@ class ClientState:
     latencies_ms: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     errors: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     successes: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
+    gemini_outcomes: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     threat_score: float = 0.0
     backoff_until: float = 0.0      # unix ts; 0 → no backoff
 
@@ -68,6 +69,9 @@ class ClientState:
 
     def record_error(self, timestamp: float, error_type: str) -> None:
         self.errors.append((timestamp, error_type))
+
+    def record_gemini_outcome(self, timestamp: float, output_shape: str) -> None:
+        self.gemini_outcomes.append((timestamp, output_shape))
 
     # -- readers --------------------------------------------------------
 
@@ -97,6 +101,18 @@ class ClientState:
 
     def is_in_backoff(self) -> bool:
         return time.time() < self.backoff_until
+
+    def recent_gemini_outcome_count(
+        self,
+        output_shape: str,
+        window_seconds: float = WINDOW_SECONDS,
+    ) -> int:
+        cutoff = time.time() - window_seconds
+        return sum(
+            1
+            for t, shape in self.gemini_outcomes
+            if t > cutoff and shape == output_shape
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +213,8 @@ class ProviderState:
     success_times: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     failure_times: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     rate_limit_events: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
+    gemini_outcomes: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
+    gemini_modes: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     quarantine_until: float = 0.0
     last_reason: str = ""
     last_error_type: str = ""
@@ -210,6 +228,15 @@ class ProviderState:
 
     def record_failure(self, timestamp: float) -> None:
         self.failure_times.append(timestamp)
+
+    def record_gemini_outcome(
+        self,
+        timestamp: float,
+        output_shape: str,
+        reasoning_mode: str,
+    ) -> None:
+        self.gemini_outcomes.append((timestamp, output_shape))
+        self.gemini_modes.append((timestamp, reasoning_mode))
 
     def record_rate_limit(
         self,
@@ -259,6 +286,23 @@ class ProviderState:
     ) -> set[str]:
         cutoff = time.time() - window_seconds
         return {client_id for ts, client_id in self.rate_limit_events if ts > cutoff}
+
+    def recent_gemini_outcome_count(
+        self,
+        output_shape: str,
+        window_seconds: float = WINDOW_SECONDS,
+    ) -> int:
+        cutoff = time.time() - window_seconds
+        return sum(
+            1
+            for t, shape in self.gemini_outcomes
+            if t > cutoff and shape == output_shape
+        )
+
+    def recent_gemini_mode(self, window_seconds: float = WINDOW_SECONDS) -> str | None:
+        cutoff = time.time() - window_seconds
+        recent = [mode for t, mode in self.gemini_modes if t > cutoff]
+        return recent[-1] if recent else None
 
 
 # ---------------------------------------------------------------------------
@@ -565,6 +609,22 @@ class StateStore:
             "impacted_clients": len(impacted_clients),
         }
 
+    def record_gemini_outcome(
+        self,
+        client_id: str,
+        provider: str,
+        timestamp: float,
+        output_shape: str,
+        reasoning_mode: str,
+    ) -> None:
+        client_id = normalize_client_id(client_id)
+        self.get_client(client_id).record_gemini_outcome(timestamp, output_shape)
+        self.get_provider(provider).record_gemini_outcome(
+            timestamp,
+            output_shape,
+            reasoning_mode,
+        )
+
     # -- MCP server tracking -----------------------------------------------
 
     def get_mcp_server(self, name: str) -> McpServerState:
@@ -664,6 +724,17 @@ class StateStore:
                 reason = protection.get("reason") or record.get("error") or "rate_limited"
                 error_type = record.get("error_type") or "RateLimitError"
                 self.record_provider_rate_limit(client_id, provider, now, reason, error_type)
+
+            gemini_response = record.get("airlock_gemini_response") or {}
+            gemini_request = record.get("airlock_gemini") or {}
+            if provider == "gemini" and gemini_response:
+                self.record_gemini_outcome(
+                    client_id,
+                    provider,
+                    now,
+                    str(gemini_response.get("output_shape") or "unknown"),
+                    str(gemini_request.get("mode") or "balanced"),
+                )
 
         # Track call type
         call_type = record.get("call_type", "")
