@@ -31,7 +31,7 @@ from airlock.callbacks.metrics import (
     record_pii_redaction,
     record_threat_block,
 )
-from airlock.fast.state import store
+from airlock.fast.state import normalize_client_id, store
 
 from .extract import extract_text as _extract_text_unified
 from .schemas import GuardrailObservation, GuardrailSignal
@@ -131,8 +131,10 @@ def _extract_client_id(user_api_key_dict: Any) -> str:
             if len(key) > 8:
                 return f"key:{key[-8:]}"
         if isinstance(user_api_key_dict, dict):
-            return f"key:{user_api_key_dict.get('api_key', 'unknown')[-8:]}"
-    return "unknown"
+            api_key = user_api_key_dict.get("api_key") or ""
+            if len(api_key) > 8:
+                return f"key:{api_key[-8:]}"
+    return normalize_client_id(None)
 
 
 def collect_signals(

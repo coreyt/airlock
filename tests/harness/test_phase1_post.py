@@ -109,9 +109,14 @@ class TestPostChecks:
         from airlock.cli.post_cmd import run_checks, CheckStatus
 
         results = run_checks()
-        # Provider checks should fail gracefully, not crash
-        provider_checks = [r for r in results if r.group == "Providers"]
-        for r in provider_checks:
+        # Connectivity checks should fail/warn/skip gracefully — not crash.
+        # provider_keys only checks env var presence so it may PASS independently
+        # of whether providers are reachable.
+        connectivity_checks = [
+            r for r in results
+            if r.group == "Providers" and r.name != "provider_keys"
+        ]
+        for r in connectivity_checks:
             assert r.status in (
                 CheckStatus.FAIL,
                 CheckStatus.WARN,

@@ -1,15 +1,13 @@
 """
-Airlock Proxy — entry point that launches LiteLLM proxy with Airlock config.
+Airlock Proxy — launches LiteLLM directly on the configured host and port.
+
+At startup, live provider model counts are logged for informational purposes.
+GET /v1/models is served by LiteLLM natively (alias names come from model_list
+in config.yaml).
 
 Usage:
-    # Via the installed script
-    airlock
-
-    # Via Python module
-    python -m airlock.proxy
-
-    # Or just use litellm directly
-    litellm --config config.yaml
+    airlock start           # via the installed CLI
+    python -m airlock.proxy # directly
 """
 
 from __future__ import annotations
@@ -21,6 +19,8 @@ from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
+
+from airlock.models_catalog import fetch_live_provider_models
 
 _ENV_REF_PREFIX = "os.environ/"
 
@@ -82,19 +82,26 @@ def main() -> None:
         sys.exit(1)
 
     host = os.getenv("AIRLOCK_HOST", "0.0.0.0")
-    port = os.getenv("AIRLOCK_PORT", "4000")
+    port = int(os.getenv("AIRLOCK_PORT", "4000"))
+
+    # Log live provider models at startup (informational — does not affect routing).
+    with open(config_path) as f:
+        config = yaml.safe_load(f) or {}
+    live_models = fetch_live_provider_models(config)
+    if live_models:
+        providers = sorted({m["id"].split("/")[0] for m in live_models})
+        print(f"Provider models discovered: {len(live_models)} across {', '.join(providers)}")
 
     litellm_bin = str(Path(sys.executable).parent / "litellm")
-
-    cmd = [
+    litellm_cmd = [
         litellm_bin,
         "--config", config_path,
         "--host", host,
-        "--port", port,
+        "--port", str(port),
     ]
 
-    print(f"Airlock starting on {host}:{port} with config {config_path}")
-    sys.exit(subprocess.call(cmd))
+    print(f"Airlock starting on {host}:{port}")
+    sys.exit(subprocess.call(litellm_cmd))
 
 
 if __name__ == "__main__":

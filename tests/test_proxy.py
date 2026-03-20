@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -53,55 +53,69 @@ class TestFindConfig:
 # main()
 # ---------------------------------------------------------------------------
 class TestMain:
-    def test_main_builds_correct_command(self, config_file, monkeypatch):
+    def test_main_starts_litellm_on_public_port(self, config_file, monkeypatch):
+        """subprocess.call should run LiteLLM directly on the public host:port."""
         monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
-        monkeypatch.setenv("AIRLOCK_HOST", "127.0.0.1")
-        monkeypatch.setenv("AIRLOCK_PORT", "8080")
+        monkeypatch.setenv("AIRLOCK_HOST", "0.0.0.0")
+        monkeypatch.setenv("AIRLOCK_PORT", "4000")
 
-        captured_cmd = []
+        with patch("airlock.proxy.subprocess.call", return_value=0) as mock_call, \
+             patch("airlock.proxy.fetch_live_provider_models", return_value=[]), \
+             pytest.raises(SystemExit):
+            main()
 
-        def fake_subprocess_call(cmd):
-            captured_cmd.extend(cmd)
-            return 0
-
-        with patch("airlock.proxy.subprocess.call", side_effect=fake_subprocess_call):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
-            assert exc_info.value.code == 0
-
+        cmd = mock_call.call_args[0][0]
         expected_bin = str(Path(sys.executable).parent / "litellm")
-        assert captured_cmd[0] == expected_bin
-        assert "--config" in captured_cmd
-        assert str(config_file) in captured_cmd
-        assert "--host" in captured_cmd
-        assert "127.0.0.1" in captured_cmd
-        assert "--port" in captured_cmd
-        assert "8080" in captured_cmd
+        assert cmd[0] == expected_bin
+        assert "--host" in cmd
+        assert cmd[cmd.index("--host") + 1] == "0.0.0.0"
+        assert "--port" in cmd
+        assert cmd[cmd.index("--port") + 1] == "4000"
+
+    def test_main_default_host_port(self, config_file, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
+        monkeypatch.delenv("AIRLOCK_HOST", raising=False)
+        monkeypatch.delenv("AIRLOCK_PORT", raising=False)
+
+        with patch("airlock.proxy.subprocess.call", return_value=0) as mock_call, \
+             patch("airlock.proxy.fetch_live_provider_models", return_value=[]), \
+             pytest.raises(SystemExit):
+            main()
+
+        cmd = mock_call.call_args[0][0]
+        assert cmd[cmd.index("--host") + 1] == "0.0.0.0"
+        assert cmd[cmd.index("--port") + 1] == "4000"
 
     def test_main_calls_load_dotenv(self, config_file, monkeypatch):
         monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
         dotenv_called = []
 
-        with patch("airlock.proxy.load_dotenv", side_effect=lambda *a, **kw: dotenv_called.append(True)):
-            with patch("airlock.proxy.subprocess.call", return_value=0):
-                with pytest.raises(SystemExit):
-                    main()
+        with patch("airlock.proxy.load_dotenv", side_effect=lambda *a, **kw: dotenv_called.append(True)), \
+             patch("airlock.proxy.subprocess.call", return_value=0), \
+             patch("airlock.proxy.fetch_live_provider_models", return_value=[]), \
+             pytest.raises(SystemExit):
+            main()
 
         assert len(dotenv_called) == 1
 
-    def test_main_default_host_port(self, config_file, monkeypatch):
+    def test_main_propagates_litellm_returncode(self, config_file, monkeypatch):
         monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
-        captured_cmd = []
 
-        def fake_subprocess_call(cmd):
-            captured_cmd.extend(cmd)
-            return 0
+        with patch("airlock.proxy.subprocess.call", return_value=42), \
+             patch("airlock.proxy.fetch_live_provider_models", return_value=[]), \
+             pytest.raises(SystemExit) as exc_info:
+            main()
 
-        with patch("airlock.proxy.subprocess.call", side_effect=fake_subprocess_call):
-            with pytest.raises(SystemExit):
-                main()
+        assert exc_info.value.code == 42
 
-        host_idx = captured_cmd.index("--host")
-        port_idx = captured_cmd.index("--port")
-        assert captured_cmd[host_idx + 1] == "0.0.0.0"
-        assert captured_cmd[port_idx + 1] == "4000"
+    def test_main_calls_live_discovery(self, config_file, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
+        discovery_called = []
+
+        with patch("airlock.proxy.fetch_live_provider_models",
+                   side_effect=lambda *a, **kw: discovery_called.append(True) or []), \
+             patch("airlock.proxy.subprocess.call", return_value=0), \
+             pytest.raises(SystemExit):
+            main()
+
+        assert len(discovery_called) == 1

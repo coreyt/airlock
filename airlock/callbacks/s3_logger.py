@@ -49,10 +49,11 @@ class AirlockS3Logger(CustomLogger):
         self._client = None
 
     def _get_client(self) -> Any:
+        if self._client is not None:
+            return self._client
         if not _BOTO3_AVAILABLE:
             raise ImportError("boto3 is required for S3 logging: pip install airlock[s3]")
-        if self._client is None:
-            self._client = boto3.client("s3")
+        self._client = boto3.client("s3")
         return self._client
 
     def _build_record(

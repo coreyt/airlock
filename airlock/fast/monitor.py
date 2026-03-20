@@ -28,23 +28,7 @@ from .state import normalize_client_id, store
 
 logger = logging.getLogger("airlock.fast.monitor")
 
-# Provider inference for spend tracking — prefix heuristic.
-_PROVIDER_PREFIXES = {
-    "claude": "anthropic",
-    "gpt": "openai",
-    "gemini": "gemini",
-    "mistral": "mistral",
-    "codestral": "mistral",
-    "magistral": "mistral",
-}
-
-
-def _infer_provider(model_name: str) -> str | None:
-    """Map a model alias to its provider name via prefix matching."""
-    for prefix, provider in _PROVIDER_PREFIXES.items():
-        if model_name.startswith(prefix):
-            return provider
-    return None
+from .router import infer_provider as _infer_provider
 
 
 def _extract_client_id(kwargs: dict) -> str:
@@ -124,29 +108,24 @@ class AirlockFastMonitor(CustomLogger):
 
         # Track spend per provider for budget-aware routing
         cost = kwargs.get("response_cost", 0.0)
-        if cost and cost > 0:
-            provider = _infer_provider(model_name)
-            if provider:
+        provider = _infer_provider(model_name)
+        if provider:
+            if cost and cost > 0:
                 store.get_provider_spend(provider).record_spend(now, cost)
-                store.record_provider_request(client_id, provider, now)
-                store.record_provider_success(client_id, provider, now)
-        else:
-            provider = _infer_provider(model_name)
-            if provider:
-                store.record_provider_request(client_id, provider, now)
-                store.record_provider_success(client_id, provider, now)
-                if provider == "gemini":
-                    metadata = kwargs.get("litellm_params", {}).get("metadata", {}) or {}
-                    gemini_request = metadata.get("airlock_gemini") or {}
-                    gemini_response = classify_gemini_response(response_obj) or {}
-                    if gemini_response:
-                        store.record_gemini_outcome(
-                            client_id,
-                            provider,
-                            now,
-                            str(gemini_response.get("output_shape") or "unknown"),
-                            str(gemini_request.get("mode") or "balanced"),
-                        )
+            store.record_provider_request(client_id, provider, now)
+            store.record_provider_success(client_id, provider, now)
+            if provider == "gemini":
+                metadata = kwargs.get("litellm_params", {}).get("metadata", {}) or {}
+                gemini_request = metadata.get("airlock_gemini") or {}
+                gemini_response = classify_gemini_response(response_obj) or {}
+                if gemini_response:
+                    store.record_gemini_outcome(
+                        client_id,
+                        provider,
+                        now,
+                        str(gemini_response.get("output_shape") or "unknown"),
+                        str(gemini_request.get("mode") or "balanced"),
+                    )
 
         # Track MCP tool state and traffic split
         is_mcp = (

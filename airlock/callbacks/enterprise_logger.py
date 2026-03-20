@@ -107,7 +107,7 @@ def _normalize_failure(
     elif "Evaluation question:" in last_content:
         category = "eval"
     else:
-        category = "eval"
+        category = "pre_call"
 
     if error_text:
         return error_text, exc_type, category

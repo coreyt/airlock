@@ -100,8 +100,8 @@ class ComplexityResult:
     features: dict[str, float] = field(default_factory=dict)
 
 
-# Provider inference — prefix heuristic (duplicated from monitor to avoid
-# circular imports; both modules import state).
+# Provider inference — prefix heuristic. monitor.py imports infer_provider
+# from here; guardian.py and enterprise_logger.py also use it.
 _PROVIDER_PREFIXES = {
     "claude": "anthropic",
     "gpt": "openai",
