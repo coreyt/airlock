@@ -1,15 +1,14 @@
 """
-Airlock Proxy — entry point that launches LiteLLM proxy with Airlock config.
+Airlock Proxy — launches LiteLLM on an internal port and the Airlock sidecar
+on the public-facing port.
+
+The sidecar owns GET /v1/models (augmented catalog with alias names,
+provider-pinned model IDs, and live-discovered provider models) and
+streams everything else through to LiteLLM unchanged.
 
 Usage:
-    # Via the installed script
-    airlock
-
-    # Via Python module
-    python -m airlock.proxy
-
-    # Or just use litellm directly
-    litellm --config config.yaml
+    airlock start           # via the installed CLI
+    python -m airlock.proxy # directly
 """
 
 from __future__ import annotations
@@ -19,8 +18,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+import uvicorn
 import yaml
 from dotenv import load_dotenv
+
+from airlock.sidecar import make_app
 
 _ENV_REF_PREFIX = "os.environ/"
 
@@ -82,19 +84,39 @@ def main() -> None:
         sys.exit(1)
 
     host = os.getenv("AIRLOCK_HOST", "0.0.0.0")
-    port = os.getenv("AIRLOCK_PORT", "4000")
+    port = int(os.getenv("AIRLOCK_PORT", "4000"))
+    # LiteLLM listens on 127.0.0.1 at this port; sidecar owns the public-facing port.
+    internal_port = int(os.getenv("AIRLOCK_INTERNAL_PORT", str(port + 1)))
 
     litellm_bin = str(Path(sys.executable).parent / "litellm")
 
-    cmd = [
+    litellm_cmd = [
         litellm_bin,
         "--config", config_path,
-        "--host", host,
-        "--port", port,
+        "--host", "127.0.0.1",
+        "--port", str(internal_port),
     ]
 
-    print(f"Airlock starting on {host}:{port} with config {config_path}")
-    sys.exit(subprocess.call(cmd))
+    print(
+        f"Airlock starting on {host}:{port} "
+        f"(LiteLLM internal: 127.0.0.1:{internal_port})"
+    )
+
+    proc = subprocess.Popen(litellm_cmd)
+
+    try:
+        app = make_app(internal_port=internal_port, config_path=config_path)
+        uvicorn.run(app, host=host, port=port, log_level="warning")
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=2)
+
+    sys.exit(proc.returncode or 0)
 
 
 if __name__ == "__main__":
