@@ -6,6 +6,7 @@ import asyncio
 import datetime
 import json
 import os
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,10 +30,27 @@ PROVIDER_MIN_INTERVAL: dict[str, float] = {
 }
 _DEFAULT_MIN_INTERVAL = 2.0
 
-# Process-level throttle state (reset between pytest runs automatically).
-_provider_last_request: dict[str, float] = {}
+# File-backed throttle state — survives across pytest runs in the same session.
+_THROTTLE_FILE = Path(tempfile.gettempdir()) / ".airlock_harness_throttle.json"
+
 # Providers that returned 429 this run — remaining cases are skipped.
 _provider_rate_limited: set[str] = set()
+
+
+def _load_last_requests() -> dict[str, float]:
+    try:
+        return json.loads(_THROTTLE_FILE.read_text())
+    except Exception:
+        return {}
+
+
+def _save_last_request(provider: str, ts: float) -> None:
+    state = _load_last_requests()
+    state[provider] = ts
+    try:
+        _THROTTLE_FILE.write_text(json.dumps(state))
+    except Exception:
+        pass
 
 
 @dataclass(frozen=True)
@@ -118,11 +136,11 @@ class LiveProxyMatrixBase:
         if not provider:
             return
         min_interval = PROVIDER_MIN_INTERVAL.get(provider, _DEFAULT_MIN_INTERVAL)
-        last = _provider_last_request.get(provider, 0.0)
+        last = _load_last_requests().get(provider, 0.0)
         wait = min_interval - (time.time() - last)
         if wait > 0:
             await asyncio.sleep(wait)
-        _provider_last_request[provider] = time.time()
+        _save_last_request(provider, time.time())
 
     async def _send_case(self, http_client, case: LiveMatrixCase):
         provider = case.provider or ""
