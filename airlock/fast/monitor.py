@@ -172,12 +172,21 @@ class AirlockFastMonitor(CustomLogger):
         exception = kwargs.get("exception")
         error_type = type(exception).__name__
 
+        # Pre-call failures (auth, blocked, no-db, etc.) arrive with
+        # exception=None because the proxy rejected the request before
+        # LiteLLM reached the model.  They must not affect the circuit
+        # breaker or provider-quarantine state — those track model/provider
+        # health, not client configuration errors.
+        is_provider_call = exception is not None
+
         store.get_client(client_id).record_error(now, error_type)
-        store.get_model(model_name).record_failure(now)
+        if is_provider_call:
+            store.get_model(model_name).record_failure(now)
         provider = _infer_provider(model_name)
         if provider:
             store.record_provider_request(client_id, provider, now)
-            store.record_provider_failure(client_id, provider, now)
+            if is_provider_call:
+                store.record_provider_failure(client_id, provider, now)
 
         is_rate_limited, reason = _is_provider_rate_limited(exception)
         if provider and is_rate_limited:

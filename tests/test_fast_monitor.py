@@ -123,6 +123,21 @@ class TestMonitorCallbacks:
         assert len(model.failure_times) == 1
         assert model.consecutive_failures == 1
 
+    def test_precall_failure_skips_circuit_breaker(
+        self, monitor, fresh_state_store, mock_logger_kwargs, mock_start_end_times,
+    ):
+        """Auth/pre-call failures (exception=None) must not trip the circuit breaker."""
+        start, end = mock_start_end_times
+        kwargs = {**mock_logger_kwargs, "exception": None}
+        monitor.log_failure_event(kwargs, None, start, end)
+
+        client = fresh_state_store.get_client("user:dev-alice")
+        assert len(client.errors) == 1  # client error still recorded
+
+        model = fresh_state_store.get_model("claude-sonnet")
+        assert len(model.failure_times) == 0  # circuit breaker NOT affected
+        assert model.consecutive_failures == 0
+
     def test_duration_calculated_correctly(
         self, monitor, fresh_state_store, mock_logger_kwargs,
         mock_response_obj, mock_start_end_times,
