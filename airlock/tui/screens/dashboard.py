@@ -48,6 +48,7 @@ class DashboardPane(Vertical):
         self._port = port
         self._proxy_manager = proxy_manager
         self._externally_running = False
+        self._stopping = False  # True during action_stop_proxy to suppress watcher
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="dash-top-row"):
@@ -87,9 +88,9 @@ class DashboardPane(Vertical):
         yield table
 
     def on_mount(self) -> None:
-        self._check_health()
+        self._probe_external()
         self._refresh_state()
-        self.set_interval(30.0, self._check_health)
+        self.set_interval(300.0, self._probe_external)
         self.set_interval(5.0, self._refresh_state)
 
     # -- collapsible toggle -----------------------------------------------
@@ -130,16 +131,25 @@ class DashboardPane(Vertical):
         collapsible.collapsed = False
         collapsible.add_class("-expanded")
         console.write("[green]Proxy started.[/]")
+        indicator = self.query_one("#proxy-indicator", StatusIndicator)
+        indicator.set_status("warn", "Starting...")
         self._stream_proxy_output()
+        self._watch_proxy_process()
 
     def action_stop_proxy(self) -> None:
         """Stop the TUI-owned proxy."""
         if self._proxy_manager is None:
             return
+        self._stopping = True
         self._proxy_manager.stop()
+        self._stopping = False
         btn = self.query_one("#proxy-start-btn", Button)
         btn.label = "Start Proxy"
         btn.variant = "success"
+        indicator = self.query_one("#proxy-indicator", StatusIndicator)
+        indicator.set_status("error", f"Not reachable at {self._host}:{self._port}")
+        detail = self.query_one("#proxy-detail", Static)
+        detail.update(f"Last checked: {datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC")
         console = self.query_one("#dash-console-log", _SafeRichLog)
         console.write("[yellow]Proxy stopped.[/]")
 
@@ -161,7 +171,7 @@ class DashboardPane(Vertical):
 
     @work(thread=True, group="proxy-stdout")
     def _stream_proxy_output(self) -> None:
-        """Read proxy output lines into the RichLog."""
+        """Read proxy output lines into the RichLog; detect startup completion."""
         import queue as _queue
 
         from rich.text import Text
@@ -170,18 +180,63 @@ class DashboardPane(Vertical):
             return
         q = self._proxy_manager.output_queue
         console = self.query_one("#dash-console-log", _SafeRichLog)
+        _ready = False
         while self._proxy_manager.is_tui_owned:
             try:
                 line = q.get(timeout=0.5)
                 console.write(Text.from_ansi(line))
+                if not _ready and (
+                    "application startup complete" in line.lower()
+                    or "uvicorn running on" in line.lower()
+                ):
+                    _ready = True
+                    self.app.call_from_thread(self._on_proxy_ready)
             except _queue.Empty:
                 continue
 
-    # -- health check with button state -----------------------------------
+    def _on_proxy_ready(self) -> None:
+        """Called when proxy stdout signals it is ready to serve requests."""
+        indicator = self.query_one("#proxy-indicator", StatusIndicator)
+        indicator.set_status("ok", f"Running at {self._host}:{self._port}")
+        detail = self.query_one("#proxy-detail", Static)
+        detail.update(f"Last checked: {datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC")
+
+    @work(thread=True, group="proxy-watcher")
+    def _watch_proxy_process(self) -> None:
+        """Block until the TUI-owned process exits, then update UI if unexpected."""
+        if self._proxy_manager is None or self._proxy_manager._process is None:
+            return
+        proc = self._proxy_manager._process
+        proc.wait()
+        if not self._stopping:
+            self.app.call_from_thread(self._on_proxy_exited)
+
+    def _on_proxy_exited(self) -> None:
+        """Called when the proxy exits without action_stop_proxy being invoked."""
+        indicator = self.query_one("#proxy-indicator", StatusIndicator)
+        indicator.set_status("error", "Proxy exited unexpectedly")
+        btn = self.query_one("#proxy-start-btn", Button)
+        btn.label = "Start Proxy"
+        btn.variant = "success"
+        btn.disabled = False
+        detail = self.query_one("#proxy-detail", Static)
+        detail.update(f"Last checked: {datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC")
+        console = self.query_one("#dash-console-log", _SafeRichLog)
+        console.write("[red]Proxy exited unexpectedly.[/]")
+
+    # -- external proxy probe (HTTP) --------------------------------------
 
     @work(exclusive=True, thread=True, group="health-check")
-    def _check_health(self) -> None:
-        # 0.0.0.0 is a bind address, not connectable — probe via loopback
+    def _probe_external(self) -> None:
+        """HTTP probe for externally-running proxy only.
+
+        Skipped entirely when the TUI owns the process — process state is
+        authoritative in that case and no network traffic is needed.
+        """
+        mgr = self._proxy_manager
+        if mgr is not None and mgr.is_tui_owned:
+            return
+
         probe_host = "127.0.0.1" if self._host == "0.0.0.0" else self._host
         url = f"http://{probe_host}:{self._port}/health/liveliness"
 
@@ -192,9 +247,6 @@ class DashboardPane(Vertical):
         except Exception:
             pass
 
-        mgr = self._proxy_manager
-        tui_owned = mgr is not None and mgr.is_tui_owned
-
         def _update_ui() -> None:
             indicator = self.query_one("#proxy-indicator", StatusIndicator)
             detail = self.query_one("#proxy-detail", Static)
@@ -202,20 +254,10 @@ class DashboardPane(Vertical):
 
             if proxy_reachable:
                 indicator.set_status("ok", f"Running at {self._host}:{self._port}")
-                if tui_owned:
-                    btn.label = "Stop Proxy"
-                    btn.variant = "error"
-                    btn.disabled = False
-                else:
-                    btn.label = "Running Externally"
-                    btn.variant = "default"
-                    btn.disabled = True
-                    self._externally_running = True
-            elif tui_owned:
-                indicator.set_status("warn", "Starting...")
-                btn.label = "Stop Proxy"
-                btn.variant = "error"
-                btn.disabled = False
+                btn.label = "Running Externally"
+                btn.variant = "default"
+                btn.disabled = True
+                self._externally_running = True
             else:
                 indicator.set_status(
                     "error", f"Not reachable at {self._host}:{self._port}"

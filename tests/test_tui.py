@@ -676,8 +676,8 @@ async def test_logs_mcp_filtering(tmp_path: Path) -> None:
             logs_pane._apply_filters()
 
 
-async def test_health_check_connection_error_shows_not_reachable() -> None:
-    """A connection error means the proxy is not running."""
+async def test_probe_external_connection_error_shows_not_reachable() -> None:
+    """A connection error on _probe_external means the proxy is not running."""
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
         from textual.widgets import Button
@@ -691,7 +691,7 @@ async def test_health_check_connection_error_shows_not_reachable() -> None:
             "urllib.request.urlopen",
             side_effect=OSError("Connection refused"),
         ):
-            dashboard._check_health()
+            dashboard._probe_external()
             await pilot.pause()
 
         indicator = app.query_one("#proxy-indicator", StatusIndicator)
@@ -701,33 +701,22 @@ async def test_health_check_connection_error_shows_not_reachable() -> None:
         assert btn.disabled is False
 
 
-async def test_tui_owned_not_reachable_shows_starting() -> None:
-    """When proxy subprocess is alive but HTTP isn't ready, show Starting."""
+async def test_probe_external_skipped_when_tui_owned() -> None:
+    """_probe_external makes no HTTP calls when the TUI owns the process."""
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
-        from textual.widgets import Button
-
         from airlock.tui.screens.dashboard import DashboardPane
-        from airlock.tui.widgets.status_indicator import StatusIndicator
 
         dashboard = app.query_one(DashboardPane)
-        # Simulate: TUI owns a running process but HTTP not ready yet
         mgr = dashboard._proxy_manager
         mgr._process = mock.Mock()
-        mgr._process.poll.return_value = None  # process alive
+        mgr._process.poll.return_value = None  # process alive → is_tui_owned=True
 
-        with mock.patch(
-            "urllib.request.urlopen",
-            side_effect=ConnectionRefusedError,
-        ):
-            dashboard._check_health()
+        with mock.patch("urllib.request.urlopen") as mock_urlopen:
+            dashboard._probe_external()
             await pilot.pause()
 
-        indicator = app.query_one("#proxy-indicator", StatusIndicator)
-        btn = app.query_one("#proxy-start-btn", Button)
-        assert "Starting" in indicator._label
-        assert btn.label.plain == "Stop Proxy"
-        assert btn.disabled is False
+        mock_urlopen.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
