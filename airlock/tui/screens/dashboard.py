@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import urllib.request
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -238,11 +239,16 @@ class DashboardPane(Vertical):
             return
 
         probe_host = "127.0.0.1" if self._host == "0.0.0.0" else self._host
-        url = f"http://{probe_host}:{self._port}/health/liveliness"
+        url = f"http://{probe_host}:{self._port}/health"
+        master_key = os.environ.get("AIRLOCK_MASTER_KEY", "")
+        req = urllib.request.Request(  # noqa: S310
+            url,
+            headers={"Authorization": f"Bearer {master_key}"} if master_key else {},
+        )
 
         proxy_reachable = False
         try:
-            urllib.request.urlopen(url, timeout=3)  # noqa: S310
+            urllib.request.urlopen(req, timeout=3)  # noqa: S310
             proxy_reachable = True
         except Exception:
             pass
