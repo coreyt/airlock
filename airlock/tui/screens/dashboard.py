@@ -120,6 +120,7 @@ class DashboardPane(Vertical):
         """Start the proxy via ProxyManager."""
         if self._proxy_manager is None:
             return
+        self._stopping = False  # clear any prior stop before starting
         err = self._proxy_manager.start()
         btn = self.query_one("#proxy-start-btn", Button)
         console = self.query_one("#dash-console-log", _SafeRichLog)
@@ -143,10 +144,14 @@ class DashboardPane(Vertical):
             return
         self._stopping = True
         self._proxy_manager.stop()
-        self._stopping = False
+        # Do NOT reset _stopping here. _watch_proxy_process checks it in a
+        # worker thread and races with proc.wait() returning — resetting here
+        # can lose the race. _stopping is cleared at the start of the next
+        # action_start_proxy call.
         btn = self.query_one("#proxy-start-btn", Button)
         btn.label = "Start Proxy"
         btn.variant = "success"
+        btn.disabled = False
         indicator = self.query_one("#proxy-indicator", StatusIndicator)
         indicator.set_status("error", f"Not reachable at {self._host}:{self._port}")
         detail = self.query_one("#proxy-detail", Static)
@@ -254,6 +259,10 @@ class DashboardPane(Vertical):
             pass
 
         def _update_ui() -> None:
+            # Re-check: TUI may have taken ownership between probe start and now
+            if self._proxy_manager is not None and self._proxy_manager.is_tui_owned:
+                return
+
             indicator = self.query_one("#proxy-indicator", StatusIndicator)
             detail = self.query_one("#proxy-detail", Static)
             btn = self.query_one("#proxy-start-btn", Button)
