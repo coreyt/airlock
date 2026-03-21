@@ -277,6 +277,12 @@ general_settings:
   # Master key protects the /key/generate endpoint (set via env)
   master_key: os.environ/AIRLOCK_MASTER_KEY
 
+  # Run model health checks in the background on a fixed interval.
+  # Without this, GET /health fires a live completion to every model on-demand.
+  # Interval is in seconds; 3600 = hourly.
+  background_health_checks: true
+  health_check_interval: 3600
+
   # Where the proxy listens
   # host: 0.0.0.0    # set via CLI flag or env
   # port: 4000       # set via CLI flag or env
