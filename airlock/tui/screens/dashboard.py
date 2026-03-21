@@ -89,7 +89,7 @@ class DashboardPane(Vertical):
     def on_mount(self) -> None:
         self._check_health()
         self._refresh_state()
-        self.set_interval(5.0, self._check_health)
+        self.set_interval(30.0, self._check_health)
         self.set_interval(5.0, self._refresh_state)
 
     # -- collapsible toggle -----------------------------------------------
