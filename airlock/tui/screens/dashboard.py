@@ -38,11 +38,26 @@ class _SafeRichLog(RichLog):
             return Strip.blank(width, self.rich_style)
         return super()._render_line(y, scroll_x, width)
 
-    def write(self, content, **kwargs) -> "RichLog":
+    def write(  # type: ignore[override]
+        self,
+        content,
+        width=None,
+        expand=False,
+        shrink=True,
+        scroll_end=None,
+        animate=False,
+    ) -> "RichLog":
         """Only auto-scroll when already at the bottom (sticky scroll)."""
-        if "scroll_end" not in kwargs:
-            kwargs["scroll_end"] = self.is_vertical_scroll_end
-        return super().write(content, **kwargs)
+        if scroll_end is None:
+            scroll_end = self.is_vertical_scroll_end
+        return super().write(
+            content,
+            width=width,
+            expand=expand,
+            shrink=shrink,
+            scroll_end=scroll_end,
+            animate=animate,
+        )
 
     def get_selection(self, selection) -> "tuple[str, str] | None":
         """Extract plain text from Strip lines for Textual's selection / Ctrl+C copy."""
