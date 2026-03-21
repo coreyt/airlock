@@ -6,7 +6,7 @@ import argparse
 import logging
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -24,7 +24,7 @@ def configure_logging() -> None:
     log_dir = Path(os.getenv("AIRLOCK_LOG_DIR", "./logs"))
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     log_file = log_dir / f"airlock-{timestamp}.log"
 
     formatter = logging.Formatter(

@@ -9,7 +9,7 @@ import re
 import subprocess
 import sys
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO
 
@@ -140,7 +140,7 @@ class ProxyManager:
             for raw_line in stdout:
                 line = raw_line.rstrip("\n")
                 if line and not _HAS_TIMESTAMP.match(line):
-                    line = f"{datetime.now():%H:%M:%S} {line}"
+                    line = f"{datetime.now(timezone.utc):%H:%M:%S}Z {line}"
                 self._ring.append(line)
                 self._output_queue.put(line)
                 self._line_count += 1

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from textual import work
@@ -154,7 +154,7 @@ class DashboardPane(Vertical):
 
         out_dir = Path("exported_log")
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_file = out_dir / f"console-{datetime.now():%Y%m%d-%H%M%S}.log"
+        out_file = out_dir / f"console-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}Z.log"
         lines = list(self._proxy_manager._ring)
         out_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
         console.write(f"[green]Exported {len(lines)} lines to {out_file}[/]")
@@ -225,7 +225,7 @@ class DashboardPane(Vertical):
                 btn.disabled = False
                 self._externally_running = False
 
-            detail.update(f"Last checked: {datetime.now().strftime('%H:%M:%S')}")
+            detail.update(f"Last checked: {datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC")
 
         self.app.call_from_thread(_update_ui)
 
