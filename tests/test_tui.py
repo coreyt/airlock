@@ -719,6 +719,59 @@ async def test_probe_external_skipped_when_tui_owned() -> None:
         mock_urlopen.assert_not_called()
 
 
+async def test_safe_rich_log_sticky_scroll() -> None:
+    """New writes do not auto-scroll when the user has scrolled up."""
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        from airlock.tui.screens.dashboard import _SafeRichLog
+
+        console = app.query_one("#dash-console-log", _SafeRichLog)
+        console.clear()
+        # Write enough lines to make the content taller than the widget
+        for i in range(60):
+            console.write(f"line {i:03d}")
+        await pilot.pause()
+
+        # Scroll to the top
+        console.scroll_home(animate=False)
+        await pilot.pause()
+        scroll_before = console.scroll_offset.y
+
+        # A new write must NOT move the scroll position
+        console.write("new line at bottom")
+        await pilot.pause()
+        assert console.scroll_offset.y == scroll_before
+
+
+async def test_safe_rich_log_get_selection_returns_text() -> None:
+    """get_selection extracts plain text visible in the log."""
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        from textual.selection import Selection
+        from textual.widgets import Collapsible
+
+        from airlock.tui.screens.dashboard import _SafeRichLog
+
+        # Expand the collapsible first so the RichLog is sized and lines are rendered
+        collapsible = app.query_one("#dash-console-collapsible", Collapsible)
+        collapsible.collapsed = False
+        await pilot.pause()
+
+        console = app.query_one("#dash-console-log", _SafeRichLog)
+        console.clear()
+        await pilot.pause()
+        console.write("alpha")
+        console.write("beta")
+        await pilot.pause()
+
+        # Select everything (None limits = full extent)
+        result = console.get_selection(Selection(None, None))
+        assert result is not None
+        text, sep = result
+        assert "alpha" in text
+        assert "beta" in text
+
+
 # ---------------------------------------------------------------------------
 # MCP Servers screen (screen 8)
 # ---------------------------------------------------------------------------

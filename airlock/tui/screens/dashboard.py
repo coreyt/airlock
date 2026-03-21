@@ -21,16 +21,49 @@ if TYPE_CHECKING:
 
 
 class _SafeRichLog(RichLog):
-    """RichLog that guards against an out-of-bounds index when max_lines is reached.
+    """RichLog with three enhancements over the stock widget.
 
-    Textual bug: when the log is exactly full and scrolled to the bottom,
-    render_line requests self.lines[max_lines] which is one past the end.
+    1. Bounds guard: Textual bug where render_line requests self.lines[max_lines]
+       (one past the end) when the log is full and scrolled to the bottom.
+    2. Sticky scroll: new writes only auto-scroll if the view is already at the
+       bottom, so the user can freely scroll up to read history without the log
+       jumping away.
+    3. Text selection: overrides get_selection() so Textual's native click-drag
+       selection works.  Click and drag to select; Ctrl+C copies via OSC52.
+       Terminal-level Shift+drag also works in most emulators.
     """
 
     def _render_line(self, y: int, scroll_x: int, width: int) -> Strip:
         if y >= len(self.lines):
             return Strip.blank(width, self.rich_style)
         return super()._render_line(y, scroll_x, width)
+
+    def write(self, content, **kwargs) -> "RichLog":
+        """Only auto-scroll when already at the bottom (sticky scroll)."""
+        if "scroll_end" not in kwargs:
+            kwargs["scroll_end"] = self.is_vertical_scroll_end
+        return super().write(content, **kwargs)
+
+    def get_selection(self, selection) -> "tuple[str, str] | None":
+        """Extract plain text from Strip lines for Textual's selection / Ctrl+C copy."""
+        if not self.lines:
+            return None
+        from textual.geometry import Offset
+        from textual.selection import Selection as _Sel
+
+        scroll_y = self.scroll_offset.y
+
+        def _plain(strip: Strip) -> str:
+            return "".join(seg.text for seg in strip).rstrip()
+
+        # selection offsets are visual-row relative; shift by scroll_y to get
+        # the actual index into self.lines.
+        start = selection.start
+        end = selection.end
+        adj_start = Offset(start.x, start.y + scroll_y) if start is not None else None
+        adj_end = Offset(end.x, end.y + scroll_y) if end is not None else None
+        full_text = "\n".join(_plain(line) for line in self.lines)
+        return _Sel(adj_start, adj_end).extract(full_text), "\n"
 
 
 class DashboardPane(Vertical):
