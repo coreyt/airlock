@@ -9,12 +9,14 @@ from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.widgets import DataTable, Static
 
+from airlock.tui.widgets.safe_data_table import _SafeDataTable
+
 
 class ClientsPane(Vertical):
     """Aggregate client health and provider protection status."""
 
     def compose(self) -> ComposeResult:
-        table = DataTable(id="clients-table", cursor_type="row")
+        table = _SafeDataTable(id="clients-table", cursor_type="row")
         table.add_columns(
             "Client", "Req/5m", "Err%", "Avg Latency", "Backoff", "Provider Quarantines",
             "Gemini Text", "Gemini Thought"
@@ -38,7 +40,7 @@ class ClientsPane(Vertical):
         except ImportError:
             return
 
-        table = self.query_one("#clients-table", DataTable)
+        table = self.query_one("#clients-table", _SafeDataTable)
         table.clear()
         now = time.time()
         cp_states = store.all_client_provider_states()

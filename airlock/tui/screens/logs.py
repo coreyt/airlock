@@ -13,6 +13,8 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import DataTable, Input, Select, Static
 
+from airlock.tui.widgets.safe_data_table import _SafeDataTable
+
 
 class LogsPane(Vertical):
     """Live log viewer with model/user/status filtering."""
@@ -44,7 +46,7 @@ class LogsPane(Vertical):
                 allow_blank=False,
             )
             yield Input(placeholder="Tool name", id="logs-tool-filter")
-        table = DataTable(id="logs-table", cursor_type="row")
+        table = _SafeDataTable(id="logs-table", cursor_type="row")
         table.add_columns("Timestamp", "Type", "Model", "User", "Tokens", "Duration", "OK")
         yield table
         yield Static("Select a log entry to view details.", id="logs-detail")
@@ -133,7 +135,7 @@ class LogsPane(Vertical):
         self._populate_table()
 
     def _populate_table(self) -> None:
-        table = self.query_one("#logs-table", DataTable)
+        table = self.query_one("#logs-table", _SafeDataTable)
         table.clear()
 
         for i, r in enumerate(self._filtered[:200]):

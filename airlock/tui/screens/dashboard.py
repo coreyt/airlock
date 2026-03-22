@@ -13,6 +13,8 @@ from textual.containers import Horizontal, Vertical
 from textual.strip import Strip
 from textual.widgets import Button, Collapsible, DataTable, RichLog, Static
 
+from airlock.tui.widgets.safe_data_table import _SafeDataTable
+
 from airlock.tui.widgets.metric_card import MetricCard
 from airlock.tui.widgets.status_indicator import StatusIndicator
 
@@ -132,7 +134,7 @@ class DashboardPane(Vertical):
             yield _SafeRichLog(id="dash-console-log", max_lines=500)
         with Horizontal(id="dash-export-row"):
             yield Button("Export Log", id="export-log-btn", variant="default")
-        table = DataTable(id="dash-model-table")
+        table = _SafeDataTable(id="dash-model-table")
         table.add_columns("Model", "Circuit", "Reqs", "Err%", "Avg Latency")
         yield table
 
@@ -357,7 +359,7 @@ class DashboardPane(Vertical):
         mcp_tools = store.all_mcp_tools()
 
         def _update_ui() -> None:
-            table = self.query_one("#dash-model-table", DataTable)
+            table = self.query_one("#dash-model-table", _SafeDataTable)
             table.clear()
             table.add_rows(rows) if rows else table.add_row("-", "-", "-", "-", "-")
 

@@ -9,12 +9,14 @@ from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.widgets import DataTable, Static
 
+from airlock.tui.widgets.safe_data_table import _SafeDataTable
+
 
 class ThreatsPane(Vertical):
     """Active threat monitoring and detection configuration."""
 
     def compose(self) -> ComposeResult:
-        table = DataTable(id="threats-backoffs", cursor_type="row")
+        table = _SafeDataTable(id="threats-backoffs", cursor_type="row")
         table.add_columns("Client", "Threat Score", "Backoff Until", "Remaining")
         yield table
         yield Static("", id="threats-config")
@@ -31,7 +33,7 @@ class ThreatsPane(Vertical):
         except ImportError:
             return
 
-        table = self.query_one("#threats-backoffs", DataTable)
+        table = self.query_one("#threats-backoffs", _SafeDataTable)
         table.clear()
         now = time.time()
         any_backoff = False

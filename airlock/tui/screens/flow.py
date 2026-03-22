@@ -21,6 +21,8 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.widgets import DataTable, Static, TabbedContent, TabPane
 
+from airlock.tui.widgets.safe_data_table import _SafeDataTable
+
 
 # ---------------------------------------------------------------------------
 # Internal data model
@@ -378,7 +380,7 @@ class FlowPane(Vertical):
             "[green]● LIVE[/]  │  0 requests  │  0 would_block  │  1s poll",
             id="flow-status",
         )
-        table = DataTable(id="flow-table", cursor_type="row")
+        table = _SafeDataTable(id="flow-table", cursor_type="row")
         table.add_columns("Time", "Type", "Server", "Model", "Client", "Score", "Verdict", "Enforce")
         yield table
         with TabbedContent(id="flow-detail-tabs"):
@@ -488,7 +490,7 @@ class FlowPane(Vertical):
     # UI updates
     # ------------------------------------------------------------------
     def _refresh_table(self) -> None:
-        table = self.query_one("#flow-table", DataTable)
+        table = self.query_one("#flow-table", _SafeDataTable)
         table.clear()
 
         for i, entry in enumerate(self._entries[:200]):

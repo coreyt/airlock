@@ -128,6 +128,9 @@ litellm_settings:
   # Drop any unsupported params instead of erroring
   drop_params: true
 
+  # Inject a dummy user message when messages=[] so Anthropic doesn't reject the request
+  modify_params: true
+
   # Custom LLM providers — Tavily search exposed as a chat completion model.
   # get_instance_fn resolves the dotted path to a module-level instance.
   custom_provider_map:

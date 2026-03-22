@@ -9,6 +9,8 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, DataTable, RichLog, Static, TabbedContent, TabPane
 
+from airlock.tui.widgets.safe_data_table import _SafeDataTable
+
 from airlock.fast.state import McpServerHealth
 
 if TYPE_CHECKING:
@@ -43,7 +45,7 @@ class McpServersPane(Vertical):
             yield Button("Stop", id="mcp-srv-stop", variant="error", disabled=True)
             yield Button("Restart", id="mcp-srv-restart", variant="warning", disabled=True)
             yield Button("Probe Now", id="mcp-srv-probe", variant="primary")
-        table = DataTable(id="mcp-srv-table", cursor_type="row")
+        table = _SafeDataTable(id="mcp-srv-table", cursor_type="row")
         table.add_columns("Name", "Type", "URL / Command", "Health", "Latency", "PID", "Uptime")
         yield table
         with TabbedContent(id="mcp-srv-detail-tabs"):
@@ -52,7 +54,7 @@ class McpServersPane(Vertical):
             with TabPane("Console", id="mcp-srv-tab-console"):
                 yield RichLog(id="mcp-srv-console", max_lines=500)
             with TabPane("Tools", id="mcp-srv-tab-tools"):
-                tools_table = DataTable(id="mcp-srv-tools-table", cursor_type="row")
+                tools_table = _SafeDataTable(id="mcp-srv-tools-table", cursor_type="row")
                 tools_table.add_columns("Tool", "Calls", "Err%", "Avg Latency")
                 yield tools_table
 
@@ -64,7 +66,7 @@ class McpServersPane(Vertical):
     def _refresh_servers(self) -> None:
         from airlock.fast.state import store
 
-        table = self.query_one("#mcp-srv-table", DataTable)
+        table = self.query_one("#mcp-srv-table", _SafeDataTable)
         status = self.query_one("#mcp-srv-status", Static)
         table.clear()
 
@@ -303,7 +305,7 @@ class McpServersPane(Vertical):
     def _refresh_tools(self, server_name: str) -> None:
         from airlock.fast.state import store
 
-        table = self.query_one("#mcp-srv-tools-table", DataTable)
+        table = self.query_one("#mcp-srv-tools-table", _SafeDataTable)
         table.clear()
 
         all_tools = store.all_mcp_tools()

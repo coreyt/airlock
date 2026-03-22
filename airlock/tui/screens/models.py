@@ -9,26 +9,28 @@ from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.widgets import DataTable, Static
 
+from airlock.tui.widgets.safe_data_table import _SafeDataTable
+
 
 class ModelsPane(Vertical):
     """Per-model health with circuit breaker detail."""
 
     def compose(self) -> ComposeResult:
         yield Static("[bold]Providers[/]", id="providers-header")
-        provider_table = DataTable(id="providers-table", cursor_type="row")
+        provider_table = _SafeDataTable(id="providers-table", cursor_type="row")
         provider_table.add_columns(
             "Provider", "Status", "Requests", "Err%", "Recovery", "Impacted Clients",
             "Gemini Text", "Gemini Thought"
         )
         yield provider_table
-        table = DataTable(id="models-table", cursor_type="row")
+        table = _SafeDataTable(id="models-table", cursor_type="row")
         table.add_columns(
             "Model", "Circuit", "Failures", "Recovery", "Failover Chain"
         )
         yield table
         yield Static("Select a model to view details.", id="models-detail")
         yield Static("[bold]MCP Tools[/]", id="mcp-tools-header")
-        mcp_table = DataTable(id="mcp-tools-table", cursor_type="row")
+        mcp_table = _SafeDataTable(id="mcp-tools-table", cursor_type="row")
         mcp_table.add_columns("Tool", "Server", "Calls", "Err%", "Avg Latency")
         yield mcp_table
 
@@ -52,7 +54,7 @@ class ModelsPane(Vertical):
         except ImportError:
             return
 
-        table = self.query_one("#providers-table", DataTable)
+        table = self.query_one("#providers-table", _SafeDataTable)
         table.clear()
         now = time.time()
 
@@ -87,7 +89,7 @@ class ModelsPane(Vertical):
         except ImportError:
             return
 
-        table = self.query_one("#models-table", DataTable)
+        table = self.query_one("#models-table", _SafeDataTable)
         table.clear()
         failover_map = _load_failover_map()
         now = time.time()
@@ -163,7 +165,7 @@ class ModelsPane(Vertical):
         except ImportError:
             return
 
-        table = self.query_one("#mcp-tools-table", DataTable)
+        table = self.query_one("#mcp-tools-table", _SafeDataTable)
         table.clear()
 
         for key, tool in store.all_mcp_tools().items():
