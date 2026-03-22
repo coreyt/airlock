@@ -294,6 +294,17 @@ class ModelAliasTable:
         if lower in self._exact:
             return self._exact[lower]
 
+        # Fast path: provider-prefixed form — strip any leading "provider/" and retry.
+        # Handles openai/claude-haiku, anthropic/claude-haiku, gemini/gemini-pro, etc.
+        # Clients using the litellm Python SDK naturally send these; Airlock normalises.
+        if "/" in lower:
+            bare = lower.split("/", 1)[1]
+            if bare in self._exact:
+                resolved = self._exact[bare]
+                self._exact[lower] = resolved  # cache for O(1) on repeat calls
+                logger.debug("model_alias_prefix_strip %s -> %s", model_name, resolved)
+                return resolved
+
         # Slow path: fuzzy scoring against all entries
         best_score = 0.0
         best_alias: str | None = None

@@ -370,6 +370,34 @@ class TestModelAliasTable:
         result = table.resolve("anthropic/claude-sonnet-4-20250514")
         assert result == "claude-sonnet"
 
+    def test_openai_prefix_alias(self, table):
+        """openai/claude-haiku should fast-path to claude-haiku alias."""
+        result = table.resolve("openai/claude-haiku")
+        assert result == "claude-haiku"
+
+    def test_anthropic_prefix_alias(self, table):
+        """anthropic/claude-haiku should fast-path to claude-haiku alias."""
+        result = table.resolve("anthropic/claude-haiku")
+        assert result == "claude-haiku"
+
+    def test_openai_prefix_alias_cached(self, table):
+        """Second call with provider prefix should use O(1) cached result."""
+        table.resolve("openai/claude-sonnet")  # populate cache
+        assert "openai/claude-sonnet" in table._exact
+        result = table.resolve("openai/claude-sonnet")
+        assert result == "claude-sonnet"
+
+    def test_openai_prefix_gpt(self, table):
+        """openai/gpt-4o should resolve to gpt-4o alias."""
+        result = table.resolve("openai/gpt-4o")
+        assert result == "gpt-4o"
+
+    def test_unknown_provider_prefix_falls_through_to_fuzzy(self, table):
+        """An unrecognised prefix/model still fuzzy-resolves when possible."""
+        # "custom/claude-haiku" — prefix unknown but bare name is an alias
+        result = table.resolve("custom/claude-haiku")
+        assert result == "claude-haiku"
+
     def test_ambiguous_claude_resolves_to_one(self, table):
         """Bare 'claude' alone should resolve to a claude model, not crash."""
         result = table.resolve("claude")

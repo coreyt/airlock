@@ -128,6 +128,11 @@ litellm_settings:
   # Drop any unsupported params instead of erroring
   drop_params: true
 
+  # When a request arrives with no user message (e.g. messages=[]),
+  # inject a dummy {"role": "user", "content": "Please continue."} so
+  # Anthropic and other strict providers don't reject it outright.
+  modify_params: true
+
   # Custom LLM providers — Tavily search exposed as a chat completion model.
   custom_provider_map:
     - provider: tavily
