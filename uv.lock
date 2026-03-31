@@ -190,7 +190,7 @@ tui = [
 [package.metadata]
 requires-dist = [
     { name = "boto3", marker = "extra == 's3'", specifier = ">=1.34.0" },
-    { name = "litellm", extras = ["proxy"], specifier = ">=1.55.0" },
+    { name = "litellm", extras = ["proxy"], specifier = ">=1.55.0,!=1.82.7,!=1.82.8" },
     { name = "newscatcher-catchall-sdk", marker = "extra == 'search'", specifier = ">=1.0.0" },
     { name = "opentelemetry-api", marker = "extra == 'tracing'", specifier = ">=1.20.0" },
     { name = "opentelemetry-sdk", marker = "extra == 'tracing'", specifier = ">=1.20.0" },
