@@ -93,10 +93,20 @@ model_list:
       model: mistral/magistral-medium-2509
       api_key: os.environ/MISTRAL_API_KEY
 
-  # --- Perplexity ---
+  # --- Perplexity (litellm-native) ---
   - model_name: perplexity-sonar
     litellm_params:
       model: perplexity/sonar
+      api_key: os.environ/PERPLEXITY_API_KEY
+
+  - model_name: perplexity-sonar-pro
+    litellm_params:
+      model: perplexity/sonar-pro
+      api_key: os.environ/PERPLEXITY_API_KEY
+
+  - model_name: perplexity-sonar-deep-research
+    litellm_params:
+      model: perplexity/sonar-deep-research
       api_key: os.environ/PERPLEXITY_API_KEY
 
   # --- Tavily (web search as chat completion) ---
@@ -170,6 +180,9 @@ router_settings:
     mistral:
       budget_limit: 25.0
       time_period: "1d"
+    perplexity:
+      budget_limit: 25.0
+      time_period: "1d"
   fallbacks:
     - claude-sonnet: [claude-haiku, gpt-4o, gemini-pro]
     - claude-haiku: [gemini-flash, gpt-4o-mini, mistral-small]
@@ -184,6 +197,8 @@ router_settings:
     - mistral-large: [claude-sonnet, gpt-4o, gemini-pro]
     - codestral: [claude-sonnet, gpt-4o, gemini-pro]
     - magistral-medium: [claude-opus, gemini-3.1-pro, gpt-4o]
+    - perplexity-sonar: [perplexity-sonar-pro]
+    - perplexity-sonar-pro: [perplexity-sonar]
 
 # ---------------------------------------------------------------------------
 # Guardrails
@@ -238,45 +253,45 @@ guardrails:
       default_on: true
 
 # ---------------------------------------------------------------------------
-# MCP Servers (uncomment and configure to enable MCP tool proxying)
+# MCP Servers
 # ---------------------------------------------------------------------------
-# mcp_servers:
-#   # --- Remote (SSE transport) — health-check only ---
-#   filesystem:
-#     url: http://localhost:3001/sse
-#
-#   # --- Remote (HTTP transport) — health-check only ---
-#   database:
-#     url: http://localhost:3002/mcp
-#
-#   # --- Local (Airlock-managed) — TUI can start/stop ---
-#   ado:
-#     url: http://localhost:3003/sse
-#     airlock_managed:
-#       command: node
-#       args: ["dist/index.js"]
-#       cwd: ~/projects/ado-mcp
-#       env:
-#         ADO_TOKEN: os.environ/ADO_TOKEN
-#       health_url: http://localhost:3003/health
-#
-#   # --- stdio transport — MUST set transport: stdio ---
-#   # LiteLLM defaults to http transport; without explicit stdio
-#   # the tool listing will fail (connects to empty URL).
-#   search:
-#     transport: stdio
-#     command: npx
-#     args: ["-y", "@anthropic/mcp-search"]
-#     env:
-#       SEARCH_API_KEY: os.environ/SEARCH_API_KEY
-#
-#   # --- NewsCatcher CatchAll (stdio) ---
-#   newscatcher:
-#     transport: stdio
-#     command: python3
-#     args: ["-m", "airlock.mcp_servers.newscatcher_server"]
-#     env:
-#       NEWS_CATCHER_API_KEY: os.environ/NEWS_CATCHER_API_KEY
+mcp_servers:
+  # # --- Remote (SSE transport) — health-check only ---
+  # filesystem:
+  #   url: http://localhost:3001/sse
+  #
+  # # --- Remote (HTTP transport) — health-check only ---
+  # database:
+  #   url: http://localhost:3002/mcp
+  #
+  # # --- Local (Airlock-managed) — TUI can start/stop ---
+  # ado:
+  #   url: http://localhost:3003/sse
+  #   airlock_managed:
+  #     command: node
+  #     args: ["dist/index.js"]
+  #     cwd: ~/projects/ado-mcp
+  #     env:
+  #       ADO_TOKEN: os.environ/ADO_TOKEN
+  #     health_url: http://localhost:3003/health
+  #
+  # # --- stdio transport — MUST set transport: stdio ---
+  # # LiteLLM defaults to http transport; without explicit stdio
+  # # the tool listing will fail (connects to empty URL).
+  # search:
+  #   transport: stdio
+  #   command: npx
+  #   args: ["-y", "@anthropic/mcp-search"]
+  #   env:
+  #     SEARCH_API_KEY: os.environ/SEARCH_API_KEY
+
+  # --- NewsCatcher CatchAll (stdio) ---
+  newscatcher:
+    transport: stdio
+    command: python3
+    args: ["-m", "airlock.mcp_servers.newscatcher_server"]
+    env:
+      NEWS_CATCHER_API_KEY: os.environ/NEWS_CATCHER_API_KEY
 
 # ---------------------------------------------------------------------------
 # General proxy behaviour
