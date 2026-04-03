@@ -191,7 +191,7 @@ guardrails:
   - guardrail_name: airlock-pii-guard
     litellm_params:
       guardrail: airlock.guardrails.pii_guard.AirlockPIIGuard
-      mode: [pre_call, pre_mcp_call]
+      mode: [pre_call, pre_mcp_call]              # redaction — must run first
       default_on: true
 
   - guardrail_name: airlock-keyword-guard
@@ -234,6 +234,12 @@ guardrails:
     litellm_params:
       guardrail: airlock.guardrails.response_scanner.AirlockResponseScanner
       mode: post_call
+      default_on: true
+
+  - guardrail_name: airlock-pii-hydrator
+    litellm_params:
+      guardrail: airlock.guardrails.pii_guard.AirlockPIIGuard
+      mode: post_call                              # hydration — must run after response scanner
       default_on: true
 
 # ---------------------------------------------------------------------------
