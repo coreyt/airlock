@@ -39,13 +39,21 @@ def respond_json(data: dict) -> None:
     raise SystemExit(0)
 
 
-def probe_health(host: str, port: str, timeout: int = 3) -> bool:
+def probe_health(host: str, port: str, timeout: int = 3, *, client: str = "hook") -> bool:
     """Check if the Airlock proxy is reachable."""
     # 0.0.0.0 is a bind address, not connectable — probe via loopback
     probe_host = "127.0.0.1" if host == "0.0.0.0" else host
-    url = f"http://{probe_host}:{port}/health/liveliness"
+    url = f"http://{probe_host}:{port}/health/liveliness?client={client}"
+    headers: dict[str, str] = {}
+    master_key = os.getenv("AIRLOCK_MASTER_KEY")
+    if master_key:
+        headers["Authorization"] = f"Bearer {master_key}"
+    airlock_client = os.getenv("AIRLOCK_CLIENT")
+    if airlock_client:
+        headers["X-Airlock-Client"] = airlock_client
     try:
-        urllib.request.urlopen(url, timeout=timeout)  # noqa: S310
+        req = urllib.request.Request(url, headers=headers)  # noqa: S310
+        urllib.request.urlopen(req, timeout=timeout)  # noqa: S310
         return True
     except Exception:
         return False

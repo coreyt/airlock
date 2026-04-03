@@ -288,7 +288,7 @@ def test_reader_prepends_timestamp_to_plain_lines(tmp_path: Path, monkeypatch) -
 
     import re
 
-    ts_pattern = re.compile(r"^\d{2}:\d{2}:\d{2} ")
+    ts_pattern = re.compile(r"^\d{2}:\d{2}:\d{2}Z? ")
     for entry in pm._ring:
         assert ts_pattern.match(entry), f"Missing timestamp prefix: {entry!r}"
 
