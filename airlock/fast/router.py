@@ -56,6 +56,7 @@ _DEFAULT_PROVIDER_BUDGETS: dict[str, float] = {
     "openai": 50.0,
     "gemini": 25.0,
     "mistral": 25.0,
+    "perplexity": 25.0,
 }
 
 _BUDGET_WARN_THRESHOLD = 0.9  # 90% of budget triggers proactive swap
@@ -109,6 +110,9 @@ _PROVIDER_PREFIXES = {
     "mistral": "mistral",
     "codestral": "mistral",
     "magistral": "mistral",
+    "perplexity": "perplexity",
+    "sonar": "perplexity",
+    "tavily": "tavily",
 }
 
 

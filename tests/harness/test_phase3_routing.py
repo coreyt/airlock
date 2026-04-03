@@ -22,6 +22,9 @@ class TestProviderMapping:
             ("gpt-4o", "openai"),
             ("gpt-4o-mini", "openai"),
             ("gemini-flash", "gemini"),
+            ("perplexity-sonar", "perplexity"),
+            ("sonar-pro", "perplexity"),
+            ("tavily-search", "tavily"),
         ],
     )
     def test_model_provider_mapping(self, model, expected_provider):
@@ -36,6 +39,7 @@ class TestProviderMapping:
             ("claude-opus", "anthropic"),
             ("gpt-4o-mini", "openai"),
             ("gemini-pro", "gemini"),
+            ("perplexity-sonar-deep-research", "perplexity"),
             ("unknown-model", None),
         ],
     )

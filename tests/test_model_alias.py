@@ -196,6 +196,12 @@ class TestInferProvider:
     def test_sonar(self):
         assert _infer_provider("sonar") == "perplexity"
 
+    def test_perplexity(self):
+        assert _infer_provider("perplexity-sonar-pro") == "perplexity"
+
+    def test_tavily(self):
+        assert _infer_provider("tavily-search") == "tavily"
+
 
 # ---------------------------------------------------------------------------
 # Scoring tests

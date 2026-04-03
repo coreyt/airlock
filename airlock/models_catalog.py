@@ -160,12 +160,21 @@ def _fetch_gemini_models(api_key: str, timeout: float) -> list[dict]:
     return models
 
 
-# TODO: add fetchers for perplexity and tavily once their models APIs are stable.
+def _fetch_perplexity_models(api_key: str, timeout: float) -> list[dict]:
+    return _fetch_openai_compatible(
+        "https://api.perplexity.ai/v1/models",
+        provider_prefix="perplexity",
+        api_key=api_key,
+        timeout=timeout,
+    )
+
+
 _FETCHERS: list[_ProviderFetcher] = [
     _ProviderFetcher("openai", _fetch_openai_models),
     _ProviderFetcher("anthropic", _fetch_anthropic_models),
     _ProviderFetcher("mistral", _fetch_mistral_models),
     _ProviderFetcher("gemini", _fetch_gemini_models),
+    _ProviderFetcher("perplexity", _fetch_perplexity_models),
 ]
 
 

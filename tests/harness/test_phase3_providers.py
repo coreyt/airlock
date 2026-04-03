@@ -1,5 +1,5 @@
 """
-S11 — Custom Providers: Tavily and Perplexity.
+S11 — Custom Providers: Tavily, Perplexity, and NewsCatcher.
 """
 
 from __future__ import annotations
@@ -104,3 +104,54 @@ class TestPerplexityLive:
         body = resp.json()
         content = body["choices"][0]["message"]["content"]
         assert len(content) > 0
+
+
+class TestNewsCatcherMock:
+
+    def test_extract_snippet_with_enrichment(self):
+        from airlock.mcp_servers.newscatcher_server import _extract_snippet
+
+        class FakeRecord:
+            enrichment = {"key_development": "Company raised $10M Series A"}
+
+        assert "Series A" in _extract_snippet(FakeRecord())
+
+    def test_extract_snippet_fallback_attrs(self):
+        from airlock.mcp_servers.newscatcher_server import _extract_snippet
+
+        class FakeRecord:
+            enrichment = None
+            snippet = "fallback snippet text"
+
+        assert _extract_snippet(FakeRecord()) == "fallback snippet text"
+
+    def test_extract_snippet_empty(self):
+        from airlock.mcp_servers.newscatcher_server import _extract_snippet
+
+        class FakeRecord:
+            enrichment = None
+
+        assert _extract_snippet(FakeRecord()) == ""
+
+    def test_server_lists_tools(self):
+        import asyncio
+        from airlock.mcp_servers.newscatcher_server import list_tools
+
+        tools = asyncio.run(list_tools())
+        names = {t.name for t in tools}
+        assert "newscatcher_search" in names
+        assert "newscatcher_search_quick" in names
+
+
+class TestNewsCatcherLive:
+
+    @pytest.mark.live
+    async def test_newscatcher_mcp_search(self, http_client):
+        resp = await http_client.post(
+            "/v1/mcp/call_tool",
+            json={
+                "name": "newscatcher_search_quick",
+                "arguments": {"query": "Python programming", "max_results": 10},
+            },
+        )
+        assert resp.status_code == 200

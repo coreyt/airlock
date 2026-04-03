@@ -296,36 +296,72 @@ def _get_api_key_for_provider(config: dict, provider: str) -> str | None:
     return None
 
 
-@_register("provider_anthropic", "Anthropic API", "Providers", skip_flag="skip_llm")
-def check_provider_anthropic(config: dict, verbose: bool) -> CheckResult:
-    if not _has_provider(config, "anthropic"):
+def _check_provider_http(
+    config: dict,
+    provider: str,
+    label: str,
+    build_request: Callable[[str], urllib.request.Request],
+) -> CheckResult:
+    """Shared helper: guard → api_key → HTTP request → timed PASS/FAIL/WARN."""
+    name = f"provider_{provider}"
+
+    if not _has_provider(config, provider):
         return CheckResult(
-            name="provider_anthropic",
-            status=CheckStatus.SKIP,
-            label="Anthropic API",
-            detail="no Anthropic models configured",
-            group="Providers",
+            name=name, status=CheckStatus.SKIP, label=label,
+            detail=f"no {label} models configured", group="Providers",
         )
 
-    api_key = _get_api_key_for_provider(config, "anthropic")
+    api_key = _get_api_key_for_provider(config, provider)
     if not api_key:
         return CheckResult(
-            name="provider_anthropic",
-            status=CheckStatus.SKIP,
-            label="Anthropic API",
-            detail="API key not set",
-            group="Providers",
+            name=name, status=CheckStatus.SKIP, label=label,
+            detail="API key not set", group="Providers",
         )
 
-    # 1-token completion to verify auth
     t0 = time.monotonic()
     try:
+        req = build_request(api_key)
+        ctx = ssl.create_default_context()
+        urllib.request.urlopen(req, timeout=15, context=ctx)  # noqa: S310
+        elapsed = (time.monotonic() - t0) * 1000
+        return CheckResult(
+            name=name, status=CheckStatus.PASS, label=label,
+            detail=f"authenticated ({elapsed:.0f}ms)",
+            duration_ms=elapsed, group="Providers",
+        )
+    except urllib.error.HTTPError as exc:
+        elapsed = (time.monotonic() - t0) * 1000
+        return CheckResult(
+            name=name, status=CheckStatus.FAIL, label=label,
+            detail=f"{exc.code} {exc.reason}",
+            duration_ms=elapsed, group="Providers",
+        )
+    except (urllib.error.URLError, OSError) as exc:
+        elapsed = (time.monotonic() - t0) * 1000
+        reason = str(getattr(exc, "reason", exc))
+        return CheckResult(
+            name=name, status=CheckStatus.WARN, label=label,
+            detail=f"connection error: {reason}",
+            duration_ms=elapsed, group="Providers",
+        )
+
+
+def _bearer_get(url: str) -> Callable[[str], urllib.request.Request]:
+    """Build a GET request factory with Bearer auth."""
+    def _build(api_key: str) -> urllib.request.Request:
+        return urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"})
+    return _build
+
+
+@_register("provider_anthropic", "Anthropic API", "Providers", skip_flag="skip_llm")
+def check_provider_anthropic(config: dict, verbose: bool) -> CheckResult:
+    def _build(api_key: str) -> urllib.request.Request:
         payload = json.dumps({
             "model": "claude-haiku-4-5-20251001",
             "max_tokens": 1,
             "messages": [{"role": "user", "content": "hi"}],
         }).encode()
-        req = urllib.request.Request(
+        return urllib.request.Request(
             "https://api.anthropic.com/v1/messages",
             data=payload,
             headers={
@@ -334,193 +370,33 @@ def check_provider_anthropic(config: dict, verbose: bool) -> CheckResult:
                 "anthropic-version": "2023-06-01",
             },
         )
-        ctx = ssl.create_default_context()
-        urllib.request.urlopen(req, timeout=15, context=ctx)  # noqa: S310
-        elapsed = (time.monotonic() - t0) * 1000
-        return CheckResult(
-            name="provider_anthropic",
-            status=CheckStatus.PASS,
-            label="Anthropic API",
-            detail=f"authenticated ({elapsed:.0f}ms)",
-            duration_ms=elapsed,
-            group="Providers",
-        )
-    except urllib.error.HTTPError as exc:
-        elapsed = (time.monotonic() - t0) * 1000
-        return CheckResult(
-            name="provider_anthropic",
-            status=CheckStatus.FAIL,
-            label="Anthropic API",
-            detail=f"{exc.code} {exc.reason}",
-            duration_ms=elapsed,
-            group="Providers",
-        )
-    except (urllib.error.URLError, OSError) as exc:
-        elapsed = (time.monotonic() - t0) * 1000
-        reason = str(getattr(exc, "reason", exc))
-        return CheckResult(
-            name="provider_anthropic",
-            status=CheckStatus.WARN,
-            label="Anthropic API",
-            detail=f"connection error: {reason}",
-            duration_ms=elapsed,
-            group="Providers",
-        )
+    return _check_provider_http(config, "anthropic", "Anthropic API", _build)
 
 
 @_register("provider_openai", "OpenAI API", "Providers", skip_flag="skip_llm")
 def check_provider_openai(config: dict, verbose: bool) -> CheckResult:
-    if not _has_provider(config, "openai"):
-        return CheckResult(
-            name="provider_openai",
-            status=CheckStatus.SKIP,
-            label="OpenAI API",
-            detail="no OpenAI models configured",
-            group="Providers",
-        )
-
-    api_key = _get_api_key_for_provider(config, "openai")
-    if not api_key:
-        return CheckResult(
-            name="provider_openai",
-            status=CheckStatus.SKIP,
-            label="OpenAI API",
-            detail="API key not set",
-            group="Providers",
-        )
-
-    # GET /v1/models (free, just checks auth)
-    t0 = time.monotonic()
-    try:
-        req = urllib.request.Request(
-            "https://api.openai.com/v1/models",
-            headers={"Authorization": f"Bearer {api_key}"},
-        )
-        ctx = ssl.create_default_context()
-        urllib.request.urlopen(req, timeout=15, context=ctx)  # noqa: S310
-        elapsed = (time.monotonic() - t0) * 1000
-        return CheckResult(
-            name="provider_openai",
-            status=CheckStatus.PASS,
-            label="OpenAI API",
-            detail=f"authenticated ({elapsed:.0f}ms)",
-            duration_ms=elapsed,
-            group="Providers",
-        )
-    except urllib.error.HTTPError as exc:
-        elapsed = (time.monotonic() - t0) * 1000
-        return CheckResult(
-            name="provider_openai",
-            status=CheckStatus.FAIL,
-            label="OpenAI API",
-            detail=f"{exc.code} {exc.reason}",
-            duration_ms=elapsed,
-            group="Providers",
-        )
-    except (urllib.error.URLError, OSError) as exc:
-        elapsed = (time.monotonic() - t0) * 1000
-        reason = str(getattr(exc, "reason", exc))
-        return CheckResult(
-            name="provider_openai",
-            status=CheckStatus.WARN,
-            label="OpenAI API",
-            detail=f"connection error: {reason}",
-            duration_ms=elapsed,
-            group="Providers",
-        )
+    return _check_provider_http(
+        config, "openai", "OpenAI API",
+        _bearer_get("https://api.openai.com/v1/models"),
+    )
 
 
 @_register("provider_mistral", "Mistral AI API", "Providers", skip_flag="skip_llm")
 def check_provider_mistral(config: dict, verbose: bool) -> CheckResult:
-    if not _has_provider(config, "mistral"):
-        return CheckResult(
-            name="provider_mistral",
-            status=CheckStatus.SKIP,
-            label="Mistral AI API",
-            detail="no Mistral models configured",
-            group="Providers",
-        )
-
-    api_key = _get_api_key_for_provider(config, "mistral")
-    if not api_key:
-        return CheckResult(
-            name="provider_mistral",
-            status=CheckStatus.SKIP,
-            label="Mistral AI API",
-            detail="API key not set",
-            group="Providers",
-        )
-
-    # GET /v1/models (free, just checks auth — same pattern as OpenAI)
-    t0 = time.monotonic()
-    try:
-        req = urllib.request.Request(
-            "https://api.mistral.ai/v1/models",
-            headers={"Authorization": f"Bearer {api_key}"},
-        )
-        ctx = ssl.create_default_context()
-        urllib.request.urlopen(req, timeout=15, context=ctx)  # noqa: S310
-        elapsed = (time.monotonic() - t0) * 1000
-        return CheckResult(
-            name="provider_mistral",
-            status=CheckStatus.PASS,
-            label="Mistral AI API",
-            detail=f"authenticated ({elapsed:.0f}ms)",
-            duration_ms=elapsed,
-            group="Providers",
-        )
-    except urllib.error.HTTPError as exc:
-        elapsed = (time.monotonic() - t0) * 1000
-        return CheckResult(
-            name="provider_mistral",
-            status=CheckStatus.FAIL,
-            label="Mistral AI API",
-            detail=f"{exc.code} {exc.reason}",
-            duration_ms=elapsed,
-            group="Providers",
-        )
-    except (urllib.error.URLError, OSError) as exc:
-        elapsed = (time.monotonic() - t0) * 1000
-        reason = str(getattr(exc, "reason", exc))
-        return CheckResult(
-            name="provider_mistral",
-            status=CheckStatus.WARN,
-            label="Mistral AI API",
-            detail=f"connection error: {reason}",
-            duration_ms=elapsed,
-            group="Providers",
-        )
+    return _check_provider_http(
+        config, "mistral", "Mistral AI API",
+        _bearer_get("https://api.mistral.ai/v1/models"),
+    )
 
 
 @_register("provider_gemini", "Google Gemini API", "Providers", skip_flag="skip_llm")
 def check_provider_gemini(config: dict, verbose: bool) -> CheckResult:
-    if not _has_provider(config, "gemini"):
-        return CheckResult(
-            name="provider_gemini",
-            status=CheckStatus.SKIP,
-            label="Google Gemini API",
-            detail="no Gemini models configured",
-            group="Providers",
-        )
-
-    api_key = _get_api_key_for_provider(config, "gemini")
-    if not api_key:
-        return CheckResult(
-            name="provider_gemini",
-            status=CheckStatus.SKIP,
-            label="Google Gemini API",
-            detail="API key not set",
-            group="Providers",
-        )
-
-    # 1-token generation to verify auth (x-goog-api-key header avoids key in URL)
-    t0 = time.monotonic()
-    try:
+    def _build(api_key: str) -> urllib.request.Request:
         payload = json.dumps({
             "contents": [{"parts": [{"text": "hi"}]}],
             "generationConfig": {"maxOutputTokens": 1},
         }).encode()
-        req = urllib.request.Request(
+        return urllib.request.Request(
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
             data=payload,
             headers={
@@ -528,38 +404,56 @@ def check_provider_gemini(config: dict, verbose: bool) -> CheckResult:
                 "x-goog-api-key": api_key,
             },
         )
-        ctx = ssl.create_default_context()
-        urllib.request.urlopen(req, timeout=15, context=ctx)  # noqa: S310
-        elapsed = (time.monotonic() - t0) * 1000
+    return _check_provider_http(config, "gemini", "Google Gemini API", _build)
+
+
+@_register("provider_perplexity", "Perplexity API", "Providers", skip_flag="skip_llm")
+def check_provider_perplexity(config: dict, verbose: bool) -> CheckResult:
+    return _check_provider_http(
+        config, "perplexity", "Perplexity API",
+        _bearer_get("https://api.perplexity.ai/v1/models"),
+    )
+
+
+@_register("provider_tavily", "Tavily API", "Providers", skip_flag="skip_llm")
+def check_provider_tavily(config: dict, verbose: bool) -> CheckResult:
+    # Tavily has no free auth endpoint — this executes a minimal billable search
+    def _build(api_key: str) -> urllib.request.Request:
+        payload = json.dumps({"query": "test", "max_results": 1}).encode()
+        return urllib.request.Request(
+            "https://api.tavily.com/search",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+        )
+    return _check_provider_http(config, "tavily", "Tavily API", _build)
+
+
+@_register("provider_newscatcher", "NewsCatcher API", "Providers", skip_flag="skip_llm")
+def check_provider_newscatcher(config: dict, verbose: bool) -> CheckResult:
+    # MCP server — no HTTP auth check, just verify key + SDK
+    api_key = os.environ.get("NEWS_CATCHER_API_KEY")
+    if not api_key:
         return CheckResult(
-            name="provider_gemini",
-            status=CheckStatus.PASS,
-            label="Google Gemini API",
-            detail=f"authenticated ({elapsed:.0f}ms)",
-            duration_ms=elapsed,
+            name="provider_newscatcher", status=CheckStatus.SKIP,
+            label="NewsCatcher API", detail="NEWS_CATCHER_API_KEY not set",
             group="Providers",
         )
-    except urllib.error.HTTPError as exc:
-        elapsed = (time.monotonic() - t0) * 1000
+    try:
+        import newscatcher_catchall  # noqa: F401
+    except ImportError:
         return CheckResult(
-            name="provider_gemini",
-            status=CheckStatus.FAIL,
-            label="Google Gemini API",
-            detail=f"{exc.code} {exc.reason}",
-            duration_ms=elapsed,
+            name="provider_newscatcher", status=CheckStatus.FAIL,
+            label="NewsCatcher API", detail="newscatcher-catchall-sdk not installed",
             group="Providers",
         )
-    except (urllib.error.URLError, OSError) as exc:
-        elapsed = (time.monotonic() - t0) * 1000
-        reason = str(getattr(exc, "reason", exc))
-        return CheckResult(
-            name="provider_gemini",
-            status=CheckStatus.WARN,
-            label="Google Gemini API",
-            detail=f"connection error: {reason}",
-            duration_ms=elapsed,
-            group="Providers",
-        )
+    return CheckResult(
+        name="provider_newscatcher", status=CheckStatus.PASS,
+        label="NewsCatcher API", detail="API key set, SDK available",
+        group="Providers",
+    )
 
 
 # ---------------------------------------------------------------------------

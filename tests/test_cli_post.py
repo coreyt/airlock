@@ -32,7 +32,10 @@ from airlock.cli.post_cmd import (
     check_provider_gemini,
     check_provider_keys,
     check_provider_mistral,
+    check_provider_newscatcher,
     check_provider_openai,
+    check_provider_perplexity,
+    check_provider_tavily,
     check_s3,
     check_sql,
     render_json,
@@ -347,7 +350,7 @@ class TestCheckProviderMistral:
         config = {"model_list": [{"litellm_params": {"model": "anthropic/claude"}}]}
         result = check_provider_mistral(config, False)
         assert result.status == CheckStatus.SKIP
-        assert "no Mistral models" in result.detail
+        assert "no Mistral" in result.detail
 
     def test_skip_when_no_api_key(self, monkeypatch):
         monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
@@ -409,7 +412,7 @@ class TestCheckProviderGemini:
         config = {"model_list": [{"litellm_params": {"model": "anthropic/claude"}}]}
         result = check_provider_gemini(config, False)
         assert result.status == CheckStatus.SKIP
-        assert "no Gemini models" in result.detail
+        assert "no Google Gemini" in result.detail
 
     def test_skip_when_no_api_key(self, monkeypatch):
         monkeypatch.delenv("GOOGLE_AISTUDIO_API_KEY", raising=False)
@@ -497,6 +500,160 @@ class TestCheckProviderOpenAI:
         with mock.patch("airlock.cli.post_cmd.urllib.request.urlopen", side_effect=exc):
             result = check_provider_openai(config, False)
         assert result.status == CheckStatus.FAIL
+
+
+class TestCheckProviderPerplexity:
+    def test_skip_when_no_perplexity_models(self):
+        config = {"model_list": [{"litellm_params": {"model": "anthropic/claude"}}]}
+        result = check_provider_perplexity(config, False)
+        assert result.status == CheckStatus.SKIP
+        assert "no Perplexity" in result.detail
+
+    def test_skip_when_no_api_key(self, monkeypatch):
+        monkeypatch.delenv("PERPLEXITY_API_KEY", raising=False)
+        config = {
+            "model_list": [
+                {"litellm_params": {"model": "perplexity/sonar", "api_key": "os.environ/PERPLEXITY_API_KEY"}},
+            ]
+        }
+        result = check_provider_perplexity(config, False)
+        assert result.status == CheckStatus.SKIP
+        assert "API key not set" in result.detail
+
+    def test_pass_on_200(self, monkeypatch):
+        monkeypatch.setenv("PERPLEXITY_API_KEY", "pplx-test")
+        config = {
+            "model_list": [
+                {"litellm_params": {"model": "perplexity/sonar", "api_key": "os.environ/PERPLEXITY_API_KEY"}},
+            ]
+        }
+        mock_resp = mock.MagicMock()
+        with mock.patch("airlock.cli.post_cmd.urllib.request.urlopen", return_value=mock_resp):
+            result = check_provider_perplexity(config, False)
+        assert result.status == CheckStatus.PASS
+        assert "authenticated" in result.detail
+
+    def test_fail_on_401(self, monkeypatch):
+        monkeypatch.setenv("PERPLEXITY_API_KEY", "pplx-bad")
+        config = {
+            "model_list": [
+                {"litellm_params": {"model": "perplexity/sonar", "api_key": "os.environ/PERPLEXITY_API_KEY"}},
+            ]
+        }
+        import urllib.error
+
+        exc = urllib.error.HTTPError("url", 401, "Unauthorized", {}, None)
+        with mock.patch("airlock.cli.post_cmd.urllib.request.urlopen", side_effect=exc):
+            result = check_provider_perplexity(config, False)
+        assert result.status == CheckStatus.FAIL
+        assert "401" in result.detail
+
+    def test_warn_on_connection_error(self, monkeypatch):
+        monkeypatch.setenv("PERPLEXITY_API_KEY", "pplx-test")
+        config = {
+            "model_list": [
+                {"litellm_params": {"model": "perplexity/sonar", "api_key": "os.environ/PERPLEXITY_API_KEY"}},
+            ]
+        }
+        import urllib.error
+
+        exc = urllib.error.URLError("Connection refused")
+        with mock.patch("airlock.cli.post_cmd.urllib.request.urlopen", side_effect=exc):
+            result = check_provider_perplexity(config, False)
+        assert result.status == CheckStatus.WARN
+        assert "connection error" in result.detail
+
+
+class TestCheckProviderTavily:
+    def test_skip_when_no_tavily_models(self):
+        config = {"model_list": [{"litellm_params": {"model": "anthropic/claude"}}]}
+        result = check_provider_tavily(config, False)
+        assert result.status == CheckStatus.SKIP
+        assert "no Tavily" in result.detail
+
+    def test_skip_when_no_api_key(self, monkeypatch):
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+        config = {
+            "model_list": [
+                {"litellm_params": {"model": "tavily/web-search", "api_key": "os.environ/TAVILY_API_KEY"}},
+            ]
+        }
+        result = check_provider_tavily(config, False)
+        assert result.status == CheckStatus.SKIP
+        assert "API key not set" in result.detail
+
+    def test_pass_on_200(self, monkeypatch):
+        monkeypatch.setenv("TAVILY_API_KEY", "tvly-test")
+        config = {
+            "model_list": [
+                {"litellm_params": {"model": "tavily/web-search", "api_key": "os.environ/TAVILY_API_KEY"}},
+            ]
+        }
+        mock_resp = mock.MagicMock()
+        with mock.patch("airlock.cli.post_cmd.urllib.request.urlopen", return_value=mock_resp):
+            result = check_provider_tavily(config, False)
+        assert result.status == CheckStatus.PASS
+        assert "authenticated" in result.detail
+
+    def test_fail_on_401(self, monkeypatch):
+        monkeypatch.setenv("TAVILY_API_KEY", "tvly-bad")
+        config = {
+            "model_list": [
+                {"litellm_params": {"model": "tavily/web-search", "api_key": "os.environ/TAVILY_API_KEY"}},
+            ]
+        }
+        import urllib.error
+
+        exc = urllib.error.HTTPError("url", 401, "Unauthorized", {}, None)
+        with mock.patch("airlock.cli.post_cmd.urllib.request.urlopen", side_effect=exc):
+            result = check_provider_tavily(config, False)
+        assert result.status == CheckStatus.FAIL
+        assert "401" in result.detail
+
+    def test_warn_on_connection_error(self, monkeypatch):
+        monkeypatch.setenv("TAVILY_API_KEY", "tvly-test")
+        config = {
+            "model_list": [
+                {"litellm_params": {"model": "tavily/web-search", "api_key": "os.environ/TAVILY_API_KEY"}},
+            ]
+        }
+        import urllib.error
+
+        exc = urllib.error.URLError("Connection refused")
+        with mock.patch("airlock.cli.post_cmd.urllib.request.urlopen", side_effect=exc):
+            result = check_provider_tavily(config, False)
+        assert result.status == CheckStatus.WARN
+        assert "connection error" in result.detail
+
+
+class TestCheckProviderNewsCatcher:
+    def test_skip_when_no_api_key(self, monkeypatch):
+        monkeypatch.delenv("NEWS_CATCHER_API_KEY", raising=False)
+        result = check_provider_newscatcher({}, False)
+        assert result.status == CheckStatus.SKIP
+        assert "NEWS_CATCHER_API_KEY not set" in result.detail
+
+    def test_fail_when_sdk_missing(self, monkeypatch):
+        monkeypatch.setenv("NEWS_CATCHER_API_KEY", "nc-test")
+        with mock.patch.dict("sys.modules", {"newscatcher_catchall": None}):
+            import importlib
+            # Force ImportError by patching builtins.__import__
+            original_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
+            def fake_import(name, *args, **kwargs):
+                if name == "newscatcher_catchall":
+                    raise ImportError("No module named 'newscatcher_catchall'")
+                return original_import(name, *args, **kwargs)
+            with mock.patch("builtins.__import__", side_effect=fake_import):
+                result = check_provider_newscatcher({}, False)
+        assert result.status == CheckStatus.FAIL
+        assert "not installed" in result.detail
+
+    def test_pass_when_key_and_sdk_available(self, monkeypatch):
+        monkeypatch.setenv("NEWS_CATCHER_API_KEY", "nc-test")
+        # SDK is already installed in test env
+        result = check_provider_newscatcher({}, False)
+        assert result.status == CheckStatus.PASS
+        assert "SDK available" in result.detail
 
 
 # ---------------------------------------------------------------------------
