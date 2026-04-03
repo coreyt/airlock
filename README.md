@@ -38,26 +38,29 @@ Airlock sits between your developers and LLM providers, giving you visibility an
 
 ## Getting started
 
-### 1. Install
+### Quick setup
 
 ```bash
 git clone <repo-url> && cd airlock
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[tui]"
-
-# Install spaCy and download the model for Presidio PII detection
-pip install spacy && python -m spacy download en_core_web_lg
+./scripts/setup.sh
 ```
 
-### 2. Initialize
+This installs Airlock and its dependencies, downloads the spaCy model for PII
+redaction, and runs `airlock init` to generate `config.yaml`, `.env`, and a
+`logs/` directory. Pass `--pip` to use pip instead of uv.
+
+### Developer setup
 
 ```bash
-airlock init
+git clone <repo-url> && cd airlock
+./scripts/setup-dev.sh
 ```
 
-This creates `config.yaml`, `.env`, and a `logs/` directory. If these files already exist they are left untouched (use `--force` to overwrite).
+Everything in the standard setup, plus all optional extras (test, metrics,
+tracing, search, s3, sql), install verification, and a test suite run. Pass
+`--pip` to use pip instead of uv.
 
-### 3. Add your API keys
+### Add your API keys
 
 Edit the generated `.env` file and fill in your provider keys:
 
@@ -69,19 +72,19 @@ OPENAI_API_KEY=sk-...
 
 You only need keys for the providers you plan to use. If you only use Anthropic models, you can leave `OPENAI_API_KEY` blank.
 
-### 4. Start the proxy
+### Start the proxy
 
 ```bash
 # Option A: TUI dashboard with built-in proxy (recommended)
-airlock tui --start
+uv run airlock tui --start
 
 # Option B: proxy only (headless)
-airlock start
+uv run airlock start
 ```
 
 Airlock listens on `http://localhost:4000` by default. Change the port with `AIRLOCK_PORT` in `.env`.
 
-### 5. Test it
+### Test it
 
 ```bash
 curl http://localhost:4000/v1/chat/completions \
@@ -236,6 +239,9 @@ airlock/
 ├── hooks/                # Claude Code client-side hooks (session, prompt, audit)
 ├── cli/                  # Unified CLI: init, start, status, tui, analyze, hooks
 └── tui/                  # Textual terminal dashboard (8 screens, proxy control)
+scripts/
+├── setup.sh              # Standard setup (install + init + spaCy model)
+└── setup-dev.sh          # Developer setup (all extras + tests)
 ```
 
 ## License
