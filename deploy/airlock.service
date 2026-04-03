@@ -1,0 +1,45 @@
+[Unit]
+Description=Airlock LLM proxy — unified access, logging, and guardrails
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# Load project .env — provider API keys and AIRLOCK_* overrides.
+EnvironmentFile=%h/projects/airlock/.env
+
+# uv run picks up the project venv automatically from the project directory.
+WorkingDirectory=%h/projects/airlock
+ExecStart=%h/.local/bin/uv run airlock start
+
+# Restart on unexpected exit (not on clean stop).
+Restart=on-failure
+RestartSec=5s
+
+# Graceful shutdown — allow in-flight requests to finish.
+TimeoutStopSec=30
+KillMode=mixed
+
+# Default bind — override in .env with AIRLOCK_HOST / AIRLOCK_PORT.
+Environment=AIRLOCK_HOST=0.0.0.0
+Environment=AIRLOCK_PORT=4000
+
+# Security hardening
+ProtectSystem=strict
+ReadWritePaths=%h/projects/airlock
+PrivateTmp=true
+NoNewPrivileges=true
+
+# Resource limits
+LimitNOFILE=4096
+MemoryMax=4G
+
+# Airlock logs to logs/ via configure_logging().
+# stderr carries only crash-level output.
+StandardOutput=null
+StandardError=append:%h/projects/airlock/service-stderr.log
+SyslogIdentifier=airlock
+
+[Install]
+WantedBy=default.target

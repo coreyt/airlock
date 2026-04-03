@@ -243,6 +243,18 @@ def main(argv: list[str] | None = None) -> None:
         help="Per-check timeout in seconds (default: 30).",
     )
 
+    # -- install-service --
+    install_svc_parser = subparsers.add_parser(
+        "install-service",
+        help="Install Airlock as a systemd user service.",
+    )
+    install_svc_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Print commands without executing.",
+    )
+
     # -- dogfood --
     dogfood_parser = subparsers.add_parser(
         "dogfood",
@@ -363,6 +375,11 @@ def main(argv: list[str] | None = None) -> None:
 
     elif args.command == "post":
         from airlock.cli.post_cmd import run
+
+        run(args)
+
+    elif args.command == "install-service":
+        from airlock.cli.install_service_cmd import run
 
         run(args)
 
