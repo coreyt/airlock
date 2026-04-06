@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import datetime
 from pathlib import Path
 from typing import Any
@@ -118,11 +119,60 @@ def _normalize_failure(
     return synthetic, exc_type, category
 
 
+def _max_log_days() -> int:
+    return int(os.getenv("AIRLOCK_MAX_LOG_DAYS", "30"))
+
+
+def _max_log_size_mb() -> int:
+    return int(os.getenv("AIRLOCK_MAX_LOG_SIZE_MB", "500"))
+
+
+_LOG_DATE_RE = re.compile(r"^airlock-(\d{4}-\d{2}-\d{2})(?:\.\d+)?\.jsonl$")
+
+
+def _cleanup_old_logs() -> None:
+    """Remove log files older than AIRLOCK_MAX_LOG_DAYS."""
+    log_dir = _log_dir()
+    if not log_dir.is_dir():
+        return
+    cutoff = datetime.date.today() - datetime.timedelta(days=_max_log_days())
+    for path in log_dir.glob("airlock-*.jsonl"):
+        m = _LOG_DATE_RE.match(path.name)
+        if not m:
+            continue
+        try:
+            file_date = datetime.date.fromisoformat(m.group(1))
+        except ValueError:
+            continue
+        if file_date < cutoff:
+            try:
+                path.unlink()
+                logger.info("log_cleanup removed=%s", path.name)
+            except OSError:
+                logger.warning("log_cleanup failed to remove %s", path.name, exc_info=True)
+
+
+def _rotate_if_oversized(log_path: Path) -> None:
+    """Rename the current log file if it exceeds AIRLOCK_MAX_LOG_SIZE_MB."""
+    max_bytes = _max_log_size_mb() * 1024 * 1024
+    if not log_path.exists() or log_path.stat().st_size < max_bytes:
+        return
+    suffix = 1
+    while True:
+        rotated = log_path.with_suffix(f".{suffix}.jsonl")
+        if not rotated.exists():
+            break
+        suffix += 1
+    log_path.rename(rotated)
+    logger.info("log_rotation %s -> %s", log_path.name, rotated.name)
+
+
 def _write_log(record: dict[str, Any]) -> None:
     """Append a JSON record to today's log file."""
     log_dir = _ensure_log_dir()
     today = datetime.date.today().isoformat()
     log_path = log_dir / f"airlock-{today}.jsonl"
+    _rotate_if_oversized(log_path)
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, default=_serialize) + "\n")
 
@@ -352,7 +402,7 @@ def _patch_lowest_cost_none_guard() -> None:
 
         LowestCostLoggingHandler.async_log_success_event = _safe_async_log_success
     except Exception:
-        pass
+        logger.warning("lowest_cost_none_guard patch failed", exc_info=True)
 
 
 def _self_register() -> None:
@@ -366,9 +416,10 @@ def _self_register() -> None:
         mgr.add_litellm_async_success_callback(proxy_logger)
         mgr.add_litellm_async_failure_callback(proxy_logger)
     except Exception:
-        logger.warning("enterprise_logger self-registration deferred — litellm not fully loaded")
+        logger.warning("enterprise_logger self-registration deferred — litellm not fully loaded", exc_info=True)
 
     _patch_lowest_cost_none_guard()
 
 
 _self_register()
+_cleanup_old_logs()

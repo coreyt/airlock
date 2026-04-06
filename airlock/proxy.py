@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -65,9 +66,38 @@ def _validate_mcp_env_refs(config_path: str) -> list[str]:
     return errors
 
 
+_DEFAULT_MASTER_KEY = "sk-airlock-change-me"
+_MIN_KEY_LENGTH = 16
+
+
+def _validate_master_key() -> None:
+    """Warn on default, weak, or missing master key."""
+    key = os.getenv("AIRLOCK_MASTER_KEY", "")
+    if not key:
+        print("WARNING: AIRLOCK_MASTER_KEY is not set. The proxy will accept unauthenticated requests.", file=sys.stderr)
+    elif key == _DEFAULT_MASTER_KEY:
+        print("WARNING: AIRLOCK_MASTER_KEY is set to the default value. Change it before deploying to production.", file=sys.stderr)
+    elif len(key) < _MIN_KEY_LENGTH:
+        print(f"WARNING: AIRLOCK_MASTER_KEY is shorter than {_MIN_KEY_LENGTH} characters. Use a stronger key in production.", file=sys.stderr)
+
+
+def _register_shutdown_handlers() -> None:
+    """Ensure S3 logger flushes on SIGTERM (atexit only fires on normal exit)."""
+    def _handle_sigterm(signum, frame):
+        try:
+            from airlock.callbacks.s3_logger import proxy_s3_logger
+            proxy_s3_logger.flush()
+        except Exception:
+            pass  # best-effort on shutdown
+        sys.exit(0)  # triggers atexit handlers too
+    signal.signal(signal.SIGTERM, _handle_sigterm)
+
+
 def main() -> None:
     _project_env = Path(__file__).resolve().parent.parent / ".env"
     load_dotenv(_project_env)
+
+    _validate_master_key()
 
     config_path = _find_config()
 
@@ -100,6 +130,7 @@ def main() -> None:
         "--port", str(port),
     ]
 
+    _register_shutdown_handlers()
     print(f"Airlock starting on {host}:{port}")
     sys.exit(subprocess.call(litellm_cmd))
 

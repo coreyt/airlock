@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from airlock.proxy import _find_config, main
+from airlock.proxy import _find_config, _validate_master_key, _register_shutdown_handlers, main
 
 
 # ---------------------------------------------------------------------------
@@ -119,3 +119,50 @@ class TestMain:
             main()
 
         assert len(discovery_called) == 1
+
+
+# ---------------------------------------------------------------------------
+# _validate_master_key()
+# ---------------------------------------------------------------------------
+class TestMasterKeyValidation:
+    def test_default_key_warns(self, monkeypatch, capsys):
+        monkeypatch.setenv("AIRLOCK_MASTER_KEY", "sk-airlock-change-me")
+        _validate_master_key()
+        assert "default value" in capsys.readouterr().err
+
+    def test_short_key_warns(self, monkeypatch, capsys):
+        monkeypatch.setenv("AIRLOCK_MASTER_KEY", "abc")
+        _validate_master_key()
+        assert "shorter than 16" in capsys.readouterr().err
+
+    def test_empty_key_warns(self, monkeypatch, capsys):
+        monkeypatch.delenv("AIRLOCK_MASTER_KEY", raising=False)
+        _validate_master_key()
+        assert "not set" in capsys.readouterr().err
+
+    def test_strong_key_no_warning(self, monkeypatch, capsys):
+        monkeypatch.setenv("AIRLOCK_MASTER_KEY", "sk-airlock-abcdef1234567890")
+        _validate_master_key()
+        assert capsys.readouterr().err == ""
+
+
+# ---------------------------------------------------------------------------
+# _register_shutdown_handlers()
+# ---------------------------------------------------------------------------
+class TestShutdownHandlers:
+    def test_sigterm_handler_registered(self):
+        import signal
+        _register_shutdown_handlers()
+        assert signal.getsignal(signal.SIGTERM) != signal.SIG_DFL
+
+    def test_sigterm_handler_flushes_s3(self, monkeypatch):
+        from unittest.mock import MagicMock
+        mock_flush = MagicMock()
+        monkeypatch.setattr("airlock.callbacks.s3_logger.proxy_s3_logger.flush", mock_flush)
+        _register_shutdown_handlers()
+        import signal
+        handler = signal.getsignal(signal.SIGTERM)
+        with pytest.raises(SystemExit) as exc_info:
+            handler(signal.SIGTERM, None)
+        assert exc_info.value.code == 0
+        mock_flush.assert_called_once()

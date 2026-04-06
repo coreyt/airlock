@@ -11,6 +11,8 @@ import pytest
 
 from airlock.callbacks.enterprise_logger import (
     AirlockLogger,
+    _cleanup_old_logs,
+    _rotate_if_oversized,
     _serialize,
     _write_log,
     write_precall_block_record,
@@ -557,3 +559,71 @@ class TestMCPLogging:
 
         assert "call_type" not in record
         assert "mcp_tool_name" not in record
+
+
+# ---------------------------------------------------------------------------
+# Log rotation and cleanup
+# ---------------------------------------------------------------------------
+class TestLogCleanup:
+    def test_cleanup_removes_old_files(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("airlock.callbacks.enterprise_logger._log_dir", lambda: tmp_path)
+        monkeypatch.setattr("airlock.callbacks.enterprise_logger._max_log_days", lambda: 30)
+        old_date = (datetime.date.today() - datetime.timedelta(days=45)).isoformat()
+        old_file = tmp_path / f"airlock-{old_date}.jsonl"
+        old_file.write_text("{}\n")
+        _cleanup_old_logs()
+        assert not old_file.exists()
+
+    def test_cleanup_keeps_recent_files(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("airlock.callbacks.enterprise_logger._log_dir", lambda: tmp_path)
+        monkeypatch.setattr("airlock.callbacks.enterprise_logger._max_log_days", lambda: 30)
+        recent_date = (datetime.date.today() - datetime.timedelta(days=5)).isoformat()
+        recent_file = tmp_path / f"airlock-{recent_date}.jsonl"
+        recent_file.write_text("{}\n")
+        _cleanup_old_logs()
+        assert recent_file.exists()
+
+    def test_cleanup_respects_max_log_days_env(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("airlock.callbacks.enterprise_logger._log_dir", lambda: tmp_path)
+        monkeypatch.setattr("airlock.callbacks.enterprise_logger._max_log_days", lambda: 7)
+        old_date = (datetime.date.today() - datetime.timedelta(days=10)).isoformat()
+        old_file = tmp_path / f"airlock-{old_date}.jsonl"
+        old_file.write_text("{}\n")
+        _cleanup_old_logs()
+        assert not old_file.exists()
+
+    def test_cleanup_handles_permission_error(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("airlock.callbacks.enterprise_logger._log_dir", lambda: tmp_path)
+        monkeypatch.setattr("airlock.callbacks.enterprise_logger._max_log_days", lambda: 30)
+        old_date = (datetime.date.today() - datetime.timedelta(days=45)).isoformat()
+        old_file = tmp_path / f"airlock-{old_date}.jsonl"
+        old_file.write_text("{}\n")
+        from unittest.mock import patch as mock_patch
+        with mock_patch.object(type(old_file), "unlink", side_effect=OSError("permission denied")):
+            _cleanup_old_logs()  # should not crash
+
+
+class TestLogRotation:
+    def test_rotate_oversized_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("airlock.callbacks.enterprise_logger._max_log_size_mb", lambda: 1)
+        log_file = tmp_path / "airlock-2026-04-06.jsonl"
+        log_file.write_text("x" * (2 * 1024 * 1024))  # 2MB > 1MB limit
+        _rotate_if_oversized(log_file)
+        assert not log_file.exists()
+        assert (tmp_path / "airlock-2026-04-06.1.jsonl").exists()
+
+    def test_no_rotate_under_limit(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("airlock.callbacks.enterprise_logger._max_log_size_mb", lambda: 500)
+        log_file = tmp_path / "airlock-2026-04-06.jsonl"
+        log_file.write_text("small log\n")
+        _rotate_if_oversized(log_file)
+        assert log_file.exists()  # not rotated
+
+    def test_rotate_increments_suffix(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("airlock.callbacks.enterprise_logger._max_log_size_mb", lambda: 1)
+        log_file = tmp_path / "airlock-2026-04-06.jsonl"
+        (tmp_path / "airlock-2026-04-06.1.jsonl").write_text("old rotated\n")
+        log_file.write_text("x" * (2 * 1024 * 1024))
+        _rotate_if_oversized(log_file)
+        assert not log_file.exists()
+        assert (tmp_path / "airlock-2026-04-06.2.jsonl").exists()
