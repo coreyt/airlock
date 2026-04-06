@@ -7,6 +7,7 @@ Tests run_checks() directly, no proxy needed for config/guardrail checks.
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -35,12 +36,14 @@ def post_config_dir(tmp_path, monkeypatch):
     (tmp_path / "logs").mkdir()
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("AIRLOCK_CONFIG", raising=False)
-    # Prevent real API keys from leaking into provider connectivity checks
+    # Remove any real API keys that load_dotenv() may have injected earlier
+    # in the test suite. This ensures provider checks see the test's fake
+    # keys (from tmp .env) rather than real credentials.
+    for key in list(os.environ):
+        if key.endswith(("_API_KEY", "_PAT", "_AUTH_TOKEN")):
+            monkeypatch.delenv(key)
+    # Set the one key the test config references
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    monkeypatch.setenv("MISTRAL_API_KEY", "sk-test")
-    monkeypatch.setenv("GEMINI_API_KEY", "sk-test")
-    monkeypatch.setenv("PERPLEXITY_API_KEY", "sk-test")
     return tmp_path
 
 
@@ -116,11 +119,12 @@ class TestPostChecks:
 
         results = run_checks()
         # Connectivity checks should fail/warn/skip gracefully — not crash.
-        # provider_keys only checks env var presence so it may PASS independently
-        # of whether providers are reachable.
+        # Exclude checks that only verify key presence / SDK availability
+        # (no HTTP connectivity test), since those can legitimately PASS.
+        _presence_only = {"provider_keys", "provider_newscatcher"}
         connectivity_checks = [
             r for r in results
-            if r.group == "Providers" and r.name != "provider_keys"
+            if r.group == "Providers" and r.name not in _presence_only
         ]
         for r in connectivity_checks:
             assert r.status in (
