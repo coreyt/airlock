@@ -160,6 +160,8 @@ Key sections:
 | `AIRLOCK_HOST` | Bind address | `0.0.0.0` |
 | `AIRLOCK_PORT` | Listen port | `4000` |
 | `AIRLOCK_LOG_DIR` | Directory for JSONL log files | `./logs` |
+| `AIRLOCK_MAX_LOG_DAYS` | Days to retain log files before cleanup | `30` |
+| `AIRLOCK_MAX_LOG_SIZE_MB` | Max log file size before rotation | `500` |
 | `AIRLOCK_BLOCKED_KEYWORDS` | Comma-separated restricted phrases | — |
 | `AIRLOCK_PII_ENTITIES` | Presidio entity types to redact | `CREDIT_CARD,US_SSN,EMAIL_ADDRESS,PHONE_NUMBER` |
 
@@ -238,11 +240,17 @@ airlock/
 ├── slow/                 # Offline: log analysis, trend detection, tuning
 ├── hooks/                # Claude Code client-side hooks (session, prompt, audit)
 ├── cli/                  # Unified CLI: init, start, status, tui, analyze, hooks
-└── tui/                  # Textual terminal dashboard (8 screens, proxy control)
+└── tui/                  # Textual terminal dashboard (9 screens, proxy control)
 scripts/
 ├── setup.sh              # Standard setup (install + init + spaCy model)
 └── setup-dev.sh          # Developer setup (all extras + tests)
 ```
+
+## Production deployment
+
+See [docs/operations.md](docs/operations.md) for deployment guides (Docker, Kubernetes, bare metal), monitoring, security checklist, and upgrade procedures.
+
+See [docs/troubleshooting.md](docs/troubleshooting.md) for common issues and debugging.
 
 ## License
 
