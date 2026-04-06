@@ -81,6 +81,68 @@ def _validate_master_key() -> None:
         print(f"WARNING: AIRLOCK_MASTER_KEY is shorter than {_MIN_KEY_LENGTH} characters. Use a stronger key in production.", file=sys.stderr)
 
 
+def _validate_config(config_path: str) -> list[str]:
+    """Validate config.yaml schema and return a list of warning strings."""
+    try:
+        with open(config_path) as f:
+            cfg = yaml.safe_load(f) or {}
+    except yaml.YAMLError as e:
+        return [f"config.yaml is not valid YAML: {e}"]
+
+    warnings: list[str] = []
+
+    # model_list
+    model_list = cfg.get("model_list")
+    if model_list is None or not isinstance(model_list, list):
+        warnings.append("model_list is missing or not a list — no models will be available")
+    elif len(model_list) == 0:
+        warnings.append("model_list is empty — no models will be available")
+    else:
+        for i, entry in enumerate(model_list):
+            if not isinstance(entry, dict):
+                continue
+            if not entry.get("model_name"):
+                warnings.append(f"model_list[{i}]: missing 'model_name'")
+            name = entry.get("model_name", f"index {i}")
+            lp = entry.get("litellm_params")
+            if not isinstance(lp, dict) or not lp.get("model"):
+                warnings.append(f"model_list[{i}] ({name}): missing 'litellm_params.model'")
+
+    # guardrails
+    guardrails = cfg.get("guardrails")
+    if guardrails is not None:
+        if not isinstance(guardrails, list):
+            warnings.append("guardrails must be a list")
+        else:
+            for i, entry in enumerate(guardrails):
+                if not isinstance(entry, dict):
+                    continue
+                if not entry.get("guardrail_name"):
+                    warnings.append(f"guardrails[{i}]: missing 'guardrail_name'")
+                name = entry.get("guardrail_name", f"index {i}")
+                lp = entry.get("litellm_params")
+                if not isinstance(lp, dict) or not lp.get("guardrail"):
+                    warnings.append(f"guardrails[{i}] ({name}): missing 'litellm_params.guardrail'")
+
+    # mcp_servers
+    mcp_servers = cfg.get("mcp_servers")
+    if mcp_servers is not None and isinstance(mcp_servers, dict):
+        for name, server_cfg in mcp_servers.items():
+            if not isinstance(server_cfg, dict):
+                continue
+            transport = server_cfg.get("transport", "stdio")
+            if transport == "stdio" and not server_cfg.get("command"):
+                warnings.append(f"mcp_servers.{name}: 'command' is required for stdio transport")
+
+    # general_settings type checks
+    gs = cfg.get("general_settings")
+    if gs is not None and isinstance(gs, dict):
+        if "port" in gs and not isinstance(gs["port"], int):
+            warnings.append(f"general_settings.port: expected int, got {type(gs['port']).__name__}")
+
+    return warnings
+
+
 def _register_shutdown_handlers() -> None:
     """Ensure S3 logger flushes on SIGTERM (atexit only fires on normal exit)."""
     def _handle_sigterm(signum, frame):
@@ -100,6 +162,10 @@ def main() -> None:
     _validate_master_key()
 
     config_path = _find_config()
+
+    config_warnings = _validate_config(config_path)
+    for warning in config_warnings:
+        print(f"WARNING: {warning}", file=sys.stderr)
 
     mcp_errors = _validate_mcp_env_refs(config_path)
     if mcp_errors:

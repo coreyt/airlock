@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from airlock.proxy import _find_config, _validate_master_key, _register_shutdown_handlers, main
+from airlock.proxy import _find_config, _validate_config, _validate_master_key, _register_shutdown_handlers, main
 
 
 # ---------------------------------------------------------------------------
@@ -166,3 +166,136 @@ class TestShutdownHandlers:
             handler(signal.SIGTERM, None)
         assert exc_info.value.code == 0
         mock_flush.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# _validate_config()
+# ---------------------------------------------------------------------------
+_VALID_CONFIG = (
+    "model_list:\n"
+    "  - model_name: claude-sonnet\n"
+    "    litellm_params:\n"
+    "      model: anthropic/claude-sonnet-4-20250514\n"
+)
+
+
+class TestConfigValidation:
+    def test_valid_config_no_warnings(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(_VALID_CONFIG)
+        assert _validate_config(str(cfg)) == []
+
+    def test_missing_model_list(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("litellm_settings: {}\n")
+        warnings = _validate_config(str(cfg))
+        assert any("model_list" in w for w in warnings)
+
+    def test_model_list_not_a_list(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("model_list: not-a-list\n")
+        warnings = _validate_config(str(cfg))
+        assert any("model_list" in w for w in warnings)
+
+    def test_empty_model_list(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("model_list: []\n")
+        warnings = _validate_config(str(cfg))
+        assert any("model_list" in w and "empty" in w for w in warnings)
+
+    def test_model_missing_model_name(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            "model_list:\n"
+            "  - litellm_params:\n"
+            "      model: anthropic/claude\n"
+        )
+        warnings = _validate_config(str(cfg))
+        assert any("model_name" in w for w in warnings)
+
+    def test_model_missing_litellm_params_model(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            "model_list:\n"
+            "  - model_name: claude\n"
+            "    litellm_params: {}\n"
+        )
+        warnings = _validate_config(str(cfg))
+        assert any("litellm_params.model" in w for w in warnings)
+
+    def test_guardrail_missing_name(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            _VALID_CONFIG +
+            "guardrails:\n"
+            "  - litellm_params:\n"
+            "      guardrail: airlock.guardrails.pii_guard\n"
+        )
+        warnings = _validate_config(str(cfg))
+        assert any("guardrail_name" in w for w in warnings)
+
+    def test_guardrail_missing_guardrail_param(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            _VALID_CONFIG +
+            "guardrails:\n"
+            "  - guardrail_name: pii\n"
+            "    litellm_params: {}\n"
+        )
+        warnings = _validate_config(str(cfg))
+        assert any("litellm_params.guardrail" in w for w in warnings)
+
+    def test_mcp_stdio_missing_command(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            _VALID_CONFIG +
+            "mcp_servers:\n"
+            "  search:\n"
+            "    transport: stdio\n"
+        )
+        warnings = _validate_config(str(cfg))
+        assert any("command" in w and "search" in w for w in warnings)
+
+    def test_mcp_http_no_command_required(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            _VALID_CONFIG +
+            "mcp_servers:\n"
+            "  api:\n"
+            "    url: http://localhost:3001/sse\n"
+            "    transport: http\n"
+        )
+        assert _validate_config(str(cfg)) == []
+
+    def test_general_settings_port_wrong_type(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            _VALID_CONFIG +
+            "general_settings:\n"
+            "  port: not-a-number\n"
+        )
+        warnings = _validate_config(str(cfg))
+        assert any("port" in w and "int" in w for w in warnings)
+
+    def test_invalid_yaml(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("model_list:\n  - bad: yaml: here:\n")
+        warnings = _validate_config(str(cfg))
+        assert any("not valid YAML" in w for w in warnings)
+
+    def test_multiple_warnings_accumulated(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            "model_list:\n"
+            "  - litellm_params: {}\n"
+            "guardrails:\n"
+            "  - litellm_params: {}\n"
+        )
+        warnings = _validate_config(str(cfg))
+        assert len(warnings) >= 2
+
+    def test_shipped_template_is_valid(self):
+        template = Path(__file__).resolve().parent.parent / "airlock" / "cli" / "templates" / "config.yaml"
+        if template.exists():
+            warnings = _validate_config(str(template))
+            assert warnings == [], f"Template config has warnings: {warnings}"
