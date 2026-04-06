@@ -35,6 +35,12 @@ def post_config_dir(tmp_path, monkeypatch):
     (tmp_path / "logs").mkdir()
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("AIRLOCK_CONFIG", raising=False)
+    # Prevent real API keys from leaking into provider connectivity checks
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("MISTRAL_API_KEY", "sk-test")
+    monkeypatch.setenv("GEMINI_API_KEY", "sk-test")
+    monkeypatch.setenv("PERPLEXITY_API_KEY", "sk-test")
     return tmp_path
 
 
