@@ -33,9 +33,9 @@ class GuardrailObservation:
     model: str
     client_id: str
     signals: list[GuardrailSignal]
-    composite_score: float | None = None       # Phase 2+
-    would_block: bool | None = None            # Phase 2+
-    orchestrator_version: str | None = None    # Phase 2+
+    composite_score: float | None = None
+    would_block: bool | None = None
+    orchestrator_version: str | None = None
 
 
 @dataclass
