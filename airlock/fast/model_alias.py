@@ -51,6 +51,7 @@ _PROVIDER_PREFIXES = {
     "mistral": "mistral",
     "codestral": "mistral",
     "magistral": "mistral",
+    "gemma": "vllm",
     "perplexity": "perplexity",
     "sonar": "perplexity",
     "tavily": "tavily",

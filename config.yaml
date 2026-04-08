@@ -114,6 +114,13 @@ model_list:
   # Thresholds configurable via AIRLOCK_SMART_THRESHOLDS env var.
   # Composes with other directives: session_id, prefer_provider, cost_tier.
 
+  # --- Local vLLM (Gemma 4 31B AWQ) ---
+  - model_name: gemma-4
+    litellm_params:
+      model: openai/gemma4-31b
+      api_base: http://192.168.1.45:8000/v1
+      api_key: os.environ/VLLM_API_KEY
+
   # --- Internal RAG (Phase 3 — uncomment when ready) ---
   # - model_name: internal-docs
   #   litellm_params:
@@ -183,6 +190,7 @@ router_settings:
     - mistral-large: [claude-sonnet, gpt-4o, gemini-pro]
     - codestral: [claude-sonnet, gpt-4o, gemini-pro]
     - magistral-medium: [claude-opus, gemini-3.1-pro, gpt-4o]
+    - gemma-4: [claude-haiku, gemini-flash, mistral-small]
 
 # ---------------------------------------------------------------------------
 # Guardrails
