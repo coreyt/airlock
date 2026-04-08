@@ -49,3 +49,4 @@ node_modules/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.claude/worktrees/
