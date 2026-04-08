@@ -18,6 +18,7 @@ Key design:
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from dataclasses import asdict
 from typing import Any
@@ -37,35 +38,38 @@ from airlock.slow.tuner import load_knobs
 logger = logging.getLogger("airlock.guardrails.orchestrator")
 
 # ---------------------------------------------------------------------------
-# Knobs cache (30-second TTL)
+# Knobs cache (30-second TTL, thread-safe)
 # ---------------------------------------------------------------------------
 _cached_knobs: GuardrailKnobs | None = None
 _cached_knobs_ts: float = 0.0
 _KNOBS_TTL_SECONDS: float = 30.0
+_knobs_lock = threading.Lock()
 
 
 def _get_knobs() -> GuardrailKnobs:
-    """Load knobs with 30-second in-memory cache."""
+    """Load knobs with 30-second in-memory cache (thread-safe)."""
     global _cached_knobs, _cached_knobs_ts
 
-    now = time.monotonic()
-    if _cached_knobs is not None and (now - _cached_knobs_ts) < _KNOBS_TTL_SECONDS:
-        return _cached_knobs
+    with _knobs_lock:
+        now = time.monotonic()
+        if _cached_knobs is not None and (now - _cached_knobs_ts) < _KNOBS_TTL_SECONDS:
+            return _cached_knobs
 
-    knobs = load_knobs()
-    if knobs is None:
-        knobs = default_knobs()
+        knobs = load_knobs()
+        if knobs is None:
+            knobs = default_knobs()
 
-    _cached_knobs = knobs
-    _cached_knobs_ts = now
-    return knobs
+        _cached_knobs = knobs
+        _cached_knobs_ts = now
+        return knobs
 
 
 def _invalidate_knobs_cache() -> None:
     """Force next _get_knobs() to reload. Useful for testing."""
     global _cached_knobs, _cached_knobs_ts
-    _cached_knobs = None
-    _cached_knobs_ts = 0.0
+    with _knobs_lock:
+        _cached_knobs = None
+        _cached_knobs_ts = 0.0
 
 
 def evaluate(

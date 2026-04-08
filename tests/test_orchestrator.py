@@ -263,3 +263,42 @@ class TestMCPOrchestration:
         obs = data["metadata"]["airlock_observation"]
         assert "composite_score" in obs
         assert obs["composite_score"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Thread safety of knobs cache (P1 Fix #2)
+# ---------------------------------------------------------------------------
+class TestKnobsCacheThreadSafety:
+    def test_concurrent_knobs_access_no_errors(self, knobs_dir):
+        """Multiple threads reading/writing knobs cache should not corrupt state."""
+        import threading
+
+        errors = []
+
+        def reader():
+            try:
+                for _ in range(50):
+                    knobs = _get_knobs()
+                    assert knobs is not None
+                    assert knobs.version is not None
+            except Exception as e:
+                errors.append(e)
+
+        def invalidator():
+            try:
+                for _ in range(50):
+                    _invalidate_knobs_cache()
+            except Exception as e:
+                errors.append(e)
+
+        threads = [
+            threading.Thread(target=reader) for _ in range(5)
+        ] + [
+            threading.Thread(target=invalidator) for _ in range(2)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(errors) == 0

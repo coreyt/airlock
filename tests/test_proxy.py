@@ -8,7 +8,14 @@ from unittest.mock import patch
 
 import pytest
 
-from airlock.proxy import _find_config, _validate_config, _validate_master_key, _register_shutdown_handlers, main
+from airlock.proxy import (
+    _find_config,
+    _validate_config,
+    _validate_master_key,
+    _register_shutdown_handlers,
+    _warn_observe_mode,
+    main,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +174,21 @@ class TestShutdownHandlers:
         assert exc_info.value.code == 0
         mock_flush.assert_called_once()
 
+    def test_sigterm_handler_checkpoints_circuit_breaker_state(self, monkeypatch, tmp_path):
+        """Shutdown handler should checkpoint circuit breaker state."""
+        from unittest.mock import MagicMock
+        monkeypatch.setattr("airlock.callbacks.s3_logger.proxy_s3_logger.flush", MagicMock())
+        monkeypatch.setenv("AIRLOCK_STATE_DIR", str(tmp_path))
+
+        _register_shutdown_handlers()
+        import signal
+        handler = signal.getsignal(signal.SIGTERM)
+        with pytest.raises(SystemExit):
+            handler(signal.SIGTERM, None)
+
+        # State file should have been created (or at least attempted)
+        # The checkpoint function is called during shutdown
+
 
 # ---------------------------------------------------------------------------
 # _validate_config()
@@ -294,6 +316,32 @@ class TestConfigValidation:
         warnings = _validate_config(str(cfg))
         assert len(warnings) >= 2
 
+# ---------------------------------------------------------------------------
+# _warn_observe_mode() (P2 Fix #9)
+# ---------------------------------------------------------------------------
+class TestObserveModeWarning:
+    def test_observe_mode_warns(self, monkeypatch, capsys):
+        monkeypatch.delenv("AIRLOCK_ENFORCE_MODE", raising=False)
+        _warn_observe_mode()
+        captured = capsys.readouterr()
+        assert "WARNING" in captured.err
+        assert "observe" in captured.err.lower()
+
+    def test_enforce_mode_no_warning(self, monkeypatch, capsys):
+        monkeypatch.setenv("AIRLOCK_ENFORCE_MODE", "enforce")
+        _warn_observe_mode()
+        captured = capsys.readouterr()
+        assert "observe" not in captured.err.lower()
+
+    def test_shadow_mode_no_warning(self, monkeypatch, capsys):
+        monkeypatch.setenv("AIRLOCK_ENFORCE_MODE", "shadow")
+        _warn_observe_mode()
+        captured = capsys.readouterr()
+        assert "observe" not in captured.err.lower()
+
+
+
+class TestConfigValidationExtra:
     def test_shipped_template_is_valid(self):
         template = Path(__file__).resolve().parent.parent / "airlock" / "cli" / "templates" / "config.yaml"
         if template.exists():

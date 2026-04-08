@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import unicodedata
 from typing import Any
 
 from litellm import DualCache
@@ -22,9 +24,29 @@ from .extract import extract_text
 logger = logging.getLogger("airlock.guardrails.keyword")
 
 
+# Zero-width characters that can be used to bypass keyword matching
+_ZERO_WIDTH_RE = re.compile(
+    "[\u200b\u200c\u200d\u2060\ufeff]"
+)
+
+
+def _normalize_text(text: str) -> str:
+    """Normalize Unicode text for robust keyword matching.
+
+    Applies NFKD normalization (decomposes fullwidth/compatibility chars),
+    strips zero-width characters, and normalizes whitespace variants
+    (non-breaking spaces, etc.) to regular spaces.
+    """
+    text = unicodedata.normalize("NFKD", text)
+    text = _ZERO_WIDTH_RE.sub("", text)
+    # Normalize various Unicode space characters to ASCII space
+    text = re.sub(r"[\u00a0\u2000-\u200a\u202f\u205f\u3000]", " ", text)
+    return text
+
+
 def _blocked_keywords() -> list[str]:
     raw = os.getenv("AIRLOCK_BLOCKED_KEYWORDS", "")
-    return [kw.strip().lower() for kw in raw.split(",") if kw.strip()]
+    return [_normalize_text(kw.strip()).lower() for kw in raw.split(",") if kw.strip()]
 
 
 class AirlockKeywordGuard(CustomGuardrail):
@@ -48,7 +70,7 @@ class AirlockKeywordGuard(CustomGuardrail):
         if not keywords:
             return data
 
-        text = extract_text(data, call_type).lower()
+        text = _normalize_text(extract_text(data, call_type)).lower()
         if not text:
             return data
 

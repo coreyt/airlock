@@ -955,3 +955,50 @@ class TestLogEntityTypeExtraction:
         log_text = caplog.text
         assert "EMAIL_ADDRESS" in log_text
         assert "CREDIT_CARD" in log_text
+
+
+# ---------------------------------------------------------------------------
+# Streaming + PII guard limitation warning (P1 Fix #6)
+# ---------------------------------------------------------------------------
+class TestStreamingPiiWarning:
+    async def test_streaming_request_logs_warning(
+        self, mock_cache, mock_user_api_key_dict, caplog, reset_presidio_singletons,
+        presidio_available,
+    ):
+        """When streaming is enabled and PII mapping exists, a warning is logged."""
+        if not presidio_available:
+            pytest.skip("Presidio not available")
+        guard = AirlockPIIGuard()
+        data = {
+            "messages": [
+                {"role": "user", "content": "My email is alice@example.com"},
+            ],
+            "model": "claude-sonnet",
+            "stream": True,
+        }
+        with caplog.at_level("WARNING", logger="airlock.guardrails.pii"):
+            await guard.async_pre_call_hook(
+                mock_user_api_key_dict, mock_cache, data, "completion"
+            )
+        assert any("stream" in r.message.lower() for r in caplog.records)
+
+    async def test_non_streaming_request_no_warning(
+        self, mock_cache, mock_user_api_key_dict, caplog, reset_presidio_singletons,
+        presidio_available,
+    ):
+        """Non-streaming requests should not log the streaming warning."""
+        if not presidio_available:
+            pytest.skip("Presidio not available")
+        guard = AirlockPIIGuard()
+        data = {
+            "messages": [
+                {"role": "user", "content": "My email is alice@example.com"},
+            ],
+            "model": "claude-sonnet",
+            "stream": False,
+        }
+        with caplog.at_level("WARNING", logger="airlock.guardrails.pii"):
+            await guard.async_pre_call_hook(
+                mock_user_api_key_dict, mock_cache, data, "completion"
+            )
+        assert not any("stream" in r.message.lower() for r in caplog.records)

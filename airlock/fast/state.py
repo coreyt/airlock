@@ -667,6 +667,17 @@ class StateStore:
         with self._lock:
             return self._llm_call_count, self._mcp_call_count
 
+    def should_allow_request(self, model_name: str) -> bool:
+        """Thread-safe circuit breaker check for a model.
+
+        Protects _half_open_admitted flag from race conditions where
+        multiple concurrent requests could all enter HALF_OPEN probe state.
+        """
+        with self._lock:
+            if model_name not in self._models:
+                self._models[model_name] = ModelState(model_name=model_name)
+            return self._models[model_name].should_allow_request()
+
 
     # -- JSONL log ingestion (for TUI cross-process visibility) ---------------
 
@@ -749,6 +760,67 @@ class StateStore:
                 tool_state.record_success(now, duration_ms)
             else:
                 tool_state.record_failure(now)
+
+
+_CB_STATE_MAX_AGE_SECONDS = 300.0  # 5 minutes
+
+
+def checkpoint_state(state_store: StateStore, path: str) -> None:
+    """Snapshot circuit breaker state to a JSON file for restart recovery."""
+    import json
+
+    models = state_store.all_models()
+    data = {
+        "timestamp": time.time(),
+        "models": {
+            name: {
+                "circuit": ms.circuit.value,
+                "consecutive_failures": ms.consecutive_failures,
+            }
+            for name, ms in models.items()
+            if ms.circuit != CircuitState.CLOSED  # only persist non-healthy
+        },
+    }
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+    except OSError:
+        import logging
+        logging.getLogger("airlock.fast.state").error(
+            "Failed to checkpoint circuit breaker state", exc_info=True
+        )
+
+
+def restore_state(state_store: StateStore, path: str) -> None:
+    """Restore circuit breaker state from a JSON checkpoint if recent (< 5 min)."""
+    import json
+    import logging
+
+    log = logging.getLogger("airlock.fast.state")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        log.debug("No valid circuit breaker state to restore from %s", path)
+        return
+
+    ts = data.get("timestamp", 0)
+    if time.time() - ts > _CB_STATE_MAX_AGE_SECONDS:
+        log.info("Stale circuit breaker state (%.0fs old), ignoring", time.time() - ts)
+        return
+
+    models = data.get("models", {})
+    for name, state_dict in models.items():
+        model = state_store.get_model(name)
+        circuit_val = state_dict.get("circuit", "closed")
+        try:
+            model.circuit = CircuitState(circuit_val)
+        except ValueError:
+            model.circuit = CircuitState.CLOSED
+        model.consecutive_failures = state_dict.get("consecutive_failures", 0)
+        model.last_state_change = ts
+
+    log.info("Restored circuit breaker state for %d models from %s", len(models), path)
 
 
 store = StateStore()

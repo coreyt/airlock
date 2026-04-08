@@ -144,15 +144,37 @@ def _validate_config(config_path: str) -> list[str]:
 
 
 def _register_shutdown_handlers() -> None:
-    """Ensure S3 logger flushes on SIGTERM (atexit only fires on normal exit)."""
+    """Flush loggers and persist state on SIGTERM (atexit only fires on normal exit)."""
     def _handle_sigterm(signum, frame):
+        # Flush S3 logger
         try:
             from airlock.callbacks.s3_logger import proxy_s3_logger
             proxy_s3_logger.flush()
         except Exception:
             pass  # best-effort on shutdown
+
+        # Checkpoint circuit breaker state for restart recovery
+        try:
+            from airlock.fast.state import checkpoint_state, store
+            state_dir = os.getenv("AIRLOCK_STATE_DIR", os.getenv("AIRLOCK_LOG_DIR", "./logs"))
+            state_path = os.path.join(state_dir, "cb_state.json")
+            checkpoint_state(store, state_path)
+        except Exception:
+            pass  # best-effort on shutdown
+
         sys.exit(0)  # triggers atexit handlers too
     signal.signal(signal.SIGTERM, _handle_sigterm)
+
+
+def _warn_observe_mode() -> None:
+    """Log a prominent warning when guardrails are in observe-only mode."""
+    mode = os.getenv("AIRLOCK_ENFORCE_MODE", "observe").lower().strip()
+    if mode == "observe":
+        print(
+            "WARNING: Guardrails are in 'observe' mode (AIRLOCK_ENFORCE_MODE not set or set to 'observe'). "
+            "Guardrails will log but NOT block requests. Set AIRLOCK_ENFORCE_MODE=enforce for production.",
+            file=sys.stderr,
+        )
 
 
 def main() -> None:
@@ -160,6 +182,7 @@ def main() -> None:
     load_dotenv(_project_env)
 
     _validate_master_key()
+    _warn_observe_mode()
 
     config_path = _find_config()
 
@@ -197,6 +220,16 @@ def main() -> None:
     ]
 
     _register_shutdown_handlers()
+
+    # Restore circuit breaker state from previous run if recent
+    try:
+        from airlock.fast.state import restore_state, store
+        state_dir = os.getenv("AIRLOCK_STATE_DIR", os.getenv("AIRLOCK_LOG_DIR", "./logs"))
+        state_path = os.path.join(state_dir, "cb_state.json")
+        restore_state(store, state_path)
+    except Exception:
+        pass  # best-effort
+
     print(f"Airlock starting on {host}:{port}")
     sys.exit(subprocess.call(litellm_cmd))
 

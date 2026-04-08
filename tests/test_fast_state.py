@@ -20,6 +20,8 @@ from airlock.fast.state import (
     MAX_SAMPLES,
     normalize_client_id,
     tail_jsonl,
+    checkpoint_state,
+    restore_state,
 )
 
 
@@ -519,6 +521,123 @@ class TestIngestJsonlRecord:
         assert client.recent_gemini_outcome_count("thought_only") == 1
         assert provider.recent_gemini_outcome_count("thought_only") == 1
         assert provider.recent_gemini_mode() == "deep_reasoning"
+
+
+# ---------------------------------------------------------------------------
+# Circuit breaker race condition (P1 Fix #3)
+# ---------------------------------------------------------------------------
+class TestCircuitBreakerHalfOpenRace:
+    def test_only_one_probe_admitted_concurrently(self):
+        """When multiple threads call should_allow_request on OPEN->HALF_OPEN,
+        only one should be admitted."""
+        store = StateStore()
+        model = store.get_model("test-model")
+        now = time.time()
+        # Force to OPEN state with recovery timeout elapsed
+        for _ in range(5):
+            model.record_failure(now - 60)
+        assert model.circuit == CircuitState.OPEN
+        model.last_state_change = now - 31  # past recovery timeout
+
+        admitted = []
+        barrier = threading.Barrier(10)
+
+        def try_admit():
+            barrier.wait()
+            result = store.should_allow_request("test-model")
+            admitted.append(result)
+
+        threads = [threading.Thread(target=try_admit) for _ in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Exactly one thread should have been admitted
+        assert admitted.count(True) == 1, f"Expected 1 admitted, got {admitted.count(True)}"
+
+
+# ---------------------------------------------------------------------------
+# Circuit breaker state persistence (P1 Fix #4)
+# ---------------------------------------------------------------------------
+class TestCircuitBreakerPersistence:
+    def test_checkpoint_creates_file(self, tmp_path):
+        store = StateStore()
+        model = store.get_model("claude-sonnet")
+        for _ in range(5):
+            model.record_failure(time.time())
+        assert model.circuit == CircuitState.OPEN
+
+        path = tmp_path / "cb_state.json"
+        checkpoint_state(store, str(path))
+        assert path.exists()
+
+        import json
+        data = json.loads(path.read_text())
+        assert "claude-sonnet" in data["models"]
+        assert data["models"]["claude-sonnet"]["circuit"] == "open"
+
+    def test_restore_loads_state(self, tmp_path):
+        # Create and checkpoint
+        store1 = StateStore()
+        model1 = store1.get_model("gpt-4o")
+        for _ in range(5):
+            model1.record_failure(time.time())
+        assert model1.circuit == CircuitState.OPEN
+
+        path = tmp_path / "cb_state.json"
+        checkpoint_state(store1, str(path))
+
+        # Restore into a new store
+        store2 = StateStore()
+        restore_state(store2, str(path))
+        model2 = store2.get_model("gpt-4o")
+        assert model2.circuit == CircuitState.OPEN
+
+    def test_restore_ignores_stale_file(self, tmp_path):
+        """State files older than 5 minutes should be ignored."""
+        import json, os
+
+        path = tmp_path / "cb_state.json"
+        path.write_text(json.dumps({
+            "timestamp": time.time() - 400,  # > 5 min ago
+            "models": {"old-model": {"circuit": "open", "consecutive_failures": 5}},
+        }))
+
+        store = StateStore()
+        restore_state(store, str(path))
+        # Should NOT have loaded old-model
+        assert len(store.all_models()) == 0
+
+    def test_restore_loads_recent_file(self, tmp_path):
+        """State files within 5 minutes should be loaded."""
+        import json
+
+        path = tmp_path / "cb_state.json"
+        path.write_text(json.dumps({
+            "timestamp": time.time() - 60,  # 1 min ago, within threshold
+            "models": {"recent-model": {"circuit": "open", "consecutive_failures": 5}},
+        }))
+
+        store = StateStore()
+        restore_state(store, str(path))
+        model = store.get_model("recent-model")
+        assert model.circuit == CircuitState.OPEN
+
+    def test_restore_handles_missing_file(self, tmp_path):
+        """restore_state should not crash if file doesn't exist."""
+        store = StateStore()
+        restore_state(store, str(tmp_path / "nonexistent.json"))
+        assert len(store.all_models()) == 0
+
+    def test_restore_handles_corrupt_file(self, tmp_path):
+        """restore_state should not crash on corrupt JSON."""
+        path = tmp_path / "cb_state.json"
+        path.write_text("not valid json{{{")
+
+        store = StateStore()
+        restore_state(store, str(path))
+        assert len(store.all_models()) == 0
 
 
 class TestTailJsonl:

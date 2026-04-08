@@ -190,6 +190,17 @@ class AirlockPIIGuard(CustomGuardrail):
                 list({k.rsplit("_", 1)[0].strip("<>") for k in mapping}),
             )
 
+            # Warn when streaming is active: PII placeholders in streamed
+            # responses will NOT be hydrated back to original values.
+            # See dev/design-note-pii-rehydration.md §7.
+            if data.get("stream"):
+                logger.warning(
+                    "pii_streaming_limitation: Streaming is enabled with PII "
+                    "redaction active. PII placeholders in streamed responses "
+                    "will NOT be hydrated. Tool-call arguments may contain "
+                    "placeholders like <EMAIL_ADDRESS_1> instead of real values."
+                )
+
         return data
 
     async def async_post_call_success_hook(

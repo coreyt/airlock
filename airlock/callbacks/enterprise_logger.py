@@ -168,13 +168,20 @@ def _rotate_if_oversized(log_path: Path) -> None:
 
 
 def _write_log(record: dict[str, Any]) -> None:
-    """Append a JSON record to today's log file."""
-    log_dir = _ensure_log_dir()
-    today = datetime.date.today().isoformat()
-    log_path = log_dir / f"airlock-{today}.jsonl"
-    _rotate_if_oversized(log_path)
-    with open(log_path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record, default=_serialize) + "\n")
+    """Append a JSON record to today's log file.
+
+    Swallows OSError (e.g. disk full) so logging failures never
+    propagate up and cause 500 errors on LLM requests.
+    """
+    try:
+        log_dir = _ensure_log_dir()
+        today = datetime.date.today().isoformat()
+        log_path = log_dir / f"airlock-{today}.jsonl"
+        _rotate_if_oversized(log_path)
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, default=_serialize) + "\n")
+    except OSError:
+        logger.error("Failed to write log record (disk full?)", exc_info=True)
 
 
 def write_precall_block_record(

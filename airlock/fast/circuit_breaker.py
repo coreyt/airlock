@@ -78,7 +78,7 @@ def check_model_with_filters(
 
     if model_name not in blocked_models and (
         current_provider is None or current_provider not in blocked_providers
-    ) and model_state.should_allow_request():
+    ) and store.should_allow_request(model_name):
         return FailoverResult(
             original_model=model_name,
             allowed=True,
@@ -102,7 +102,7 @@ def check_model_with_filters(
         if provider and provider in blocked_providers:
             continue
         fallback_state = store.get_model(fallback)
-        if fallback_state.should_allow_request():
+        if store.should_allow_request(fallback):
             logger.warning(
                 "circuit_open model=%s failover=%s consecutive_failures=%d",
                 model_name,

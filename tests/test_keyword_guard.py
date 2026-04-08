@@ -260,3 +260,66 @@ class TestMCPKeywordBlocking:
             mock_user_api_key_dict, mock_cache, data, "call_mcp_tool"
         )
         assert result is data
+
+
+# ---------------------------------------------------------------------------
+# Unicode normalization bypass protection (P2 Fix #8)
+# ---------------------------------------------------------------------------
+class TestUnicodeNormalization:
+    async def test_fullwidth_chars_blocked(self, monkeypatch, mock_cache, mock_user_api_key_dict):
+        """Fullwidth 'secret' (U+FF53 etc.) should still be blocked."""
+        monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "secret")
+        guard = AirlockKeywordGuard()
+        # Fullwidth Latin: ｓｅｃｒｅｔ
+        fullwidth_secret = "\uff53\uff45\uff43\uff52\uff45\uff54"
+        data = {
+            "messages": [{"role": "user", "content": f"Tell me the {fullwidth_secret}"}],
+            "model": "claude-sonnet",
+        }
+        with pytest.raises(ValueError, match="restricted content"):
+            await guard.async_pre_call_hook(
+                mock_user_api_key_dict, mock_cache, data, "call_mcp_tool"
+            )
+
+    async def test_zero_width_chars_stripped(self, monkeypatch, mock_cache, mock_user_api_key_dict):
+        """Zero-width characters inserted into a keyword should not bypass."""
+        monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "forbidden")
+        guard = AirlockKeywordGuard()
+        # Insert zero-width spaces and joiners
+        zwsp = "\u200b"
+        text = f"f{zwsp}o{zwsp}r{zwsp}b{zwsp}i{zwsp}d{zwsp}d{zwsp}e{zwsp}n"
+        data = {
+            "messages": [{"role": "user", "content": text}],
+            "model": "claude-sonnet",
+        }
+        with pytest.raises(ValueError, match="restricted content"):
+            await guard.async_pre_call_hook(
+                mock_user_api_key_dict, mock_cache, data, "call_mcp_tool"
+            )
+
+    async def test_non_breaking_space_normalized(self, monkeypatch, mock_cache, mock_user_api_key_dict):
+        """Non-breaking spaces should be treated as regular spaces."""
+        monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "project x")
+        guard = AirlockKeywordGuard()
+        nbsp = "\u00a0"
+        data = {
+            "messages": [{"role": "user", "content": f"Tell me about project{nbsp}x"}],
+            "model": "claude-sonnet",
+        }
+        with pytest.raises(ValueError, match="restricted content"):
+            await guard.async_pre_call_hook(
+                mock_user_api_key_dict, mock_cache, data, "call_mcp_tool"
+            )
+
+    async def test_normal_text_still_passes(self, monkeypatch, mock_cache, mock_user_api_key_dict):
+        """Normal text without blocked keywords should still pass."""
+        monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "forbidden")
+        guard = AirlockKeywordGuard()
+        data = {
+            "messages": [{"role": "user", "content": "What is Python?"}],
+            "model": "claude-sonnet",
+        }
+        result = await guard.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        assert result is data

@@ -627,3 +627,68 @@ class TestLogRotation:
         _rotate_if_oversized(log_file)
         assert not log_file.exists()
         assert (tmp_path / "airlock-2026-04-06.2.jsonl").exists()
+
+
+# ---------------------------------------------------------------------------
+# Disk-full handling (P1 Fix #1)
+# ---------------------------------------------------------------------------
+class TestDiskFullHandling:
+    def test_write_log_survives_oserror(self, tmp_path, monkeypatch, caplog):
+        """_write_log swallows OSError (disk full) and logs to stderr."""
+        monkeypatch.setenv("AIRLOCK_LOG_DIR", str(tmp_path / "logs"))
+        # Make _ensure_log_dir succeed but open() fail
+        monkeypatch.setattr(
+            "airlock.callbacks.enterprise_logger._ensure_log_dir",
+            lambda: tmp_path / "logs",
+        )
+        from unittest.mock import mock_open, patch as mock_patch
+        m = mock_open()
+        m.side_effect = OSError("No space left on device")
+        with mock_patch("builtins.open", m):
+            with caplog.at_level(logging.ERROR, logger="airlock.logger"):
+                # Should NOT raise
+                _write_log({"test": "disk_full"})
+        assert "No space left on device" in caplog.text
+
+    def test_log_success_event_survives_disk_full(
+        self, tmp_path, monkeypatch, mock_logger_kwargs, mock_response_obj,
+        mock_start_end_times, caplog,
+    ):
+        """AirlockLogger.log_success_event does not raise on disk full."""
+        monkeypatch.setenv("AIRLOCK_LOG_DIR", str(tmp_path / "logs"))
+        monkeypatch.setattr(
+            "airlock.callbacks.enterprise_logger._ensure_log_dir",
+            lambda: tmp_path / "logs",
+        )
+        from unittest.mock import mock_open, patch as mock_patch
+        m = mock_open()
+        m.side_effect = OSError("No space left on device")
+        start, end = mock_start_end_times
+        logger_inst = AirlockLogger()
+        with mock_patch("builtins.open", m):
+            with caplog.at_level(logging.ERROR, logger="airlock.logger"):
+                # Should NOT raise
+                logger_inst.log_success_event(
+                    mock_logger_kwargs, mock_response_obj, start, end
+                )
+
+    def test_log_failure_event_survives_disk_full(
+        self, tmp_path, monkeypatch, mock_failure_kwargs,
+        mock_start_end_times, caplog,
+    ):
+        """AirlockLogger.log_failure_event does not raise on disk full."""
+        monkeypatch.setenv("AIRLOCK_LOG_DIR", str(tmp_path / "logs"))
+        monkeypatch.setattr(
+            "airlock.callbacks.enterprise_logger._ensure_log_dir",
+            lambda: tmp_path / "logs",
+        )
+        from unittest.mock import mock_open, patch as mock_patch
+        m = mock_open()
+        m.side_effect = OSError("No space left on device")
+        start, end = mock_start_end_times
+        logger_inst = AirlockLogger()
+        with mock_patch("builtins.open", m):
+            with caplog.at_level(logging.ERROR, logger="airlock.logger"):
+                logger_inst.log_failure_event(
+                    mock_failure_kwargs, None, start, end
+                )
