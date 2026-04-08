@@ -124,6 +124,15 @@ model_list:
   # Thresholds configurable via AIRLOCK_SMART_THRESHOLDS env var.
   # Composes with other directives: session_id, prefer_provider, cost_tier.
 
+  # --- Local vLLM / Self-hosted (uncomment and adjust) ---
+  # Any OpenAI-compatible endpoint (vLLM, Ollama, LocalAI, etc.)
+  # The model ID must match what the server reports via GET /v1/models.
+  # - model_name: local-model
+  #   litellm_params:
+  #     model: openai/your-model-id
+  #     api_base: http://your-host:8000/v1
+  #     api_key: os.environ/VLLM_API_KEY
+
   # --- Internal RAG (Phase 3 — uncomment when ready) ---
   # - model_name: internal-docs
   #   litellm_params:

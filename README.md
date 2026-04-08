@@ -35,6 +35,8 @@ Airlock sits between your developers and LLM providers, giving you visibility an
 | **Keyword blocking** | Custom blocklist prevents restricted project names or terms from leaking |
 | **Budget control** | Per-user/per-team spend limits via LiteLLM virtual keys |
 | **Multi-tool support** | Works with Cursor, Claude Code, GitHub Copilot, and any OpenAI-compatible client |
+| **Self-hosted models** | Route to local vLLM, Ollama, or any OpenAI-compatible endpoint alongside cloud providers |
+| **Interactive testing** | Built-in Basic Chat screen to test LLM connectivity and inspect full request/response cycles |
 
 ## Getting started
 
@@ -96,6 +98,8 @@ curl http://localhost:4000/v1/chat/completions \
   }'
 ```
 
+Or use the TUI's **Basic Chat** screen (press `0`) to interactively test any configured model and inspect the full request/response headers and body.
+
 ### Alternative: Docker
 
 ```bash
@@ -149,6 +153,26 @@ Key sections:
 - **`guardrails`** — PII and keyword guards
 - **`mcp_servers`** — MCP tool servers (Armada, ADO, etc.) accessible via the proxy
 - **`general_settings`** — master key, host/port
+
+### Self-hosted / local models
+
+Airlock supports any OpenAI-compatible endpoint (vLLM, Ollama, LocalAI, etc.) using the `openai/` prefix with a custom `api_base`:
+
+```yaml
+# config.yaml — add to model_list
+- model_name: gemma-4
+  litellm_params:
+    model: openai/gemma4-31b          # model ID as reported by the server
+    api_base: http://your-host:8000/v1
+    api_key: os.environ/VLLM_API_KEY  # use "dummy-key" if server has no auth
+```
+
+```bash
+# .env
+VLLM_API_KEY=dummy-key
+```
+
+The model will appear in the TUI Basic Chat screen for interactive testing and can be used by any connected client via `model: "gemma-4"`.
 
 ### Environment variables
 
@@ -240,7 +264,7 @@ airlock/
 ├── slow/                 # Offline: log analysis, trend detection, tuning
 ├── hooks/                # Claude Code client-side hooks (session, prompt, audit)
 ├── cli/                  # Unified CLI: init, start, status, tui, analyze, hooks
-└── tui/                  # Textual terminal dashboard (9 screens, proxy control)
+└── tui/                  # Textual terminal dashboard (10 screens, proxy control)
 scripts/
 ├── setup.sh              # Standard setup (install + init + spaCy model)
 └── setup-dev.sh          # Developer setup (all extras + tests)

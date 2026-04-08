@@ -21,6 +21,7 @@ from airlock.tui.screens.analysis import AnalysisPane
 from airlock.tui.screens.settings import SettingsPane
 from airlock.tui.screens.flow import FlowPane
 from airlock.tui.screens.mcp_servers import McpServersPane
+from airlock.tui.screens.chat import ChatPane
 
 CSS_PATH = Path(__file__).parent / "styles" / "app.tcss"
 
@@ -34,6 +35,7 @@ _SCREENS = [
     ("settings", "7 Settings"),
     ("flow", "8 Flow"),
     ("mcp_servers", "9 MCP Servers"),
+    ("chat", "0 Basic Chat"),
 ]
 
 
@@ -54,6 +56,7 @@ class AirlockApp(App):
         ("7", "switch_screen('settings')", "Settings"),
         ("8", "switch_screen('flow')", "Flow"),
         ("9", "switch_screen('mcp_servers')", "MCP Servers"),
+        ("0", "switch_screen('chat')", "Basic Chat"),
         ("q", "quit", "Quit"),
     ]
 
@@ -104,6 +107,7 @@ class AirlockApp(App):
                 yield McpServersPane(
                     mcp_manager=self._mcp_manager, id="mcp_servers",
                 )
+                yield ChatPane(id="chat")
         yield Footer()
 
     def on_mount(self) -> None:

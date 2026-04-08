@@ -174,7 +174,31 @@ airlock tui --start    # start proxy + dashboard
 airlock tui            # dashboard only (connect to running proxy)
 ```
 
-The TUI provides real-time views of traffic, guardrail decisions, threats, model status, and client activity across 9 screens.
+The TUI provides real-time views of traffic, guardrail decisions, threats, model status, and client activity across 10 screens:
+
+| Key | Screen | Purpose |
+|-----|--------|---------|
+| `1` | Dashboard | Proxy health, guardrail status, model overview |
+| `2` | Models | Per-model circuit breaker state and metrics |
+| `3` | Threats | Active backoffs and threat detection |
+| `4` | Clients | Per-client request rate and protection status |
+| `5` | Logs | JSONL log browsing with model/user/status filters |
+| `6` | Analysis | Run offline analysis, view reports and trends |
+| `7` | Settings | Configuration management (providers, guardrails, logging) |
+| `8` | Flow | Real-time guardrail pipeline monitor (signals, scoring, verdicts) |
+| `9` | MCP Servers | MCP server health, lifecycle, and tool inventory |
+| `0` | Basic Chat | Interactive LLM connectivity testing |
+
+#### Basic Chat
+
+The **Basic Chat** screen lets administrators test any configured model interactively. Select a provider and model from the dropdowns, compose a prompt, and send. The screen displays four quadrants:
+
+- **Q2** (top-left): User query text
+- **Q1** (top-right): Extracted response content with token usage
+- **Q3** (bottom-left): Full outgoing request (URL, headers, JSON body)
+- **Q4** (bottom-right): Full incoming response (HTTP status, headers, JSON body)
+
+Use the **Parameter Builder** button to configure `temperature`, `max_tokens`, `top_p`, `top_k`, `stop` sequences, and `system` prompt without editing JSON directly. All requests route through the Airlock proxy with full guardrail coverage.
 
 ## Guardrails
 

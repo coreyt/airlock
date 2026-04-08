@@ -33,19 +33,22 @@ Settings.
 │  Dashboard │  Some screens use internal TabbedContent                  │
 │  Models    │  for sub-contexts.                                        │
 │  Threats   │                                                           │
+│  Clients   │                                                           │
 │  Logs      │                                                           │
 │  Analysis  │                                                           │
 │  Settings  │                                                           │
-│            │                                                           │
+│  Flow      │                                                           │
+│  MCP Srvrs │                                                           │
+│  Chat      │                                                           │
 ├────────────┴────────────────────────────────────────────────────────────┤
-│  Footer: Key hints — [Tab] Focus  [1-6] Screen  [q] Quit  [?] Help    │
+│  Footer: Key hints — [Tab] Focus  [1-9,0] Screen  [q] Quit  [?] Help  │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Reasoning:**
 
-- **Sidebar (Breadth):** 6 screens is a medium set — a docked `ListView` keeps
-  all destinations visible. Single-digit accelerators (`1`–`6`) let the user
+- **Sidebar (Breadth):** 10 screens — a docked `ListView` keeps all
+  destinations visible. Single-digit accelerators (`1`–`9`, `0`) let the user
   jump instantly.
 - **Internal Tabs (Breadth):** Settings and Analysis use `TabbedContent` for
   sub-contexts that the user switches between without losing position.
@@ -56,14 +59,18 @@ Settings.
 
 ### 2.2 Screen Inventory
 
-| # | Screen | Persona | Purpose | Internal Tabs |
-|---|--------|---------|---------|---------------|
-| 1 | Dashboard | Operator | At-a-glance proxy health and traffic | — |
-| 2 | Models | Both | Per-model circuit state, latency, failover | — |
-| 3 | Threats | Engineer | Active backoffs, threat scores, recent blocks | — |
-| 4 | Logs | Both | Live log tail with filtering | — |
-| 5 | Analysis | Engineer | Run offline analysis, view reports | Optimizations, Cache, Trends, Hypotheses |
-| 6 | Settings | Both | Configuration management | Providers, Guardrails, Logging, Advanced |
+| # | Screen | Key | Persona | Purpose | Internal Tabs |
+|---|--------|-----|---------|---------|---------------|
+| 1 | Dashboard | `1` | Operator | At-a-glance proxy health and traffic | — |
+| 2 | Models | `2` | Both | Per-model circuit state, latency, failover | — |
+| 3 | Threats | `3` | Engineer | Active backoffs, threat scores, recent blocks | — |
+| 4 | Clients | `4` | Both | Per-client request rate and protection status | — |
+| 5 | Logs | `5` | Both | Live log tail with filtering | — |
+| 6 | Analysis | `6` | Engineer | Run offline analysis, view reports | Optimizations, Cache, Trends, Hypotheses |
+| 7 | Settings | `7` | Both | Configuration management | Providers, Guardrails, Logging, Advanced, MCP |
+| 8 | Flow | `8` | Engineer | Real-time guardrail pipeline monitor | Signals, Pipeline, Raw, Tool Result |
+| 9 | MCP Servers | `9` | Both | MCP server health, lifecycle, tools | Info, Console, Tools |
+| 10 | Basic Chat | `0` | Both | Test LLM connectivity and interaction | — |
 
 ---
 
@@ -332,7 +339,7 @@ Restart the proxy for changes to take effect."
 
 | Key | Action | Shown in Footer |
 |-----|--------|-----------------|
-| `1`–`6` | Jump to screen by number | Yes |
+| `1`–`9`, `0` | Jump to screen by number | Yes |
 | `q` | Quit application | Yes |
 | `?` | Help modal | Yes |
 | `Ctrl+P` | Command palette | Yes |
@@ -350,6 +357,9 @@ Restart the proxy for changes to take effect."
 | Logs | `/` | Quick search in log entries |
 | Analysis | `Enter` | Run analysis |
 | Settings | `Ctrl+S` | Apply changes |
+| Flow | `Space` | Pause/resume live stream |
+| MCP Servers | `Enter` | Show server detail |
+| Basic Chat | `Enter` | Send query (when focused on input) |
 
 ---
 
@@ -388,24 +398,28 @@ Every I/O operation uses `@work` to keep the UI thread alive:
 airlock/tui/
 ├── __init__.py
 ├── app.py                 # AirlockApp(App) — shell, sidebar, screen mounting
+├── proxy_manager.py       # LiteLLM subprocess lifecycle
+├── mcp_manager.py         # MCP server health and lifecycle
 ├── screens/
 │   ├── __init__.py
-│   ├── dashboard.py       # DashboardScreen
-│   ├── models.py          # ModelsScreen + ModelDetailScreen
-│   ├── threats.py         # ThreatsScreen
-│   ├── logs.py            # LogsScreen + LogEntryScreen
-│   ├── analysis.py        # AnalysisScreen
-│   └── settings.py        # SettingsScreen (tabbed)
+│   ├── dashboard.py       # DashboardPane — proxy health, model overview
+│   ├── models.py          # ModelsPane — circuit breaker, per-model metrics
+│   ├── threats.py         # ThreatsPane — active backoffs, threat detection
+│   ├── clients.py         # ClientsPane — per-client request rate, protection
+│   ├── logs.py            # LogsPane — JSONL log browsing with filters
+│   ├── analysis.py        # AnalysisPane — offline analysis and reports
+│   ├── settings.py        # SettingsPane — config management (tabbed)
+│   ├── flow.py            # FlowPane — real-time guardrail pipeline monitor
+│   ├── mcp_servers.py     # McpServersPane — MCP server health, lifecycle, tools
+│   └── chat.py            # ChatPane — interactive LLM connectivity testing
 ├── widgets/
 │   ├── __init__.py
 │   ├── status_indicator.py  # Colored dot + label (● Running)
 │   ├── metric_card.py       # Bordered box with title + value
-│   └── bar_chart.py         # Horizontal bar chart from Static
+│   └── safe_data_table.py   # Thread-safe DataTable wrapper
 └── styles/
-    └── app.tcss             # All CSS in one file
+    └── app.tcss             # All CSS in one file (~430 lines)
 ```
-
-**Estimated size:** ~800–1,000 lines of Python, ~100 lines of TCSS.
 
 ---
 
@@ -438,8 +452,10 @@ Single new dependency. Install via `pip install airlock[tui]` optional extra.
 
 ## 10. Implementation Priority
 
-| Phase | Screens | Rationale |
-|-------|---------|-----------|
-| 1 | Dashboard + Settings | Operator can monitor and configure |
-| 2 | Logs + Models | Operator can investigate issues |
-| 3 | Threats + Analysis | Engineer deep-dive tools |
+| Phase | Screens | Status | Rationale |
+|-------|---------|--------|-----------|
+| 1 | Dashboard + Settings | Done | Operator can monitor and configure |
+| 2 | Logs + Models + Threats | Done | Operator can investigate issues |
+| 3 | Analysis + Clients | Done | Engineer deep-dive tools |
+| 4 | Flow + MCP Servers | Done | Real-time pipeline visibility and MCP management |
+| 5 | Basic Chat | Done | Interactive LLM connectivity testing |

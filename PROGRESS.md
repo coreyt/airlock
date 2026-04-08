@@ -2,7 +2,7 @@
 
 ## Status: End-to-End Trial Ready + MCP Gateway
 
-Last updated: 2026-03-05
+Last updated: 2026-04-08
 
 ## Completed Work
 
@@ -35,8 +35,9 @@ performance tuning.
 - #9: Broken pyproject.toml build-backend
 
 ### TUI Dashboard (commit ce400c0)
-Textual-based terminal dashboard with 6 screens: Dashboard, Models, Threats,
-Logs, Analysis, Settings. Includes sidebar navigation and keyboard shortcuts.
+Textual-based terminal dashboard with 10 screens: Dashboard, Models, Threats,
+Clients, Logs, Analysis, Settings, Flow, MCP Servers, Basic Chat. Includes
+sidebar navigation and keyboard shortcuts (`1`–`9`, `0`).
 
 ### Unified CLI (commits fcfcc06, cd2206a)
 `airlock` command with subcommands: init, start, status, tui, analyze.
@@ -190,6 +191,22 @@ with deque sliding windows for success/failure/latency tracking (modeled after
 `ModelState` but without circuit breaker). Monitor callbacks track MCP tool
 calls via `mcp_tool_name` metadata.
 
+### Local vLLM Provider (Gemma 4)
+Added support for a local vLLM-hosted Gemma 4 31B (AWQ quantized) model.
+Configured as `gemma-4` in `config.yaml` via OpenAI-compatible API format
+(`openai/gemma4-31b` with `api_base`). Provider prefix `gemma` → `vllm` added
+to both `model_alias.py` and `router.py`. Fallback chain: `gemma-4` →
+`claude-haiku` → `gemini-flash` → `mistral-small`.
+
+### TUI Basic Chat Screen
+Interactive LLM connectivity test screen (key `0`). Top control bar with
+provider/model selects, inline params JSON field, and slide-out Parameter
+Builder panel (temperature, max_tokens, top_p, top_k, stop, system prompt).
+Four-quadrant layout: Q2 (user query text area), Q1 (response content with
+token usage), Q3 (formatted request — URL, headers, JSON body), Q4 (raw
+response — HTTP status, headers, JSON body). Requests route through the
+Airlock proxy with full guardrail coverage.
+
 ### Code Review Fixes (commit e01d0eb)
 8 issues fixed: memory (McpToolState deque limits), security (PII guard
 recursive scrubbing, `_collect_strings` depth limit), deduplication
@@ -308,5 +325,5 @@ All 7 succeeded. JSONL logs confirmed written to `logs/airlock-2026-02-22.jsonl`
 | Slow (offline) | `airlock/slow/` | Complete — 5 dimensions (incl. semantic) |
 | Hooks | `airlock/hooks/` | Complete |
 | CLI | `airlock/cli/` | Complete (init, start, status, post, tui, analyze, hooks, dogfood) |
-| TUI | `airlock/tui/` | Complete — 8 screens, proxy launch, MCP management |
+| TUI | `airlock/tui/` | Complete — 10 screens, proxy launch, MCP management, basic chat |
 | MCP Gateway | `airlock/guardrails/extract.py`, `mcp_tool_guard.py` | Complete — dual LLM+MCP guardrail protection |
