@@ -48,13 +48,24 @@ def _load_models_from_config() -> list[dict]:
         return []
 
 
+def _is_local_model(entry: dict) -> bool:
+    """Return True if a model entry points at a local/self-hosted endpoint.
+
+    Models that use a custom ``api_base`` (vLLM, Ollama, OpenLLaMA, etc.)
+    are considered local — they run on infrastructure the operator controls
+    rather than a cloud provider's API.
+    """
+    params = entry.get("litellm_params") or {}
+    return bool(params.get("api_base"))
+
+
 def _extract_providers(model_list: list[dict]) -> list[tuple[str, str]]:
     """Derive unique (display_name, value) provider pairs from model entries.
 
-    The display name shows the litellm provider prefix.  For models using
-    ``openai/`` with a custom ``api_base`` (vLLM, Ollama, etc.) the display
-    name includes the model_name in parentheses so the user can distinguish
-    local endpoints from OpenAI proper.
+    Models with a custom ``api_base`` (vLLM, Ollama, etc.) are grouped
+    under a ``local`` provider so the user can easily find self-hosted
+    models.  Cloud-hosted models are grouped by their litellm prefix
+    (``anthropic``, ``openai``, ``gemini``, …).
     """
     providers: dict[str, str] = {}  # value -> display
     for entry in model_list:
@@ -62,22 +73,37 @@ def _extract_providers(model_list: list[dict]) -> list[tuple[str, str]]:
         model_str = params.get("model", "")
         if "/" not in model_str:
             continue
-        prefix = model_str.split("/", 1)[0]
-        if prefix not in providers:
-            providers[prefix] = prefix
+        if _is_local_model(entry):
+            if "local" not in providers:
+                providers["local"] = "local"
+        else:
+            prefix = model_str.split("/", 1)[0]
+            if prefix not in providers:
+                providers[prefix] = prefix
     return sorted(providers.items(), key=lambda t: t[0])
 
 
 def _models_for_provider(model_list: list[dict], provider: str) -> list[str]:
-    """Return model_name values whose provider prefix matches."""
+    """Return model_name values whose provider prefix matches.
+
+    The special ``local`` provider matches any model with a custom
+    ``api_base`` regardless of its litellm prefix.
+    """
     if provider == "all":
         return [e["model_name"] for e in model_list if "model_name" in e]
     result = []
     for entry in model_list:
         params = entry.get("litellm_params") or {}
         model_str = params.get("model", "")
-        if "/" in model_str and model_str.split("/", 1)[0] == provider:
-            result.append(entry["model_name"])
+        if "/" not in model_str:
+            continue
+        if provider == "local":
+            if _is_local_model(entry):
+                result.append(entry["model_name"])
+        else:
+            # Only match cloud models (no custom api_base) by prefix
+            if not _is_local_model(entry) and model_str.split("/", 1)[0] == provider:
+                result.append(entry["model_name"])
     return result
 
 
