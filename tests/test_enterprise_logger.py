@@ -12,6 +12,7 @@ import pytest
 from airlock.callbacks.enterprise_logger import (
     AirlockLogger,
     _cleanup_old_logs,
+    _redact_record,
     _rotate_if_oversized,
     _serialize,
     _write_log,
@@ -627,3 +628,140 @@ class TestLogRotation:
         _rotate_if_oversized(log_file)
         assert not log_file.exists()
         assert (tmp_path / "airlock-2026-04-06.2.jsonl").exists()
+
+
+# ---------------------------------------------------------------------------
+# Log field redaction
+# ---------------------------------------------------------------------------
+class TestLogFieldRedaction:
+    def test_no_env_var_logs_normally(self):
+        """Default behavior: no redaction, backward compatible."""
+        record = {
+            "messages": [{"role": "user", "content": "Hello"}],
+            "response": {"choices": [{"message": {"content": "Hi"}}]},
+            "model": "claude-sonnet",
+        }
+        result = _redact_record(record)
+        assert result["messages"] == [{"role": "user", "content": "Hello"}]
+        assert result["response"] == {"choices": [{"message": {"content": "Hi"}}]}
+
+    def test_empty_env_var_no_redaction(self, monkeypatch):
+        """Empty AIRLOCK_LOG_REDACT_FIELDS means no redaction."""
+        monkeypatch.setenv("AIRLOCK_LOG_REDACT_FIELDS", "")
+        record = {
+            "messages": [{"role": "user", "content": "secret"}],
+            "response": "some response",
+        }
+        result = _redact_record(record)
+        assert result["messages"] == [{"role": "user", "content": "secret"}]
+        assert result["response"] == "some response"
+
+    def test_redact_single_field(self, monkeypatch):
+        """Redacting a single field replaces its value with [REDACTED]."""
+        monkeypatch.setenv("AIRLOCK_LOG_REDACT_FIELDS", "messages")
+        record = {
+            "messages": [{"role": "user", "content": "Tell me a secret"}],
+            "response": "No secrets here",
+            "model": "claude-sonnet",
+        }
+        result = _redact_record(record)
+        assert result["messages"] == "[REDACTED]"
+        assert result["response"] == "No secrets here"
+        assert result["model"] == "claude-sonnet"
+
+    def test_redact_multiple_fields(self, monkeypatch):
+        """Multiple comma-separated fields are all redacted."""
+        monkeypatch.setenv("AIRLOCK_LOG_REDACT_FIELDS", "messages,response")
+        record = {
+            "messages": [{"role": "user", "content": "PII data"}],
+            "response": {"choices": [{"message": {"content": "secret output"}}]},
+            "model": "gpt-4o",
+            "user": "alice",
+        }
+        result = _redact_record(record)
+        assert result["messages"] == "[REDACTED]"
+        assert result["response"] == "[REDACTED]"
+        assert result["model"] == "gpt-4o"
+        assert result["user"] == "alice"
+
+    def test_redact_fields_with_whitespace(self, monkeypatch):
+        """Whitespace around field names is stripped."""
+        monkeypatch.setenv("AIRLOCK_LOG_REDACT_FIELDS", " messages , response ")
+        record = {
+            "messages": [{"role": "user", "content": "data"}],
+            "response": "output",
+        }
+        result = _redact_record(record)
+        assert result["messages"] == "[REDACTED]"
+        assert result["response"] == "[REDACTED]"
+
+    def test_nonexistent_field_silently_ignored(self, monkeypatch):
+        """Fields not present in the record are silently skipped."""
+        monkeypatch.setenv("AIRLOCK_LOG_REDACT_FIELDS", "nonexistent_field,messages")
+        record = {
+            "messages": [{"role": "user", "content": "Hello"}],
+            "model": "claude-sonnet",
+        }
+        result = _redact_record(record)
+        assert result["messages"] == "[REDACTED]"
+        assert result["model"] == "claude-sonnet"
+        assert "nonexistent_field" not in result
+
+    def test_redacted_list_field(self, monkeypatch):
+        """A list field (messages) is replaced with [REDACTED], not per-element."""
+        monkeypatch.setenv("AIRLOCK_LOG_REDACT_FIELDS", "messages")
+        record = {
+            "messages": [
+                {"role": "system", "content": "You are helpful."},
+                {"role": "user", "content": "My SSN is 123-45-6789"},
+            ],
+        }
+        result = _redact_record(record)
+        assert result["messages"] == "[REDACTED]"
+
+    def test_redact_does_not_mutate_original(self, monkeypatch):
+        """Redaction returns a new dict; original record is untouched."""
+        monkeypatch.setenv("AIRLOCK_LOG_REDACT_FIELDS", "messages")
+        record = {
+            "messages": [{"role": "user", "content": "original"}],
+            "model": "gpt-4o",
+        }
+        result = _redact_record(record)
+        assert result["messages"] == "[REDACTED]"
+        assert record["messages"] == [{"role": "user", "content": "original"}]
+
+    def test_redaction_applied_in_write_log(self, log_dir, monkeypatch):
+        """End-to-end: _write_log applies redaction before writing."""
+        monkeypatch.setenv("AIRLOCK_LOG_REDACT_FIELDS", "messages,response")
+        record = {
+            "messages": [{"role": "user", "content": "sensitive prompt"}],
+            "response": {"choices": [{"message": {"content": "sensitive output"}}]},
+            "model": "claude-sonnet",
+            "timestamp": "2024-01-15T10:00:00",
+        }
+        _write_log(record)
+
+        today = datetime.date.today().isoformat()
+        log_path = log_dir / f"airlock-{today}.jsonl"
+        written = json.loads(log_path.read_text().strip())
+        assert written["messages"] == "[REDACTED]"
+        assert written["response"] == "[REDACTED]"
+        assert written["model"] == "claude-sonnet"
+
+    def test_redaction_applied_in_precall_block_record(self, log_dir, monkeypatch):
+        """write_precall_block_record applies redaction at write time."""
+        monkeypatch.setenv("AIRLOCK_LOG_REDACT_FIELDS", "messages")
+        write_precall_block_record(
+            {
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "sensitive"}],
+                "metadata": {},
+            },
+            error="blocked",
+            error_type="RateLimitError",
+        )
+        today = datetime.date.today().isoformat()
+        log_path = log_dir / f"airlock-{today}.jsonl"
+        written = json.loads(log_path.read_text().strip())
+        assert written["messages"] == "[REDACTED]"
+        assert written["model"] == "gpt-4o"

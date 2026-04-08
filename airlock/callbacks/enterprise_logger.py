@@ -167,14 +167,41 @@ def _rotate_if_oversized(log_path: Path) -> None:
     logger.info("log_rotation %s -> %s", log_path.name, rotated.name)
 
 
+def _redact_fields() -> list[str]:
+    """Return the list of field names to redact from log records."""
+    raw = os.getenv("AIRLOCK_LOG_REDACT_FIELDS", "")
+    if not raw:
+        return []
+    return [f.strip() for f in raw.split(",") if f.strip()]
+
+
+def _redact_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of *record* with configured fields replaced by ``[REDACTED]``.
+
+    Fields listed in ``AIRLOCK_LOG_REDACT_FIELDS`` (comma-separated) have
+    their values replaced with the string ``"[REDACTED]"``.  Fields not
+    present in the record are silently ignored.  When the env var is unset
+    or empty, the record is returned unchanged (shallow copy).
+    """
+    fields = _redact_fields()
+    if not fields:
+        return record
+    redacted = dict(record)
+    for field in fields:
+        if field in redacted:
+            redacted[field] = "[REDACTED]"
+    return redacted
+
+
 def _write_log(record: dict[str, Any]) -> None:
     """Append a JSON record to today's log file."""
     log_dir = _ensure_log_dir()
     today = datetime.date.today().isoformat()
     log_path = log_dir / f"airlock-{today}.jsonl"
     _rotate_if_oversized(log_path)
+    redacted = _redact_record(record)
     with open(log_path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record, default=_serialize) + "\n")
+        f.write(json.dumps(redacted, default=_serialize) + "\n")
 
 
 def write_precall_block_record(
