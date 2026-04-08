@@ -1,28 +1,39 @@
-"""Logs screen — browse JSONL log entries with filtering."""
+"""Logs screen — browse JSONL log entries with filtering and analysis."""
 
 from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from textual import work
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
-from textual.widgets import DataTable, Input, Select, Static
+from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.timer import Timer
+from textual.widgets import (
+    Button,
+    Collapsible,
+    DataTable,
+    Input,
+    Select,
+    Static,
+    TabbedContent,
+    TabPane,
+)
 
 from airlock.tui.widgets.safe_data_table import _SafeDataTable
 
 
-class LogsPane(Vertical):
-    """Live log viewer with model/user/status filtering."""
+class LogsPane(VerticalScroll):
+    """Live log viewer with model/user/status filtering and analysis."""
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._records: list[dict[str, Any]] = []
         self._filtered: list[dict[str, Any]] = []
+        self._refresh_timer: Timer | None = None
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="logs-filters"):
@@ -46,10 +57,47 @@ class LogsPane(Vertical):
                 allow_blank=False,
             )
             yield Input(placeholder="Tool name", id="logs-tool-filter")
-        table = _SafeDataTable(id="logs-table", cursor_type="row")
-        table.add_columns("Timestamp", "Type", "Model", "User", "Tokens", "Duration", "OK")
-        yield table
-        yield Static("Select a log entry to view details.", id="logs-detail")
+        with Horizontal(id="logs-controls"):
+            yield Input(value="7", id="logs-days", type="integer", placeholder="Days")
+            yield Select(
+                [("Manual", "manual"), ("1 min", "1min"), ("Real-time", "realtime")],
+                value="manual",
+                id="logs-refresh-mode",
+                allow_blank=False,
+            )
+            yield Button("Run Analysis", id="logs-run-analysis", variant="primary")
+            yield Button("Export", id="logs-export-btn")
+            yield Static("", id="logs-analysis-status")
+        with TabbedContent(id="logs-tabs"):
+            with TabPane("Detail", id="tab-detail"):
+                yield Static(
+                    "Select a log entry to view details.",
+                    id="logs-detail",
+                )
+            with TabPane("Optimizations", id="tab-opts"):
+                yield Static(
+                    "[dim]Press 'Run Analysis' to generate a report.[/]",
+                    id="logs-analysis-opts",
+                )
+            with TabPane("Cache", id="tab-cache"):
+                yield Static(
+                    "[dim]Press 'Run Analysis' to generate a report.[/]",
+                    id="logs-analysis-cache",
+                )
+            with TabPane("Trends", id="tab-trends"):
+                yield Static(
+                    "[dim]Press 'Run Analysis' to generate a report.[/]",
+                    id="logs-analysis-trends",
+                )
+            with TabPane("Hypotheses", id="tab-hyp"):
+                yield Static(
+                    "[dim]Press 'Run Analysis' to generate a report.[/]",
+                    id="logs-analysis-hyp",
+                )
+        with Collapsible(title="Log Entries", collapsed=False, id="logs-stream-collapsible"):
+            table = _SafeDataTable(id="logs-table", cursor_type="row")
+            table.add_columns("Timestamp", "Type", "Model", "User", "Tokens", "Duration", "OK")
+            yield table
 
     def on_mount(self) -> None:
         self._load_logs()
@@ -65,19 +113,45 @@ class LogsPane(Vertical):
             self._show_detail(self._filtered[idx])
 
     def on_select_changed(self, event: Select.Changed) -> None:
-        self._apply_filters()
+        if event.select.id == "logs-refresh-mode":
+            self._update_refresh_mode(str(event.value))
+        else:
+            self._apply_filters()
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id in ("logs-user-filter", "logs-tool-filter"):
             self._apply_filters()
 
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "logs-run-analysis":
+            self._run_analysis()
+        elif event.button.id == "logs-export-btn":
+            self._export_filtered()
+
+    def _update_refresh_mode(self, mode: str) -> None:
+        """Cancel existing timer and set a new one based on mode."""
+        if self._refresh_timer is not None:
+            self._refresh_timer.stop()
+            self._refresh_timer = None
+
+        if mode == "1min":
+            self._refresh_timer = self.set_interval(60.0, self._load_logs)
+        elif mode == "realtime":
+            self._refresh_timer = self.set_interval(1.0, self._load_logs)
+        # "manual" — no timer
+
     @work(exclusive=True, thread=True)
     def _load_logs(self) -> None:
         log_dir = Path(os.getenv("AIRLOCK_LOG_DIR", "./logs"))
         records: list[dict[str, Any]] = []
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
 
-        for i in range(3):  # last 3 days
+        try:
+            days = int(self.query_one("#logs-days", Input).value)
+        except (ValueError, TypeError):
+            days = 7
+
+        for i in range(days):
             day = today - timedelta(days=i)
             path = log_dir / f"airlock-{day.isoformat()}.jsonl"
             if not path.exists():
@@ -168,6 +242,35 @@ class LogsPane(Vertical):
             parts.append(f"[bold]MCP Server:[/] {record['mcp_server_name']}")
         if error:
             parts.append(f"[bold]Error:[/] {error}")
+
+        # Enhanced detail fields
+        failover = record.get("airlock_failover")
+        if failover and isinstance(failover, dict):
+            parts.append(
+                f"[bold]Failover:[/] {failover.get('original', '?')} \u2192 "
+                f"{failover.get('failover', '?')} ({failover.get('reason', '?')})"
+            )
+
+        override = record.get("airlock_model_override")
+        if override and isinstance(override, dict):
+            parts.append(
+                f"[bold]Override:[/] {override.get('requested', '?')} \u2192 "
+                f"{override.get('final', '?')} ({override.get('reason', '?')})"
+            )
+
+        observation = record.get("airlock_observation")
+        if observation and isinstance(observation, dict):
+            score = observation.get("composite_score", 0)
+            verdict = observation.get("would_block", "?")
+            parts.append(f"[bold]Guard score:[/] {score:.2f}, verdict: {verdict}")
+
+        protection = record.get("airlock_provider_protection")
+        if protection and isinstance(protection, dict):
+            parts.append(
+                f"[bold]Protection:[/] {protection.get('action', '?')} "
+                f"provider={protection.get('provider', '?')}"
+            )
+
         if messages:
             msg_str = json.dumps(messages, indent=2, default=str)
             if len(msg_str) > 500:
@@ -175,3 +278,95 @@ class LogsPane(Vertical):
             parts.append(f"[bold]Messages:[/]\n{msg_str}")
 
         detail.update("\n".join(parts))
+
+    def _export_filtered(self) -> None:
+        """Write filtered records to a JSONL file in the log directory."""
+        status = self.query_one("#logs-analysis-status", Static)
+        log_dir = Path(os.getenv("AIRLOCK_LOG_DIR", "./logs"))
+        log_dir.mkdir(parents=True, exist_ok=True)
+        out = log_dir / f"export-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}.jsonl"
+        with open(out, "w") as f:
+            for r in self._filtered:
+                f.write(json.dumps(r, default=str) + "\n")
+        status.update(f"[green]Exported {len(self._filtered)} records to {out.name}[/]")
+
+    @work(exclusive=True, thread=True)
+    def _run_analysis(self) -> None:
+        """Run offline analysis and populate the analysis tabs."""
+        days_input = self.query_one("#logs-days", Input)
+        status = self.query_one("#logs-analysis-status", Static)
+
+        try:
+            days = int(days_input.value)
+        except ValueError:
+            status.update("[red]Invalid number of days[/]")
+            return
+
+        status.update("[yellow]Analyzing...[/]")
+
+        try:
+            from airlock.slow.analyzer import analyze
+
+            report = analyze(days=days)
+        except Exception as exc:
+            status.update(f"[red]Error: {exc}[/]")
+            return
+
+        status.update(
+            f"Done \u2014 {report.total_requests} requests analyzed"
+        )
+
+        # Optimizations
+        if report.optimizations:
+            lines = []
+            for i, o in enumerate(report.optimizations, 1):
+                lines.append(
+                    f"  {i}. [{o.impact.upper()}] {o.description}"
+                )
+            self.query_one("#logs-analysis-opts", Static).update("\n".join(lines))
+        else:
+            self.query_one("#logs-analysis-opts", Static).update(
+                "[dim]No optimizations found.[/]"
+            )
+
+        # Cache
+        if report.cache_opportunities:
+            lines = []
+            for c in report.cache_opportunities:
+                lines.append(
+                    f"  {c.pattern} \u2014 model: {c.model}, "
+                    f"~{c.estimated_token_savings:,} tokens saveable"
+                )
+            self.query_one("#logs-analysis-cache", Static).update("\n".join(lines))
+        else:
+            self.query_one("#logs-analysis-cache", Static).update(
+                "[dim]No cache opportunities found.[/]"
+            )
+
+        # Trends
+        if report.trends:
+            lines = []
+            for t in report.trends:
+                lines.append(
+                    f"  {t.metric}: {t.direction} "
+                    f"({t.magnitude:.1f}% over {t.period_days}d)"
+                )
+            self.query_one("#logs-analysis-trends", Static).update("\n".join(lines))
+        else:
+            self.query_one("#logs-analysis-trends", Static).update(
+                "[dim]No significant trends detected.[/]"
+            )
+
+        # Hypotheses
+        if report.hypotheses:
+            lines = []
+            for h in report.hypotheses:
+                lines.append(
+                    f"  [{h.confidence:.0%}] {h.statement}\n"
+                    f"        Test: {h.test_proposal}"
+                )
+            self.query_one("#logs-analysis-hyp", Static).update("\n".join(lines))
+        else:
+            self.query_one("#logs-analysis-hyp", Static).update(
+                "[dim]No hypotheses generated.[/]"
+            )

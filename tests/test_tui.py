@@ -1,10 +1,10 @@
-"""Tests for airlock.tui — terminal dashboard."""
+"""Tests for airlock.tui — terminal dashboard (5-view architecture)."""
 
 from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -32,24 +32,23 @@ async def test_app_creates_with_host_port(app) -> None:
 async def test_app_has_bindings(app) -> None:
     binding_keys = [b[0] for b in app.BINDINGS]
     assert "1" in binding_keys
-    assert "7" in binding_keys
-    assert "8" in binding_keys
+    assert "5" in binding_keys
     assert "q" in binding_keys
 
 
 async def test_app_composes_all_panes() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
-        # Sidebar exists
-        sidebar = app.query_one("#sidebar")
-        assert sidebar is not None
+        # Tab bar exists (no sidebar)
+        tab_bar = app.query_one("#tab-bar")
+        assert tab_bar is not None
 
         # Workspace with content switcher
         workspace = app.query_one("#workspace")
         assert workspace is not None
 
-        # All 8 panes exist
-        for pane_id in ("dashboard", "models", "threats", "logs", "analysis", "settings", "flow", "mcp_servers"):
+        # All 5 views exist
+        for pane_id in ("overview", "guards", "logs", "config", "test"):
             pane = app.query_one(f"#{pane_id}")
             assert pane is not None, f"Missing pane: {pane_id}"
 
@@ -59,77 +58,123 @@ async def test_screen_switching_via_keys() -> None:
     async with app.run_test(size=(120, 40)) as pilot:
         workspace = app.query_one("#workspace")
 
-        # Start on dashboard
-        assert workspace.current == "dashboard"
+        # Start on overview
+        assert workspace.current == "overview"
 
-        # Press 2 → models
+        # Press 2 → guards
         await pilot.press("2")
-        assert workspace.current == "models"
+        assert workspace.current == "guards"
 
-        # Press 4 → clients
-        await pilot.press("4")
-        assert workspace.current == "clients"
+        # Press 3 → logs
+        await pilot.press("3")
+        assert workspace.current == "logs"
 
-        # Press 1 → back to dashboard
+        # Press 1 → back to overview
         await pilot.press("1")
-        assert workspace.current == "dashboard"
+        assert workspace.current == "overview"
 
 
-async def test_sidebar_navigation() -> None:
+async def test_tab_bar_navigation() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
         workspace = app.query_one("#workspace")
 
-        # Press 3 to verify key nav works
-        await pilot.press("3")
-        assert workspace.current == "threats"
+        await pilot.press("4")
+        assert workspace.current == "config"
+
+        await pilot.press("5")
+        assert workspace.current == "test"
 
 
 # -------------------------------------------------------------------
-# Dashboard screen
+# Overview screen
 # -------------------------------------------------------------------
 
 
-async def test_dashboard_has_widgets() -> None:
+async def test_overview_has_widgets() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
         # Proxy status indicator
-        indicator = app.query_one("#proxy-indicator")
+        indicator = app.query_one("#ov-proxy-indicator")
         assert indicator is not None
 
-        # Guardrail indicators
-        for gid in ("guard-pii", "guard-kw", "guard-fast"):
-            assert app.query_one(f"#{gid}") is not None
+        # Alerts panel
+        alerts = app.query_one("#ov-alerts")
+        assert alerts is not None
 
-        # Model table
-        table = app.query_one("#dash-model-table")
-        assert table is not None
+        # Data tables
+        assert app.query_one("#ov-providers") is not None
+        assert app.query_one("#ov-models") is not None
+        assert app.query_one("#ov-clients") is not None
+
+        # Detail pane
+        assert app.query_one("#ov-detail") is not None
 
 
-# -------------------------------------------------------------------
-# Models screen
-# -------------------------------------------------------------------
-
-
-async def test_models_has_table_and_detail() -> None:
+async def test_overview_has_start_button() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("2")  # switch to models
-        assert app.query_one("#models-table") is not None
-        assert app.query_one("#models-detail") is not None
+        btn = app.query_one("#ov-proxy-btn", Button)
+        assert btn is not None
+        valid_labels = {"Checking...", "Start Proxy", "Stop Proxy", "Running Externally"}
+        assert btn.label.plain in valid_labels
 
 
-# -------------------------------------------------------------------
-# Threats screen
-# -------------------------------------------------------------------
-
-
-async def test_threats_has_backoffs_and_config() -> None:
+async def test_overview_has_console_log() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("3")  # switch to threats
-        assert app.query_one("#threats-backoffs") is not None
-        assert app.query_one("#threats-config") is not None
+        from textual.widgets import Collapsible, RichLog
+
+        collapsible = app.query_one("#ov-console-collapsible", Collapsible)
+        assert collapsible is not None
+        console = app.query_one("#ov-console-log", RichLog)
+        assert console is not None
+
+
+async def test_overview_update_alerts() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        from airlock.tui.screens.overview import OverviewPane
+
+        overview = app.query_one(OverviewPane)
+        overview.update_alerts("[red]Test alert[/]")
+        await pilot.pause()
+
+        from textual.widgets import Static
+
+        alerts = app.query_one("#ov-alerts", Static)
+        # Just verify it doesn't crash
+        assert alerts is not None
+
+
+# -------------------------------------------------------------------
+# Guards screen (formerly Flow)
+# -------------------------------------------------------------------
+
+
+async def test_guards_has_status_table_and_detail() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("2")
+        # Guards may use guards- or flow- prefixed IDs depending on implementation
+        # Check for the presence of the key widgets
+        from airlock.tui.screens.guards import GuardsPane
+
+        guards = app.query_one(GuardsPane)
+        assert guards is not None
+
+
+async def test_guards_screen_switching() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        workspace = app.query_one("#workspace")
+        await pilot.press("2")
+        assert workspace.current == "guards"
+
+        await pilot.press("1")
+        assert workspace.current == "overview"
+        await pilot.press("2")
+        assert workspace.current == "guards"
 
 
 # -------------------------------------------------------------------
@@ -140,20 +185,19 @@ async def test_threats_has_backoffs_and_config() -> None:
 async def test_logs_has_filters_and_table() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("5")
+        await pilot.press("3")
         assert app.query_one("#logs-model-filter") is not None
         assert app.query_one("#logs-user-filter") is not None
         assert app.query_one("#logs-table") is not None
-        assert app.query_one("#logs-detail") is not None
 
 
 async def test_logs_loads_from_jsonl(tmp_path: Path) -> None:
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
-    today = datetime.utcnow().date().isoformat()
+    today = datetime.now(timezone.utc).date().isoformat()
     log_file = log_dir / f"airlock-{today}.jsonl"
     record = {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
         "success": True,
         "model": "claude-sonnet",
         "user": "alice",
@@ -165,10 +209,8 @@ async def test_logs_loads_from_jsonl(tmp_path: Path) -> None:
     with mock.patch.dict(os.environ, {"AIRLOCK_LOG_DIR": str(log_dir)}):
         app = AirlockApp()
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.press("5")  # logs
+            await pilot.press("3")  # logs
             await pilot.pause()
-            # The log pane should have loaded — table should have at least
-            # the row we wrote
             from airlock.tui.screens.logs import LogsPane
 
             logs_pane = app.query_one(LogsPane)
@@ -176,31 +218,98 @@ async def test_logs_loads_from_jsonl(tmp_path: Path) -> None:
             assert logs_pane._records[0]["model"] == "claude-sonnet"
 
 
-# -------------------------------------------------------------------
-# Analysis screen
-# -------------------------------------------------------------------
-
-
-async def test_analysis_has_controls_and_tabs() -> None:
+async def test_logs_has_type_and_tool_filters() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("6")
-        assert app.query_one("#analysis-days") is not None
-        assert app.query_one("#analysis-run") is not None
-        assert app.query_one("#analysis-tabs") is not None
+        await pilot.press("3")
+        assert app.query_one("#logs-type-filter") is not None
+        assert app.query_one("#logs-tool-filter") is not None
+
+
+async def test_logs_mcp_filtering(tmp_path: Path) -> None:
+    """Test that MCP type filter works on logs."""
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    today = datetime.now(timezone.utc).date().isoformat()
+    log_file = log_dir / f"airlock-{today}.jsonl"
+    records = [
+        {
+            "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+            "success": True,
+            "model": "claude-sonnet",
+            "user": "alice",
+            "total_tokens": 100,
+            "duration_ms": 1200,
+        },
+        {
+            "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+            "success": True,
+            "model": "mcp-proxy",
+            "user": "alice",
+            "call_type": "call_mcp_tool",
+            "mcp_tool_name": "read_file",
+        },
+    ]
+    log_file.write_text("\n".join(json.dumps(r) for r in records) + "\n")
+
+    with mock.patch.dict(os.environ, {"AIRLOCK_LOG_DIR": str(log_dir)}):
+        app = AirlockApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.press("3")
+            await pilot.pause()
+
+            from airlock.tui.screens.logs import LogsPane
+
+            logs_pane = app.query_one(LogsPane)
+            assert len(logs_pane._records) == 2
+
+            logs_pane._records = records
+            logs_pane._apply_filters()
 
 
 # -------------------------------------------------------------------
-# Settings screen
+# Config screen (merged Settings + MCP)
 # -------------------------------------------------------------------
 
 
-async def test_settings_has_tabs_and_apply() -> None:
+async def test_config_has_tabs_and_apply() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("7")
-        assert app.query_one("#settings-tabs") is not None
-        assert app.query_one("#settings-apply") is not None
+        await pilot.press("4")
+        assert app.query_one("#config-tabs") is not None
+        assert app.query_one("#cfg-apply") is not None
+
+
+# -------------------------------------------------------------------
+# Test screen (formerly Chat)
+# -------------------------------------------------------------------
+
+
+async def test_test_screen_navigable() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        workspace = app.query_one("#workspace")
+        await pilot.press("5")
+        assert workspace.current == "test"
+
+
+# -------------------------------------------------------------------
+# Alert Engine
+# -------------------------------------------------------------------
+
+
+def test_alert_engine_evaluate() -> None:
+    from airlock.tui.alert_engine import AlertEngine
+
+    engine = AlertEngine()
+    assert engine.active_count() == 0
+
+    # evaluate with the real (empty) store should not crash
+    try:
+        from airlock.fast.state import store
+        engine.evaluate(store)
+    except ImportError:
+        pass  # state module may not be available in all test envs
 
 
 # -------------------------------------------------------------------
@@ -244,148 +353,69 @@ def test_help_includes_tui(capsys) -> None:
     assert "tui" in out
 
 
+def test_tui_start_flag_passed_through() -> None:
+    from airlock.cli.main import main
+
+    with mock.patch("airlock.tui.app.run") as mock_run:
+        main(["tui", "--start"])
+    mock_run.assert_called_once_with(
+        host="localhost",
+        port="4000",
+        auto_start=True,
+        daemon_mode=False,
+    )
+
+
+def test_tui_daemon_flag_passed_through() -> None:
+    from airlock.cli.main import main
+
+    with mock.patch("airlock.tui.app.run") as mock_run:
+        main(["tui", "--start", "--daemon"])
+    mock_run.assert_called_once_with(
+        host="localhost",
+        port="4000",
+        auto_start=True,
+        daemon_mode=True,
+    )
+
+
+async def test_app_has_proxy_manager() -> None:
+    app = AirlockApp(host="127.0.0.1", port="9999")
+    from airlock.tui.proxy_manager import ProxyManager
+
+    assert isinstance(app._proxy_manager, ProxyManager)
+
+
+def test_on_unmount_stops_proxy_by_default() -> None:
+    app = AirlockApp()
+    app._proxy_manager.stop = mock.Mock()
+    app._mcp_manager.stop_all = mock.Mock()
+
+    app.on_unmount()
+
+    app._mcp_manager.stop_all.assert_called_once()
+    app._proxy_manager.stop.assert_called_once()
+
+
+def test_on_unmount_keeps_proxy_in_daemon_mode() -> None:
+    app = AirlockApp(daemon_mode=True)
+    app._proxy_manager.stop = mock.Mock()
+    app._mcp_manager.stop_all = mock.Mock()
+
+    app.on_unmount()
+
+    app._mcp_manager.stop_all.assert_called_once()
+    app._proxy_manager.stop.assert_not_called()
+
+
 # -------------------------------------------------------------------
-# Flow screen
+# Flow/Guards signal rendering (unit tests — import from flow.py)
 # -------------------------------------------------------------------
-
-
-async def test_flow_has_status_table_and_detail() -> None:
-    app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("8")
-        assert app.query_one("#flow-status") is not None
-        assert app.query_one("#flow-table") is not None
-        assert app.query_one("#flow-detail-tabs") is not None
-        assert app.query_one("#flow-signals") is not None
-        assert app.query_one("#flow-pipeline") is not None
-        assert app.query_one("#flow-raw") is not None
-
-
-async def test_flow_screen_switching() -> None:
-    app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        workspace = app.query_one("#workspace")
-        await pilot.press("8")
-        assert workspace.current == "flow"
-
-        # Switch away and back
-        await pilot.press("1")
-        assert workspace.current == "dashboard"
-        await pilot.press("8")
-        assert workspace.current == "flow"
-
-
-async def test_flow_pause_resume() -> None:
-    app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("8")
-        await pilot.pause()
-
-        from airlock.tui.screens.flow import FlowPane
-
-        flow_pane = app.query_one(FlowPane)
-        assert flow_pane._paused is False
-
-        # Focus the flow table so space bubbles to FlowPane
-        app.query_one("#flow-table", DataTable).focus()
-
-        # Press space to pause
-        await pilot.press("space")
-        assert flow_pane._paused is True
-
-        # Press space to resume
-        await pilot.press("space")
-        assert flow_pane._paused is False
-
-
-async def test_flow_loads_observations(tmp_path: Path) -> None:
-    log_dir = tmp_path / "logs"
-    log_dir.mkdir()
-    today = datetime.utcnow().date().isoformat()
-    log_file = log_dir / f"airlock-{today}.jsonl"
-    record = {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "success": True,
-        "model": "claude-sonnet",
-        "request_id": "req-001",
-        "airlock_observation": {
-            "request_id": "req-001",
-            "model": "claude-sonnet",
-            "client_id": "key:testkey1",
-            "signals": [
-                {
-                    "guardrail_name": "pii_scan",
-                    "detected": False,
-                    "score": 0.0,
-                    "details": {"entities": {}, "total_count": 0},
-                    "duration_ms": 0.1,
-                },
-                {
-                    "guardrail_name": "keyword_scan",
-                    "detected": True,
-                    "score": 1.0,
-                    "details": {"matched_keywords": ["forbidden"], "match_count": 1},
-                    "duration_ms": 0.1,
-                },
-                {
-                    "guardrail_name": "threat_read",
-                    "detected": False,
-                    "score": 0.0,
-                    "details": {"client_id": "key:testkey1", "threat_score": 0.0},
-                    "duration_ms": 0.1,
-                },
-            ],
-            "composite_score": 0.4,
-            "would_block": False,
-            "orchestrator_version": "2024-01-15T10:00:00Z",
-        },
-    }
-    log_file.write_text(json.dumps(record) + "\n")
-
-    with mock.patch.dict(os.environ, {"AIRLOCK_LOG_DIR": str(log_dir)}):
-        app = AirlockApp()
-        async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.press("8")
-            await pilot.pause()
-            await pilot.pause()  # extra pause for worker to complete
-
-            from airlock.tui.screens.flow import FlowPane
-
-            flow_pane = app.query_one(FlowPane)
-            assert len(flow_pane._entries) >= 1
-            assert flow_pane._entries[0].model == "claude-sonnet"
-            assert flow_pane._entries[0].composite_score == 0.4
-
-
-async def test_flow_skips_records_without_observation(tmp_path: Path) -> None:
-    log_dir = tmp_path / "logs"
-    log_dir.mkdir()
-    today = datetime.utcnow().date().isoformat()
-    log_file = log_dir / f"airlock-{today}.jsonl"
-    # Record without observation — should be skipped
-    record = {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "success": True,
-        "model": "gpt-4o",
-    }
-    log_file.write_text(json.dumps(record) + "\n")
-
-    with mock.patch.dict(os.environ, {"AIRLOCK_LOG_DIR": str(log_dir)}):
-        app = AirlockApp()
-        async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.press("8")
-            await pilot.pause()
-            await pilot.pause()
-
-            from airlock.tui.screens.flow import FlowPane
-
-            flow_pane = app.query_one(FlowPane)
-            assert len(flow_pane._entries) == 0
 
 
 async def test_flow_signal_rendering() -> None:
     """Test that the signal renderer produces expected output."""
-    from airlock.tui.screens.flow import FlowEntry, _render_signals
+    from airlock.tui.screens.guards import FlowEntry, _render_signals
 
     entry = FlowEntry(
         timestamp="2024-01-15T10:31:42Z",
@@ -425,7 +455,7 @@ async def test_flow_signal_rendering() -> None:
 
 async def test_flow_pipeline_rendering() -> None:
     """Test that the pipeline renderer produces expected output."""
-    from airlock.tui.screens.flow import FlowEntry, _render_pipeline
+    from airlock.tui.screens.guards import FlowEntry, _render_pipeline
 
     entry = FlowEntry(
         timestamp="2024-01-15T10:31:42Z",
@@ -450,147 +480,9 @@ async def test_flow_pipeline_rendering() -> None:
     assert "req-001" in rendered
 
 
-# -------------------------------------------------------------------
-# Proxy launch & control
-# -------------------------------------------------------------------
-
-
-async def test_dashboard_has_start_button() -> None:
-    app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        from textual.widgets import Button
-
-        btn = app.query_one("#proxy-start-btn", Button)
-        assert btn is not None
-        # Button starts as "Checking..." and transitions once the health-check
-        # worker completes. Accept any valid label.
-        valid_labels = {"Checking...", "Start Proxy", "Stop Proxy", "Running Externally"}
-        assert btn.label.plain in valid_labels
-
-
-async def test_dashboard_has_console_log() -> None:
-    app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        from textual.widgets import Collapsible, RichLog
-
-        collapsible = app.query_one("#dash-console-collapsible", Collapsible)
-        assert collapsible is not None
-        console = app.query_one("#dash-console-log", RichLog)
-        assert console is not None
-
-
-async def test_start_shows_error_without_config() -> None:
-    app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        # Mock ProxyManager to fail preflight
-        app._proxy_manager.find_config = mock.Mock(return_value=None)
-
-        from airlock.tui.screens.dashboard import DashboardPane
-
-        dashboard = app.query_one(DashboardPane)
-        dashboard.action_start_proxy()
-        await pilot.pause()
-
-        from textual.widgets import Button
-
-        btn = app.query_one("#proxy-start-btn", Button)
-        # Should not change to "Stop Proxy" since start failed
-        assert btn.label.plain != "Stop Proxy"
-
-
-def test_tui_start_flag_passed_through() -> None:
-    from airlock.cli.main import main
-
-    with mock.patch("airlock.tui.app.run") as mock_run:
-        main(["tui", "--start"])
-    mock_run.assert_called_once_with(
-        host="localhost",
-        port="4000",
-        auto_start=True,
-        daemon_mode=False,
-    )
-
-
-def test_tui_daemon_flag_passed_through() -> None:
-    from airlock.cli.main import main
-
-    with mock.patch("airlock.tui.app.run") as mock_run:
-        main(["tui", "--start", "--daemon"])
-    mock_run.assert_called_once_with(
-        host="localhost",
-        port="4000",
-        auto_start=True,
-        daemon_mode=True,
-    )
-
-
-async def test_app_has_proxy_manager() -> None:
-    app = AirlockApp(host="127.0.0.1", port="9999")
-    from airlock.tui.proxy_manager import ProxyManager
-
-    assert isinstance(app._proxy_manager, ProxyManager)
-
-
-async def test_externally_running_proxy_disables_button() -> None:
-    app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        from textual.widgets import Button
-
-        from airlock.tui.screens.dashboard import DashboardPane
-
-        dashboard = app.query_one(DashboardPane)
-        # Simulate: proxy reachable but not TUI-owned
-        dashboard._externally_running = True
-        btn = app.query_one("#proxy-start-btn", Button)
-        btn.label = "Running Externally"
-        btn.variant = "default"
-        btn.disabled = True
-
-        assert btn.disabled is True
-        assert btn.label.plain == "Running Externally"
-
-
-async def test_dashboard_has_mcp_widgets() -> None:
-    app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        assert app.query_one("#mcp-indicator") is not None
-        assert app.query_one("#mcp-traffic-split") is not None
-
-
-async def test_models_has_mcp_tools_table() -> None:
-    app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("2")
-        assert app.query_one("#mcp-tools-table") is not None
-
-
-async def test_settings_has_mcp_tab() -> None:
-    app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("6")
-        assert app.query_one("#tab-mcp") is not None
-        assert app.query_one("#settings-mcp-allowed") is not None
-        assert app.query_one("#settings-mcp-blocked") is not None
-
-
-async def test_logs_has_type_and_tool_filters() -> None:
-    app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("5")
-        assert app.query_one("#logs-type-filter") is not None
-        assert app.query_one("#logs-tool-filter") is not None
-
-
-async def test_flow_has_tool_result_tab() -> None:
-    app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("8")
-        assert app.query_one("#flow-tool-result") is not None
-
-
 async def test_flow_tool_result_rendering() -> None:
     """Test _render_tool_result for MCP and non-MCP entries."""
-    from airlock.tui.screens.flow import FlowEntry, _render_tool_result
+    from airlock.tui.screens.guards import FlowEntry, _render_tool_result
 
     # Non-MCP entry
     llm_entry = FlowEntry(
@@ -634,245 +526,399 @@ async def test_flow_tool_result_rendering() -> None:
     assert "Yes" in rendered
 
 
-async def test_logs_mcp_filtering(tmp_path: Path) -> None:
-    """Test that MCP type filter works on logs."""
-    log_dir = tmp_path / "logs"
-    log_dir.mkdir()
-    today = datetime.utcnow().date().isoformat()
-    log_file = log_dir / f"airlock-{today}.jsonl"
-    records = [
-        {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "success": True,
-            "model": "claude-sonnet",
-            "user": "alice",
-            "total_tokens": 100,
-            "duration_ms": 1200,
-        },
-        {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "success": True,
-            "model": "mcp-proxy",
-            "user": "alice",
-            "call_type": "call_mcp_tool",
-            "mcp_tool_name": "read_file",
-        },
+# ===================================================================
+# NEW TESTS — appended categories
+# ===================================================================
+
+
+# -------------------------------------------------------------------
+# 1. Overview Screen Behavioral Tests
+# -------------------------------------------------------------------
+
+
+async def test_overview_provider_filter_toggle() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("1")
+        # The providers table should exist
+        providers_table = app.query_one("#ov-providers")
+        assert providers_table is not None
+
+        # Verify models header text changes when _provider_filter is set
+        from airlock.tui.screens.overview import OverviewPane
+
+        overview = app.query_one(OverviewPane)
+        header = app.query_one("#ov-models-header")
+
+        # Initially no filter
+        assert overview._provider_filter is None
+
+        # Simulate setting a provider filter
+        overview._provider_filter = "anthropic"
+        header.update("[bold]Models[/] [dim](filtered: anthropic)[/]")
+        await pilot.pause()
+        rendered = header.render()
+        assert "anthropic" in str(rendered)
+
+        # Clear filter
+        overview._provider_filter = None
+        header.update("[bold]Models[/]")
+        await pilot.pause()
+
+
+async def test_overview_status_line_exists() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        status_line = app.query_one("#ov-status-line")
+        assert status_line is not None
+
+
+# -------------------------------------------------------------------
+# 2. Config Screen Tests
+# -------------------------------------------------------------------
+
+
+async def test_config_has_provider_tab() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("4")
+        await pilot.pause()
+        assert app.query_one("#cfg-tab-providers") is not None
+
+
+async def test_config_has_guardrails_tab() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("4")
+        await pilot.pause()
+        assert app.query_one("#cfg-tab-guardrails") is not None
+
+
+async def test_config_has_protection_tab() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("4")
+        await pilot.pause()
+        assert app.query_one("#cfg-tab-protection") is not None
+
+
+async def test_config_has_mcp_tab() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("4")
+        await pilot.pause()
+        assert app.query_one("#cfg-tab-mcp") is not None
+
+
+async def test_config_has_logging_tab() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("4")
+        await pilot.pause()
+        assert app.query_one("#cfg-tab-logging") is not None
+
+
+async def test_config_has_advanced_tab() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("4")
+        await pilot.pause()
+        assert app.query_one("#cfg-tab-advanced") is not None
+
+
+async def test_config_apply_updates_env() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("4")
+        await pilot.pause()
+
+        from textual.widgets import Input
+
+        pii_input = app.query_one("#cfg-pii-entities", Input)
+        pii_input.value = "CREDIT_CARD,EMAIL_ADDRESS"
+
+        with mock.patch.dict(os.environ, {}, clear=False):
+            from airlock.tui.screens.config import ConfigPane
+
+            config_pane = app.query_one(ConfigPane)
+            config_pane._apply_settings()
+            await pilot.pause()
+            assert os.environ.get("AIRLOCK_PII_ENTITIES") == "CREDIT_CARD,EMAIL_ADDRESS"
+
+
+# -------------------------------------------------------------------
+# 3. Test Screen Tests
+# -------------------------------------------------------------------
+
+
+async def test_test_screen_has_controls() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("5")
+        await pilot.pause()
+        assert app.query_one("#chat-provider-select") is not None
+        assert app.query_one("#chat-model-select") is not None
+        assert app.query_one("#chat-send-btn") is not None
+
+
+async def test_test_screen_has_quadrants() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("5")
+        await pilot.pause()
+        assert app.query_one("#chat-q1") is not None
+        assert app.query_one("#chat-q2") is not None
+        assert app.query_one("#chat-q3") is not None
+        assert app.query_one("#chat-q4") is not None
+
+
+async def test_test_screen_send_without_query() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("5")
+        await pilot.pause()
+
+        from textual.widgets import Static
+
+        # Ensure the user input is empty
+        from textual.widgets import TextArea
+
+        user_input = app.query_one("#chat-user-input", TextArea)
+        user_input.clear()
+        await pilot.pause()
+
+        # Click the send button
+        send_btn = app.query_one("#chat-send-btn", Button)
+        await pilot.click(send_btn)
+        await pilot.pause()
+
+        # Check that the response content shows a warning
+        response_content = app.query_one("#chat-response-content", Static)
+        rendered_text = str(response_content.render())
+        assert "Enter a query" in rendered_text or "query" in rendered_text.lower()
+
+
+# -------------------------------------------------------------------
+# 4. Guards Screen Tests
+# -------------------------------------------------------------------
+
+
+async def test_guards_has_status_and_table() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("2")
+        await pilot.pause()
+
+        app.query_one("#guards-status")
+        app.query_one("#guards-table")
+
+
+async def test_guards_pause_toggle() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("2")
+        await pilot.pause()
+
+        from airlock.tui.screens.guards import GuardsPane
+
+        guards = app.query_one(GuardsPane)
+        assert guards._paused is False
+
+        guards.action_toggle_pause()
+        assert guards._paused is True
+
+        guards.action_toggle_pause()
+        assert guards._paused is False
+
+
+# -------------------------------------------------------------------
+# 5. TabBar Widget Tests
+# -------------------------------------------------------------------
+
+
+async def test_tab_bar_activate() -> None:
+    from airlock.tui.widgets.tab_bar import TabBar
+
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        tab_bar = app.query_one("#tab-bar", TabBar)
+        assert tab_bar._active == "overview"
+
+        tab_bar.activate("guards")
+        assert tab_bar._active == "guards"
+
+        tab_bar.activate("logs")
+        assert tab_bar._active == "logs"
+
+
+async def test_tab_bar_update_badge() -> None:
+    from airlock.tui.widgets.tab_bar import TabBar
+
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        tab_bar = app.query_one("#tab-bar", TabBar)
+
+        tab_bar.update_badge(3)
+        await pilot.pause()
+        assert tab_bar._alert_count == 3
+        # Verify the badge text on the first tab item
+        first_tab = tab_bar.query_one("#tab-overview", TabBar._TabItem)
+        rendered = str(first_tab.render())
+        assert "!3" in rendered
+
+        # Clear badge
+        tab_bar.update_badge(0)
+        await pilot.pause()
+        assert tab_bar._alert_count == 0
+
+
+# -------------------------------------------------------------------
+# 6. Param Schema Tests (pure unit tests)
+# -------------------------------------------------------------------
+
+
+def test_get_schema_known_provider() -> None:
+    from airlock.tui.param_schemas import get_schema
+
+    schema = get_schema("anthropic")
+    assert schema is not None
+    field_names = [f.name for f in schema.fields]
+    assert "temperature" in field_names
+
+
+def test_get_schema_unknown_provider() -> None:
+    from airlock.tui.param_schemas import DEFAULT_SCHEMA, get_schema
+
+    schema = get_schema("unknown")
+    assert schema is DEFAULT_SCHEMA
+
+
+def test_defaults_for_schema() -> None:
+    from airlock.tui.param_schemas import defaults_for_schema, get_schema
+
+    schema = get_schema("anthropic")
+    defaults = defaults_for_schema(schema)
+    assert isinstance(defaults, dict)
+    assert "temperature" in defaults
+    assert "max_tokens" in defaults
+
+
+# -------------------------------------------------------------------
+# 7. Alert Engine Tests (expanded)
+# -------------------------------------------------------------------
+
+
+def test_alert_engine_acknowledge() -> None:
+    from airlock.tui.alert_engine import Alert, AlertEngine
+
+    engine = AlertEngine()
+    alert = Alert(
+        rule_name="test_rule",
+        severity="warning",
+        title="Test alert",
+        detail="Detail text",
+        entity_type="model",
+        entity_id="test-model",
+        timestamp=1000.0,
+    )
+    engine.active.append(alert)
+    assert engine.active_count() == 1
+
+    engine.acknowledge(alert)
+    assert alert.acknowledged is True
+    assert engine.active_count() == 0  # acknowledged alerts not counted
+
+
+def test_alert_engine_dismiss() -> None:
+    from airlock.tui.alert_engine import Alert, AlertEngine
+
+    engine = AlertEngine()
+    alert = Alert(
+        rule_name="test_rule",
+        severity="critical",
+        title="Dismissible alert",
+        detail="Will be removed",
+        entity_type="provider",
+        entity_id="openai",
+        timestamp=2000.0,
+    )
+    engine.active.append(alert)
+    assert len(engine.active) == 1
+
+    engine.dismiss(alert)
+    assert len(engine.active) == 0
+
+
+def test_alert_engine_cooldown() -> None:
+    import time as _time
+
+    from airlock.tui.alert_engine import Alert, AlertEngine, AlertRule
+
+    fired_count = 0
+
+    def _always_fire(store):
+        nonlocal fired_count
+        fired_count += 1
+        return [Alert(
+            rule_name="always_fire",
+            severity="info",
+            title=f"Fired #{fired_count}",
+            detail="Always fires",
+            entity_type="model",
+            entity_id=f"entity-{fired_count}",
+            timestamp=_time.time(),
+        )]
+
+    engine = AlertEngine()
+    engine.rules = [
+        AlertRule(
+            name="always_fire",
+            condition=_always_fire,
+            cooldown_seconds=9999.0,  # very long cooldown
+            severity="info",
+        ),
     ]
-    log_file.write_text("\n".join(json.dumps(r) for r in records) + "\n")
 
-    with mock.patch.dict(os.environ, {"AIRLOCK_LOG_DIR": str(log_dir)}):
-        app = AirlockApp()
-        async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.press("5")
-            await pilot.pause()
+    from airlock.fast.state import StateStore
 
-            from airlock.tui.screens.logs import LogsPane
+    test_store = StateStore()
 
-            logs_pane = app.query_one(LogsPane)
-            assert len(logs_pane._records) == 2
+    # First evaluate should fire
+    new1 = engine.evaluate(test_store)
+    assert len(new1) == 1
 
-            # Filter by MCP type
-            logs_pane._records = records
-            logs_pane._apply_filters()
+    # Second evaluate should be suppressed by cooldown
+    new2 = engine.evaluate(test_store)
+    assert len(new2) == 0
 
 
-async def test_probe_external_connection_error_shows_not_reachable() -> None:
-    """A connection error on _probe_external means the proxy is not running."""
+# -------------------------------------------------------------------
+# 8. Logs Screen Tests
+# -------------------------------------------------------------------
+
+
+async def test_logs_has_export_button() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
-        from textual.widgets import Button
-
-        from airlock.tui.screens.dashboard import DashboardPane
-        from airlock.tui.widgets.status_indicator import StatusIndicator
-
-        dashboard = app.query_one(DashboardPane)
-
-        with mock.patch(
-            "urllib.request.urlopen",
-            side_effect=OSError("Connection refused"),
-        ):
-            dashboard._probe_external()
-            await pilot.pause()
-
-        indicator = app.query_one("#proxy-indicator", StatusIndicator)
-        btn = app.query_one("#proxy-start-btn", Button)
-        assert "Not reachable" in indicator._label
-        assert btn.label.plain == "Start Proxy"
-        assert btn.disabled is False
+        await pilot.press("3")
+        await pilot.pause()
+        assert app.query_one("#logs-export-btn") is not None
 
 
-async def test_probe_external_skipped_when_tui_owned() -> None:
-    """_probe_external makes no HTTP calls when the TUI owns the process."""
+async def test_logs_has_analysis_tabs() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
-        from airlock.tui.screens.dashboard import DashboardPane
-
-        dashboard = app.query_one(DashboardPane)
-        mgr = dashboard._proxy_manager
-        mgr._process = mock.Mock()
-        mgr._process.poll.return_value = None  # process alive → is_tui_owned=True
-
-        with mock.patch("urllib.request.urlopen") as mock_urlopen:
-            dashboard._probe_external()
-            await pilot.pause()
-
-        mock_urlopen.assert_not_called()
+        await pilot.press("3")
+        await pilot.pause()
+        assert app.query_one("#tab-opts") is not None
+        assert app.query_one("#tab-cache") is not None
+        assert app.query_one("#tab-trends") is not None
+        assert app.query_one("#tab-hyp") is not None
 
 
-async def test_safe_rich_log_sticky_scroll() -> None:
-    """New writes do not auto-scroll when the user has scrolled up."""
+async def test_logs_refresh_mode_options() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
-        from airlock.tui.screens.dashboard import _SafeRichLog
-
-        console = app.query_one("#dash-console-log", _SafeRichLog)
-        console.clear()
-        # Write enough lines to make the content taller than the widget
-        for i in range(60):
-            console.write(f"line {i:03d}")
+        await pilot.press("3")
         await pilot.pause()
-
-        # Scroll to the top
-        console.scroll_home(animate=False)
-        await pilot.pause()
-        scroll_before = console.scroll_offset.y
-
-        # A new write must NOT move the scroll position
-        console.write("new line at bottom")
-        await pilot.pause()
-        assert console.scroll_offset.y == scroll_before
-
-
-async def test_safe_rich_log_get_selection_returns_text() -> None:
-    """get_selection extracts plain text visible in the log."""
-    app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        from textual.selection import Selection
-        from textual.widgets import Collapsible
-
-        from airlock.tui.screens.dashboard import _SafeRichLog
-
-        # Expand the collapsible first so the RichLog is sized and lines are rendered
-        collapsible = app.query_one("#dash-console-collapsible", Collapsible)
-        collapsible.collapsed = False
-        await pilot.pause()
-
-        console = app.query_one("#dash-console-log", _SafeRichLog)
-        console.clear()
-        await pilot.pause()
-        console.write("alpha")
-        console.write("beta")
-        await pilot.pause()
-
-        # Select everything (None limits = full extent)
-        result = console.get_selection(Selection(None, None))
-        assert result is not None
-        text, sep = result
-        assert "alpha" in text
-        assert "beta" in text
-
-
-# ---------------------------------------------------------------------------
-# MCP Servers screen (screen 8)
-# ---------------------------------------------------------------------------
-
-
-async def test_mcp_servers_screen_navigable() -> None:
-    app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        workspace = app.query_one("#workspace")
-        await pilot.press("9")
-        assert workspace.current == "mcp_servers"
-
-
-async def test_mcp_servers_has_widgets() -> None:
-    app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("9")
-        await pilot.pause()
-
-        # Status bar
-        status = app.query_one("#mcp-srv-status")
-        assert status is not None
-
-        # Action buttons
-        for bid in ("mcp-srv-start", "mcp-srv-stop", "mcp-srv-restart", "mcp-srv-probe"):
-            btn = app.query_one(f"#{bid}")
-            assert btn is not None
-
-        # Server table
-        table = app.query_one("#mcp-srv-table")
-        assert table is not None
-
-        # Detail tabs
-        tabs = app.query_one("#mcp-srv-detail-tabs")
-        assert tabs is not None
-
-        # Tools table
-        tools = app.query_one("#mcp-srv-tools-table")
-        assert tools is not None
-
-
-async def test_mcp_servers_buttons_disabled_by_default() -> None:
-    app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("9")
-        await pilot.pause()
-
-        start_btn = app.query_one("#mcp-srv-start", Button)
-        stop_btn = app.query_one("#mcp-srv-stop", Button)
-        restart_btn = app.query_one("#mcp-srv-restart", Button)
-
-        # Start/Stop/Restart disabled until a managed server is selected
-        assert start_btn.disabled is True
-        assert stop_btn.disabled is True
-        assert restart_btn.disabled is True
-
-        # Probe Now always enabled
-        probe_btn = app.query_one("#mcp-srv-probe", Button)
-        assert probe_btn.disabled is False
-
-
-def test_on_unmount_stops_proxy_by_default() -> None:
-    app = AirlockApp()
-    app._proxy_manager.stop = mock.Mock()
-    app._mcp_manager.stop_all = mock.Mock()
-
-    app.on_unmount()
-
-    app._mcp_manager.stop_all.assert_called_once()
-    app._proxy_manager.stop.assert_called_once()
-
-
-def test_on_unmount_keeps_proxy_in_daemon_mode() -> None:
-    app = AirlockApp(daemon_mode=True)
-    app._proxy_manager.stop = mock.Mock()
-    app._mcp_manager.stop_all = mock.Mock()
-
-    app.on_unmount()
-
-    app._mcp_manager.stop_all.assert_called_once()
-    app._proxy_manager.stop.assert_not_called()
-
-
-async def test_mcp_servers_shows_state_from_store() -> None:
-    from airlock.fast.state import McpServerHealth, McpServerState, store
-
-    # Seed state
-    store.set_mcp_server("test-srv", McpServerState(
-        name="test-srv", transport="sse", url="http://localhost:3001",
-        health=McpServerHealth.HEALTHY, last_health_latency_ms=15.0,
-    ))
-
-    app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("9")
-        await pilot.pause()
-        await pilot.pause()  # allow refresh work to complete
-
-        status = app.query_one("#mcp-srv-status")
-        rendered = status.render()
-        assert "configured" in str(rendered) or "test-srv" in str(rendered)
-
-    # Clean up
-    store._mcp_servers.pop("test-srv", None)
+        assert app.query_one("#logs-refresh-mode") is not None

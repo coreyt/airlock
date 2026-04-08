@@ -254,6 +254,15 @@ class ProxyManager:
 
     # -- properties -------------------------------------------------------
 
+    def wait_for_exit(self) -> int | None:
+        """Block until the subprocess exits and return its return code.
+
+        Returns *None* if no process is running.
+        """
+        if self._process is None:
+            return None
+        return self._process.wait()
+
     @property
     def is_tui_owned(self) -> bool:
         """True when a TUI-started process is still alive."""

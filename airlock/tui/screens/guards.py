@@ -1,9 +1,10 @@
-"""Flow screen — real-time guardrail pipeline monitor.
+"""Guards — real-time guardrail pipeline monitor.
 
 A 'tail -f' for the adaptive guardrails pipeline.  Streams requests as
 they flow through, shows composite scores and verdicts, and lets the
 operator pause, select a request, and drill into the weighted scoring
-breakdown.
+breakdown.  Adds enforcement-mode awareness so the operator always knows
+whether the system is observing, shadowing, or actively enforcing.
 """
 
 from __future__ import annotations
@@ -18,10 +19,28 @@ from typing import Any
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
-from textual.widgets import DataTable, Static, TabbedContent, TabPane
+from textual.containers import Vertical, VerticalScroll
+from textual.widgets import Collapsible, DataTable, Static, TabbedContent, TabPane
 
 from airlock.tui.widgets.safe_data_table import _SafeDataTable
+
+
+# ---------------------------------------------------------------------------
+# Enforcement mode helper
+# ---------------------------------------------------------------------------
+def _get_enforce_mode() -> str:
+    """Return the current global enforcement mode from the environment."""
+    return os.getenv("AIRLOCK_ENFORCE_MODE", "observe")
+
+
+def _styled_enforce_mode(mode: str) -> str:
+    """Return a Rich-markup-styled version of the enforcement mode."""
+    if mode == "enforce":
+        return "[red bold]enforce[/]"
+    elif mode == "shadow":
+        return "[yellow]shadow[/]"
+    else:
+        return "[dim]observe[/]"
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +150,11 @@ def _render_signals(entry: FlowEntry) -> str:
             lines.append(f"  Verdict:           [yellow]⊘ would block[/]")
         else:
             lines.append(f"  Verdict:           [green]✓ pass[/]")
+
+    # Show the global enforcement mode so the operator sees what *would*
+    # happen vs what *did* happen for every entry.
+    global_mode = _get_enforce_mode()
+    lines.append(f"  Enforce mode:      {_styled_enforce_mode(global_mode)}")
 
     if entry.orchestrator_version:
         lines.append(f"  Knobs version:     {entry.orchestrator_version}")
@@ -355,11 +379,22 @@ def _enforce_text(entry: FlowEntry) -> str:
     return "-"
 
 
+def _model_display(entry: FlowEntry) -> str:
+    """Model column text, with failover indicator when applicable."""
+    failover = entry.raw_record.get("airlock_failover")
+    if failover:
+        original = failover.get("original_model", "?")
+        target = failover.get("failover_model", "?")
+        # Truncate each side to keep the column readable
+        return f"{original[:8]}→{target[:8]}"
+    return entry.model[:16]
+
+
 # ---------------------------------------------------------------------------
 # Screen
 # ---------------------------------------------------------------------------
-class FlowPane(Vertical):
-    """Real-time guardrail pipeline monitor."""
+class GuardsPane(VerticalScroll):
+    """Real-time guardrail pipeline monitor with enforcement-mode awareness."""
 
     BINDINGS = [
         Binding("space", "toggle_pause", "Pause", priority=True),
@@ -376,25 +411,28 @@ class FlowPane(Vertical):
         self._last_file_pos: int = 0
 
     def compose(self) -> ComposeResult:
+        mode = _get_enforce_mode()
+        styled_mode = _styled_enforce_mode(mode)
         yield Static(
-            "[green]● LIVE[/]  │  0 requests  │  0 would_block  │  1s poll",
-            id="flow-status",
+            f"[green]● LIVE[/]  │  Mode: {styled_mode}  │  0 requests  │  0 would_block  │  1s poll",
+            id="guards-status",
         )
-        table = _SafeDataTable(id="flow-table", cursor_type="row")
-        table.add_columns("Time", "Type", "Server", "Model", "Client", "Score", "Verdict", "Enforce")
-        yield table
-        with TabbedContent(id="flow-detail-tabs"):
-            with TabPane("Signals", id="flow-tab-signals"):
+        with TabbedContent(id="guards-detail-tabs"):
+            with TabPane("Signals", id="guards-tab-signals"):
                 yield Static(
-                    "Requests will appear above as they flow through the pipeline.",
-                    id="flow-signals",
+                    "Requests will appear below as they flow through the pipeline.",
+                    id="guards-signals",
                 )
-            with TabPane("Pipeline", id="flow-tab-pipeline"):
-                yield Static("Select a request to view pipeline stages.", id="flow-pipeline")
-            with TabPane("Raw", id="flow-tab-raw"):
-                yield Static("Select a request to view raw JSON.", id="flow-raw")
-            with TabPane("Tool Result", id="flow-tab-tool"):
-                yield Static("Select an MCP request...", id="flow-tool-result")
+            with TabPane("Pipeline", id="guards-tab-pipeline"):
+                yield Static("Select a request to view pipeline stages.", id="guards-pipeline")
+            with TabPane("Raw", id="guards-tab-raw"):
+                yield Static("Select a request to view raw JSON.", id="guards-raw")
+            with TabPane("Tool Result", id="guards-tab-tool"):
+                yield Static("Select an MCP request...", id="guards-tool-result")
+        with Collapsible(title="Request Stream", collapsed=False, id="guards-stream-collapsible"):
+            table = _SafeDataTable(id="guards-table", cursor_type="row")
+            table.add_columns("Time", "Type", "Server", "Model", "Client", "Score", "Verdict", "Enforce")
+            yield table
 
     def on_mount(self) -> None:
         self._poll_logs()
@@ -490,7 +528,7 @@ class FlowPane(Vertical):
     # UI updates
     # ------------------------------------------------------------------
     def _refresh_table(self) -> None:
-        table = self.query_one("#flow-table", _SafeDataTable)
+        table = self.query_one("#guards-table", _SafeDataTable)
         table.clear()
 
         for i, entry in enumerate(self._entries[:200]):
@@ -503,7 +541,7 @@ class FlowPane(Vertical):
                 ts = entry.timestamp
             call_type = (entry.mcp_tool_name or "MCP") if entry.call_type == "call_mcp_tool" else "LLM"
             server = entry.mcp_server_name[:12] if entry.mcp_server_name else "-"
-            model = entry.model[:16]
+            model = _model_display(entry)
             client = entry.client_id[-12:] if len(entry.client_id) > 12 else entry.client_id
             score = f"{entry.composite_score:.2f}" if entry.composite_score is not None else "-"
             verdict = _verdict_text(entry)
@@ -516,27 +554,29 @@ class FlowPane(Vertical):
             )
 
     def _refresh_status(self) -> None:
-        status = self.query_one("#flow-status", Static)
+        mode = _get_enforce_mode()
+        styled_mode = _styled_enforce_mode(mode)
+        status = self.query_one("#guards-status", Static)
         if self._paused:
             status.update(
-                f"[yellow]⏸ PAUSED[/]  │  {self._total_seen} requests  │  "
+                f"[yellow]⏸ PAUSED[/]  │  Mode: {styled_mode}  │  {self._total_seen} requests  │  "
                 f"{self._would_block_count} would_block  │  press space to resume"
             )
             status.remove_class("live")
             status.add_class("paused")
         else:
             status.update(
-                f"[green]● LIVE[/]  │  {self._total_seen} requests  │  "
+                f"[green]● LIVE[/]  │  Mode: {styled_mode}  │  {self._total_seen} requests  │  "
                 f"{self._would_block_count} would_block  │  1s poll"
             )
             status.remove_class("paused")
             status.add_class("live")
 
     def _show_detail(self, entry: FlowEntry) -> None:
-        signals = self.query_one("#flow-signals", Static)
-        pipeline = self.query_one("#flow-pipeline", Static)
-        raw = self.query_one("#flow-raw", Static)
-        tool_result = self.query_one("#flow-tool-result", Static)
+        signals = self.query_one("#guards-signals", Static)
+        pipeline = self.query_one("#guards-pipeline", Static)
+        raw = self.query_one("#guards-raw", Static)
+        tool_result = self.query_one("#guards-tool-result", Static)
 
         signals.update(_render_signals(entry))
         pipeline.update(_render_pipeline(entry))

@@ -1,13 +1,14 @@
-"""Basic Chat screen — test LLM connectivity and interaction.
+"""Test — send diagnostic requests through the proxy to verify connectivity and diagnose issues reported by users.
 
 Provides a split-pane interface for administrators to send test prompts
-to any configured model and inspect the full request/response cycle.
+to any configured model and inspect the full request/response cycle,
+with airlock-specific header highlighting for diagnostics.
 
 Layout (named like quadrants on a line graph):
 
-    Q2  User Query        │  Q1  Response Content
-    ──────────────────────┼──────────────────────
-    Q3  Request Sent      │  Q4  Response Received
+    Q2  User Query        |  Q1  Response Content
+    ----------------------+----------------------
+    Q3  Request Sent      |  Q4  Response Received
 """
 
 from __future__ import annotations
@@ -18,10 +19,13 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+from rich.markup import escape as _esc
+
 import yaml
 
-from textual import work
+from textual import events, work
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import (
     Button,
@@ -31,6 +35,24 @@ from textual.widgets import (
     Static,
     TextArea,
 )
+
+from airlock.tui.param_schemas import (
+    defaults_for_schema,
+    get_schema,
+)
+
+
+# ---------------------------------------------------------------------------
+# Airlock diagnostic headers
+# ---------------------------------------------------------------------------
+
+_AIRLOCK_HEADERS = {
+    "x-airlock-client",
+    "x-airlock-model-override",
+    "x-airlock-provider-mode",
+    "x-airlock-provider-state",
+    "x-airlock-failover",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +74,7 @@ def _is_local_model(entry: dict) -> bool:
     """Return True if a model entry points at a local/self-hosted endpoint.
 
     Models that use a custom ``api_base`` (vLLM, Ollama, OpenLLaMA, etc.)
-    are considered local — they run on infrastructure the operator controls
+    are considered local -- they run on infrastructure the operator controls
     rather than a cloud provider's API.
     """
     params = entry.get("litellm_params") or {}
@@ -65,7 +87,7 @@ def _extract_providers(model_list: list[dict]) -> list[tuple[str, str]]:
     Models with a custom ``api_base`` (vLLM, Ollama, etc.) are grouped
     under a ``local`` provider so the user can easily find self-hosted
     models.  Cloud-hosted models are grouped by their litellm prefix
-    (``anthropic``, ``openai``, ``gemini``, …).
+    (``anthropic``, ``openai``, ``gemini``, ...).
     """
     providers: dict[str, str] = {}  # value -> display
     for entry in model_list:
@@ -119,7 +141,7 @@ def _fmt_json(obj: Any) -> str:
 def _fmt_request(method: str, url: str, headers: dict, body: dict) -> str:
     """Format the outgoing request for display."""
     lines = [
-        f"[bold]POST[/] {url}",
+        f"[bold]POST[/] {_esc(url)}",
         "",
         "[bold]Headers[/]",
     ]
@@ -128,57 +150,78 @@ def _fmt_request(method: str, url: str, headers: dict, body: dict) -> str:
         display_v = v
         if k.lower() == "authorization" and len(v) > 20:
             display_v = v[:15] + "..." + v[-4:]
-        lines.append(f"  {k}: {display_v}")
+        lines.append(f"  {_esc(k)}: {_esc(display_v)}")
     lines.append("")
     lines.append("[bold]Body[/]")
-    lines.append(_fmt_json(body))
+    lines.append(_esc(_fmt_json(body)))
     return "\n".join(lines)
 
 
 def _fmt_response(status: int, headers: list[tuple[str, str]], body: str) -> str:
-    """Format the incoming response for display."""
+    """Format the incoming response for display.
+
+    Airlock-specific headers (x-airlock-*) are highlighted with bold cyan
+    markup to make them easy to spot in diagnostic output.
+    """
     lines = [
         f"[bold]HTTP {status}[/]",
         "",
         "[bold]Headers[/]",
     ]
     for k, v in headers:
-        lines.append(f"  {k}: {v}")
+        if k.lower() in _AIRLOCK_HEADERS:
+            lines.append(f"  [bold cyan]{_esc(k)}[/]: {_esc(v)}")
+        else:
+            lines.append(f"  {_esc(k)}: {_esc(v)}")
     lines.append("")
     lines.append("[bold]Body[/]")
     # Try to pretty-print if it's JSON
     try:
         parsed = json.loads(body)
-        lines.append(_fmt_json(parsed))
+        lines.append(_esc(_fmt_json(parsed)))
     except (json.JSONDecodeError, TypeError):
-        lines.append(body[:4000])
+        lines.append(_esc(body[:4000]))
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
-# Default parameters
-# ---------------------------------------------------------------------------
+def _build_routing_notice(
+    resp_headers: list[tuple[str, str]],
+    requested_model: str,
+) -> str:
+    """Build a routing notice if airlock rerouted the request.
 
-_DEFAULT_PARAMS = {
-    "temperature": 0.7,
-    "max_tokens": 1024,
-}
+    Returns a Rich-markup string or empty string if no rerouting occurred.
+    """
+    header_map = {k.lower(): v for k, v in resp_headers}
+    override = header_map.get("x-airlock-model-override", "")
+    failover = header_map.get("x-airlock-failover", "")
+
+    if not override and not failover:
+        return ""
+
+    final = override or failover or requested_model
+    return f"[yellow]Routed: {_esc(requested_model)} \u2192 {_esc(final)}[/]\n"
 
 
 # ---------------------------------------------------------------------------
 # Screen
 # ---------------------------------------------------------------------------
 
-class ChatPane(Vertical):
-    """Basic Chat — test LLM connectivity and interaction."""
+class TestPane(Vertical):
+    """Test -- send diagnostic requests through the proxy."""
+
+    BINDINGS = [
+        Binding("ctrl+s", "send_request", "Send", priority=True),
+    ]
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._model_list: list[dict] = []
-        self._params: dict = dict(_DEFAULT_PARAMS)
+        self._params: dict = {}
+        self._params_memory: dict[tuple[str, str], dict] = {}
 
     def compose(self) -> ComposeResult:
-        # ── Top control bar ──────────────────────────────
+        # -- Top control bar --
         with Horizontal(id="chat-controls"):
             yield Label("Provider", classes="chat-label")
             yield Select(
@@ -202,7 +245,7 @@ class ChatPane(Vertical):
             yield Button("Builder", id="chat-builder-btn", variant="default")
             yield Button("Send", id="chat-send-btn", variant="success")
 
-        # ── Four quadrants ───────────────────────────────
+        # -- Four quadrants --
         # Top row:  Q2 (user query)  |  Q1 (response content)
         # Bot row:  Q3 (request out) |  Q4 (response in)
         with Horizontal(id="chat-top-row"):
@@ -251,6 +294,7 @@ class ChatPane(Vertical):
         provider_select.value = "all"
 
         self._refresh_model_options("all")
+        self._sync_params_to_selection()
 
     def _refresh_model_options(self, provider: str) -> None:
         models = _models_for_provider(self._model_list, provider)
@@ -263,6 +307,49 @@ class ChatPane(Vertical):
             model_select.value = ""
 
     # ------------------------------------------------------------------
+    # Provider / model resolution
+    # ------------------------------------------------------------------
+
+    def _resolve_provider(self, model_name: str) -> str:
+        """Return the effective provider for a model_name."""
+        for entry in self._model_list:
+            if entry.get("model_name") == model_name:
+                if _is_local_model(entry):
+                    return "local"
+                params = entry.get("litellm_params") or {}
+                model_str = params.get("model", "")
+                if "/" in model_str:
+                    return model_str.split("/", 1)[0]
+        return "openai"  # fallback
+
+    def _current_selection(self) -> tuple[str, str, str]:
+        """Return (provider, model, effective_provider) from current dropdowns."""
+        provider_sel = self.query_one("#chat-provider-select", Select)
+        model_sel = self.query_one("#chat-model-select", Select)
+        provider = str(provider_sel.value) if provider_sel.value not in (None, Select.BLANK) else "all"
+        model = str(model_sel.value) if model_sel.value not in (None, Select.BLANK) else ""
+        effective = provider if provider != "all" else self._resolve_provider(model)
+        return provider, model, effective
+
+    def _sync_params_to_selection(self) -> None:
+        """Load remembered params (or defaults) for the current selection."""
+        _provider, model, effective = self._current_selection()
+        key = (effective, model)
+        schema = get_schema(effective, model)
+
+        if key in self._params_memory:
+            self._params = dict(self._params_memory[key])
+        else:
+            self._params = defaults_for_schema(schema)
+
+        self.query_one("#chat-params-input", Input).value = json.dumps(self._params)
+
+        # Rebuild builder overlay if currently open
+        if self.query("#chat-builder-overlay"):
+            self._dismiss_builder()
+            self._show_param_builder()
+
+    # ------------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------------
 
@@ -272,6 +359,21 @@ class ChatPane(Vertical):
             if value is None or value is Select.BLANK:
                 return
             self._refresh_model_options(str(value))
+            # _refresh_model_options sets a new model value which triggers
+            # on_select_changed for the model select, so _sync is handled there.
+        elif event.select.id == "chat-model-select":
+            if event.value is None or event.value is Select.BLANK:
+                return
+            self._sync_params_to_selection()
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key == "ctrl+j" and self.query_one("#chat-user-input", TextArea).has_focus:
+            event.prevent_default()
+            event.stop()
+            self._send_request()
+
+    def action_send_request(self) -> None:
+        self._send_request()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "chat-send-btn":
@@ -280,6 +382,8 @@ class ChatPane(Vertical):
             self._show_param_builder()
         elif event.button.id == "chat-builder-apply":
             self._apply_builder_params()
+        elif event.button.id == "chat-builder-reset":
+            self._reset_builder_to_defaults()
         elif event.button.id == "chat-builder-cancel":
             self._dismiss_builder()
 
@@ -288,104 +392,118 @@ class ChatPane(Vertical):
     # ------------------------------------------------------------------
 
     def _show_param_builder(self) -> None:
-        """Mount the parameter builder overlay."""
-        # Don't duplicate if already open
-        existing = self.query("#chat-builder-overlay")
-        if existing:
+        """Mount the parameter builder overlay with provider-specific fields."""
+        if self.query("#chat-builder-overlay"):
             return
 
-        # Read current params
-        try:
-            current = json.loads(
-                self.query_one("#chat-params-input", Input).value
-            )
-        except (json.JSONDecodeError, TypeError):
-            current = dict(_DEFAULT_PARAMS)
+        _provider, model, effective = self._current_selection()
+        schema = get_schema(effective, model)
 
-        overlay = Vertical(
-            Static("[bold]Parameter Builder[/]", classes="builder-title"),
-            Label("temperature"),
-            Input(
-                value=str(current.get("temperature", 0.7)),
-                id="builder-temperature",
-            ),
-            Label("max_tokens"),
-            Input(
-                value=str(current.get("max_tokens", 1024)),
-                id="builder-max-tokens",
-            ),
-            Label("top_p"),
-            Input(
-                value=str(current.get("top_p", "")),
-                id="builder-top-p",
-            ),
-            Label("top_k"),
-            Input(
-                value=str(current.get("top_k", "")),
-                id="builder-top-k",
-            ),
-            Label("stop (comma-separated)"),
-            Input(
-                value=",".join(current.get("stop", [])) if isinstance(current.get("stop"), list) else str(current.get("stop", "")),
-                id="builder-stop",
-            ),
-            Label("system prompt"),
-            Input(
-                value=str(current.get("system", "")),
-                id="builder-system",
-            ),
-            Horizontal(
-                Button("Apply", id="chat-builder-apply", variant="success"),
-                Button("Cancel", id="chat-builder-cancel", variant="error"),
-                classes="builder-buttons",
-            ),
-            id="chat-builder-overlay",
-        )
+        try:
+            current = json.loads(self.query_one("#chat-params-input", Input).value)
+        except (json.JSONDecodeError, TypeError):
+            current = defaults_for_schema(schema)
+
+        widgets: list[Static | Label | Input | Select | Horizontal] = [
+            Static(f"[bold]Parameters: {_esc(effective)}/{_esc(model)}[/]", classes="builder-title"),
+        ]
+
+        for field in schema.fields:
+            # Build hint from constraints
+            hint = ""
+            if field.min is not None and field.max is not None:
+                hint = f" ({field.min:g}\u2013{field.max:g})"
+            elif field.choices:
+                hint = f" ({'/'.join(field.choices)})"
+
+            widgets.append(Label(f"{field.label}{hint}"))
+
+            cur_val = current.get(field.name, field.default)
+
+            if field.type == "bool":
+                widgets.append(Select(
+                    [("True", "true"), ("False", "false")],
+                    value="true" if cur_val else "false",
+                    id=f"builder-{field.name}",
+                    allow_blank=True,
+                ))
+            elif field.type == "enum":
+                options = [(c, c) for c in field.choices]
+                widgets.append(Select(
+                    options,
+                    value=str(cur_val) if cur_val else Select.BLANK,
+                    id=f"builder-{field.name}",
+                    allow_blank=True,
+                ))
+            else:
+                display_val = "" if cur_val is None else str(cur_val)
+                if field.name == "stop" and isinstance(cur_val, list):
+                    display_val = ",".join(cur_val)
+                widgets.append(Input(value=display_val, id=f"builder-{field.name}"))
+
+        widgets.append(Horizontal(
+            Button("Apply", id="chat-builder-apply", variant="success"),
+            Button("Reset", id="chat-builder-reset", variant="warning"),
+            Button("Cancel", id="chat-builder-cancel", variant="error"),
+            classes="builder-buttons",
+        ))
+
+        overlay = VerticalScroll(*widgets, id="chat-builder-overlay")
         self.mount(overlay)
 
     def _apply_builder_params(self) -> None:
         """Read builder inputs and update the params field."""
+        _provider, model, effective = self._current_selection()
+        schema = get_schema(effective, model)
         params: dict[str, Any] = {}
 
-        temp = self.query_one("#builder-temperature", Input).value.strip()
-        if temp:
+        for field in schema.fields:
             try:
-                params["temperature"] = float(temp)
-            except ValueError:
-                pass
+                widget = self.query_one(f"#builder-{field.name}")
+            except Exception:
+                continue
 
-        max_tok = self.query_one("#builder-max-tokens", Input).value.strip()
-        if max_tok:
-            try:
-                params["max_tokens"] = int(max_tok)
-            except ValueError:
-                pass
-
-        top_p = self.query_one("#builder-top-p", Input).value.strip()
-        if top_p:
-            try:
-                params["top_p"] = float(top_p)
-            except ValueError:
-                pass
-
-        top_k = self.query_one("#builder-top-k", Input).value.strip()
-        if top_k:
-            try:
-                params["top_k"] = int(top_k)
-            except ValueError:
-                pass
-
-        stop = self.query_one("#builder-stop", Input).value.strip()
-        if stop:
-            params["stop"] = [s.strip() for s in stop.split(",") if s.strip()]
-
-        system = self.query_one("#builder-system", Input).value.strip()
-        if system:
-            params["system"] = system
+            if isinstance(widget, Select):
+                val = widget.value
+                if val is None or val is Select.BLANK:
+                    continue
+                if field.type == "bool":
+                    params[field.name] = str(val).lower() == "true"
+                else:
+                    params[field.name] = str(val)
+            elif isinstance(widget, Input):
+                raw = widget.value.strip()
+                if not raw:
+                    continue
+                if field.type == "float":
+                    try:
+                        params[field.name] = float(raw)
+                    except ValueError:
+                        pass
+                elif field.type == "int":
+                    try:
+                        params[field.name] = int(raw)
+                    except ValueError:
+                        pass
+                elif field.name == "stop":
+                    params[field.name] = [s.strip() for s in raw.split(",") if s.strip()]
+                else:
+                    params[field.name] = raw
 
         self._params = params
+        self._params_memory[(effective, model)] = dict(params)
         self.query_one("#chat-params-input", Input).value = json.dumps(params)
         self._dismiss_builder()
+
+    def _reset_builder_to_defaults(self) -> None:
+        """Reset builder to schema defaults for the current selection."""
+        _provider, model, effective = self._current_selection()
+        self._params_memory.pop((effective, model), None)
+        schema = get_schema(effective, model)
+        self._params = defaults_for_schema(schema)
+        self.query_one("#chat-params-input", Input).value = json.dumps(self._params)
+        self._dismiss_builder()
+        self._show_param_builder()
 
     def _dismiss_builder(self) -> None:
         """Remove the builder overlay."""
@@ -441,7 +559,7 @@ class ChatPane(Vertical):
         connect_host = "127.0.0.1" if host == "0.0.0.0" else host
         url = f"http://{connect_host}:{port}/v1/chat/completions"
 
-        # Build messages — copy params so .pop() doesn't mutate caller's dict
+        # Build messages -- copy params so .pop() doesn't mutate caller's dict
         send_params = dict(params)
         messages = []
         system_prompt = send_params.pop("system", None)
@@ -484,6 +602,7 @@ class ChatPane(Vertical):
         response_content = ""
         response_display = ""
         error_msg = ""
+        resp_headers: list[tuple[str, str]] = []
 
         try:
             resp = urllib.request.urlopen(req, timeout=300)
@@ -499,9 +618,9 @@ class ChatPane(Vertical):
                 choices = parsed.get("choices", [])
                 if choices:
                     msg = choices[0].get("message", {})
-                    response_content = msg.get("content", "")
+                    response_content = _esc(msg.get("content", ""))
                     if not response_content:
-                        response_content = _fmt_json(msg)
+                        response_content = _esc(_fmt_json(msg))
                 else:
                     response_content = "(no choices in response)"
 
@@ -509,13 +628,13 @@ class ChatPane(Vertical):
                 usage = parsed.get("usage")
                 if usage:
                     response_content += (
-                        f"\n\n[dim]── usage ──\n"
+                        f"\n\n[dim]\u2500\u2500 usage \u2500\u2500\n"
                         f"prompt_tokens: {usage.get('prompt_tokens', '?')}\n"
                         f"completion_tokens: {usage.get('completion_tokens', '?')}\n"
                         f"total_tokens: {usage.get('total_tokens', '?')}[/]"
                     )
             except (json.JSONDecodeError, TypeError):
-                response_content = resp_body[:2000]
+                response_content = _esc(resp_body[:2000])
 
         except urllib.error.HTTPError as exc:
             status_code = exc.code
@@ -525,13 +644,16 @@ class ChatPane(Vertical):
             error_msg = f"[red]HTTP {status_code}[/]\n\n"
             try:
                 parsed = json.loads(resp_body)
-                error_msg += _fmt_json(parsed)
+                error_msg += _esc(_fmt_json(parsed))
             except (json.JSONDecodeError, TypeError):
-                error_msg += resp_body[:2000]
+                error_msg += _esc(resp_body[:2000])
 
         except Exception as exc:
-            response_display = f"[red]Connection Error[/]\n\n{exc}"
-            error_msg = f"[red]Error:[/] {exc}"
+            response_display = f"[red]Connection Error[/]\n\n{_esc(str(exc))}"
+            error_msg = f"[red]Error:[/] {_esc(str(exc))}"
+
+        # Build routing notice for Q1 if airlock rerouted the request
+        routing_notice = _build_routing_notice(resp_headers, model)
 
         # Update Q1 and Q4 from main thread
         def _update_ui() -> None:
@@ -542,9 +664,10 @@ class ChatPane(Vertical):
             q4.update(response_display)
 
             if error_msg:
-                q1.update(error_msg)
+                q1.update(routing_notice + error_msg)
             else:
-                q1.update(response_content or "[dim](empty response)[/]")
+                content = response_content or "[dim](empty response)[/]"
+                q1.update(routing_notice + content)
 
             send_btn.disabled = False
             send_btn.label = "Send"
