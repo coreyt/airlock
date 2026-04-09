@@ -1050,3 +1050,37 @@ def test_guards_render_pipeline_escapes_request_metadata() -> None:
     assert r"\[bold red]FM\[/]" in out
     assert r"\[bold red]FINAL\[/]" in out
     assert r"\[bold red]ACT\[/]" in out
+
+
+async def test_config_pii_kw_switches_wired_to_env(monkeypatch) -> None:
+    """The PII/KW guardrail Switches must reflect env vars on init AND
+    write back to env on Apply (bidirectional wiring)."""
+    from textual.widgets import Switch
+
+    monkeypatch.setenv("AIRLOCK_PII_ENABLED", "false")
+    monkeypatch.setenv("AIRLOCK_KW_ENABLED", "true")
+
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("4")
+        await pilot.pause()
+
+        pii_switch = app.query_one("#cfg-pii-enabled", Switch)
+        kw_switch = app.query_one("#cfg-kw-enabled", Switch)
+
+        # Initial values should reflect env vars
+        assert pii_switch.value is False
+        assert kw_switch.value is True
+
+        # Toggle both
+        pii_switch.value = True
+        kw_switch.value = False
+
+        from airlock.tui.screens.config import ConfigPane
+
+        config_pane = app.query_one(ConfigPane)
+        config_pane._apply_settings()
+        await pilot.pause()
+
+        assert os.environ.get("AIRLOCK_PII_ENABLED") == "true"
+        assert os.environ.get("AIRLOCK_KW_ENABLED") == "false"

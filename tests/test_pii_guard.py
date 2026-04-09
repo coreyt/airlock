@@ -1063,3 +1063,58 @@ class TestStreamingPiiWarning:
                 mock_user_api_key_dict, mock_cache, data, "completion"
             )
         assert not any("stream" in r.message.lower() for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# AIRLOCK_PII_ENABLED env flag
+# ---------------------------------------------------------------------------
+class TestPiiEnabledFlag:
+    async def test_async_pre_call_hook_skipped_when_disabled(
+        self,
+        monkeypatch,
+        mock_cache,
+        mock_user_api_key_dict,
+        presidio_available,
+        reset_presidio_singletons,
+    ):
+        if not presidio_available:
+            pytest.skip("Presidio not available")
+        monkeypatch.setenv("AIRLOCK_PII_ENABLED", "false")
+        guard = AirlockPIIGuard()
+        data = {
+            "messages": [
+                {"role": "user", "content": "Contact alice@corp.com"},
+            ],
+            "model": "claude-sonnet",
+        }
+        result = await guard.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        # Messages must be untouched
+        assert result["messages"][0]["content"] == "Contact alice@corp.com"
+        assert "metadata" not in result or "airlock_pii_map" not in result.get(
+            "metadata", {}
+        )
+
+    async def test_async_pre_call_hook_enabled_by_default(
+        self,
+        monkeypatch,
+        mock_cache,
+        mock_user_api_key_dict,
+        presidio_available,
+        reset_presidio_singletons,
+    ):
+        if not presidio_available:
+            pytest.skip("Presidio not available")
+        monkeypatch.delenv("AIRLOCK_PII_ENABLED", raising=False)
+        guard = AirlockPIIGuard()
+        data = {
+            "messages": [
+                {"role": "user", "content": "Contact alice@corp.com"},
+            ],
+            "model": "claude-sonnet",
+        }
+        result = await guard.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        assert "alice@corp.com" not in str(result["messages"])

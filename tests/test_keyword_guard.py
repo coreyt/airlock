@@ -337,3 +337,39 @@ class TestUnicodeNormalization:
             mock_user_api_key_dict, mock_cache, data, "completion"
         )
         assert result is data
+
+
+# ---------------------------------------------------------------------------
+# AIRLOCK_KW_ENABLED env flag
+# ---------------------------------------------------------------------------
+class TestKeywordEnabledFlag:
+    async def test_async_pre_call_hook_skipped_when_disabled(
+        self, monkeypatch, mock_cache, mock_user_api_key_dict
+    ):
+        monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "secret")
+        monkeypatch.setenv("AIRLOCK_KW_ENABLED", "false")
+        guard = AirlockKeywordGuard()
+        data = {
+            "messages": [{"role": "user", "content": "Tell me the secret plan"}],
+            "model": "claude-sonnet",
+        }
+        # Must NOT raise — guardrail is disabled.
+        result = await guard.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        assert result is data
+
+    async def test_async_pre_call_hook_enabled_by_default(
+        self, monkeypatch, mock_cache, mock_user_api_key_dict
+    ):
+        monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "secret")
+        monkeypatch.delenv("AIRLOCK_KW_ENABLED", raising=False)
+        guard = AirlockKeywordGuard()
+        data = {
+            "messages": [{"role": "user", "content": "Tell me the secret plan"}],
+            "model": "claude-sonnet",
+        }
+        with pytest.raises(ValueError, match="restricted content"):
+            await guard.async_pre_call_hook(
+                mock_user_api_key_dict, mock_cache, data, "completion"
+            )

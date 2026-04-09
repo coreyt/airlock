@@ -22,6 +22,7 @@ from textual.widgets import (
     TabPane,
 )
 
+from airlock.guardrails import _env_flag
 from airlock.tui.widgets.safe_data_table import _SafeDataTable
 from airlock.fast.state import McpServerHealth
 
@@ -102,7 +103,10 @@ class ConfigPane(Vertical):
 
                     # Existing guardrail toggles
                     yield Label("PII Guard")
-                    yield Switch(value=True, id="cfg-pii-enabled")
+                    yield Switch(
+                        value=_env_flag("AIRLOCK_PII_ENABLED"),
+                        id="cfg-pii-enabled",
+                    )
                     yield Label("PII Entity Types")
                     yield Input(
                         value=os.getenv(
@@ -112,7 +116,10 @@ class ConfigPane(Vertical):
                         id="cfg-pii-entities",
                     )
                     yield Label("Keyword Guard")
-                    yield Switch(value=True, id="cfg-kw-enabled")
+                    yield Switch(
+                        value=_env_flag("AIRLOCK_KW_ENABLED"),
+                        id="cfg-kw-enabled",
+                    )
                     yield Label("Blocked Keywords")
                     yield Input(
                         value=os.getenv("AIRLOCK_BLOCKED_KEYWORDS", ""),
@@ -272,6 +279,12 @@ class ConfigPane(Vertical):
             mode_select = self.query_one("#cfg-enforce-mode", Select)
             if mode_select.value is not None and mode_select.value != Select.BLANK:
                 os.environ["AIRLOCK_ENFORCE_MODE"] = str(mode_select.value)
+
+            # Guardrail enable switches
+            pii_switch = self.query_one("#cfg-pii-enabled", Switch)
+            kw_switch = self.query_one("#cfg-kw-enabled", Switch)
+            os.environ["AIRLOCK_PII_ENABLED"] = "true" if pii_switch.value else "false"
+            os.environ["AIRLOCK_KW_ENABLED"] = "true" if kw_switch.value else "false"
 
             status.update(
                 "[green]Settings applied to runtime environment. "

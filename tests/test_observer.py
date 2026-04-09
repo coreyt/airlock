@@ -293,3 +293,36 @@ class TestMCPObservation:
             s for s in obs["signals"] if s["guardrail_name"] == "pii_scan"
         )
         assert pii_signal["detected"] is True
+
+
+# ---------------------------------------------------------------------------
+# AIRLOCK_PII_ENABLED / AIRLOCK_KW_ENABLED env flags
+# ---------------------------------------------------------------------------
+class TestObserverEnabledFlags:
+    def test_scan_pii_returns_neutral_when_disabled(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_PII_ENABLED", "false")
+        signal = scan_pii("Contact alice@example.com or call 123-45-6789")
+        assert signal.detected is False
+        assert signal.score == 0.0
+        assert signal.details["total_count"] == 0
+        assert signal.details["entities"] == {}
+
+    def test_scan_pii_enabled_by_default(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_PII_ENABLED", raising=False)
+        signal = scan_pii("Contact alice@example.com")
+        assert signal.detected is True
+
+    def test_scan_keywords_returns_neutral_when_disabled(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "secret")
+        monkeypatch.setenv("AIRLOCK_KW_ENABLED", "false")
+        signal = scan_keywords("the secret plan")
+        assert signal.detected is False
+        assert signal.score == 0.0
+        assert signal.details["match_count"] == 0
+        assert signal.details["matched_keywords"] == []
+
+    def test_scan_keywords_enabled_by_default(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "secret")
+        monkeypatch.delenv("AIRLOCK_KW_ENABLED", raising=False)
+        signal = scan_keywords("the secret plan")
+        assert signal.detected is True
