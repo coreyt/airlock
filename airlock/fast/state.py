@@ -709,62 +709,63 @@ class StateStore:
         except (ValueError, TypeError):
             now = time.time()
 
-        model_state = self.get_model(model)
-        if success:
-            model_state.record_success(now, duration_ms)
-        else:
-            model_state.record_failure(now)
-
-        client_id = normalize_client_id(record.get("airlock_client"))
-        client_state = self.get_client(client_id)
-        client_state.record_request(now)
-        if success:
-            client_state.record_success(now, duration_ms)
-        else:
-            client_state.record_error(now, record.get("error_type") or "Error")
-
-        provider = record.get("airlock_provider")
-        if not provider:
-            from airlock.fast.router import infer_provider
-
-            provider = infer_provider(model)
-        if provider:
-            self.record_provider_request(client_id, provider, now)
+        with self._lock:
+            model_state = self.get_model(model)
             if success:
-                self.record_provider_success(client_id, provider, now)
+                model_state.record_success(now, duration_ms)
             else:
-                self.record_provider_failure(client_id, provider, now)
+                model_state.record_failure(now)
 
-            protection = record.get("airlock_provider_protection") or {}
-            if protection.get("action") in {"client_quarantine", "provider_quarantine"}:
-                reason = protection.get("reason") or record.get("error") or "rate_limited"
-                error_type = record.get("error_type") or "RateLimitError"
-                self.record_provider_rate_limit(client_id, provider, now, reason, error_type)
-
-            gemini_response = record.get("airlock_gemini_response") or {}
-            gemini_request = record.get("airlock_gemini") or {}
-            if provider == "gemini" and gemini_response:
-                self.record_gemini_outcome(
-                    client_id,
-                    provider,
-                    now,
-                    str(gemini_response.get("output_shape") or "unknown"),
-                    str(gemini_request.get("mode") or "balanced"),
-                )
-
-        # Track call type
-        call_type = record.get("call_type", "")
-        is_mcp = call_type == "call_mcp_tool" or "mcp_tool_name" in record
-        self.record_call_type(is_mcp)
-
-        if is_mcp:
-            tool_name = record.get("mcp_tool_name", "unknown")
-            server_name = record.get("mcp_server_name", "")
-            tool_state = self.get_mcp_tool(tool_name, server_name)
+            client_id = normalize_client_id(record.get("airlock_client"))
+            client_state = self.get_client(client_id)
+            client_state.record_request(now)
             if success:
-                tool_state.record_success(now, duration_ms)
+                client_state.record_success(now, duration_ms)
             else:
-                tool_state.record_failure(now)
+                client_state.record_error(now, record.get("error_type") or "Error")
+
+            provider = record.get("airlock_provider")
+            if not provider:
+                from airlock.fast.router import infer_provider
+
+                provider = infer_provider(model)
+            if provider:
+                self.record_provider_request(client_id, provider, now)
+                if success:
+                    self.record_provider_success(client_id, provider, now)
+                else:
+                    self.record_provider_failure(client_id, provider, now)
+
+                protection = record.get("airlock_provider_protection") or {}
+                if protection.get("action") in {"client_quarantine", "provider_quarantine"}:
+                    reason = protection.get("reason") or record.get("error") or "rate_limited"
+                    error_type = record.get("error_type") or "RateLimitError"
+                    self.record_provider_rate_limit(client_id, provider, now, reason, error_type)
+
+                gemini_response = record.get("airlock_gemini_response") or {}
+                gemini_request = record.get("airlock_gemini") or {}
+                if provider == "gemini" and gemini_response:
+                    self.record_gemini_outcome(
+                        client_id,
+                        provider,
+                        now,
+                        str(gemini_response.get("output_shape") or "unknown"),
+                        str(gemini_request.get("mode") or "balanced"),
+                    )
+
+            # Track call type
+            call_type = record.get("call_type", "")
+            is_mcp = call_type == "call_mcp_tool" or "mcp_tool_name" in record
+            self.record_call_type(is_mcp)
+
+            if is_mcp:
+                tool_name = record.get("mcp_tool_name", "unknown")
+                server_name = record.get("mcp_server_name", "")
+                tool_state = self.get_mcp_tool(tool_name, server_name)
+                if success:
+                    tool_state.record_success(now, duration_ms)
+                else:
+                    tool_state.record_failure(now)
 
 
 _CB_STATE_MAX_AGE_SECONDS = 300.0  # 5 minutes

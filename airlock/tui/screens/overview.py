@@ -429,7 +429,7 @@ class OverviewPane(VerticalScroll):
         detail = self.query_one("#ov-detail", Static)
         provider = store.all_providers().get(provider_name)
         if not provider:
-            detail.update(f"No data for {provider_name}")
+            detail.update(f"No data for {escape(provider_name)}")
             return
 
         now = time.time()
@@ -457,7 +457,7 @@ class OverviewPane(VerticalScroll):
         detail = self.query_one("#ov-detail", Static)
         model = store.all_models().get(model_name)
         if not model:
-            detail.update(f"No data for {model_name}")
+            detail.update(f"No data for {escape(model_name)}")
             return
 
         avg_lat = model.recent_avg_latency()

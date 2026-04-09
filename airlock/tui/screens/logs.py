@@ -291,7 +291,7 @@ class LogsPane(VerticalScroll):
                 for r in records:
                     f.write(json.dumps(r, default=str) + "\n")
             msg = f"[green]Exported {len(records)} records to {out.name}[/]"
-        except OSError as exc:
+        except Exception as exc:
             msg = f"[red]Export failed: {exc}[/]"
 
         def _show(message: str = msg) -> None:
@@ -309,21 +309,22 @@ class LogsPane(VerticalScroll):
         try:
             days = int(days_input.value)
         except ValueError:
-            status.update("[red]Invalid number of days[/]")
+            self.app.call_from_thread(status.update, "[red]Invalid number of days[/]")
             return
 
-        status.update("[yellow]Analyzing...[/]")
+        self.app.call_from_thread(status.update, "[yellow]Analyzing...[/]")
 
         try:
             from airlock.slow.analyzer import analyze
 
             report = analyze(days=days)
         except Exception as exc:
-            status.update(f"[red]Error: {exc}[/]")
+            self.app.call_from_thread(status.update, f"[red]Error: {exc}[/]")
             return
 
-        status.update(
-            f"Done \u2014 {report.total_requests} requests analyzed"
+        self.app.call_from_thread(
+            status.update,
+            f"Done \u2014 {report.total_requests} requests analyzed",
         )
 
         # Optimizations
@@ -333,11 +334,12 @@ class LogsPane(VerticalScroll):
                 lines.append(
                     f"  {i}. [{o.impact.upper()}] {o.description}"
                 )
-            self.query_one("#logs-analysis-opts", Static).update("\n".join(lines))
+            opts_text = "\n".join(lines)
         else:
-            self.query_one("#logs-analysis-opts", Static).update(
-                "[dim]No optimizations found.[/]"
-            )
+            opts_text = "[dim]No optimizations found.[/]"
+        self.app.call_from_thread(
+            self.query_one("#logs-analysis-opts", Static).update, opts_text
+        )
 
         # Cache
         if report.cache_opportunities:
@@ -347,11 +349,12 @@ class LogsPane(VerticalScroll):
                     f"  {c.pattern} \u2014 model: {c.model}, "
                     f"~{c.estimated_token_savings:,} tokens saveable"
                 )
-            self.query_one("#logs-analysis-cache", Static).update("\n".join(lines))
+            cache_text = "\n".join(lines)
         else:
-            self.query_one("#logs-analysis-cache", Static).update(
-                "[dim]No cache opportunities found.[/]"
-            )
+            cache_text = "[dim]No cache opportunities found.[/]"
+        self.app.call_from_thread(
+            self.query_one("#logs-analysis-cache", Static).update, cache_text
+        )
 
         # Trends
         if report.trends:
@@ -361,11 +364,12 @@ class LogsPane(VerticalScroll):
                     f"  {t.metric}: {t.direction} "
                     f"({t.magnitude:.1f}% over {t.period_days}d)"
                 )
-            self.query_one("#logs-analysis-trends", Static).update("\n".join(lines))
+            trends_text = "\n".join(lines)
         else:
-            self.query_one("#logs-analysis-trends", Static).update(
-                "[dim]No significant trends detected.[/]"
-            )
+            trends_text = "[dim]No significant trends detected.[/]"
+        self.app.call_from_thread(
+            self.query_one("#logs-analysis-trends", Static).update, trends_text
+        )
 
         # Hypotheses
         if report.hypotheses:
@@ -375,8 +379,9 @@ class LogsPane(VerticalScroll):
                     f"  [{h.confidence:.0%}] {h.statement}\n"
                     f"        Test: {h.test_proposal}"
                 )
-            self.query_one("#logs-analysis-hyp", Static).update("\n".join(lines))
+            hyp_text = "\n".join(lines)
         else:
-            self.query_one("#logs-analysis-hyp", Static).update(
-                "[dim]No hypotheses generated.[/]"
-            )
+            hyp_text = "[dim]No hypotheses generated.[/]"
+        self.app.call_from_thread(
+            self.query_one("#logs-analysis-hyp", Static).update, hyp_text
+        )
