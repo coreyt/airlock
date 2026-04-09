@@ -505,7 +505,7 @@ class ConfigPane(Vertical):
         if self._mcp_manager is None:
             return
         console = self.query_one("#cfg-mcp-console", RichLog)
-        console.clear()
+        self.app.call_from_thread(console.clear)
 
         entry = self._mcp_manager.get_entry(name)
         if entry is None:
@@ -513,8 +513,13 @@ class ConfigPane(Vertical):
 
         from rich.text import Text
 
-        for line in list(entry.ring):
-            console.write(Text.from_ansi(line))
+        history_lines = [Text.from_ansi(line) for line in list(entry.ring)]
+
+        def _write_history() -> None:
+            for text in history_lines:
+                console.write(text)
+
+        self.app.call_from_thread(_write_history)
 
         current = get_current_worker()
         while self._selected_server == name:
@@ -522,7 +527,7 @@ class ConfigPane(Vertical):
                 break
             try:
                 line = entry.output_queue.get(timeout=0.5)
-                console.write(Text.from_ansi(line))
+                self.app.call_from_thread(console.write, Text.from_ansi(line))
             except _queue.Empty:
                 continue
 

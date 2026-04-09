@@ -1052,6 +1052,47 @@ def test_guards_render_pipeline_escapes_request_metadata() -> None:
     assert r"\[bold red]ACT\[/]" in out
 
 
+async def test_overview_no_data_for_provider_escapes_name() -> None:
+    """Early-return branch in _show_provider_detail must escape markup in
+    the provider name so injected tags aren't interpreted as Rich markup."""
+    from textual.widgets import Static
+
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        from airlock.tui.screens.overview import OverviewPane
+
+        overview = app.query_one(OverviewPane)
+        overview._show_provider_detail("[bold red]INJECT[/]")
+        await pilot.pause()
+
+        detail = app.query_one("#ov-detail", Static)
+        raw = str(detail.content)
+        # The escaped string stored on the Static widget must contain the
+        # backslash-escaped literal form, meaning the brackets will NOT be
+        # consumed as Rich markup tags at render time.
+        assert r"\[bold red]INJECT\[/]" in raw
+
+
+async def test_overview_no_data_for_model_escapes_name() -> None:
+    """Early-return branch in _show_model_detail must escape markup in
+    the model name."""
+    from textual.widgets import Static
+
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        from airlock.tui.screens.overview import OverviewPane
+
+        overview = app.query_one(OverviewPane)
+        overview._show_model_detail("[bold red]INJECT[/]")
+        await pilot.pause()
+
+        detail = app.query_one("#ov-detail", Static)
+        raw = str(detail.content)
+        assert r"\[bold red]INJECT\[/]" in raw
+
+
 async def test_config_pii_kw_switches_wired_to_env(monkeypatch) -> None:
     """The PII/KW guardrail Switches must reflect env vars on init AND
     write back to env on Apply (bidirectional wiring)."""

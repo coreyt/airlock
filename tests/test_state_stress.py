@@ -78,6 +78,40 @@ def test_record_provider_request_single_outer_lock_scope():
 
 
 @pytest.mark.stress
+def test_ingest_jsonl_record_single_outer_lock_scope():
+    """ingest_jsonl_record mutates model + client + provider state in one
+    composite operation. All mutations must happen under a single outer
+    ``with self._lock:`` block so the composite view is atomic."""
+    store = StateStore()
+    store._lock = _CountingLock(store._lock)
+
+    record = {
+        "timestamp": "2026-01-01T00:00:00+00:00",
+        "model": "claude-sonnet",
+        "airlock_client": "client-a",
+        "airlock_provider": "anthropic",
+        "success": True,
+        "duration_ms": 42.0,
+        "call_type": "completion",
+    }
+
+    store.ingest_jsonl_record(record)
+
+    # With a single outer ``with self._lock:`` wrap, the count is:
+    #   1 (outer) + 1 (get_model) + 1 (get_client)
+    #   + 3 (record_provider_request: outer + get_provider + get_client_provider)
+    #   + 3 (record_provider_success: outer + get_provider + get_client_provider)
+    #   + 1 (record_call_type)
+    #   = 10
+    # Without the outer wrap (bug), the count drops to 9.
+    assert store._lock.acquire_count == 10, (
+        f"expected 10 acquires (outer wrap + nested helpers), got "
+        f"{store._lock.acquire_count} — composite ingest_jsonl_record body "
+        f"is not wrapped in a single outer lock"
+    )
+
+
+@pytest.mark.stress
 def test_record_provider_rate_limit_concurrent_consistency():
     store = StateStore()
     provider = "openai"
