@@ -38,14 +38,25 @@ _DEFAULT_FAILOVER_MAP: dict[str, list[str]] = {
 }
 
 
+_UNSET = object()
+_cached_failover_raw: object = _UNSET
+_cached_failover_map: dict[str, list[str]] = _DEFAULT_FAILOVER_MAP
+
+
 def _load_failover_map() -> dict[str, list[str]]:
+    global _cached_failover_raw, _cached_failover_map
     raw = os.getenv("AIRLOCK_FAILOVER_MAP")
-    if raw:
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            logger.warning("invalid AIRLOCK_FAILOVER_MAP JSON, using defaults")
-    return _DEFAULT_FAILOVER_MAP
+    if raw != _cached_failover_raw:
+        _cached_failover_raw = raw
+        if raw:
+            try:
+                _cached_failover_map = json.loads(raw)
+            except json.JSONDecodeError:
+                logger.warning("invalid AIRLOCK_FAILOVER_MAP JSON, using defaults")
+                _cached_failover_map = _DEFAULT_FAILOVER_MAP
+        else:
+            _cached_failover_map = _DEFAULT_FAILOVER_MAP
+    return _cached_failover_map
 
 
 @dataclass
