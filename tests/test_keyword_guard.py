@@ -38,6 +38,20 @@ class TestBlockedKeywords:
         monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "Project-X,SECRET")
         assert _blocked_keywords() == ["project-x", "secret"]
 
+    def test_cache_identity_same_env(self, monkeypatch):
+        """Repeated calls with the same env string return the same list object."""
+        monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "foo,bar")
+        first = _blocked_keywords()
+        second = _blocked_keywords()
+        assert first == ["foo", "bar"]
+        assert first is second
+
+    def test_cache_invalidates_on_env_change(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "foo,bar")
+        assert _blocked_keywords() == ["foo", "bar"]
+        monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "foo,bar,baz")
+        assert _blocked_keywords() == ["foo", "bar", "baz"]
+
 
 # ---------------------------------------------------------------------------
 # _extract_text()

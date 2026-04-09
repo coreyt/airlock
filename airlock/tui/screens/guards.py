@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from rich.markup import escape
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -120,8 +121,9 @@ def _render_signals(entry: FlowEntry) -> str:
         weighted_sum += contrib
 
         vote_sym = "[red]⚑[/]" if detected else "[green]✓[/]"
+        safe_name = escape(name)
         lines.append(
-            f"  {name:<18s} {vote_sym}    {score:5.2f}   ×{weight:4.2f}    = {contrib:5.3f}"
+            f"  {safe_name:<18s} {vote_sym}    {score:5.2f}   ×{weight:4.2f}    = {contrib:5.3f}"
         )
 
     lines.append("─" * 58)
@@ -167,7 +169,7 @@ def _render_signals(entry: FlowEntry) -> str:
         details = sig.get("details", {})
         duration = sig.get("duration_ms", 0.0)
         detail_str = _format_signal_detail(name, details)
-        lines.append(f"  {name}: {detail_str} ({duration:.1f}ms)")
+        lines.append(f"  {escape(name)}: {detail_str} ({duration:.1f}ms)")
 
     return "\n".join(lines)
 
@@ -192,13 +194,15 @@ def _format_signal_detail(name: str, details: dict) -> str:
     elif name == "keyword_scan":
         matched = details.get("matched_keywords", [])
         if matched:
-            return f"matched {matched} ({details.get('match_count', 0)} match)"
+            return f"matched {escape(str(matched))} ({details.get('match_count', 0)} match)"
         return "no keywords matched"
     elif name == "threat_read":
         score = details.get("threat_score", 0.0)
         backoff = details.get("in_backoff", False)
         client = details.get("client_id", "?")
-        return f"client {client}, score {score:.2f}" + (", IN BACKOFF" if backoff else "")
+        return f"client {escape(str(client))}, score {score:.2f}" + (
+            ", IN BACKOFF" if backoff else ""
+        )
     else:
         # Generic: show first few key-value pairs
         if not details:
@@ -328,8 +332,8 @@ def _render_tool_result(entry: FlowEntry) -> str:
         return "(Not an MCP call)"
 
     lines: list[str] = []
-    lines.append(f"[bold]Tool:[/] {entry.mcp_tool_name or '-'}")
-    lines.append(f"[bold]Server:[/] {entry.mcp_server_name or '-'}")
+    lines.append(f"[bold]Tool:[/] {escape(entry.mcp_tool_name or '-')}")
+    lines.append(f"[bold]Server:[/] {escape(entry.mcp_server_name or '-')}")
     lines.append(f"[bold]Success:[/] {'Yes' if entry.success else 'No'}")
 
     # Show request messages
@@ -350,7 +354,7 @@ def _render_tool_result(entry: FlowEntry) -> str:
 
     error = entry.raw_record.get("error")
     if error:
-        lines.append(f"\n[bold red]Error:[/] {error}")
+        lines.append(f"\n[bold red]Error:[/] {escape(str(error))}")
 
     return "\n".join(lines)
 

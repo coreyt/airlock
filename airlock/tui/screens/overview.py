@@ -13,6 +13,7 @@ import urllib.request
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
+from rich.markup import escape
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -391,7 +392,9 @@ class OverviewPane(VerticalScroll):
         # Update header to show filter state
         header = self.query_one("#ov-models-header", Static)
         if self._provider_filter:
-            header.update(f"[bold]Models[/] [dim](filtered: {self._provider_filter})[/]")
+            header.update(
+                f"[bold]Models[/] [dim](filtered: {escape(self._provider_filter)})[/]"
+            )
         else:
             header.update("[bold]Models[/]")
 
@@ -436,7 +439,7 @@ class OverviewPane(VerticalScroll):
         impacted_str = ", ".join(impacted) if impacted else "none"
 
         detail.update(
-            f"[bold]{provider_name}[/]\n\n"
+            f"[bold]{escape(provider_name)}[/]\n\n"
             f"  Status: {status}\n"
             f"  Gemini mode: {mode}\n"
             f"  Gemini text: {provider.recent_gemini_outcome_count('text')}  "
@@ -476,7 +479,7 @@ class OverviewPane(VerticalScroll):
         )
 
         detail.update(
-            f"[bold]{model_name}[/]\n\n"
+            f"[bold]{escape(model_name)}[/]\n\n"
             f"  Circuit: {model.circuit.value.upper()}   "
             f"Avg latency: {lat_str}\n"
             f"  {percentiles}\n\n"
@@ -490,7 +493,7 @@ class OverviewPane(VerticalScroll):
             return
 
         detail = self.query_one("#ov-detail", Static)
-        rows: list[str] = [f"[bold]{client_id}[/]"]
+        rows: list[str] = [f"[bold]{escape(client_id)}[/]"]
         now = time.time()
 
         client = store.all_clients().get(client_id)

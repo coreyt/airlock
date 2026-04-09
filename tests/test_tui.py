@@ -943,3 +943,67 @@ async def test_logs_refresh_mode_options() -> None:
         await pilot.press("3")
         await pilot.pause()
         assert app.query_one("#logs-refresh-mode") is not None
+
+
+# -------------------------------------------------------------------
+# Markup escape — user-controlled strings must not be interpreted
+# as Rich markup (prevents injection from provider/model/client names,
+# guardrail names, MCP tool names, and error messages).
+# -------------------------------------------------------------------
+
+
+def test_guards_render_signals_escapes_guardrail_name() -> None:
+    from airlock.tui.screens.guards import FlowEntry, _render_signals
+
+    entry = FlowEntry(
+        timestamp="2026-01-01T00:00:00Z",
+        request_id="r1",
+        model="m1",
+        client_id="c1",
+        success=True,
+        composite_score=0.5,
+        would_block=False,
+        orchestrator_version=None,
+        signals=[
+            {
+                "guardrail_name": "[bold red]INJECTED[/]",
+                "detected": False,
+                "score": 0.1,
+                "duration_ms": 1.0,
+                "details": {},
+            }
+        ],
+        enforcement=None,
+        raw_observation=None,
+        raw_record={},
+    )
+    out = _render_signals(entry)
+    # The raw literal bracket form must appear (escaped with backslash),
+    # meaning it was NOT consumed as a markup tag.
+    assert r"\[bold red]INJECTED\[/]" in out
+
+
+def test_guards_render_tool_result_escapes_tool_name() -> None:
+    from airlock.tui.screens.guards import FlowEntry, _render_tool_result
+
+    entry = FlowEntry(
+        timestamp="2026-01-01T00:00:00Z",
+        request_id="r1",
+        model="m1",
+        client_id="c1",
+        success=False,
+        composite_score=None,
+        would_block=None,
+        orchestrator_version=None,
+        signals=[],
+        enforcement=None,
+        raw_observation=None,
+        raw_record={"error": "[bold red]boom[/]"},
+        call_type="call_mcp_tool",
+        mcp_tool_name="[bold red]EVIL[/]",
+        mcp_server_name="[green]srv[/]",
+    )
+    out = _render_tool_result(entry)
+    assert r"\[bold red]EVIL\[/]" in out
+    assert r"\[green]srv\[/]" in out
+    assert r"\[bold red]boom\[/]" in out

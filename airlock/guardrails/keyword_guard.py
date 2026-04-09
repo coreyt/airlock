@@ -44,9 +44,19 @@ def _normalize_text(text: str) -> str:
     return text
 
 
+_cached_raw: str | None = None
+_cached_keywords: list[str] = []
+
+
 def _blocked_keywords() -> list[str]:
+    global _cached_raw, _cached_keywords
     raw = os.getenv("AIRLOCK_BLOCKED_KEYWORDS", "")
-    return [_normalize_text(kw.strip()).lower() for kw in raw.split(",") if kw.strip()]
+    if raw != _cached_raw:
+        _cached_raw = raw
+        _cached_keywords = [
+            _normalize_text(kw.strip()).lower() for kw in raw.split(",") if kw.strip()
+        ]
+    return _cached_keywords
 
 
 class AirlockKeywordGuard(CustomGuardrail):
