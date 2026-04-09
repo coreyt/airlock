@@ -129,6 +129,29 @@ class TestAssessThreat:
         decayed = 0.7 * (DECAY_FACTOR ** 30)
         assert decayed == pytest.approx(0.35, abs=0.01)
 
+    def test_threat_score_decays_between_requests(self, monkeypatch):
+        """Accumulated threat score should decay between widely-spaced requests.
+
+        Mirrors guardian.py ordering: record_request(now) THEN assess_threat().
+        After a 60s gap, an accumulated 0.8 score should decay to well under 0.5.
+        """
+        from airlock.fast import threat_detector as td
+
+        client = ClientState(client_id="decayer")
+        client.threat_score = 0.8
+
+        t0 = 1_000_000.0
+        monkeypatch.setattr(td.time, "time", lambda: t0)
+        client.record_request(t0)
+        first = assess_threat(client, message_text="hello")
+        assert first.threat_score > 0.7
+
+        t1 = t0 + 60.0
+        monkeypatch.setattr(td.time, "time", lambda: t1)
+        client.record_request(t1)
+        second = assess_threat(client, message_text="hello")
+        assert second.threat_score < 0.5
+
     def test_message_text_none_does_not_crash(self):
         client = ClientState(client_id="none")
         result = assess_threat(client, message_text=None)
