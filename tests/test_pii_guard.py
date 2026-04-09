@@ -158,6 +158,67 @@ class TestGracefulDegradation:
         assert hasattr(mod, "AirlockPIIGuard")
         assert hasattr(mod, "_scrub_text")
 
+    def test_get_presidio_thread_safe(self, reset_presidio_singletons):
+        """Concurrent _get_presidio() calls must only construct engines once."""
+        import sys
+        import threading
+        import types
+
+        import airlock.guardrails.pii_guard as mod
+
+        mod._analyzer = None
+        mod._anonymizer = None
+
+        analyzer_calls = 0
+        anonymizer_calls = 0
+        call_lock = threading.Lock()
+
+        class FakeAnalyzer:
+            def __init__(self):
+                nonlocal analyzer_calls
+                with call_lock:
+                    analyzer_calls += 1
+
+        class FakeAnonymizer:
+            def __init__(self):
+                nonlocal anonymizer_calls
+                with call_lock:
+                    anonymizer_calls += 1
+
+        fake_analyzer_mod = types.ModuleType("presidio_analyzer")
+        fake_analyzer_mod.AnalyzerEngine = FakeAnalyzer
+        fake_anonymizer_mod = types.ModuleType("presidio_anonymizer")
+        fake_anonymizer_mod.AnonymizerEngine = FakeAnonymizer
+
+        with patch.dict(
+            sys.modules,
+            {
+                "presidio_analyzer": fake_analyzer_mod,
+                "presidio_anonymizer": fake_anonymizer_mod,
+            },
+        ):
+            start_gate = threading.Event()
+            results = []
+
+            def worker():
+                start_gate.wait()
+                results.append(mod._get_presidio())
+
+            threads = [threading.Thread(target=worker) for _ in range(10)]
+            for t in threads:
+                t.start()
+            start_gate.set()
+            for t in threads:
+                t.join()
+
+        assert analyzer_calls == 1
+        assert anonymizer_calls == 1
+        # All threads see the same singleton tuple.
+        first = results[0]
+        for r in results:
+            assert r[0] is first[0]
+            assert r[1] is first[1]
+
     def test_get_presidio_raises_when_unavailable(self, reset_presidio_singletons):
         """_get_presidio raises ImportError when Presidio can't be imported."""
         import airlock.guardrails.pii_guard as mod

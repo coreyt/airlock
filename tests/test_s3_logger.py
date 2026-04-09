@@ -31,6 +31,25 @@ class TestS3Logger:
         assert record["model"] == "claude-sonnet"
         assert record["prompt_tokens"] == 25
 
+    def test_build_record_applies_log_field_redaction(
+        self,
+        s3_logger,
+        mock_logger_kwargs,
+        mock_response_obj,
+        mock_start_end_times,
+        monkeypatch,
+    ):
+        """S3 records must honor AIRLOCK_LOG_REDACT_FIELDS just like the file logger."""
+        monkeypatch.setenv("AIRLOCK_LOG_REDACT_FIELDS", "messages,model")
+        start, end = mock_start_end_times
+        record = s3_logger._build_record(
+            mock_logger_kwargs, mock_response_obj, start, end, success=True
+        )
+        assert record["messages"] == "[REDACTED]"
+        assert record["model"] == "[REDACTED]"
+        # Unlisted fields are untouched
+        assert record["success"] is True
+
     def test_build_record_failure(
         self, s3_logger, mock_failure_kwargs, mock_start_end_times
     ):
