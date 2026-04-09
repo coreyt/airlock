@@ -290,7 +290,7 @@ class ConfigPane(Vertical):
 
         table = self.query_one("#cfg-mcp-table", _SafeDataTable)
         status = self.query_one("#cfg-mcp-status", Static)
-        table.clear()
+        self.app.call_from_thread(table.clear)
 
         servers = store.all_mcp_servers()
 
@@ -341,19 +341,22 @@ class ConfigPane(Vertical):
                     (name, type_label, url_display, health_str, lat_str, pid_str, uptime_str, name)
                 )
 
-        for *cells, key in rows:
-            try:
-                table.add_row(*cells, key=key)
-            except Exception:
-                break
+        def _apply() -> None:
+            for *cells, key in rows:
+                try:
+                    table.add_row(*cells, key=key)
+                except Exception:
+                    break
 
-        total = len(servers)
-        if total:
-            status.update(
-                f"MCP Servers: {total} configured, {healthy_count} healthy"
-            )
-        else:
-            status.update("MCP Servers: none configured")
+            total = len(servers)
+            if total:
+                status.update(
+                    f"MCP Servers: {total} configured, {healthy_count} healthy"
+                )
+            else:
+                status.update("MCP Servers: none configured")
+
+        self.app.call_from_thread(_apply)
 
     # ------------------------------------------------------------------
     # MCP table row selection
@@ -380,7 +383,7 @@ class ConfigPane(Vertical):
             return
         err = self._mcp_manager.start_server(name)
         if err:
-            self._set_mcp_status_error(err)
+            self.app.call_from_thread(self._set_mcp_status_error, err)
         else:
             self._refresh_mcp_servers()
 
@@ -397,7 +400,7 @@ class ConfigPane(Vertical):
             return
         err = self._mcp_manager.restart_server(name)
         if err:
-            self._set_mcp_status_error(err)
+            self.app.call_from_thread(self._set_mcp_status_error, err)
         else:
             self._refresh_mcp_servers()
 
