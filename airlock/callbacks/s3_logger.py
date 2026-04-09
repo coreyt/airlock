@@ -33,7 +33,7 @@ except ImportError:
 # Late import to avoid circular dependency
 from litellm.integrations.custom_logger import CustomLogger
 
-from .enterprise_logger import _serialize
+from .enterprise_logger import _redact_record, _serialize
 
 
 _MAX_FLUSH_RETRIES = 3
@@ -79,7 +79,7 @@ class AirlockS3Logger(CustomLogger):
                 "total_tokens": getattr(u, "total_tokens", 0),
             }
 
-        return {
+        record = {
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "success": success,
             "model": kwargs.get("model", "unknown"),
@@ -96,6 +96,7 @@ class AirlockS3Logger(CustomLogger):
             ),
             **usage,
         }
+        return _redact_record(record)
 
     def _flush(self) -> None:
         with self._lock:

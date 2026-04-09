@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 from typing import Any
 
 from litellm import DualCache
@@ -42,16 +43,21 @@ DEFAULT_ENTITIES = "CREDIT_CARD,US_SSN,EMAIL_ADDRESS,PHONE_NUMBER"
 # isn't installed (allows the rest of Airlock to still work).
 _analyzer = None
 _anonymizer = None
+_presidio_lock = threading.Lock()
 
 
 def _get_presidio():
     global _analyzer, _anonymizer
     if _analyzer is None:
-        from presidio_analyzer import AnalyzerEngine
-        from presidio_anonymizer import AnonymizerEngine
+        with _presidio_lock:
+            if _analyzer is None:  # re-check inside the lock
+                from presidio_analyzer import AnalyzerEngine
+                from presidio_anonymizer import AnonymizerEngine
 
-        _analyzer = AnalyzerEngine()
-        _anonymizer = AnonymizerEngine()
+                analyzer = AnalyzerEngine()
+                anonymizer = AnonymizerEngine()
+                _analyzer = analyzer
+                _anonymizer = anonymizer
     return _analyzer, _anonymizer
 
 
