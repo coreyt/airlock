@@ -479,7 +479,7 @@ class StateStore:
     """Thread-safe registry of all client and model states."""
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._clients: dict[str, ClientState] = {}
         self._models: dict[str, ModelState] = {}
         self._sessions: dict[str, SessionRecord] = {}
@@ -569,16 +569,19 @@ class StateStore:
             return dict(self._client_provider)
 
     def record_provider_request(self, client_id: str, provider: str, timestamp: float) -> None:
-        self.get_provider(provider).record_request(timestamp)
-        self.get_client_provider(client_id, provider).record_request(timestamp)
+        with self._lock:
+            self.get_provider(provider).record_request(timestamp)
+            self.get_client_provider(client_id, provider).record_request(timestamp)
 
     def record_provider_success(self, client_id: str, provider: str, timestamp: float) -> None:
-        self.get_provider(provider).record_success(timestamp)
-        self.get_client_provider(client_id, provider).record_success(timestamp)
+        with self._lock:
+            self.get_provider(provider).record_success(timestamp)
+            self.get_client_provider(client_id, provider).record_success(timestamp)
 
     def record_provider_failure(self, client_id: str, provider: str, timestamp: float) -> None:
-        self.get_provider(provider).record_failure(timestamp)
-        self.get_client_provider(client_id, provider).record_failure(timestamp)
+        with self._lock:
+            self.get_provider(provider).record_failure(timestamp)
+            self.get_client_provider(client_id, provider).record_failure(timestamp)
 
     def record_provider_rate_limit(
         self,
@@ -589,25 +592,26 @@ class StateStore:
         error_type: str,
     ) -> dict[str, float | str | bool]:
         client_id = normalize_client_id(client_id)
-        client_provider = self.get_client_provider(client_id, provider)
-        provider_state = self.get_provider(provider)
+        with self._lock:
+            client_provider = self.get_client_provider(client_id, provider)
+            provider_state = self.get_provider(provider)
 
-        client_provider.record_rate_limit(timestamp, reason, error_type)
-        provider_state.record_rate_limit(timestamp, client_id, reason, error_type)
+            client_provider.record_rate_limit(timestamp, reason, error_type)
+            provider_state.record_rate_limit(timestamp, client_id, reason, error_type)
 
-        provider_quarantined = False
-        impacted_clients = provider_state.impacted_clients()
-        if len(impacted_clients) >= PROVIDER_ESCALATION_CLIENT_THRESHOLD:
-            provider_state.quarantine(timestamp, reason, error_type)
-            provider_quarantined = True
+            provider_quarantined = False
+            impacted_clients = provider_state.impacted_clients()
+            if len(impacted_clients) >= PROVIDER_ESCALATION_CLIENT_THRESHOLD:
+                provider_state.quarantine(timestamp, reason, error_type)
+                provider_quarantined = True
 
-        return {
-            "client_quarantined": True,
-            "provider_quarantined": provider_quarantined,
-            "client_cooldown_seconds": client_provider.cooldown_remaining(timestamp),
-            "provider_cooldown_seconds": provider_state.cooldown_remaining(timestamp),
-            "impacted_clients": len(impacted_clients),
-        }
+            return {
+                "client_quarantined": True,
+                "provider_quarantined": provider_quarantined,
+                "client_cooldown_seconds": client_provider.cooldown_remaining(timestamp),
+                "provider_cooldown_seconds": provider_state.cooldown_remaining(timestamp),
+                "impacted_clients": len(impacted_clients),
+            }
 
     def record_gemini_outcome(
         self,
@@ -618,12 +622,13 @@ class StateStore:
         reasoning_mode: str,
     ) -> None:
         client_id = normalize_client_id(client_id)
-        self.get_client(client_id).record_gemini_outcome(timestamp, output_shape)
-        self.get_provider(provider).record_gemini_outcome(
-            timestamp,
-            output_shape,
-            reasoning_mode,
-        )
+        with self._lock:
+            self.get_client(client_id).record_gemini_outcome(timestamp, output_shape)
+            self.get_provider(provider).record_gemini_outcome(
+                timestamp,
+                output_shape,
+                reasoning_mode,
+            )
 
     # -- MCP server tracking -----------------------------------------------
 
