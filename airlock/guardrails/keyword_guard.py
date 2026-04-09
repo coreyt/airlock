@@ -19,6 +19,7 @@ from litellm import DualCache
 from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
+from . import _env_flag
 from .extract import extract_text
 
 logger = logging.getLogger("airlock.guardrails.keyword")
@@ -76,6 +77,8 @@ class AirlockKeywordGuard(CustomGuardrail):
         data: dict,
         call_type: str,
     ) -> dict:
+        if not _env_flag("AIRLOCK_KW_ENABLED"):
+            return data
         keywords = _blocked_keywords()
         if not keywords:
             return data

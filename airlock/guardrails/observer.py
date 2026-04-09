@@ -33,6 +33,7 @@ from airlock.callbacks.metrics import (
 )
 from airlock.fast.state import normalize_client_id, store
 
+from . import _env_flag
 from .extract import extract_text as _extract_text_unified
 from .schemas import GuardrailObservation, GuardrailSignal
 
@@ -59,6 +60,14 @@ def _blocked_keywords() -> list[str]:
 # ---------------------------------------------------------------------------
 def scan_pii(text: str) -> GuardrailSignal:
     """Lightweight regex PII scan — counts entity types present."""
+    if not _env_flag("AIRLOCK_PII_ENABLED"):
+        return GuardrailSignal(
+            guardrail_name="pii_scan",
+            detected=False,
+            score=0.0,
+            details={"entities": {}, "total_count": 0},
+            duration_ms=0.0,
+        )
     start = time.monotonic()
     found: dict[str, int] = {}
     for entity_type, pattern in _PII_PATTERNS.items():
@@ -81,6 +90,14 @@ def scan_pii(text: str) -> GuardrailSignal:
 
 def scan_keywords(text: str) -> GuardrailSignal:
     """Keyword substring scan — returns signal instead of raising."""
+    if not _env_flag("AIRLOCK_KW_ENABLED"):
+        return GuardrailSignal(
+            guardrail_name="keyword_scan",
+            detected=False,
+            score=0.0,
+            details={"matched_keywords": [], "match_count": 0},
+            duration_ms=0.0,
+        )
     start = time.monotonic()
     keywords = _blocked_keywords()
     text_lower = text.lower()

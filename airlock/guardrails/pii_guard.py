@@ -33,6 +33,7 @@ from litellm import DualCache
 from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
+from . import _env_flag
 from .extract import is_mcp_call
 
 logger = logging.getLogger("airlock.guardrails.pii")
@@ -178,6 +179,8 @@ class AirlockPIIGuard(CustomGuardrail):
         data: dict,
         call_type: str,
     ) -> dict:
+        if not _env_flag("AIRLOCK_PII_ENABLED"):
+            return data
         mapping: dict[str, str] = {}
         counters: dict[str, int] = {}
 
