@@ -49,6 +49,7 @@ ERROR_PROBE_MIN_REQUESTS = 10       # need enough samples
 THREAT_BLOCK_THRESHOLD = 0.7        # above this → block
 MAX_BACKOFF_S = 3600.0              # cap at 1 hour
 BASE_BACKOFF_S = 2.0                # starting back-off
+DECAY_FACTOR = 0.977                # per-second decay; score halves in ~30 s
 
 
 def assess_threat(
@@ -116,14 +117,14 @@ def assess_threat(
         )
 
     # Blend with accumulated score, decayed proportionally to elapsed time.
-    # 0.95 per second: score halves in ~14 seconds.
+    # 0.977 per second: score halves in ~30 seconds.
     last_request_times = list(client.request_times)
     if last_request_times:
         elapsed = now - last_request_times[-1]  # time since previous request
     else:
         elapsed = 1.0
     elapsed = max(elapsed, 0.01)  # guard against zero/negative
-    decay_factor = 0.95 ** elapsed
+    decay_factor = DECAY_FACTOR ** elapsed
     combined = max(score, client.threat_score * decay_factor)
     client.threat_score = combined
 

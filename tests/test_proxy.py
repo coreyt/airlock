@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -61,17 +61,18 @@ class TestFindConfig:
 # ---------------------------------------------------------------------------
 class TestMain:
     def test_main_starts_litellm_on_public_port(self, config_file, monkeypatch):
-        """subprocess.call should run LiteLLM directly on the public host:port."""
+        """subprocess.run should run LiteLLM directly on the public host:port."""
         monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
         monkeypatch.setenv("AIRLOCK_HOST", "0.0.0.0")
         monkeypatch.setenv("AIRLOCK_PORT", "4000")
 
-        with patch("airlock.proxy.subprocess.call", return_value=0) as mock_call, \
+        mock_result = MagicMock(returncode=0)
+        with patch("airlock.proxy.subprocess.run", return_value=mock_result) as mock_run, \
              patch("airlock.proxy.fetch_live_provider_models", return_value=[]), \
              pytest.raises(SystemExit):
             main()
 
-        cmd = mock_call.call_args[0][0]
+        cmd = mock_run.call_args[0][0]
         expected_bin = str(Path(sys.executable).parent / "litellm")
         assert cmd[0] == expected_bin
         assert "--host" in cmd
@@ -79,17 +80,32 @@ class TestMain:
         assert "--port" in cmd
         assert cmd[cmd.index("--port") + 1] == "4000"
 
+    def test_main_uses_subprocess_run(self, config_file, monkeypatch):
+        """Verify subprocess.run is used instead of deprecated subprocess.call."""
+        monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
+
+        mock_result = MagicMock(returncode=0)
+        with patch("airlock.proxy.subprocess.run", return_value=mock_result) as mock_run, \
+             patch("airlock.proxy.fetch_live_provider_models", return_value=[]), \
+             pytest.raises(SystemExit):
+            main()
+
+        mock_run.assert_called_once()
+        # Verify check=False is passed
+        assert mock_run.call_args[1].get("check") is False
+
     def test_main_default_host_port(self, config_file, monkeypatch):
         monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
         monkeypatch.delenv("AIRLOCK_HOST", raising=False)
         monkeypatch.delenv("AIRLOCK_PORT", raising=False)
 
-        with patch("airlock.proxy.subprocess.call", return_value=0) as mock_call, \
+        mock_result = MagicMock(returncode=0)
+        with patch("airlock.proxy.subprocess.run", return_value=mock_result) as mock_run, \
              patch("airlock.proxy.fetch_live_provider_models", return_value=[]), \
              pytest.raises(SystemExit):
             main()
 
-        cmd = mock_call.call_args[0][0]
+        cmd = mock_run.call_args[0][0]
         assert cmd[cmd.index("--host") + 1] == "0.0.0.0"
         assert cmd[cmd.index("--port") + 1] == "4000"
 
@@ -97,8 +113,9 @@ class TestMain:
         monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
         dotenv_called = []
 
+        mock_result = MagicMock(returncode=0)
         with patch("airlock.proxy.load_dotenv", side_effect=lambda *a, **kw: dotenv_called.append(True)), \
-             patch("airlock.proxy.subprocess.call", return_value=0), \
+             patch("airlock.proxy.subprocess.run", return_value=mock_result), \
              patch("airlock.proxy.fetch_live_provider_models", return_value=[]), \
              pytest.raises(SystemExit):
             main()
@@ -108,7 +125,8 @@ class TestMain:
     def test_main_propagates_litellm_returncode(self, config_file, monkeypatch):
         monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
 
-        with patch("airlock.proxy.subprocess.call", return_value=42), \
+        mock_result = MagicMock(returncode=42)
+        with patch("airlock.proxy.subprocess.run", return_value=mock_result), \
              patch("airlock.proxy.fetch_live_provider_models", return_value=[]), \
              pytest.raises(SystemExit) as exc_info:
             main()
@@ -119,9 +137,10 @@ class TestMain:
         monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
         discovery_called = []
 
+        mock_result = MagicMock(returncode=0)
         with patch("airlock.proxy.fetch_live_provider_models",
                    side_effect=lambda *a, **kw: discovery_called.append(True) or []), \
-             patch("airlock.proxy.subprocess.call", return_value=0), \
+             patch("airlock.proxy.subprocess.run", return_value=mock_result), \
              pytest.raises(SystemExit):
             main()
 
@@ -339,6 +358,73 @@ class TestObserveModeWarning:
         captured = capsys.readouterr()
         assert "observe" not in captured.err.lower()
 
+
+
+# ---------------------------------------------------------------------------
+# Circuit breaker health endpoint
+# ---------------------------------------------------------------------------
+class TestCircuitHealthEndpoint:
+    def test_get_circuit_health_empty(self):
+        from airlock.fast.state import StateStore
+        from airlock.health import get_circuit_health
+
+        store = StateStore()
+        result = get_circuit_health(store)
+        assert result["status"] == "ok"
+        assert result["circuits"] == {}
+
+    def test_get_circuit_health_with_models(self):
+        from airlock.fast.state import CircuitState, StateStore
+        from airlock.health import get_circuit_health
+
+        store = StateStore()
+        model_a = store.get_model("gpt-4o")
+        model_b = store.get_model("claude-sonnet")
+        # model_a stays closed (default)
+        # model_b is open
+        model_b.circuit = CircuitState.OPEN
+        model_b.consecutive_failures = 7
+
+        result = get_circuit_health(store)
+        assert result["status"] == "degraded"
+        assert "gpt-4o" in result["circuits"]
+        assert result["circuits"]["gpt-4o"]["state"] == "closed"
+        assert "claude-sonnet" in result["circuits"]
+        assert result["circuits"]["claude-sonnet"]["state"] == "open"
+        assert result["circuits"]["claude-sonnet"]["consecutive_failures"] == 7
+
+    def test_get_circuit_health_half_open(self):
+        from airlock.fast.state import CircuitState, StateStore
+        from airlock.health import get_circuit_health
+
+        store = StateStore()
+        model = store.get_model("gpt-4o")
+        model.circuit = CircuitState.HALF_OPEN
+
+        result = get_circuit_health(store)
+        assert result["status"] == "degraded"
+        assert result["circuits"]["gpt-4o"]["state"] == "half_open"
+
+    def test_install_circuit_health_endpoint(self):
+        fastapi = pytest.importorskip("fastapi")
+        from fastapi.testclient import TestClient
+
+        from airlock.fast.state import CircuitState, StateStore
+        from airlock.health import install_circuit_health_endpoint
+
+        app = fastapi.FastAPI()
+        store = StateStore()
+        model = store.get_model("gpt-4o")
+        model.circuit = CircuitState.OPEN
+        model.consecutive_failures = 5
+
+        install_circuit_health_endpoint(app, store)
+        client = TestClient(app)
+        resp = client.get("/health/circuits")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "degraded"
+        assert data["circuits"]["gpt-4o"]["state"] == "open"
 
 
 class TestConfigValidationExtra:

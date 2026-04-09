@@ -36,6 +36,9 @@ from litellm.integrations.custom_logger import CustomLogger
 from .enterprise_logger import _serialize
 
 
+_MAX_FLUSH_RETRIES = 3
+
+
 class AirlockS3Logger(CustomLogger):
     """LiteLLM callback that batches and flushes log records to S3."""
 
@@ -45,6 +48,7 @@ class AirlockS3Logger(CustomLogger):
         self._prefix = os.getenv("AIRLOCK_S3_PREFIX", "airlock-logs")
         self._batch_size = int(os.getenv("AIRLOCK_S3_BATCH", "100"))
         self._buffer: list[dict[str, Any]] = []
+        self._flush_attempts: int = 0
         self._lock = threading.Lock()
         self._client = None
 
@@ -98,6 +102,7 @@ class AirlockS3Logger(CustomLogger):
             if not self._buffer:
                 return
             records = self._buffer[:]
+            attempts = self._flush_attempts
             self._buffer.clear()
 
         if not self._bucket:
@@ -115,8 +120,25 @@ class AirlockS3Logger(CustomLogger):
             client = self._get_client()
             client.put_object(Bucket=self._bucket, Key=key, Body=body.encode("utf-8"))
             logger.info("s3_flush bucket=%s key=%s records=%d", self._bucket, key, len(records))
+            with self._lock:
+                self._flush_attempts = 0
         except Exception:
-            logger.exception("s3_flush_failed bucket=%s key=%s", self._bucket, key)
+            attempts += 1
+            if attempts >= _MAX_FLUSH_RETRIES:
+                logger.critical(
+                    "s3_flush_dropped bucket=%s key=%s records=%d after %d attempts",
+                    self._bucket, key, len(records), attempts,
+                )
+                with self._lock:
+                    self._flush_attempts = 0
+            else:
+                logger.error(
+                    "s3_flush_failed bucket=%s key=%s records=%d attempt=%d, re-queuing",
+                    self._bucket, key, len(records), attempts,
+                )
+                with self._lock:
+                    self._buffer.extend(records)
+                    self._flush_attempts = attempts
 
     def _append(self, record: dict[str, Any]) -> None:
         with self._lock:

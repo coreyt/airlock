@@ -231,7 +231,7 @@ def main() -> None:
         pass  # best-effort
 
     print(f"Airlock starting on {host}:{port}")
-    sys.exit(subprocess.call(litellm_cmd))
+    sys.exit(subprocess.run(litellm_cmd, check=False).returncode)
 
 
 if __name__ == "__main__":

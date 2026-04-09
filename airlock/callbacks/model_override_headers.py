@@ -7,6 +7,7 @@ from typing import Any
 from litellm.integrations.custom_logger import CustomLogger
 
 from airlock.docs import install_airlock_docs_on_proxy_app
+from airlock.health import install_circuit_health_on_proxy_app
 from airlock.gemini_interface import (
     build_gemini_response_headers,
     classify_gemini_response,
@@ -54,3 +55,4 @@ proxy_model_override_headers = AirlockModelOverrideHeaders()
 
 # Airlock runs on top of LiteLLM's FastAPI app, so enrich the existing docs in place.
 install_airlock_docs_on_proxy_app()
+install_circuit_health_on_proxy_app()

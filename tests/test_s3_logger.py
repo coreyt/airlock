@@ -140,6 +140,55 @@ class TestS3Logger:
         # Should not raise
         s3_logger._flush()
 
+    def test_flush_failure_requeues_records(
+        self, s3_logger, mock_logger_kwargs, mock_response_obj, mock_start_end_times
+    ):
+        """On S3 failure, records should be re-buffered for retry."""
+        start, end = mock_start_end_times
+        s3_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
+        s3_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
+        assert len(s3_logger._buffer) == 2
+
+        s3_logger._client.put_object.side_effect = Exception("S3 unreachable")
+        s3_logger._flush()
+        # Records should be back in buffer for retry
+        assert len(s3_logger._buffer) == 2
+
+    def test_flush_failure_retry_succeeds(
+        self, s3_logger, mock_logger_kwargs, mock_response_obj, mock_start_end_times
+    ):
+        """After a failed flush, a successful retry should clear the buffer."""
+        start, end = mock_start_end_times
+        s3_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
+
+        # First flush fails
+        s3_logger._client.put_object.side_effect = Exception("S3 unreachable")
+        s3_logger._flush()
+        assert len(s3_logger._buffer) == 1
+
+        # Second flush succeeds
+        s3_logger._client.put_object.side_effect = None
+        s3_logger._flush()
+        assert len(s3_logger._buffer) == 0
+        assert s3_logger._client.put_object.call_count == 2
+
+    def test_flush_drops_after_max_retries(
+        self, s3_logger, mock_logger_kwargs, mock_response_obj, mock_start_end_times
+    ):
+        """Records should be dropped after max retry attempts with CRITICAL log."""
+        start, end = mock_start_end_times
+        s3_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
+
+        s3_logger._client.put_object.side_effect = Exception("S3 unreachable")
+        # Flush 3 times (max retries) — records should be re-queued each time
+        s3_logger._flush()
+        assert len(s3_logger._buffer) == 1
+        s3_logger._flush()
+        assert len(s3_logger._buffer) == 1
+        # Third flush should drop the records
+        s3_logger._flush()
+        assert len(s3_logger._buffer) == 0
+
 
 class TestS3GracefulDegradation:
     def test_module_loads_without_boto3(self):

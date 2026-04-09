@@ -77,10 +77,10 @@ class TestAssessThreat:
     def test_composite_score_triggers_block(self):
         client = ClientState(client_id="attacker")
         now = time.time()
-        # Seed a high accumulated score so decay * 0.95 pushes over 0.7
+        # Seed a high accumulated score so decay * 0.977 pushes over 0.7
         # Combined with rapid-fire (0.35) + error probing (0.3), the max()
-        # of new score (0.65) vs decayed accumulated (0.95 * 0.8 = 0.76)
-        # gives 0.76 > 0.7 threshold
+        # of new score (0.65) vs decayed accumulated (0.977 * 0.8 = 0.78)
+        # gives 0.78 > 0.7 threshold
         client.threat_score = 0.8
         for i in range(15):
             client.record_request(now - 1.5 + i * 0.05)
@@ -119,7 +119,15 @@ class TestAssessThreat:
         client.threat_score = 0.5
         # No new suspicious activity
         result = assess_threat(client)
-        assert result.threat_score == pytest.approx(0.5 * 0.95)
+        # Decay factor is 0.977 (score halves in ~30 seconds)
+        assert result.threat_score == pytest.approx(0.5 * 0.977)
+
+    def test_decay_factor_30_second_halflife(self):
+        """A score of 0.7 should take ~30 seconds to decay to 0.35."""
+        from airlock.fast.threat_detector import DECAY_FACTOR
+        # Verify factor: 0.7 * factor^30 should be approximately 0.35
+        decayed = 0.7 * (DECAY_FACTOR ** 30)
+        assert decayed == pytest.approx(0.35, abs=0.01)
 
     def test_message_text_none_does_not_crash(self):
         client = ClientState(client_id="none")
