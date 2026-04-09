@@ -271,30 +271,32 @@ def _render_pipeline(entry: FlowEntry) -> str:
     # Request metadata
     lines.append("")
     lines.append("[bold]── Request ──[/]")
-    lines.append(f"  ID:      {entry.request_id}")
-    lines.append(f"  Model:   {entry.model}")
-    lines.append(f"  Client:  {entry.client_id}")
+    lines.append(f"  ID:      {escape(str(entry.request_id))}")
+    lines.append(f"  Model:   {escape(str(entry.model))}")
+    lines.append(f"  Client:  {escape(str(entry.client_id))}")
     lines.append(f"  Success: {'✓' if entry.success else '✗'}")
 
     # Check for failover
     failover = entry.raw_record.get("airlock_failover")
     if failover:
         lines.append(
-            f"  Failover: {failover.get('original_model')} → "
-            f"{failover.get('failover_model')} ({failover.get('reason')})"
+            f"  Failover: {escape(str(failover.get('original_model')))} → "
+            f"{escape(str(failover.get('failover_model')))} "
+            f"({escape(str(failover.get('reason')))})"
         )
     override = entry.raw_record.get("airlock_model_override")
     if override:
         lines.append(
-            f"  Override: {override.get('requested_model')} → "
-            f"{override.get('final_model')} ({override.get('reason')})"
+            f"  Override: {escape(str(override.get('requested_model')))} → "
+            f"{escape(str(override.get('final_model')))} "
+            f"({escape(str(override.get('reason')))})"
         )
     protection = entry.raw_record.get("airlock_provider_protection")
     if protection:
         lines.append(
-            f"  Protection: {protection.get('action')} "
-            f"provider={protection.get('provider')} "
-            f"client={protection.get('client_id')} "
+            f"  Protection: {escape(str(protection.get('action')))} "
+            f"provider={escape(str(protection.get('provider')))} "
+            f"client={escape(str(protection.get('client_id')))} "
             f"cooldown={protection.get('cooldown_seconds')}"
         )
     if entry.gemini_request or entry.gemini_response:
