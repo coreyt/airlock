@@ -119,8 +119,10 @@ def assess_threat(
     # Blend with accumulated score, decayed proportionally to elapsed time.
     # 0.977 per second: score halves in ~30 seconds.
     last_request_times = list(client.request_times)
-    if last_request_times:
-        elapsed = now - last_request_times[-1]  # time since previous request
+    if len(last_request_times) >= 2:
+        # guardian records the current request BEFORE calling assess_threat,
+        # so [-1] is "now"; use [-2] for the previous request's timestamp.
+        elapsed = now - last_request_times[-2]
     else:
         elapsed = 1.0
     elapsed = max(elapsed, 0.01)  # guard against zero/negative
