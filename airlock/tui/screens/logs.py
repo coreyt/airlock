@@ -279,16 +279,26 @@ class LogsPane(VerticalScroll):
 
         detail.update("\n".join(parts))
 
+    @work(exclusive=True, thread=True)
     def _export_filtered(self) -> None:
         """Write filtered records to a JSONL file in the log directory."""
-        status = self.query_one("#logs-analysis-status", Static)
         log_dir = Path(os.getenv("AIRLOCK_LOG_DIR", "./logs"))
         log_dir.mkdir(parents=True, exist_ok=True)
         out = log_dir / f"export-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}.jsonl"
-        with open(out, "w") as f:
-            for r in self._filtered:
-                f.write(json.dumps(r, default=str) + "\n")
-        status.update(f"[green]Exported {len(self._filtered)} records to {out.name}[/]")
+        records = list(self._filtered)
+        try:
+            with open(out, "w") as f:
+                for r in records:
+                    f.write(json.dumps(r, default=str) + "\n")
+            msg = f"[green]Exported {len(records)} records to {out.name}[/]"
+        except OSError as exc:
+            msg = f"[red]Export failed: {exc}[/]"
+
+        def _show(message: str = msg) -> None:
+            status = self.query_one("#logs-analysis-status", Static)
+            status.update(message)
+
+        self.app.call_from_thread(_show)
 
     @work(exclusive=True, thread=True)
     def _run_analysis(self) -> None:

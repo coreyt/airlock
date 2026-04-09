@@ -80,6 +80,49 @@ async def test_load_logs_dispatches_widget_mutations_via_call_from_thread(
             )
 
 
+async def test_export_filtered_dispatches_status_update_via_call_from_thread(
+    tmp_path,
+) -> None:
+    import json
+    import os
+    from unittest import mock
+
+    log_dir = tmp_path / "logs"
+
+    with mock.patch.dict(os.environ, {"AIRLOCK_LOG_DIR": str(log_dir)}):
+        app = AirlockApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.press("3")  # logs
+            await pilot.pause()
+
+            from airlock.tui.screens.logs import LogsPane
+
+            pane = app.query_one(LogsPane)
+
+            pane._filtered = [{"a": 1}, {"b": 2}]
+
+            mock_dispatch = MagicMock()
+            pane.app.call_from_thread = mock_dispatch  # type: ignore[method-assign]
+
+            # Bypass the @work decorator by invoking the raw function.
+            type(pane)._export_filtered.__wrapped__(pane)
+
+            assert mock_dispatch.call_count > 0, (
+                "Expected _export_filtered to dispatch status update via "
+                "call_from_thread, but it called zero."
+            )
+
+            # Verify the I/O still happened: one export-*.jsonl file written
+            # with the serialized records.
+            exports = sorted(log_dir.glob("export-*.jsonl"))
+            assert len(exports) == 1, f"expected 1 export file, got {exports}"
+            lines = exports[0].read_text().strip().splitlines()
+            assert [json.loads(line) for line in lines] == [
+                {"a": 1},
+                {"b": 2},
+            ]
+
+
 async def test_do_mcp_start_dispatches_error_status_via_call_from_thread() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
