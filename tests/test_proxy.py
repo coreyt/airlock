@@ -205,8 +205,8 @@ class TestShutdownHandlers:
         with pytest.raises(SystemExit):
             handler(signal.SIGTERM, None)
 
-        # State file should have been created (or at least attempted)
-        # The checkpoint function is called during shutdown
+        # Checkpoint file should exist after shutdown handler ran.
+        assert (tmp_path / "cb_state.json").exists()
 
 
 # ---------------------------------------------------------------------------

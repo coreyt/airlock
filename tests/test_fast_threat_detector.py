@@ -94,15 +94,17 @@ class TestAssessThreat:
     def test_blocked_sets_backoff(self):
         client = ClientState(client_id="blocked")
         now = time.time()
-        # Force high score
+        # Force high score, then add rapid-fire + error-probing signals so
+        # assess_threat definitely crosses the block threshold.
         client.threat_score = 0.8
         for i in range(15):
             client.record_request(now - 1.5 + i * 0.05)
+            client.record_error(now - i * 0.05, "Error")
 
         result = assess_threat(client)
-        if result.blocked:
-            assert client.backoff_until > now
-            assert result.backoff_seconds > 0
+        assert result.blocked is True
+        assert client.backoff_until > now
+        assert result.backoff_seconds > 0
 
     def test_backoff_capped_at_max(self):
         client = ClientState(client_id="capped")

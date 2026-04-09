@@ -258,13 +258,24 @@ async def test_logs_mcp_filtering(tmp_path: Path) -> None:
             await pilot.press("3")
             await pilot.pause()
 
+            from textual.widgets import Select
+
             from airlock.tui.screens.logs import LogsPane
 
             logs_pane = app.query_one(LogsPane)
             assert len(logs_pane._records) == 2
 
             logs_pane._records = records
+
+            # Baseline: no type filter → both records visible.
             logs_pane._apply_filters()
+            assert len(logs_pane._filtered) == 2
+
+            # Apply MCP filter → only the MCP-tagged record remains.
+            app.query_one("#logs-type-filter", Select).value = "mcp"
+            logs_pane._apply_filters()
+            assert len(logs_pane._filtered) == 1
+            assert logs_pane._filtered[0].get("call_type") == "call_mcp_tool"
 
 
 # -------------------------------------------------------------------
@@ -537,33 +548,39 @@ async def test_flow_tool_result_rendering() -> None:
 
 
 async def test_overview_provider_filter_toggle() -> None:
+    from types import SimpleNamespace
+
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.press("1")
-        # The providers table should exist
-        providers_table = app.query_one("#ov-providers")
-        assert providers_table is not None
+        await pilot.pause()
 
-        # Verify models header text changes when _provider_filter is set
         from airlock.tui.screens.overview import OverviewPane
 
         overview = app.query_one(OverviewPane)
         header = app.query_one("#ov-models-header")
 
-        # Initially no filter
+        # Initially no filter.
         assert overview._provider_filter is None
 
-        # Simulate setting a provider filter
-        overview._provider_filter = "anthropic"
-        header.update("[bold]Models[/] [dim](filtered: anthropic)[/]")
-        await pilot.pause()
-        rendered = header.render()
-        assert "anthropic" in str(rendered)
+        # Build a fake DataTable.RowSelected event — the handler only reads
+        # event.data_table.id and event.row_key.value.
+        fake_event = SimpleNamespace(
+            data_table=SimpleNamespace(id="ov-providers"),
+            row_key=SimpleNamespace(value="anthropic"),
+        )
 
-        # Clear filter
-        overview._provider_filter = None
-        header.update("[bold]Models[/]")
+        # First selection → filter set to "anthropic".
+        overview.on_data_table_row_selected(fake_event)
         await pilot.pause()
+        assert overview._provider_filter == "anthropic"
+        assert "anthropic" in str(header.render())
+
+        # Second selection on the same row → toggle off.
+        overview.on_data_table_row_selected(fake_event)
+        await pilot.pause()
+        assert overview._provider_filter is None
+        assert "anthropic" not in str(header.render())
 
 
 async def test_overview_status_line_exists() -> None:
@@ -709,8 +726,12 @@ async def test_guards_has_status_and_table() -> None:
         await pilot.press("2")
         await pilot.pause()
 
-        app.query_one("#guards-status")
-        app.query_one("#guards-table")
+        status = app.query_one("#guards-status")
+        table = app.query_one("#guards-table", DataTable)
+        assert status is not None
+        assert table is not None
+        # Table should have columns defined at compose time.
+        assert len(table.columns) > 0
 
 
 async def test_guards_pause_toggle() -> None:
