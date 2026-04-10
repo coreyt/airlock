@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import sys
 import textwrap
+import types
 from argparse import Namespace
 from pathlib import Path
 from unittest import mock
@@ -799,7 +801,13 @@ class TestCheckProviderNewsCatcher:
 
     def test_pass_when_key_and_sdk_available(self, monkeypatch):
         monkeypatch.setenv("NEWS_CATCHER_API_KEY", "nc-test")
-        # SDK is already installed in test env
+        # Stub the SDK so the test doesn't depend on the [search] extra
+        # being installed in the dev environment.
+        monkeypatch.setitem(
+            sys.modules,
+            "newscatcher_catchall",
+            types.ModuleType("newscatcher_catchall"),
+        )
         result = check_provider_newscatcher({}, False)
         assert result.status == CheckStatus.PASS
         assert "SDK available" in result.detail

@@ -261,29 +261,70 @@ _DEFAULT_RULES: list[AlertRule] = [
 
 
 class AlertEngine:
-    """Evaluates alert rules against the state store and manages active alerts."""
+    """Evaluates alert rules against the state store and manages active alerts.
+
+    Active alerts are auto-resolved on each ``evaluate()`` call: any alert whose
+    condition no longer fires (e.g. circuit recovered, provider unquarantined)
+    is dropped from ``self.active``.  A hard cap (``_MAX_ACTIVE``) and a wall-
+    clock max age (``_MAX_AGE_SECONDS``) bound the list against pathological
+    cases where rules churn but never resolve.
+    """
+
+    _MAX_ACTIVE: int = 500
+    _MAX_AGE_SECONDS: float = 24 * 60 * 60
 
     def __init__(self) -> None:
         self.rules: list[AlertRule] = list(_DEFAULT_RULES)
         self.active: list[Alert] = []
 
     def evaluate(self, store: StateStore) -> list[Alert]:
-        """Run all rules against current state.  Returns newly fired alerts."""
+        """Run all rules against current state.  Returns newly fired alerts.
+
+        Side effects:
+        - Auto-resolves active alerts whose condition no longer holds.
+        - Drops alerts older than ``_MAX_AGE_SECONDS``.
+        - Truncates ``self.active`` to ``_MAX_ACTIVE`` (newest wins).
+        """
         now = time.time()
         new_alerts: list[Alert] = []
 
+        # Collect every (rule_name, entity_id) currently firing across all
+        # rules, regardless of cooldown.  Cooldown only gates *re-firing* a
+        # new alert; it must not prevent us from observing that an existing
+        # alert's condition is still active (otherwise we'd auto-resolve a
+        # still-broken thing the moment we hit a cooldown window).
+        currently_firing: set[tuple[str, str]] = set()
+        rule_results: dict[str, list[Alert]] = {}
         for rule in self.rules:
-            # Respect cooldown
+            try:
+                alerts = rule.condition(store)
+            except Exception:
+                _log.debug("alert rule %s raised", rule.name, exc_info=True)
+                alerts = []
+            rule_results[rule.name] = alerts
+            for alert in alerts:
+                currently_firing.add((alert.rule_name, alert.entity_id))
+
+        # Auto-resolve: drop active alerts whose condition no longer fires,
+        # plus anything older than the max age.
+        self.active = [
+            a
+            for a in self.active
+            if (a.rule_name, a.entity_id) in currently_firing
+            and (now - a.timestamp) < self._MAX_AGE_SECONDS
+        ]
+
+        # Fire new alerts (respecting cooldown for the *firing* decision).
+        for rule in self.rules:
             if now - rule._last_fired < rule.cooldown_seconds:
                 continue
 
-            alerts = rule.condition(store)
+            alerts = rule_results.get(rule.name, [])
             if not alerts:
                 continue
 
             fired = False
             for alert in alerts:
-                # Dedup by (rule_name, entity_id) — don't stack duplicates
                 already_active = any(
                     a.rule_name == alert.rule_name and a.entity_id == alert.entity_id
                     for a in self.active
@@ -297,6 +338,11 @@ class AlertEngine:
 
             if fired:
                 rule._last_fired = now
+
+        # Hard cap: keep the newest entries if we somehow blew past the limit.
+        if len(self.active) > self._MAX_ACTIVE:
+            self.active.sort(key=lambda a: a.timestamp, reverse=True)
+            self.active = self.active[: self._MAX_ACTIVE]
 
         return new_alerts
 

@@ -7,6 +7,7 @@ and alert integration.
 
 from __future__ import annotations
 
+import math
 import os
 import time
 import urllib.request
@@ -30,6 +31,18 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
+
+
+def _p95_index(n: int) -> int:
+    """Nearest-rank p95 index into a sorted list of length ``n`` (n >= 1).
+
+    The naive ``int(n * 0.95)`` overshoots: for n=20 it returns 19 (the max)
+    instead of 18 (the second-largest), and for any n <= 20 it pins p95 to
+    the maximum sample.  Nearest-rank gives ``ceil(0.95 * n) - 1``, clamped.
+    """
+    if n <= 1:
+        return 0
+    return min(math.ceil(0.95 * n) - 1, n - 1)
 
 
 class _SafeRichLog(RichLog):
@@ -488,7 +501,7 @@ class OverviewPane(VerticalScroll):
         if recent:
             sorted_lat = sorted(recent)
             p50 = sorted_lat[len(sorted_lat) // 2]
-            p95 = sorted_lat[int(len(sorted_lat) * 0.95)]
+            p95 = sorted_lat[_p95_index(len(sorted_lat))]
             percentiles = f"p50: {p50:.0f}ms  p95: {p95:.0f}ms"
         else:
             percentiles = "No latency data"
@@ -616,7 +629,7 @@ class OverviewPane(VerticalScroll):
             recent = [lat for _, lat in model.latencies_ms if lat > 0]
             if recent:
                 sorted_lat = sorted(recent)
-                p95 = sorted_lat[int(len(sorted_lat) * 0.95)]
+                p95 = sorted_lat[_p95_index(len(sorted_lat))]
                 p95_str = f"{p95:.0f}ms"
             else:
                 p95_str = "-"

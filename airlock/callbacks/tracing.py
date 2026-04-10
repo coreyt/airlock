@@ -4,7 +4,7 @@ Airlock Tracing — OpenTelemetry trace context propagation for LiteLLM.
 Creates spans for each guardrail execution and upstream LLM call,
 enabling distributed tracing across the proxy pipeline.
 
-Requires: pip install airlock[tracing]
+Requires: pip install airlock-llm[tracing]
     (opentelemetry-api>=1.20.0, opentelemetry-sdk>=1.20.0)
 
 Env vars:

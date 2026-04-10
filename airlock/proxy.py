@@ -228,7 +228,9 @@ def main() -> None:
         )
         sys.exit(1)
 
-    host = os.getenv("AIRLOCK_HOST", "0.0.0.0")
+    # Default to loopback for safety; deployments that need to expose the
+    # proxy externally must set AIRLOCK_HOST=0.0.0.0 explicitly.
+    host = os.getenv("AIRLOCK_HOST", "127.0.0.1")
     port = int(os.getenv("AIRLOCK_PORT", "4000"))
 
     # Log live provider models at startup (informational — does not affect routing).

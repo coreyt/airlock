@@ -56,7 +56,7 @@ class AirlockS3Logger(CustomLogger):
             return self._client
         if not _BOTO3_AVAILABLE:
             raise ImportError(
-                "boto3 is required for S3 logging: pip install airlock[s3]"
+                "boto3 is required for S3 logging: pip install airlock-llm[s3]"
             )
         self._client = boto3.client("s3")
         return self._client

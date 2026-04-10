@@ -3,12 +3,43 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "airlock"
-version = "0.1.0"
+name = "airlock-llm"
+version = "0.1.1"
 description = "Enterprise LLM proxy built on LiteLLM — logging, guardrails, and unified access for AI coding tools."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
+authors = [{ name = "Corey Thompson" }]
+keywords = [
+    "llm",
+    "proxy",
+    "litellm",
+    "guardrails",
+    "pii",
+    "observability",
+    "ai",
+    "openai",
+    "anthropic",
+    "mcp",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: Proxy Servers",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Logging",
+]
+
 dependencies = [
     "litellm[proxy]>=1.55.0,!=1.82.7,!=1.82.8",
     "presidio-analyzer>=2.2.0",
@@ -32,6 +63,21 @@ test = [
     "fastapi>=0.100.0",
     "prometheus-client>=0.20.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/coreyt/airlock"
+Repository = "https://github.com/coreyt/airlock"
+Issues = "https://github.com/coreyt/airlock/issues"
+Changelog = "https://github.com/coreyt/airlock/blob/main/CHANGELOG.md"
+
+[tool.ruff.lint.per-file-ignores]
+# Optional / conditional imports must follow runtime gates.
+"airlock/callbacks/metrics.py" = ["E402"]    # prometheus_client import after try/except
+"airlock/callbacks/s3_logger.py" = ["E402"]  # boto3 import after try/except
+"airlock/callbacks/sql_logger.py" = ["E402"] # sqlalchemy import after try/except
+"airlock/callbacks/tracing.py" = ["E402"]    # opentelemetry import after try/except
+"airlock/fast/monitor.py" = ["E402"]         # _infer_provider isolated to break import cycle
+"airlock/guardrails/semantic.py" = ["E402"]  # litellm import after sys.modules.setdefault shim
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

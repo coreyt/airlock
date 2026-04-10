@@ -62,6 +62,14 @@ def test_status_unreachable_exits_1(capsys) -> None:
 def test_status_defaults_to_localhost_4000(capsys, monkeypatch) -> None:
     monkeypatch.delenv("AIRLOCK_HOST", raising=False)
     monkeypatch.delenv("AIRLOCK_PORT", raising=False)
+
+    # Force the probe to fail regardless of whether something is actually
+    # listening on localhost:4000 in the test environment.
+    def _boom(*_args, **_kwargs):
+        raise OSError("simulated unreachable")
+
+    monkeypatch.setattr("airlock.cli.status_cmd.urllib.request.urlopen", _boom)
+
     with pytest.raises(SystemExit) as exc_info:
         run(Namespace(host=None, port=None))
     assert exc_info.value.code == 1

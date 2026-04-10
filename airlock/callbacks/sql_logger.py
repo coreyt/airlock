@@ -35,7 +35,7 @@ def _get_table() -> Any:
     """Define the airlock_logs table schema."""
     if not _SA_AVAILABLE:
         raise ImportError(
-            "sqlalchemy is required for SQL logging: pip install airlock[sql]"
+            "sqlalchemy is required for SQL logging: pip install airlock-llm[sql]"
         )
 
     metadata = sa.MetaData()
@@ -75,7 +75,7 @@ class AirlockSQLLogger(CustomLogger):
             return
         if not _SA_AVAILABLE:
             raise ImportError(
-                "sqlalchemy is required for SQL logging: pip install airlock[sql]"
+                "sqlalchemy is required for SQL logging: pip install airlock-llm[sql]"
             )
         if not self._url:
             logger.warning("AIRLOCK_SQL_URL not set, SQL logging disabled")

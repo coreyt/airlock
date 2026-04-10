@@ -339,7 +339,7 @@ keeps secrets out of the config file and source control.
 │  │                                    │  │
 │  │  python:3.12-slim                  │  │
 │  │  + spaCy en_core_web_lg           │  │
-│  │  + pip install airlock[all]       │  │
+│  │  + pip install airlock-llm[all]   │  │
 │  │                                    │  │
 │  │  CMD: python -m airlock.proxy      │  │
 │  │                                    │  │

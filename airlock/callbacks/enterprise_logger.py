@@ -466,7 +466,7 @@ def _patch_lowest_cost_none_guard() -> None:
                 kwargs["litellm_params"] = {}
             return await _orig(self, kwargs, response_obj, start_time, end_time)
 
-        LowestCostLoggingHandler.async_log_success_event = _safe_async_log_success
+        LowestCostLoggingHandler.async_log_success_event = _safe_async_log_success  # type: ignore[method-assign]
     except Exception:
         logger.warning("lowest_cost_none_guard patch failed", exc_info=True)
 

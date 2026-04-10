@@ -40,21 +40,31 @@ Airlock sits between your developers and LLM providers, giving you visibility an
 
 ## Getting started
 
-### Quick setup
+### Install from PyPI
 
 ```bash
-git clone <repo-url> && cd airlock
+pip install airlock-llm
+python -m spacy download en_core_web_lg   # required for PII redaction
+airlock init
+```
+
+`airlock init` generates `config.yaml`, `.env`, and a `logs/` directory in the
+current working directory.
+
+### Install from source (quick setup)
+
+```bash
+git clone https://github.com/coreyt/airlock && cd airlock
 ./scripts/setup.sh
 ```
 
 This installs Airlock and its dependencies, downloads the spaCy model for PII
-redaction, and runs `airlock init` to generate `config.yaml`, `.env`, and a
-`logs/` directory. Pass `--pip` to use pip instead of uv.
+redaction, and runs `airlock init`. Pass `--pip` to use pip instead of uv.
 
 ### Developer setup
 
 ```bash
-git clone <repo-url> && cd airlock
+git clone https://github.com/coreyt/airlock && cd airlock
 ./scripts/setup-dev.sh
 ```
 
@@ -181,7 +191,7 @@ The model will appear in the TUI Basic Chat screen for interactive testing and c
 | `ANTHROPIC_API_KEY` | Anthropic API key | — |
 | `OPENAI_API_KEY` | OpenAI API key | — |
 | `AIRLOCK_MASTER_KEY` | Master key for admin endpoints | — |
-| `AIRLOCK_HOST` | Bind address | `0.0.0.0` |
+| `AIRLOCK_HOST` | Bind address (set to `0.0.0.0` to expose externally) | `127.0.0.1` |
 | `AIRLOCK_PORT` | Listen port | `4000` |
 | `AIRLOCK_LOG_DIR` | Directory for JSONL log files | `./logs` |
 | `AIRLOCK_MAX_LOG_DAYS` | Days to retain log files before cleanup | `30` |

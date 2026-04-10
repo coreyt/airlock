@@ -53,6 +53,7 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
+    needs: [test]
     steps:
       - uses: actions/checkout@v4
 
@@ -67,7 +68,9 @@ jobs:
       - name: Install dependencies and linters
         run: |
           uv sync --extra test
-          uv pip install ruff mypy
+          # Pin linter versions so CI is reproducible and a new ruff/mypy
+          # release can't silently turn the build red on an unrelated PR.
+          uv pip install "ruff==0.15.9" "mypy==1.20.0"
 
       - name: Ruff check
         run: uv run ruff check airlock/ tests/
@@ -80,6 +83,7 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
+    needs: [test]
     steps:
       - uses: actions/checkout@v4
 
@@ -88,6 +92,7 @@ jobs:
 
   security:
     runs-on: ubuntu-latest
+    needs: [test]
     steps:
       - uses: actions/checkout@v4
 
@@ -102,5 +107,5 @@ jobs:
       - name: Install and audit
         run: |
           uv sync
-          uv pip install pip-audit
+          uv pip install "pip-audit==2.7.3"
           uv run pip-audit

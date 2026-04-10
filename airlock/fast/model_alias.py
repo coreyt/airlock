@@ -20,7 +20,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 logger = logging.getLogger("airlock.fast.model_alias")
 

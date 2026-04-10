@@ -106,7 +106,10 @@ class TestMain:
         monkeypatch.delenv("AIRLOCK_PORT", raising=False)
 
         mock_result = MagicMock(returncode=0)
+        # Stub out load_dotenv so a developer's local .env doesn't reintroduce
+        # AIRLOCK_HOST/AIRLOCK_PORT and shadow the in-code default we're testing.
         with (
+            patch("airlock.proxy.load_dotenv", lambda *a, **k: None),
             patch("airlock.proxy.subprocess.run", return_value=mock_result) as mock_run,
             patch("airlock.proxy.fetch_live_provider_models", return_value=[]),
             pytest.raises(SystemExit),
@@ -114,7 +117,7 @@ class TestMain:
             main()
 
         cmd = mock_run.call_args[0][0]
-        assert cmd[cmd.index("--host") + 1] == "0.0.0.0"
+        assert cmd[cmd.index("--host") + 1] == "127.0.0.1"
         assert cmd[cmd.index("--port") + 1] == "4000"
 
     def test_main_calls_load_dotenv(self, config_file, monkeypatch):

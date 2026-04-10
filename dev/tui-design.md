@@ -446,7 +446,7 @@ HTTP probes for remote monitoring.
 | `pyyaml` | Config read/write | Yes |
 | `python-dotenv` | .env read/write | Yes |
 
-Single new dependency. Install via `pip install airlock[tui]` optional extra.
+Single new dependency. Install via `pip install airlock-llm[tui]` optional extra.
 
 ---
 

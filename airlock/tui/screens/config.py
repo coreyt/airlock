@@ -245,7 +245,7 @@ class ConfigPane(Vertical):
                 with VerticalScroll(classes="config-form"):
                     yield Label("Host")
                     yield Input(
-                        value=os.getenv("AIRLOCK_HOST", "0.0.0.0"),
+                        value=os.getenv("AIRLOCK_HOST", "127.0.0.1"),
                         id="cfg-host",
                     )
                     yield Label("Port")

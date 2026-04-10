@@ -571,7 +571,7 @@ class TestPane(Vertical):
     @work(exclusive=True, thread=True, group="chat-send")
     def _do_send(self, model: str, query_text: str, params: dict) -> None:
         """Send the chat completion request on a worker thread."""
-        host = os.getenv("AIRLOCK_HOST", "0.0.0.0")
+        host = os.getenv("AIRLOCK_HOST", "127.0.0.1")
         port = os.getenv("AIRLOCK_PORT", "4000")
         master_key = os.getenv("AIRLOCK_MASTER_KEY", "")
 

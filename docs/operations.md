@@ -65,7 +65,7 @@ Use systemd or supervisord for process management. See the systemd unit example 
 | `AIRLOCK_MASTER_KEY` | Yes | — | Authentication key for all clients. Must be >=16 chars. |
 | `ANTHROPIC_API_KEY` | Per provider | — | Anthropic API key |
 | `OPENAI_API_KEY` | Per provider | — | OpenAI API key |
-| `AIRLOCK_HOST` | No | `0.0.0.0` | Bind address |
+| `AIRLOCK_HOST` | No | `127.0.0.1` | Bind address. Set to `0.0.0.0` for Docker/Kubernetes or to expose externally. |
 | `AIRLOCK_PORT` | No | `4000` | Listen port |
 | `AIRLOCK_LOG_DIR` | No | `./logs` | JSONL log directory |
 | `AIRLOCK_MAX_LOG_DAYS` | No | `30` | Days to retain log files |
@@ -129,8 +129,8 @@ Each line contains: timestamp, model, user, team, request_id, messages, response
 
 For production, ship logs to your SIEM:
 
-- **S3**: Install with `pip install airlock[s3]` and add the S3 callback to `config.yaml`
-- **SQL**: Install with `pip install airlock[sql]` for database logging
+- **S3**: Install with `pip install airlock-llm[s3]` and add the S3 callback to `config.yaml`
+- **SQL**: Install with `pip install airlock-llm[sql]` for database logging
 - **Filebeat/Fluentd**: Point at the `logs/` directory for the JSONL files
 
 ### Offline Analysis
@@ -144,7 +144,7 @@ airlock analyze --days 7     # last 7 days
 
 ### Prometheus Metrics
 
-Install with `pip install airlock[metrics]` and add the metrics callback:
+Install with `pip install airlock-llm[metrics]` and add the metrics callback:
 
 ```yaml
 litellm_settings:
@@ -165,7 +165,7 @@ Exposed metrics:
 
 ### OpenTelemetry Tracing
 
-Install with `pip install airlock[tracing]` and add the tracing callback. Set `AIRLOCK_OTEL_SERVICE_NAME` to identify the service in your trace backend.
+Install with `pip install airlock-llm[tracing]` and add the tracing callback. Set `AIRLOCK_OTEL_SERVICE_NAME` to identify the service in your trace backend.
 
 ### TUI Dashboard
 

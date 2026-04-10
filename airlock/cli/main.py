@@ -83,7 +83,7 @@ def main(argv: list[str] | None = None) -> None:
     start_parser.add_argument(
         "--host",
         default=None,
-        help="Bind address (default: AIRLOCK_HOST or 0.0.0.0).",
+        help="Bind address (default: AIRLOCK_HOST or 127.0.0.1).",
     )
     start_parser.add_argument(
         "--port",

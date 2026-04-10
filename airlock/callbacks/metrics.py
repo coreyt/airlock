@@ -4,7 +4,7 @@ Airlock Metrics — Prometheus metrics callback for LiteLLM.
 Exposes counters and histograms for request volume, latency, PII
 redactions, keyword blocks, circuit breaker state, and threat blocks.
 
-Requires: pip install airlock[metrics]
+Requires: pip install airlock-llm[metrics]
     (prometheus-client>=0.20.0)
 
 The metrics are exposed via the default Prometheus registry and can be

@@ -512,19 +512,35 @@ class GuardsPane(VerticalScroll):
                     if entry is None:
                         continue
 
-                    # Only take entries newer than what we've seen
-                    if entry.timestamp <= self._last_seen_ts:
+                    # Use strict < (not <=) so a burst of entries sharing the
+                    # same timestamp isn't dropped after the first one.  We
+                    # dedupe by request_id below to handle the rare case where
+                    # a re-seek (e.g. after a transient OSError) replays the
+                    # boundary entry.
+                    if entry.timestamp < self._last_seen_ts:
                         continue
 
                     new_entries.append(entry)
-                    self._total_seen += 1
-                    if entry.would_block:
-                        self._would_block_count += 1
 
                 self._last_file_pos = f.tell()
 
             if not new_entries:
                 return
+
+            # Drop any entries we've already shown (request_id dedupe).
+            seen_ids = {e.request_id for e in self._entries if e.request_id != "-"}
+            new_entries = [
+                e
+                for e in new_entries
+                if e.request_id == "-" or e.request_id not in seen_ids
+            ]
+            if not new_entries:
+                return
+
+            for entry in new_entries:
+                self._total_seen += 1
+                if entry.would_block:
+                    self._would_block_count += 1
 
             # Sort newest first
             new_entries.sort(key=lambda e: e.timestamp, reverse=True)
