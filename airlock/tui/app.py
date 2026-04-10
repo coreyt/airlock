@@ -20,6 +20,7 @@ from airlock.tui.screens.config import ConfigPane
 from airlock.tui.screens.guards import GuardsPane
 from airlock.tui.screens.logs import LogsPane
 from airlock.tui.screens.overview import OverviewPane
+from airlock.tui.screens.advisor import AdvisorPane
 from airlock.tui.screens.test import TestPane
 from airlock.tui.widgets.tab_bar import TabBar
 
@@ -31,6 +32,7 @@ _VIEWS = [
     ("logs", "Logs"),
     ("config", "Config"),
     ("test", "Test"),
+    ("advisor", "Advisor"),
 ]
 
 
@@ -47,6 +49,7 @@ class AirlockApp(App):
         ("3", "switch_view('logs')", "Logs"),
         ("4", "switch_view('config')", "Config"),
         ("5", "switch_view('test')", "Test"),
+        ("6", "switch_view('advisor')", "Advisor"),
         ("q", "quit", "Quit"),
     ]
 
@@ -90,6 +93,7 @@ class AirlockApp(App):
                 id="config",
             )
             yield TestPane(id="test")
+            yield AdvisorPane(id="advisor")
         yield Footer()
 
     def on_mount(self) -> None:
