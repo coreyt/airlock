@@ -5,6 +5,10 @@ import time
 import datetime
 
 from airlock.advisor.tools import (
+    _historical_stats,
+    _redact,
+    get_analysis_report,
+    get_circuit_health,
     get_state_snapshot,
     get_recent_errors,
     get_config,
@@ -406,3 +410,101 @@ def test_tool_registry_complete():
         assert isinstance(schema, dict)
         assert "type" in schema
         assert "description" in schema
+
+
+# ---------------------------------------------------------------------------
+# 9. _historical_stats
+# ---------------------------------------------------------------------------
+
+
+def test_historical_stats_basic():
+    """Populated records return correct totals and error breakdown."""
+    records = [
+        {"model": "gpt-4o", "success": True, "duration_ms": 200},
+        {
+            "model": "gpt-4o",
+            "success": False,
+            "error_type": "TimeoutError",
+            "duration_ms": 100,
+        },
+        {
+            "model": "gpt-4o",
+            "success": False,
+            "error_type": "RateLimitError",
+            "duration_ms": 300,
+        },
+        {"model": "claude-sonnet", "success": True, "duration_ms": 400},
+    ]
+    result = _historical_stats(records, "model", "gpt-4o")
+    assert result["total_requests"] == 3
+    assert result["total_errors"] == 2
+    assert result["successes"] == 1
+    assert result["error_rate"] == 2 / 3
+    assert result["error_types"] == {"TimeoutError": 1, "RateLimitError": 1}
+
+
+def test_historical_stats_empty():
+    """Empty records list returns all zeros."""
+    result = _historical_stats([], "model", "gpt-4o")
+    assert result["total_requests"] == 0
+    assert result["total_errors"] == 0
+    assert result["successes"] == 0
+    assert result["error_rate"] == 0.0
+    assert result["error_types"] == {}
+
+
+def test_historical_stats_no_match():
+    """Records exist but none match the filter."""
+    records = [
+        {"model": "claude-sonnet", "success": True},
+    ]
+    result = _historical_stats(records, "model", "gpt-4o")
+    assert result["total_requests"] == 0
+    assert result["total_errors"] == 0
+    assert result["error_rate"] == 0.0
+    assert result["error_types"] == {}
+
+
+# ---------------------------------------------------------------------------
+# 10. _redact
+# ---------------------------------------------------------------------------
+
+
+def test_redact_nested():
+    """Nested dict has sensitive keys redacted, safe keys preserved."""
+    data = {"outer": {"api_key": "secret", "name": "safe"}}
+    result = _redact(data)
+    assert result["outer"]["api_key"] == "***REDACTED***"
+    assert result["outer"]["name"] == "safe"
+
+
+def test_redact_list_of_dicts():
+    """List of dicts has sensitive keys redacted, safe keys preserved."""
+    data = [{"key": "x"}, {"name": "y"}]
+    result = _redact(data)
+    assert result[0]["key"] == "***REDACTED***"
+    assert result[1]["name"] == "y"
+
+
+# ---------------------------------------------------------------------------
+# 11. get_circuit_health
+# ---------------------------------------------------------------------------
+
+
+def test_get_circuit_health_returns_dict(fresh_state_store):
+    """get_circuit_health returns dict with status and circuits keys."""
+    result = get_circuit_health(fresh_state_store)
+    assert isinstance(result, dict)
+    assert "status" in result
+    assert "circuits" in result
+
+
+# ---------------------------------------------------------------------------
+# 12. get_analysis_report
+# ---------------------------------------------------------------------------
+
+
+def test_get_analysis_report_returns_dict(populated_log_dir):
+    """get_analysis_report returns a dict (may have error key if deps missing)."""
+    result = get_analysis_report(days=7)
+    assert isinstance(result, dict)
