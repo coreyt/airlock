@@ -27,8 +27,8 @@ logger = logging.getLogger("airlock.fast.model_alias")
 # ---------------------------------------------------------------------------
 # Scoring thresholds
 # ---------------------------------------------------------------------------
-_AUTO_ROUTE_THRESHOLD = 0.50   # route silently at DEBUG
-_WARN_THRESHOLD = 0.35         # route with WARNING (fuzzy)
+_AUTO_ROUTE_THRESHOLD = 0.50  # route silently at DEBUG
+_WARN_THRESHOLD = 0.35  # route with WARNING (fuzzy)
 # Below _WARN_THRESHOLD: no match — let LiteLLM return its 400
 
 # Trailing qualifiers stripped first (latest, preview and anything after)
@@ -83,7 +83,7 @@ def _strip_version(name: str) -> str:
     while True:
         m = _TRAILING_DIGITS_RE.search(result)
         if m:
-            result = result[:m.start()]
+            result = result[: m.start()]
         else:
             break
     return result.rstrip("-_/ ")
@@ -102,8 +102,9 @@ def _strip_provider_prefix(name: str) -> str:
 @dataclass
 class _AliasEntry:
     """Metadata for a single configured model."""
-    alias: str            # config model_name: "claude-sonnet"
-    provider_model: str   # litellm_params.model: "anthropic/claude-sonnet-4-20250514"
+
+    alias: str  # config model_name: "claude-sonnet"
+    provider_model: str  # litellm_params.model: "anthropic/claude-sonnet-4-20250514"
     provider: str | None  # inferred: "anthropic"
     tokens: set[str] = field(default_factory=set)
     family_core: str = ""  # version-stripped alias
@@ -161,7 +162,9 @@ def _score_match(query: str, entry: _AliasEntry) -> float:
 
     # --- Signal 5: Provider affinity ---
     query_provider = _infer_provider(query_lower)
-    provider_match = 1.0 if (query_provider and query_provider == entry.provider) else 0.0
+    provider_match = (
+        1.0 if (query_provider and query_provider == entry.provider) else 0.0
+    )
 
     # --- Composite ---
     # Weights tuned for model naming patterns:
@@ -271,7 +274,8 @@ class ModelAliasTable:
         for entry in self._entries:
             # Collect all exact keys that map to this alias
             variants = sorted(
-                k for k, v in self._exact.items()
+                k
+                for k, v in self._exact.items()
                 if v == entry.alias and k != entry.alias.lower()
             )
             variant_str = ", ".join(variants) if variants else "(no variants)"
@@ -320,18 +324,24 @@ class ModelAliasTable:
             if best_score >= _AUTO_ROUTE_THRESHOLD:
                 logger.debug(
                     "model_alias_resolved %s -> %s (score=%.3f)",
-                    model_name, best_alias, best_score,
+                    model_name,
+                    best_alias,
+                    best_score,
                 )
             else:
                 logger.warning(
                     "model_alias_fuzzy %s -> %s (score=%.3f, below auto threshold)",
-                    model_name, best_alias, best_score,
+                    model_name,
+                    best_alias,
+                    best_score,
                 )
             return best_alias
 
         logger.debug(
             "model_alias_no_match %s (best=%s score=%.3f)",
-            model_name, best_alias, best_score,
+            model_name,
+            best_alias,
+            best_score,
         )
         return None
 

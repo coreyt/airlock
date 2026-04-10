@@ -176,6 +176,8 @@ sql = [
     { name = "sqlalchemy" },
 ]
 test = [
+    { name = "fastapi" },
+    { name = "prometheus-client" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -191,6 +193,7 @@ tui = [
 [package.metadata]
 requires-dist = [
     { name = "boto3", marker = "extra == 's3'", specifier = ">=1.34.0" },
+    { name = "fastapi", marker = "extra == 'test'", specifier = ">=0.100.0" },
     { name = "litellm", extras = ["proxy"], specifier = ">=1.55.0,!=1.82.7,!=1.82.8" },
     { name = "newscatcher-catchall-sdk", marker = "extra == 'search'", specifier = ">=1.0.0" },
     { name = "opentelemetry-api", marker = "extra == 'tracing'", specifier = ">=1.20.0" },
@@ -198,6 +201,7 @@ requires-dist = [
     { name = "presidio-analyzer", specifier = ">=2.2.0" },
     { name = "presidio-anonymizer", specifier = ">=2.2.0" },
     { name = "prometheus-client", marker = "extra == 'metrics'", specifier = ">=0.20.0" },
+    { name = "prometheus-client", marker = "extra == 'test'", specifier = ">=0.20.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.23" },
     { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=5.0" },

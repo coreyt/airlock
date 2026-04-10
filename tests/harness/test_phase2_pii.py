@@ -27,10 +27,13 @@ def pii_guard():
 
 
 class TestPIIRedaction:
-
     async def test_email_redacted(
-        self, pii_guard, mock_cache, mock_user_api_key_dict,
-        reset_presidio_singletons, presidio_available,
+        self,
+        pii_guard,
+        mock_cache,
+        mock_user_api_key_dict,
+        reset_presidio_singletons,
+        presidio_available,
     ):
         if not presidio_available:
             pytest.skip("Presidio not installed")
@@ -45,8 +48,12 @@ class TestPIIRedaction:
         assert "<EMAIL_ADDRESS_1>" in str(result["messages"])
 
     async def test_credit_card_redacted(
-        self, pii_guard, mock_cache, mock_user_api_key_dict,
-        reset_presidio_singletons, presidio_available,
+        self,
+        pii_guard,
+        mock_cache,
+        mock_user_api_key_dict,
+        reset_presidio_singletons,
+        presidio_available,
     ):
         if not presidio_available:
             pytest.skip("Presidio not installed")
@@ -60,13 +67,19 @@ class TestPIIRedaction:
         assert "4111111111111111" not in str(result["messages"])
 
     async def test_phone_redacted(
-        self, pii_guard, mock_cache, mock_user_api_key_dict,
-        reset_presidio_singletons, presidio_available,
+        self,
+        pii_guard,
+        mock_cache,
+        mock_user_api_key_dict,
+        reset_presidio_singletons,
+        presidio_available,
     ):
         if not presidio_available:
             pytest.skip("Presidio not installed")
         data = {
-            "messages": [{"role": "user", "content": "My phone number is 212-555-1234"}],
+            "messages": [
+                {"role": "user", "content": "My phone number is 212-555-1234"}
+            ],
             "model": "claude-sonnet",
         }
         result = await pii_guard.async_pre_call_hook(
@@ -76,14 +89,21 @@ class TestPIIRedaction:
         assert result is not None
 
     async def test_multiple_pii_types(
-        self, pii_guard, mock_cache, mock_user_api_key_dict,
-        reset_presidio_singletons, presidio_available,
+        self,
+        pii_guard,
+        mock_cache,
+        mock_user_api_key_dict,
+        reset_presidio_singletons,
+        presidio_available,
     ):
         if not presidio_available:
             pytest.skip("Presidio not installed")
         data = {
             "messages": [
-                {"role": "user", "content": "Card 4111111111111111 email alice@company.com"}
+                {
+                    "role": "user",
+                    "content": "Card 4111111111111111 email alice@company.com",
+                }
             ],
             "model": "claude-sonnet",
         }
@@ -95,8 +115,12 @@ class TestPIIRedaction:
         assert "alice@company.com" not in content
 
     async def test_safe_text_unchanged(
-        self, pii_guard, mock_cache, mock_user_api_key_dict,
-        reset_presidio_singletons, presidio_available,
+        self,
+        pii_guard,
+        mock_cache,
+        mock_user_api_key_dict,
+        reset_presidio_singletons,
+        presidio_available,
     ):
         if not presidio_available:
             pytest.skip("Presidio not installed")
@@ -110,8 +134,12 @@ class TestPIIRedaction:
         assert result["messages"][0]["content"] == "What is the capital of France?"
 
     async def test_redaction_does_not_block(
-        self, pii_guard, mock_cache, mock_user_api_key_dict,
-        reset_presidio_singletons, presidio_available,
+        self,
+        pii_guard,
+        mock_cache,
+        mock_user_api_key_dict,
+        reset_presidio_singletons,
+        presidio_available,
     ):
         if not presidio_available:
             pytest.skip("Presidio not installed")
@@ -125,8 +153,12 @@ class TestPIIRedaction:
         assert result is not None
 
     async def test_multipart_content_redacted(
-        self, pii_guard, mock_cache, mock_user_api_key_dict,
-        reset_presidio_singletons, presidio_available,
+        self,
+        pii_guard,
+        mock_cache,
+        mock_user_api_key_dict,
+        reset_presidio_singletons,
+        presidio_available,
     ):
         if not presidio_available:
             pytest.skip("Presidio not installed")
@@ -147,8 +179,12 @@ class TestPIIRedaction:
         assert "4111111111111111" not in str(result["messages"])
 
     async def test_multipart_image_url_preserved(
-        self, pii_guard, mock_cache, mock_user_api_key_dict,
-        reset_presidio_singletons, presidio_available,
+        self,
+        pii_guard,
+        mock_cache,
+        mock_user_api_key_dict,
+        reset_presidio_singletons,
+        presidio_available,
     ):
         if not presidio_available:
             pytest.skip("Presidio not installed")
@@ -157,7 +193,10 @@ class TestPIIRedaction:
                 {
                     "role": "user",
                     "content": [
-                        {"type": "image_url", "image_url": {"url": "https://example.com/img.png"}},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "https://example.com/img.png"},
+                        },
                         {"type": "text", "text": "What is this?"},
                     ],
                 }
@@ -173,8 +212,13 @@ class TestPIIRedaction:
         assert image_parts[0]["image_url"]["url"] == "https://example.com/img.png"
 
     async def test_custom_entity_config(
-        self, pii_guard, mock_cache, mock_user_api_key_dict,
-        reset_presidio_singletons, presidio_available, monkeypatch,
+        self,
+        pii_guard,
+        mock_cache,
+        mock_user_api_key_dict,
+        reset_presidio_singletons,
+        presidio_available,
+        monkeypatch,
     ):
         if not presidio_available:
             pytest.skip("Presidio not installed")
@@ -189,8 +233,12 @@ class TestPIIRedaction:
         assert "alice@company.com" not in str(result["messages"])
 
     async def test_mcp_args_recursively_scrubbed(
-        self, pii_guard, mock_cache, mock_user_api_key_dict,
-        reset_presidio_singletons, presidio_available,
+        self,
+        pii_guard,
+        mock_cache,
+        mock_user_api_key_dict,
+        reset_presidio_singletons,
+        presidio_available,
     ):
         if not presidio_available:
             pytest.skip("Presidio not installed")
@@ -213,7 +261,9 @@ def _make_tool_call(name: str, arguments: dict) -> SimpleNamespace:
     )
 
 
-def _make_response(content: str | None = None, tool_calls: list | None = None) -> SimpleNamespace:
+def _make_response(
+    content: str | None = None, tool_calls: list | None = None
+) -> SimpleNamespace:
     return SimpleNamespace(
         choices=[
             SimpleNamespace(
@@ -227,16 +277,21 @@ def _make_response(content: str | None = None, tool_calls: list | None = None) -
 # G — Round-trip integration tests (redact → model → hydrate)
 # ---------------------------------------------------------------------------
 class TestPIIHydrationRoundTrip:
-
     async def test_single_email_round_trip(
-        self, pii_guard, mock_cache, mock_user_api_key_dict,
-        reset_presidio_singletons, presidio_available,
+        self,
+        pii_guard,
+        mock_cache,
+        mock_user_api_key_dict,
+        reset_presidio_singletons,
+        presidio_available,
     ):
         """G1: email redacted outbound, hydrated inbound in tool-call args."""
         if not presidio_available:
             pytest.skip("Presidio not installed")
         data = {
-            "messages": [{"role": "user", "content": "search gmail for alice@company.com"}],
+            "messages": [
+                {"role": "user", "content": "search gmail for alice@company.com"}
+            ],
             "model": "claude-sonnet",
         }
         data = await pii_guard.async_pre_call_hook(
@@ -246,7 +301,9 @@ class TestPIIHydrationRoundTrip:
         pii_map = data["metadata"]["airlock_pii_map"]
 
         # Simulate model returning a tool call with the placeholder
-        placeholder = next(ph for ph, orig in pii_map.items() if orig == "alice@company.com")
+        placeholder = next(
+            ph for ph, orig in pii_map.items() if orig == "alice@company.com"
+        )
         tc = _make_tool_call("gmail_search", {"from_address": placeholder})
         response = _make_response(tool_calls=[tc])
 
@@ -257,15 +314,22 @@ class TestPIIHydrationRoundTrip:
         assert args["from_address"] == "alice@company.com"
 
     async def test_multiple_entity_types_round_trip(
-        self, pii_guard, mock_cache, mock_user_api_key_dict,
-        reset_presidio_singletons, presidio_available,
+        self,
+        pii_guard,
+        mock_cache,
+        mock_user_api_key_dict,
+        reset_presidio_singletons,
+        presidio_available,
     ):
         """G2: email + credit card redacted, both hydrated in separate tool calls."""
         if not presidio_available:
             pytest.skip("Presidio not installed")
         data = {
             "messages": [
-                {"role": "user", "content": "Card 4111111111111111 email alice@company.com"},
+                {
+                    "role": "user",
+                    "content": "Card 4111111111111111 email alice@company.com",
+                },
             ],
             "model": "claude-sonnet",
         }
@@ -277,7 +341,9 @@ class TestPIIHydrationRoundTrip:
         assert "alice@company.com" not in content
 
         pii_map = data["metadata"]["airlock_pii_map"]
-        email_ph = next(ph for ph, orig in pii_map.items() if orig == "alice@company.com")
+        email_ph = next(
+            ph for ph, orig in pii_map.items() if orig == "alice@company.com"
+        )
         cc_ph = next(ph for ph, orig in pii_map.items() if orig == "4111111111111111")
 
         tc1 = _make_tool_call("send_email", {"to": email_ph})
@@ -293,8 +359,12 @@ class TestPIIHydrationRoundTrip:
         assert args2["card"] == "4111111111111111"
 
     async def test_mcp_round_trip(
-        self, pii_guard, mock_cache, mock_user_api_key_dict,
-        reset_presidio_singletons, presidio_available,
+        self,
+        pii_guard,
+        mock_cache,
+        mock_user_api_key_dict,
+        reset_presidio_singletons,
+        presidio_available,
     ):
         """G3: MCP arguments redacted, placeholder hydrated on return."""
         if not presidio_available:
@@ -321,8 +391,12 @@ class TestPIIHydrationRoundTrip:
         assert args["from"] == "alice@company.com"
 
     async def test_no_pii_passes_through(
-        self, pii_guard, mock_cache, mock_user_api_key_dict,
-        reset_presidio_singletons, presidio_available,
+        self,
+        pii_guard,
+        mock_cache,
+        mock_user_api_key_dict,
+        reset_presidio_singletons,
+        presidio_available,
     ):
         """G4: no PII means no mapping, response passes through unchanged."""
         if not presidio_available:
@@ -350,10 +424,13 @@ class TestPIIHydrationRoundTrip:
 # F — Privacy boundary verification
 # ---------------------------------------------------------------------------
 class TestPIIPrivacyBoundary:
-
     async def test_outbound_still_redacted(
-        self, pii_guard, mock_cache, mock_user_api_key_dict,
-        reset_presidio_singletons, presidio_available,
+        self,
+        pii_guard,
+        mock_cache,
+        mock_user_api_key_dict,
+        reset_presidio_singletons,
+        presidio_available,
     ):
         """F1: after pre-call, messages contain only placeholders."""
         if not presidio_available:
@@ -369,8 +446,13 @@ class TestPIIPrivacyBoundary:
         assert "<EMAIL_ADDRESS_1>" in str(result["messages"])
 
     async def test_redaction_logs_no_raw_values(
-        self, pii_guard, mock_cache, mock_user_api_key_dict,
-        reset_presidio_singletons, presidio_available, caplog,
+        self,
+        pii_guard,
+        mock_cache,
+        mock_user_api_key_dict,
+        reset_presidio_singletons,
+        presidio_available,
+        caplog,
     ):
         """F2: pre-call log contains entity types and counts, not raw PII."""
         if not presidio_available:
@@ -388,7 +470,10 @@ class TestPIIPrivacyBoundary:
         assert "alice@company.com" not in caplog.text
 
     async def test_hydration_logs_no_raw_values(
-        self, pii_guard, mock_user_api_key_dict, caplog,
+        self,
+        pii_guard,
+        mock_user_api_key_dict,
+        caplog,
     ):
         """F3: post-call log contains hydration count, not restored values."""
         data = {

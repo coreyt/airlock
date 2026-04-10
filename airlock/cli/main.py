@@ -156,7 +156,8 @@ def main(argv: list[str] | None = None) -> None:
         help="Output raw JSON instead of formatted text.",
     )
     analyze_parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         type=str,
         default=None,
         help="Write report to file instead of stdout.",
@@ -315,8 +316,7 @@ def main(argv: list[str] | None = None) -> None:
         env_path = config_path.parent / ".env"
         if not env_path.is_file():
             print(
-                f"Warning: .env not found at {env_path} — "
-                "proceeding without it.",
+                f"Warning: .env not found at {env_path} — proceeding without it.",
                 file=sys.stderr,
             )
 

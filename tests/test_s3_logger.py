@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -64,9 +64,7 @@ class TestS3Logger:
         self, s3_logger, mock_logger_kwargs, mock_response_obj, mock_start_end_times
     ):
         start, end = mock_start_end_times
-        s3_logger.log_success_event(
-            mock_logger_kwargs, mock_response_obj, start, end
-        )
+        s3_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
         assert len(s3_logger._buffer) == 1
         s3_logger._client.put_object.assert_not_called()
 
@@ -85,9 +83,7 @@ class TestS3Logger:
         self, s3_logger, mock_logger_kwargs, mock_response_obj, mock_start_end_times
     ):
         start, end = mock_start_end_times
-        s3_logger.log_success_event(
-            mock_logger_kwargs, mock_response_obj, start, end
-        )
+        s3_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
         s3_logger._flush()
 
         call_kwargs = s3_logger._client.put_object.call_args
@@ -103,9 +99,7 @@ class TestS3Logger:
         self, s3_logger, mock_logger_kwargs, mock_response_obj, mock_start_end_times
     ):
         start, end = mock_start_end_times
-        s3_logger.log_success_event(
-            mock_logger_kwargs, mock_response_obj, start, end
-        )
+        s3_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
         s3_logger._flush()
 
         key = s3_logger._client.put_object.call_args.kwargs["Key"]
@@ -129,7 +123,9 @@ class TestS3Logger:
         assert len(s3_logger._buffer) == 1
         assert s3_logger._buffer[0]["success"] is False
 
-    def test_no_bucket_discards(self, monkeypatch, mock_logger_kwargs, mock_response_obj, mock_start_end_times):
+    def test_no_bucket_discards(
+        self, monkeypatch, mock_logger_kwargs, mock_response_obj, mock_start_end_times
+    ):
         monkeypatch.setenv("AIRLOCK_S3_BATCH", "1")
         logger = AirlockS3Logger()
         logger._client = MagicMock()
@@ -153,9 +149,7 @@ class TestS3Logger:
     ):
         start, end = mock_start_end_times
         s3_logger._client.put_object.side_effect = Exception("S3 unreachable")
-        s3_logger.log_success_event(
-            mock_logger_kwargs, mock_response_obj, start, end
-        )
+        s3_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
         # Should not raise
         s3_logger._flush()
 
@@ -213,4 +207,5 @@ class TestS3GracefulDegradation:
     def test_module_loads_without_boto3(self):
         """Module imports fine even without boto3."""
         import airlock.callbacks.s3_logger as mod
+
         assert hasattr(mod, "AirlockS3Logger")

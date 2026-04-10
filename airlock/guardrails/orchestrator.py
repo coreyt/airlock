@@ -72,9 +72,7 @@ def _invalidate_knobs_cache() -> None:
         _cached_knobs_ts = 0.0
 
 
-def evaluate(
-    signals: list[GuardrailSignal], knobs: GuardrailKnobs
-) -> float:
+def evaluate(signals: list[GuardrailSignal], knobs: GuardrailKnobs) -> float:
     """Compute weighted average composite score."""
     total_weight = 0.0
     weighted_sum = 0.0
@@ -120,9 +118,7 @@ class AirlockOrchestrator(CustomGuardrail):
                 would_block=would_block,
                 orchestrator_version=knobs.version,
             )
-            data.setdefault("metadata", {})["airlock_observation"] = asdict(
-                observation
-            )
+            data.setdefault("metadata", {})["airlock_observation"] = asdict(observation)
 
             if would_block:
                 logger.info(

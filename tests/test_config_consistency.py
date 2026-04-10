@@ -17,7 +17,13 @@ import yaml
 # Fixtures
 # ---------------------------------------------------------------------------
 
-_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "airlock" / "cli" / "templates" / "config.yaml"
+_TEMPLATE_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "airlock"
+    / "cli"
+    / "templates"
+    / "config.yaml"
+)
 
 
 @pytest.fixture(scope="module")
@@ -89,7 +95,9 @@ class TestModelListEntries:
         for i, entry in enumerate(model_entries):
             params = entry.get("litellm_params", {})
             model = params.get("model", "")
-            assert model, f"model_list[{i}] ({entry.get('model_name')}) has empty model string"
+            assert model, (
+                f"model_list[{i}] ({entry.get('model_name')}) has empty model string"
+            )
 
     def test_every_model_has_provider_prefix(self, model_entries):
         """model string should be provider/model-id format."""
@@ -165,9 +173,11 @@ class TestFallbackConsistency:
 class TestBudgetConsistency:
     """Provider budget entries should match configured providers."""
 
-    def test_budget_providers_are_configured(self, template_config, configured_providers):
-        budget_config = (
-            template_config.get("router_settings", {}).get("provider_budget_config", {})
+    def test_budget_providers_are_configured(
+        self, template_config, configured_providers
+    ):
+        budget_config = template_config.get("router_settings", {}).get(
+            "provider_budget_config", {}
         )
         for provider in budget_config:
             assert provider in configured_providers, (
@@ -175,11 +185,13 @@ class TestBudgetConsistency:
             )
 
     def test_budget_entries_have_required_fields(self, template_config):
-        budget_config = (
-            template_config.get("router_settings", {}).get("provider_budget_config", {})
+        budget_config = template_config.get("router_settings", {}).get(
+            "provider_budget_config", {}
         )
         for provider, cfg in budget_config.items():
-            assert "budget_limit" in cfg, f"Budget for '{provider}' missing budget_limit"
+            assert "budget_limit" in cfg, (
+                f"Budget for '{provider}' missing budget_limit"
+            )
             assert "time_period" in cfg, f"Budget for '{provider}' missing time_period"
             assert isinstance(cfg["budget_limit"], (int, float)), (
                 f"Budget for '{provider}' budget_limit is not numeric"
@@ -231,9 +243,7 @@ class TestAliasTableCoverage:
         table.load_from_config(_TEMPLATE_PATH)
         for name in model_names:
             resolved = table.resolve(name)
-            assert resolved is not None, (
-                f"Model alias table cannot resolve '{name}'"
-            )
+            assert resolved is not None, f"Model alias table cannot resolve '{name}'"
 
     @pytest.mark.xfail(
         reason="gemini-3.1-pro collides with gemini-3.1-pro-tools in version-stripped index",
@@ -366,7 +376,9 @@ class TestPostCheckRegistration:
 class TestCustomProviderMap:
     """Custom providers in litellm_settings should have matching model entries."""
 
-    def test_custom_providers_have_model_entries(self, template_config, configured_providers):
+    def test_custom_providers_have_model_entries(
+        self, template_config, configured_providers
+    ):
         custom_map = (
             template_config.get("litellm_settings", {}).get("custom_provider_map") or []
         )

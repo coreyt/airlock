@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import sys
-from io import StringIO
 from unittest.mock import patch
 
 import pytest
@@ -149,8 +147,12 @@ class TestFormatText:
                 ],
             ),
             summary={
-                "total_requests": 100, "successful": 95, "failed": 5,
-                "error_rate": 0.05, "active_users": 10, "total_tokens": 50000,
+                "total_requests": 100,
+                "successful": 95,
+                "failed": 5,
+                "error_rate": 0.05,
+                "active_users": 10,
+                "total_tokens": 50000,
                 "models_used": {"claude-sonnet": 100},
             },
         )
@@ -173,8 +175,12 @@ class TestFormatText:
             total_requests=100,
             semantic_insights=None,
             summary={
-                "total_requests": 100, "successful": 100, "failed": 0,
-                "error_rate": 0, "active_users": 5, "total_tokens": 50000,
+                "total_requests": 100,
+                "successful": 100,
+                "failed": 0,
+                "error_rate": 0,
+                "active_users": 5,
+                "total_tokens": 50000,
                 "models_used": {"gpt-4o": 100},
             },
         )

@@ -38,7 +38,7 @@ async def test_app_has_bindings(app) -> None:
 
 async def test_app_composes_all_panes() -> None:
     app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
+    async with app.run_test(size=(120, 40)) as _pilot:
         # Tab bar exists (no sidebar)
         tab_bar = app.query_one("#tab-bar")
         assert tab_bar is not None
@@ -93,7 +93,7 @@ async def test_tab_bar_navigation() -> None:
 
 async def test_overview_has_widgets() -> None:
     app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
+    async with app.run_test(size=(120, 40)) as _pilot:
         # Proxy status indicator
         indicator = app.query_one("#ov-proxy-indicator")
         assert indicator is not None
@@ -113,16 +113,21 @@ async def test_overview_has_widgets() -> None:
 
 async def test_overview_has_start_button() -> None:
     app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
+    async with app.run_test(size=(120, 40)) as _pilot:
         btn = app.query_one("#ov-proxy-btn", Button)
         assert btn is not None
-        valid_labels = {"Checking...", "Start Proxy", "Stop Proxy", "Running Externally"}
+        valid_labels = {
+            "Checking...",
+            "Start Proxy",
+            "Stop Proxy",
+            "Running Externally",
+        }
         assert btn.label.plain in valid_labels
 
 
 async def test_overview_has_console_log() -> None:
     app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
+    async with app.run_test(size=(120, 40)) as _pilot:
         from textual.widgets import Collapsible, RichLog
 
         collapsible = app.query_one("#ov-console-collapsible", Collapsible)
@@ -318,6 +323,7 @@ def test_alert_engine_evaluate() -> None:
     # evaluate with the real (empty) store should not crash
     try:
         from airlock.fast.state import store
+
         engine.evaluate(store)
     except ImportError:
         pass  # state module may not be available in all test envs
@@ -453,7 +459,12 @@ async def test_flow_signal_rendering() -> None:
                 "duration_ms": 0.2,
             },
         ],
-        enforcement={"mode": "shadow", "should_block": True, "threshold": 0.5, "composite_score": 0.4},
+        enforcement={
+            "mode": "shadow",
+            "should_block": True,
+            "threshold": 0.5,
+            "composite_score": 0.4,
+        },
         raw_observation={},
         raw_record={},
     )
@@ -478,9 +489,20 @@ async def test_flow_pipeline_rendering() -> None:
         would_block=False,
         orchestrator_version="v1",
         signals=[
-            {"guardrail_name": "pii_scan", "detected": False, "score": 0.0, "details": {}, "duration_ms": 0.5},
+            {
+                "guardrail_name": "pii_scan",
+                "detected": False,
+                "score": 0.0,
+                "details": {},
+                "duration_ms": 0.5,
+            },
         ],
-        enforcement={"mode": "shadow", "should_block": False, "threshold": 0.5, "composite_score": 0.4},
+        enforcement={
+            "mode": "shadow",
+            "should_block": False,
+            "threshold": 0.5,
+            "composite_score": 0.4,
+        },
         raw_observation={},
         raw_record={},
     )
@@ -585,7 +607,7 @@ async def test_overview_provider_filter_toggle() -> None:
 
 async def test_overview_status_line_exists() -> None:
     app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
+    async with app.run_test(size=(120, 40)) as _pilot:
         status_line = app.query_one("#ov-status-line")
         assert status_line is not None
 
@@ -761,7 +783,7 @@ async def test_tab_bar_activate() -> None:
     from airlock.tui.widgets.tab_bar import TabBar
 
     app = AirlockApp()
-    async with app.run_test(size=(120, 40)) as pilot:
+    async with app.run_test(size=(120, 40)) as _pilot:
         tab_bar = app.query_one("#tab-bar", TabBar)
         assert tab_bar._active == "overview"
 
@@ -880,15 +902,17 @@ def test_alert_engine_cooldown() -> None:
     def _always_fire(store):
         nonlocal fired_count
         fired_count += 1
-        return [Alert(
-            rule_name="always_fire",
-            severity="info",
-            title=f"Fired #{fired_count}",
-            detail="Always fires",
-            entity_type="model",
-            entity_id=f"entity-{fired_count}",
-            timestamp=_time.time(),
-        )]
+        return [
+            Alert(
+                rule_name="always_fire",
+                severity="info",
+                title=f"Fired #{fired_count}",
+                detail="Always fires",
+                entity_type="model",
+                entity_id=f"entity-{fired_count}",
+                timestamp=_time.time(),
+            )
+        ]
 
     engine = AlertEngine()
     engine.rules = [

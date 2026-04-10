@@ -20,8 +20,8 @@ from enum import Enum
 # ---------------------------------------------------------------------------
 # Tuning constants
 # ---------------------------------------------------------------------------
-WINDOW_SECONDS = 300        # default sliding-window duration (5 min)
-MAX_SAMPLES = 1000          # cap per deque to bound memory
+WINDOW_SECONDS = 300  # default sliding-window duration (5 min)
+MAX_SAMPLES = 1000  # cap per deque to bound memory
 NO_CLIENT_ID = "no_client"
 CLIENT_PROVIDER_COOLDOWN_SECONDS = 300.0
 PROVIDER_QUARANTINE_SECONDS = 300.0
@@ -31,9 +31,10 @@ PROVIDER_ESCALATION_CLIENT_THRESHOLD = 2
 
 class CircuitState(Enum):
     """Model health states (classic circuit-breaker pattern)."""
-    CLOSED = "closed"           # healthy — requests flow normally
-    OPEN = "open"               # broken — requests should failover
-    HALF_OPEN = "half_open"     # probing — one test request allowed
+
+    CLOSED = "closed"  # healthy — requests flow normally
+    OPEN = "open"  # broken — requests should failover
+    HALF_OPEN = "half_open"  # probing — one test request allowed
 
 
 def normalize_client_id(client_id: str | None) -> str:
@@ -56,7 +57,7 @@ class ClientState:
     successes: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     gemini_outcomes: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     threat_score: float = 0.0
-    backoff_until: float = 0.0      # unix ts; 0 → no backoff
+    backoff_until: float = 0.0  # unix ts; 0 → no backoff
 
     # -- writers --------------------------------------------------------
 
@@ -94,7 +95,9 @@ class ClientState:
         total = errors + successes
         return errors / total if total > 0 else 0.0
 
-    def recent_avg_latency(self, window_seconds: float = WINDOW_SECONDS) -> float | None:
+    def recent_avg_latency(
+        self, window_seconds: float = WINDOW_SECONDS
+    ) -> float | None:
         cutoff = time.time() - window_seconds
         recent = [lat for t, lat in self.latencies_ms if t > cutoff]
         return sum(recent) / len(recent) if recent else None
@@ -282,7 +285,8 @@ class ProviderState:
         return errors / total if total > 0 else 0.0
 
     def impacted_clients(
-        self, window_seconds: float = PROVIDER_ESCALATION_WINDOW_SECONDS,
+        self,
+        window_seconds: float = PROVIDER_ESCALATION_WINDOW_SECONDS,
     ) -> set[str]:
         cutoff = time.time() - window_seconds
         return {client_id for ts, client_id in self.rate_limit_events if ts > cutoff}
@@ -325,7 +329,9 @@ class McpToolState:
     def record_failure(self, timestamp: float) -> None:
         self.failure_times.append(timestamp)
 
-    def recent_avg_latency(self, window_seconds: float = WINDOW_SECONDS) -> float | None:
+    def recent_avg_latency(
+        self, window_seconds: float = WINDOW_SECONDS
+    ) -> float | None:
         cutoff = time.time() - window_seconds
         recent = [lat for t, lat in self.latencies_ms if t > cutoff]
         return sum(recent) / len(recent) if recent else None
@@ -339,9 +345,8 @@ class McpToolState:
 
     def recent_call_count(self, window_seconds: float = WINDOW_SECONDS) -> int:
         cutoff = time.time() - window_seconds
-        return (
-            sum(1 for t in self.success_times if t > cutoff)
-            + sum(1 for t in self.failure_times if t > cutoff)
+        return sum(1 for t in self.success_times if t > cutoff) + sum(
+            1 for t in self.failure_times if t > cutoff
         )
 
 
@@ -350,11 +355,12 @@ class McpToolState:
 # ---------------------------------------------------------------------------
 class McpServerHealth(Enum):
     """MCP server health states."""
-    UNKNOWN = "unknown"         # never probed
-    HEALTHY = "healthy"         # last probe succeeded
-    UNHEALTHY = "unhealthy"     # last probe failed
-    STARTING = "starting"       # managed server launching
-    STOPPED = "stopped"         # managed server not running
+
+    UNKNOWN = "unknown"  # never probed
+    HEALTHY = "healthy"  # last probe succeeded
+    UNHEALTHY = "unhealthy"  # last probe failed
+    STARTING = "starting"  # managed server launching
+    STOPPED = "stopped"  # managed server not running
 
 
 @dataclass
@@ -362,21 +368,24 @@ class McpServerState:
     """Tracks an MCP server's health and lifecycle."""
 
     name: str
-    transport: str = ""                   # "sse", "http", "stdio"
+    transport: str = ""  # "sse", "http", "stdio"
     url: str = ""
     is_managed: bool = False
     health: McpServerHealth = McpServerHealth.UNKNOWN
     last_health_check: float = 0.0
     last_health_latency_ms: float = 0.0
     consecutive_failures: int = 0
-    started_at: float = 0.0               # unix ts; 0 = not started by Airlock
-    pid: int = 0                          # PID of managed process; 0 = none
+    started_at: float = 0.0  # unix ts; 0 = not started by Airlock
+    pid: int = 0  # PID of managed process; 0 = none
     health_history: deque = field(
         default_factory=lambda: deque(maxlen=50),
     )
 
     def record_health_check(
-        self, timestamp: float, healthy: bool, latency_ms: float,
+        self,
+        timestamp: float,
+        healthy: bool,
+        latency_ms: float,
     ) -> None:
         self.last_health_check = timestamp
         self.last_health_latency_ms = latency_ms
@@ -419,9 +428,9 @@ class ModelState:
     _half_open_admitted: bool = False  # gate: only one probe in half-open
 
     # Thresholds (class-level defaults)
-    FAILURE_THRESHOLD: int = 5          # consecutive failures → open
-    RECOVERY_TIMEOUT: float = 30.0      # seconds before half-open probe
-    SUCCESS_THRESHOLD: int = 3          # half-open successes → close
+    FAILURE_THRESHOLD: int = 5  # consecutive failures → open
+    RECOVERY_TIMEOUT: float = 30.0  # seconds before half-open probe
+    SUCCESS_THRESHOLD: int = 3  # half-open successes → close
 
     def record_success(self, timestamp: float, latency_ms: float) -> None:
         self.success_times.append(timestamp)
@@ -430,9 +439,7 @@ class ModelState:
 
         if self.circuit == CircuitState.HALF_OPEN:
             self._half_open_admitted = False
-            recent_ok = sum(
-                1 for t in self.success_times if t > self.last_state_change
-            )
+            recent_ok = sum(1 for t in self.success_times if t > self.last_state_change)
             if recent_ok >= self.SUCCESS_THRESHOLD:
                 self.circuit = CircuitState.CLOSED
                 self.last_state_change = timestamp
@@ -458,7 +465,7 @@ class ModelState:
                 self.circuit = CircuitState.HALF_OPEN
                 self.last_state_change = time.time()
                 self._half_open_admitted = True
-                return True          # allow a single probe
+                return True  # allow a single probe
             return False
         # HALF_OPEN → only allow if no probe is already in flight
         if not self._half_open_admitted:
@@ -466,7 +473,9 @@ class ModelState:
             return True
         return False
 
-    def recent_avg_latency(self, window_seconds: float = WINDOW_SECONDS) -> float | None:
+    def recent_avg_latency(
+        self, window_seconds: float = WINDOW_SECONDS
+    ) -> float | None:
         cutoff = time.time() - window_seconds
         recent = [lat for t, lat in self.latencies_ms if t > cutoff]
         return sum(recent) / len(recent) if recent else None
@@ -568,17 +577,23 @@ class StateStore:
         with self._lock:
             return dict(self._client_provider)
 
-    def record_provider_request(self, client_id: str, provider: str, timestamp: float) -> None:
+    def record_provider_request(
+        self, client_id: str, provider: str, timestamp: float
+    ) -> None:
         with self._lock:
             self.get_provider(provider).record_request(timestamp)
             self.get_client_provider(client_id, provider).record_request(timestamp)
 
-    def record_provider_success(self, client_id: str, provider: str, timestamp: float) -> None:
+    def record_provider_success(
+        self, client_id: str, provider: str, timestamp: float
+    ) -> None:
         with self._lock:
             self.get_provider(provider).record_success(timestamp)
             self.get_client_provider(client_id, provider).record_success(timestamp)
 
-    def record_provider_failure(self, client_id: str, provider: str, timestamp: float) -> None:
+    def record_provider_failure(
+        self, client_id: str, provider: str, timestamp: float
+    ) -> None:
         with self._lock:
             self.get_provider(provider).record_failure(timestamp)
             self.get_client_provider(client_id, provider).record_failure(timestamp)
@@ -608,8 +623,12 @@ class StateStore:
             return {
                 "client_quarantined": True,
                 "provider_quarantined": provider_quarantined,
-                "client_cooldown_seconds": client_provider.cooldown_remaining(timestamp),
-                "provider_cooldown_seconds": provider_state.cooldown_remaining(timestamp),
+                "client_cooldown_seconds": client_provider.cooldown_remaining(
+                    timestamp
+                ),
+                "provider_cooldown_seconds": provider_state.cooldown_remaining(
+                    timestamp
+                ),
                 "impacted_clients": len(impacted_clients),
             }
 
@@ -653,7 +672,8 @@ class StateStore:
         with self._lock:
             if key not in self._mcp_tools:
                 self._mcp_tools[key] = McpToolState(
-                    tool_name=tool_name, server_name=server_name,
+                    tool_name=tool_name,
+                    server_name=server_name,
                 )
             return self._mcp_tools[key]
 
@@ -683,7 +703,6 @@ class StateStore:
                 self._models[model_name] = ModelState(model_name=model_name)
             return self._models[model_name].should_allow_request()
 
-
     # -- JSONL log ingestion (for TUI cross-process visibility) ---------------
 
     def ingest_jsonl_record(self, record: dict) -> None:
@@ -702,7 +721,7 @@ class StateStore:
 
         # Parse ISO timestamp to epoch
         try:
-            from datetime import datetime, timezone
+            from datetime import datetime
 
             dt = datetime.fromisoformat(ts_str)
             now = dt.timestamp()
@@ -737,10 +756,19 @@ class StateStore:
                     self.record_provider_failure(client_id, provider, now)
 
                 protection = record.get("airlock_provider_protection") or {}
-                if protection.get("action") in {"client_quarantine", "provider_quarantine"}:
-                    reason = protection.get("reason") or record.get("error") or "rate_limited"
+                if protection.get("action") in {
+                    "client_quarantine",
+                    "provider_quarantine",
+                }:
+                    reason = (
+                        protection.get("reason")
+                        or record.get("error")
+                        or "rate_limited"
+                    )
                     error_type = record.get("error_type") or "RateLimitError"
-                    self.record_provider_rate_limit(client_id, provider, now, reason, error_type)
+                    self.record_provider_rate_limit(
+                        client_id, provider, now, reason, error_type
+                    )
 
                 gemini_response = record.get("airlock_gemini_response") or {}
                 gemini_request = record.get("airlock_gemini") or {}
@@ -792,6 +820,7 @@ def checkpoint_state(state_store: StateStore, path: str) -> None:
             json.dump(data, f)
     except OSError:
         import logging
+
         logging.getLogger("airlock.fast.state").error(
             "Failed to checkpoint circuit breaker state", exc_info=True
         )
@@ -835,6 +864,7 @@ store = StateStore()
 # ---------------------------------------------------------------------------
 # JSONL log tailer for TUI cross-process state sync
 # ---------------------------------------------------------------------------
+
 
 def tail_jsonl(
     log_dir: str,

@@ -14,9 +14,11 @@ pytestmark = pytest.mark.harness
 
 
 class TestSuccessRecord:
-
     def test_all_fields_present(
-        self, mock_logger_kwargs, mock_response_obj, mock_start_end_times,
+        self,
+        mock_logger_kwargs,
+        mock_response_obj,
+        mock_start_end_times,
     ):
         from airlock.callbacks.enterprise_logger import AirlockLogger
 
@@ -25,15 +27,26 @@ class TestSuccessRecord:
             mock_logger_kwargs, mock_response_obj, start, end, success=True
         )
         required = [
-            "timestamp", "success", "model", "user", "request_id",
-            "prompt_tokens", "completion_tokens", "total_tokens",
-            "duration_ms", "start_time", "end_time",
+            "timestamp",
+            "success",
+            "model",
+            "user",
+            "request_id",
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+            "duration_ms",
+            "start_time",
+            "end_time",
         ]
         for field in required:
             assert field in record, f"Missing field: {field}"
 
     def test_success_flag(
-        self, mock_logger_kwargs, mock_response_obj, mock_start_end_times,
+        self,
+        mock_logger_kwargs,
+        mock_response_obj,
+        mock_start_end_times,
     ):
         from airlock.callbacks.enterprise_logger import AirlockLogger
 
@@ -45,9 +58,10 @@ class TestSuccessRecord:
 
 
 class TestFailureRecord:
-
     def test_has_error(
-        self, mock_failure_kwargs, mock_start_end_times,
+        self,
+        mock_failure_kwargs,
+        mock_start_end_times,
     ):
         from airlock.callbacks.enterprise_logger import AirlockLogger
 
@@ -60,7 +74,6 @@ class TestFailureRecord:
 
 
 class TestLogFileNaming:
-
     def test_log_file_naming(self, harness_log_dir):
         from airlock.callbacks.enterprise_logger import _write_log
 
@@ -71,9 +84,9 @@ class TestLogFileNaming:
 
 
 class TestMCPLogging:
-
     def test_mcp_call_type_logged(
-        self, mock_start_end_times,
+        self,
+        mock_start_end_times,
     ):
         from airlock.callbacks.enterprise_logger import AirlockLogger
 
@@ -91,7 +104,8 @@ class TestMCPLogging:
         assert record.get("call_type") == "call_mcp_tool"
 
     def test_mcp_tool_name_logged(
-        self, mock_start_end_times,
+        self,
+        mock_start_end_times,
     ):
         from airlock.callbacks.enterprise_logger import AirlockLogger
 
@@ -108,7 +122,8 @@ class TestMCPLogging:
         assert record.get("mcp_tool_name") == "read_file"
 
     def test_mcp_server_name_logged(
-        self, mock_start_end_times,
+        self,
+        mock_start_end_times,
     ):
         from airlock.callbacks.enterprise_logger import AirlockLogger
 
@@ -127,9 +142,9 @@ class TestMCPLogging:
 
 
 class TestGuardrailMetadata:
-
     def test_pii_metadata_in_log(
-        self, mock_start_end_times,
+        self,
+        mock_start_end_times,
     ):
         from airlock.callbacks.enterprise_logger import AirlockLogger
 
@@ -148,7 +163,8 @@ class TestGuardrailMetadata:
         assert "airlock_pii_redacted" in record
 
     def test_enforcement_metadata(
-        self, mock_start_end_times,
+        self,
+        mock_start_end_times,
     ):
         from airlock.callbacks.enterprise_logger import AirlockLogger
 
@@ -167,7 +183,8 @@ class TestGuardrailMetadata:
         assert "airlock_enforcement" in record
 
     def test_observation_metadata(
-        self, mock_start_end_times,
+        self,
+        mock_start_end_times,
     ):
         from airlock.callbacks.enterprise_logger import AirlockLogger
 
@@ -187,7 +204,6 @@ class TestGuardrailMetadata:
 
 
 class TestSerialization:
-
     def test_all_lines_valid_json(self, harness_log_dir):
         from airlock.callbacks.enterprise_logger import _write_log
 

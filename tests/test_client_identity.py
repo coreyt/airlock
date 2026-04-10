@@ -7,7 +7,6 @@ import urllib.request
 import pytest
 
 from airlock.client_identity import (
-    AIRLOCK_CLIENT_HEADER,
     add_airlock_client_header,
     extract_airlock_client_from_headers,
     extract_airlock_client_from_kwargs,
@@ -70,17 +69,23 @@ class TestExtractAirlockClientFromHeaders:
     def test_returns_none_for_empty(self):
         assert extract_airlock_client_from_headers({}) is None
 
-    @pytest.mark.parametrize("key", [
-        "x-airlock-client",
-        "X-Airlock-Client",
-        "airlock-client",
-    ])
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "x-airlock-client",
+            "X-Airlock-Client",
+            "airlock-client",
+        ],
+    )
     def test_finds_all_header_candidates(self, key):
         headers = {key: "found-it"}
         assert extract_airlock_client_from_headers(headers) == "found-it"
 
     def test_strips_whitespace(self):
-        assert extract_airlock_client_from_headers({"x-airlock-client": "  app  "}) == "app"
+        assert (
+            extract_airlock_client_from_headers({"x-airlock-client": "  app  "})
+            == "app"
+        )
 
 
 # ===================================================================

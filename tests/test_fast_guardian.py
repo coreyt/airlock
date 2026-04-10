@@ -14,7 +14,6 @@ from airlock.fast.guardian import (
     _request_client_id,
 )
 from airlock.guardrails.extract import extract_text_from_messages as _extract_text
-from airlock.fast.state import CircuitState
 
 
 # ---------------------------------------------------------------------------
@@ -265,7 +264,12 @@ class TestGuardianPreCallHook:
             )
 
     async def test_pinned_quarantined_provider_writes_precall_block_record(
-        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict, monkeypatch
+        self,
+        guardian,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
+        monkeypatch,
     ):
         client_id = _extract_client_id(mock_user_api_key_dict)
         now = time.time()
@@ -315,7 +319,10 @@ class TestGuardianPreCallHook:
             mock_user_api_key_dict, mock_cache, data, "completion"
         )
         assert result["model"] != "claude-sonnet"
-        assert result["metadata"]["airlock_model_override"]["final_model"] == result["model"]
+        assert (
+            result["metadata"]["airlock_model_override"]["final_model"]
+            == result["model"]
+        )
         assert (
             result["metadata"]["airlock_response_headers"]["X-Airlock-Model-Override"]
             == result["model"]

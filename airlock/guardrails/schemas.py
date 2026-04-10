@@ -18,10 +18,10 @@ from dataclasses import dataclass, field
 class GuardrailSignal:
     """Output of a single guardrail scan for one request."""
 
-    guardrail_name: str      # "pii_scan" | "keyword_scan" | "threat_read"
+    guardrail_name: str  # "pii_scan" | "keyword_scan" | "threat_read"
     detected: bool
-    score: float             # 0.0 (clean) → 1.0 (certain violation)
-    details: dict            # guardrail-specific payload
+    score: float  # 0.0 (clean) → 1.0 (certain violation)
+    details: dict  # guardrail-specific payload
     duration_ms: float
 
 
@@ -42,9 +42,9 @@ class GuardrailObservation:
 class GuardrailKnobs:
     """Analyzer-tuned weights and thresholds for guardrail evaluation."""
 
-    version: str                                # ISO timestamp of last update
-    weights: dict[str, float]                   # guardrail_name → weight
-    threshold: float                            # composite score → would_block
+    version: str  # ISO timestamp of last update
+    weights: dict[str, float]  # guardrail_name → weight
+    threshold: float  # composite score → would_block
     per_guardrail: dict[str, dict] = field(default_factory=dict)
 
 

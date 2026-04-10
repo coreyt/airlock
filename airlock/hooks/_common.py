@@ -39,7 +39,9 @@ def respond_json(data: dict) -> None:
     raise SystemExit(0)
 
 
-def probe_health(host: str, port: str, timeout: int = 3, *, client: str = "hook") -> bool:
+def probe_health(
+    host: str, port: str, timeout: int = 3, *, client: str = "hook"
+) -> bool:
     """Check if the Airlock proxy is reachable."""
     # 0.0.0.0 is a bind address, not connectable — probe via loopback
     probe_host = "127.0.0.1" if host == "0.0.0.0" else host

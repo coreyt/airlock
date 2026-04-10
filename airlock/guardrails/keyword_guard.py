@@ -26,9 +26,7 @@ logger = logging.getLogger("airlock.guardrails.keyword")
 
 
 # Zero-width characters that can be used to bypass keyword matching
-_ZERO_WIDTH_RE = re.compile(
-    "[\u200b\u200c\u200d\u2060\ufeff]"
-)
+_ZERO_WIDTH_RE = re.compile("[\u200b\u200c\u200d\u2060\ufeff]")
 
 
 def _normalize_text(text: str) -> str:
@@ -91,8 +89,8 @@ class AirlockKeywordGuard(CustomGuardrail):
             if kw in text:
                 logger.warning("keyword_blocked keyword=%r", kw)
                 raise ValueError(
-                    f"This prompt contains restricted content and has been blocked by Airlock. "
-                    f"Please remove any references to restricted terms and try again."
+                    "This prompt contains restricted content and has been blocked by Airlock. "
+                    "Please remove any references to restricted terms and try again."
                 )
 
         return data

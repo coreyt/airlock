@@ -17,7 +17,9 @@ class TestApplyGeminiRequestSemantics:
         result = apply_gemini_request_semantics(data, provider="gemini")
         assert result["reasoning_effort"] == "disable"
         assert result["metadata"]["airlock_gemini"]["mode"] == "text_only"
-        assert result["metadata"]["airlock_gemini"]["mapping_source"] == "airlock_semantic"
+        assert (
+            result["metadata"]["airlock_gemini"]["mapping_source"] == "airlock_semantic"
+        )
 
     def test_explicit_controls_win(self):
         data = {
@@ -28,7 +30,9 @@ class TestApplyGeminiRequestSemantics:
         }
         result = apply_gemini_request_semantics(data, provider="gemini")
         assert result["reasoning_effort"] == "high"
-        assert result["metadata"]["airlock_gemini"]["mapping_source"] == "client_explicit"
+        assert (
+            result["metadata"]["airlock_gemini"]["mapping_source"] == "client_explicit"
+        )
         assert "warnings" in result["metadata"]["airlock_gemini"]
 
 
@@ -36,7 +40,9 @@ class TestClassifyGeminiResponseBody:
     def test_classifies_thought_only_success(self):
         body = {
             "choices": [{"message": {"content": None}, "finish_reason": "length"}],
-            "usage": {"completion_tokens_details": {"reasoning_tokens": 8, "text_tokens": 0}},
+            "usage": {
+                "completion_tokens_details": {"reasoning_tokens": 8, "text_tokens": 0}
+            },
         }
         result = classify_gemini_response_body(body)
         assert result["output_shape"] == "thought_only"

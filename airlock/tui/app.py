@@ -11,7 +11,6 @@ import threading
 from pathlib import Path
 
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal
 from textual.widgets import ContentSwitcher, Footer, Header
 
 from airlock.tui.alert_engine import AlertEngine
@@ -124,7 +123,7 @@ class AirlockApp(App):
         except ImportError:
             return
 
-        new_alerts = self._alert_engine.evaluate(store)
+        self._alert_engine.evaluate(store)
         active = self._alert_engine.active
 
         # Update badge on tab bar
@@ -137,7 +136,11 @@ class AirlockApp(App):
             for a in active[:20]:
                 if a.acknowledged:
                     continue
-                icon = {"critical": "[red]![/]", "warning": "[yellow]![/]", "info": "[dim]i[/]"}.get(a.severity, "?")
+                icon = {
+                    "critical": "[red]![/]",
+                    "warning": "[yellow]![/]",
+                    "info": "[dim]i[/]",
+                }.get(a.severity, "?")
                 lines.append(f"  {icon} {a.title}")
             text = "\n".join(lines) if lines else "[dim]No alerts[/]"
         else:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import textwrap
 from argparse import Namespace
 from pathlib import Path
@@ -206,7 +205,10 @@ class TestCheckModelList:
     def test_pass_with_models(self):
         config = {
             "model_list": [
-                {"model_name": "claude-sonnet", "litellm_params": {"model": "anthropic/claude-sonnet-4-20250514"}},
+                {
+                    "model_name": "claude-sonnet",
+                    "litellm_params": {"model": "anthropic/claude-sonnet-4-20250514"},
+                },
                 {"model_name": "gpt-4o", "litellm_params": {"model": "openai/gpt-4o"}},
             ]
         }
@@ -251,7 +253,12 @@ class TestCheckProviderKeys:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
         config = {
             "model_list": [
-                {"litellm_params": {"api_key": "os.environ/ANTHROPIC_API_KEY", "model": "anthropic/x"}},
+                {
+                    "litellm_params": {
+                        "api_key": "os.environ/ANTHROPIC_API_KEY",
+                        "model": "anthropic/x",
+                    }
+                },
             ]
         }
         result = check_provider_keys(config, False)
@@ -261,7 +268,12 @@ class TestCheckProviderKeys:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         config = {
             "model_list": [
-                {"litellm_params": {"api_key": "os.environ/ANTHROPIC_API_KEY", "model": "anthropic/x"}},
+                {
+                    "litellm_params": {
+                        "api_key": "os.environ/ANTHROPIC_API_KEY",
+                        "model": "anthropic/x",
+                    }
+                },
             ]
         }
         result = check_provider_keys(config, False)
@@ -276,8 +288,18 @@ class TestCheckProviderKeys:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
         config = {
             "model_list": [
-                {"litellm_params": {"api_key": "os.environ/ANTHROPIC_API_KEY", "model": "anthropic/a"}},
-                {"litellm_params": {"api_key": "os.environ/ANTHROPIC_API_KEY", "model": "anthropic/b"}},
+                {
+                    "litellm_params": {
+                        "api_key": "os.environ/ANTHROPIC_API_KEY",
+                        "model": "anthropic/a",
+                    }
+                },
+                {
+                    "litellm_params": {
+                        "api_key": "os.environ/ANTHROPIC_API_KEY",
+                        "model": "anthropic/b",
+                    }
+                },
             ]
         }
         result = check_provider_keys(config, False)
@@ -295,7 +317,12 @@ class TestCheckProviderAnthropic:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         config = {
             "model_list": [
-                {"litellm_params": {"model": "anthropic/claude", "api_key": "os.environ/ANTHROPIC_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "anthropic/claude",
+                        "api_key": "os.environ/ANTHROPIC_API_KEY",
+                    }
+                },
             ]
         }
         result = check_provider_anthropic(config, False)
@@ -305,11 +332,18 @@ class TestCheckProviderAnthropic:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
         config = {
             "model_list": [
-                {"litellm_params": {"model": "anthropic/claude", "api_key": "os.environ/ANTHROPIC_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "anthropic/claude",
+                        "api_key": "os.environ/ANTHROPIC_API_KEY",
+                    }
+                },
             ]
         }
         mock_resp = mock.MagicMock()
-        with mock.patch("airlock.cli.post_cmd.urllib.request.urlopen", return_value=mock_resp):
+        with mock.patch(
+            "airlock.cli.post_cmd.urllib.request.urlopen", return_value=mock_resp
+        ):
             result = check_provider_anthropic(config, False)
         assert result.status == CheckStatus.PASS
         assert "authenticated" in result.detail
@@ -318,7 +352,12 @@ class TestCheckProviderAnthropic:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-bad")
         config = {
             "model_list": [
-                {"litellm_params": {"model": "anthropic/claude", "api_key": "os.environ/ANTHROPIC_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "anthropic/claude",
+                        "api_key": "os.environ/ANTHROPIC_API_KEY",
+                    }
+                },
             ]
         }
         import urllib.error
@@ -333,7 +372,12 @@ class TestCheckProviderAnthropic:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
         config = {
             "model_list": [
-                {"litellm_params": {"model": "anthropic/claude", "api_key": "os.environ/ANTHROPIC_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "anthropic/claude",
+                        "api_key": "os.environ/ANTHROPIC_API_KEY",
+                    }
+                },
             ]
         }
         import urllib.error
@@ -356,7 +400,12 @@ class TestCheckProviderMistral:
         monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
         config = {
             "model_list": [
-                {"litellm_params": {"model": "mistral/mistral-large-latest", "api_key": "os.environ/MISTRAL_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "mistral/mistral-large-latest",
+                        "api_key": "os.environ/MISTRAL_API_KEY",
+                    }
+                },
             ]
         }
         result = check_provider_mistral(config, False)
@@ -367,11 +416,18 @@ class TestCheckProviderMistral:
         monkeypatch.setenv("MISTRAL_API_KEY", "sk-test")
         config = {
             "model_list": [
-                {"litellm_params": {"model": "mistral/mistral-large-latest", "api_key": "os.environ/MISTRAL_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "mistral/mistral-large-latest",
+                        "api_key": "os.environ/MISTRAL_API_KEY",
+                    }
+                },
             ]
         }
         mock_resp = mock.MagicMock()
-        with mock.patch("airlock.cli.post_cmd.urllib.request.urlopen", return_value=mock_resp):
+        with mock.patch(
+            "airlock.cli.post_cmd.urllib.request.urlopen", return_value=mock_resp
+        ):
             result = check_provider_mistral(config, False)
         assert result.status == CheckStatus.PASS
         assert "authenticated" in result.detail
@@ -380,7 +436,12 @@ class TestCheckProviderMistral:
         monkeypatch.setenv("MISTRAL_API_KEY", "sk-bad")
         config = {
             "model_list": [
-                {"litellm_params": {"model": "mistral/mistral-large-latest", "api_key": "os.environ/MISTRAL_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "mistral/mistral-large-latest",
+                        "api_key": "os.environ/MISTRAL_API_KEY",
+                    }
+                },
             ]
         }
         import urllib.error
@@ -395,7 +456,12 @@ class TestCheckProviderMistral:
         monkeypatch.setenv("MISTRAL_API_KEY", "sk-test")
         config = {
             "model_list": [
-                {"litellm_params": {"model": "mistral/mistral-large-latest", "api_key": "os.environ/MISTRAL_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "mistral/mistral-large-latest",
+                        "api_key": "os.environ/MISTRAL_API_KEY",
+                    }
+                },
             ]
         }
         import urllib.error
@@ -418,7 +484,12 @@ class TestCheckProviderGemini:
         monkeypatch.delenv("GOOGLE_AISTUDIO_API_KEY", raising=False)
         config = {
             "model_list": [
-                {"litellm_params": {"model": "gemini/gemini-2.5-flash", "api_key": "os.environ/GOOGLE_AISTUDIO_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "gemini/gemini-2.5-flash",
+                        "api_key": "os.environ/GOOGLE_AISTUDIO_API_KEY",
+                    }
+                },
             ]
         }
         result = check_provider_gemini(config, False)
@@ -429,11 +500,18 @@ class TestCheckProviderGemini:
         monkeypatch.setenv("GOOGLE_AISTUDIO_API_KEY", "AIza-test")
         config = {
             "model_list": [
-                {"litellm_params": {"model": "gemini/gemini-2.5-flash", "api_key": "os.environ/GOOGLE_AISTUDIO_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "gemini/gemini-2.5-flash",
+                        "api_key": "os.environ/GOOGLE_AISTUDIO_API_KEY",
+                    }
+                },
             ]
         }
         mock_resp = mock.MagicMock()
-        with mock.patch("airlock.cli.post_cmd.urllib.request.urlopen", return_value=mock_resp):
+        with mock.patch(
+            "airlock.cli.post_cmd.urllib.request.urlopen", return_value=mock_resp
+        ):
             result = check_provider_gemini(config, False)
         assert result.status == CheckStatus.PASS
         assert "authenticated" in result.detail
@@ -442,7 +520,12 @@ class TestCheckProviderGemini:
         monkeypatch.setenv("GOOGLE_AISTUDIO_API_KEY", "AIza-bad")
         config = {
             "model_list": [
-                {"litellm_params": {"model": "gemini/gemini-2.5-flash", "api_key": "os.environ/GOOGLE_AISTUDIO_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "gemini/gemini-2.5-flash",
+                        "api_key": "os.environ/GOOGLE_AISTUDIO_API_KEY",
+                    }
+                },
             ]
         }
         import urllib.error
@@ -457,7 +540,12 @@ class TestCheckProviderGemini:
         monkeypatch.setenv("GOOGLE_AISTUDIO_API_KEY", "AIza-test")
         config = {
             "model_list": [
-                {"litellm_params": {"model": "gemini/gemini-2.5-flash", "api_key": "os.environ/GOOGLE_AISTUDIO_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "gemini/gemini-2.5-flash",
+                        "api_key": "os.environ/GOOGLE_AISTUDIO_API_KEY",
+                    }
+                },
             ]
         }
         import urllib.error
@@ -479,11 +567,18 @@ class TestCheckProviderOpenAI:
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
         config = {
             "model_list": [
-                {"litellm_params": {"model": "openai/gpt-4o", "api_key": "os.environ/OPENAI_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "openai/gpt-4o",
+                        "api_key": "os.environ/OPENAI_API_KEY",
+                    }
+                },
             ]
         }
         mock_resp = mock.MagicMock()
-        with mock.patch("airlock.cli.post_cmd.urllib.request.urlopen", return_value=mock_resp):
+        with mock.patch(
+            "airlock.cli.post_cmd.urllib.request.urlopen", return_value=mock_resp
+        ):
             result = check_provider_openai(config, False)
         assert result.status == CheckStatus.PASS
 
@@ -491,7 +586,12 @@ class TestCheckProviderOpenAI:
         monkeypatch.setenv("OPENAI_API_KEY", "sk-bad")
         config = {
             "model_list": [
-                {"litellm_params": {"model": "openai/gpt-4o", "api_key": "os.environ/OPENAI_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "openai/gpt-4o",
+                        "api_key": "os.environ/OPENAI_API_KEY",
+                    }
+                },
             ]
         }
         import urllib.error
@@ -513,7 +613,12 @@ class TestCheckProviderPerplexity:
         monkeypatch.delenv("PERPLEXITY_API_KEY", raising=False)
         config = {
             "model_list": [
-                {"litellm_params": {"model": "perplexity/sonar", "api_key": "os.environ/PERPLEXITY_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "perplexity/sonar",
+                        "api_key": "os.environ/PERPLEXITY_API_KEY",
+                    }
+                },
             ]
         }
         result = check_provider_perplexity(config, False)
@@ -524,11 +629,18 @@ class TestCheckProviderPerplexity:
         monkeypatch.setenv("PERPLEXITY_API_KEY", "pplx-test")
         config = {
             "model_list": [
-                {"litellm_params": {"model": "perplexity/sonar", "api_key": "os.environ/PERPLEXITY_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "perplexity/sonar",
+                        "api_key": "os.environ/PERPLEXITY_API_KEY",
+                    }
+                },
             ]
         }
         mock_resp = mock.MagicMock()
-        with mock.patch("airlock.cli.post_cmd.urllib.request.urlopen", return_value=mock_resp):
+        with mock.patch(
+            "airlock.cli.post_cmd.urllib.request.urlopen", return_value=mock_resp
+        ):
             result = check_provider_perplexity(config, False)
         assert result.status == CheckStatus.PASS
         assert "authenticated" in result.detail
@@ -537,7 +649,12 @@ class TestCheckProviderPerplexity:
         monkeypatch.setenv("PERPLEXITY_API_KEY", "pplx-bad")
         config = {
             "model_list": [
-                {"litellm_params": {"model": "perplexity/sonar", "api_key": "os.environ/PERPLEXITY_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "perplexity/sonar",
+                        "api_key": "os.environ/PERPLEXITY_API_KEY",
+                    }
+                },
             ]
         }
         import urllib.error
@@ -552,7 +669,12 @@ class TestCheckProviderPerplexity:
         monkeypatch.setenv("PERPLEXITY_API_KEY", "pplx-test")
         config = {
             "model_list": [
-                {"litellm_params": {"model": "perplexity/sonar", "api_key": "os.environ/PERPLEXITY_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "perplexity/sonar",
+                        "api_key": "os.environ/PERPLEXITY_API_KEY",
+                    }
+                },
             ]
         }
         import urllib.error
@@ -575,7 +697,12 @@ class TestCheckProviderTavily:
         monkeypatch.delenv("TAVILY_API_KEY", raising=False)
         config = {
             "model_list": [
-                {"litellm_params": {"model": "tavily/web-search", "api_key": "os.environ/TAVILY_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "tavily/web-search",
+                        "api_key": "os.environ/TAVILY_API_KEY",
+                    }
+                },
             ]
         }
         result = check_provider_tavily(config, False)
@@ -586,11 +713,18 @@ class TestCheckProviderTavily:
         monkeypatch.setenv("TAVILY_API_KEY", "tvly-test")
         config = {
             "model_list": [
-                {"litellm_params": {"model": "tavily/web-search", "api_key": "os.environ/TAVILY_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "tavily/web-search",
+                        "api_key": "os.environ/TAVILY_API_KEY",
+                    }
+                },
             ]
         }
         mock_resp = mock.MagicMock()
-        with mock.patch("airlock.cli.post_cmd.urllib.request.urlopen", return_value=mock_resp):
+        with mock.patch(
+            "airlock.cli.post_cmd.urllib.request.urlopen", return_value=mock_resp
+        ):
             result = check_provider_tavily(config, False)
         assert result.status == CheckStatus.PASS
         assert "authenticated" in result.detail
@@ -599,7 +733,12 @@ class TestCheckProviderTavily:
         monkeypatch.setenv("TAVILY_API_KEY", "tvly-bad")
         config = {
             "model_list": [
-                {"litellm_params": {"model": "tavily/web-search", "api_key": "os.environ/TAVILY_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "tavily/web-search",
+                        "api_key": "os.environ/TAVILY_API_KEY",
+                    }
+                },
             ]
         }
         import urllib.error
@@ -614,7 +753,12 @@ class TestCheckProviderTavily:
         monkeypatch.setenv("TAVILY_API_KEY", "tvly-test")
         config = {
             "model_list": [
-                {"litellm_params": {"model": "tavily/web-search", "api_key": "os.environ/TAVILY_API_KEY"}},
+                {
+                    "litellm_params": {
+                        "model": "tavily/web-search",
+                        "api_key": "os.environ/TAVILY_API_KEY",
+                    }
+                },
             ]
         }
         import urllib.error
@@ -636,13 +780,18 @@ class TestCheckProviderNewsCatcher:
     def test_fail_when_sdk_missing(self, monkeypatch):
         monkeypatch.setenv("NEWS_CATCHER_API_KEY", "nc-test")
         with mock.patch.dict("sys.modules", {"newscatcher_catchall": None}):
-            import importlib
             # Force ImportError by patching builtins.__import__
-            original_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
+            original_import = (
+                __builtins__.__import__
+                if hasattr(__builtins__, "__import__")
+                else __import__
+            )
+
             def fake_import(name, *args, **kwargs):
                 if name == "newscatcher_catchall":
                     raise ImportError("No module named 'newscatcher_catchall'")
                 return original_import(name, *args, **kwargs)
+
             with mock.patch("builtins.__import__", side_effect=fake_import):
                 result = check_provider_newscatcher({}, False)
         assert result.status == CheckStatus.FAIL
@@ -702,7 +851,9 @@ class TestCheckS3:
 
     def test_warn_when_boto3_missing(self, monkeypatch):
         monkeypatch.setenv("AIRLOCK_S3_BUCKET", "my-bucket")
-        with mock.patch("builtins.__import__", side_effect=_make_import_blocker("boto3")):
+        with mock.patch(
+            "builtins.__import__", side_effect=_make_import_blocker("boto3")
+        ):
             result = check_s3({}, False)
         assert result.status == CheckStatus.WARN
         assert "boto3" in result.detail
@@ -716,7 +867,9 @@ class TestCheckSQL:
 
     def test_warn_when_sqlalchemy_missing(self, monkeypatch):
         monkeypatch.setenv("AIRLOCK_SQL_URL", "sqlite:///test.db")
-        with mock.patch("builtins.__import__", side_effect=_make_import_blocker("sqlalchemy")):
+        with mock.patch(
+            "builtins.__import__", side_effect=_make_import_blocker("sqlalchemy")
+        ):
             result = check_sql({}, False)
         assert result.status == CheckStatus.WARN
         assert "sqlalchemy" in result.detail
@@ -724,7 +877,9 @@ class TestCheckSQL:
 
 def _make_import_blocker(blocked_module: str):
     """Return an __import__ replacement that blocks a specific module."""
-    real_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
+    real_import = (
+        __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
+    )
 
     def _blocker(name, *args, **kwargs):
         if name == blocked_module:
@@ -749,7 +904,9 @@ class TestCheckPresidio:
         assert result.duration_ms > 0
 
     def test_warn_when_not_installed(self):
-        with mock.patch("builtins.__import__", side_effect=_make_import_blocker("presidio_analyzer")):
+        with mock.patch(
+            "builtins.__import__", side_effect=_make_import_blocker("presidio_analyzer")
+        ):
             result = check_presidio({}, False)
         assert result.status == CheckStatus.WARN
         assert "not available" in result.detail
@@ -876,8 +1033,14 @@ class TestCheckMCPGuardrailHooks:
     def test_mcp_hooks_found(self):
         config = {
             "guardrails": [
-                {"guardrail_name": "pii", "litellm_params": {"mode": ["pre_call", "pre_mcp_call"]}},
-                {"guardrail_name": "semantic", "litellm_params": {"mode": ["during_call", "during_mcp_call"]}},
+                {
+                    "guardrail_name": "pii",
+                    "litellm_params": {"mode": ["pre_call", "pre_mcp_call"]},
+                },
+                {
+                    "guardrail_name": "semantic",
+                    "litellm_params": {"mode": ["during_call", "during_mcp_call"]},
+                },
             ]
         }
         result = check_mcp_guardrail_hooks(config, False)
@@ -887,7 +1050,10 @@ class TestCheckMCPGuardrailHooks:
     def test_bare_string_mcp_mode(self):
         config = {
             "guardrails": [
-                {"guardrail_name": "mcp-guard", "litellm_params": {"mode": "pre_mcp_call"}},
+                {
+                    "guardrail_name": "mcp-guard",
+                    "litellm_params": {"mode": "pre_mcp_call"},
+                },
             ]
         }
         result = check_mcp_guardrail_hooks(config, False)
@@ -902,14 +1068,18 @@ class TestCheckMCPServerHealth:
 
     def test_http_healthy(self):
         config = {"mcp_servers": {"fs": {"url": "http://localhost:3001/sse"}}}
-        with mock.patch("airlock.tui.mcp_manager.probe_http", return_value=(True, 15.0)):
+        with mock.patch(
+            "airlock.tui.mcp_manager.probe_http", return_value=(True, 15.0)
+        ):
             result = check_mcp_server_health(config, False)
         assert result.status == CheckStatus.PASS
         assert "1 server" in result.detail
 
     def test_http_unhealthy(self):
         config = {"mcp_servers": {"fs": {"url": "http://localhost:3001/sse"}}}
-        with mock.patch("airlock.tui.mcp_manager.probe_http", return_value=(False, 5000.0)):
+        with mock.patch(
+            "airlock.tui.mcp_manager.probe_http", return_value=(False, 5000.0)
+        ):
             result = check_mcp_server_health(config, False)
         assert result.status == CheckStatus.WARN
         assert "unreachable" in result.detail
@@ -928,12 +1098,19 @@ class TestCheckMCPServerHealth:
 
     def test_managed_health_url_used(self):
         config = {
-            "mcp_servers": {"ado": {
-                "url": "http://localhost:3003/sse",
-                "airlock_managed": {"health_url": "http://localhost:3003/health", "command": "node"},
-            }}
+            "mcp_servers": {
+                "ado": {
+                    "url": "http://localhost:3003/sse",
+                    "airlock_managed": {
+                        "health_url": "http://localhost:3003/health",
+                        "command": "node",
+                    },
+                }
+            }
         }
-        with mock.patch("airlock.tui.mcp_manager.probe_http", return_value=(True, 5.0)) as m:
+        with mock.patch(
+            "airlock.tui.mcp_manager.probe_http", return_value=(True, 5.0)
+        ) as m:
             result = check_mcp_server_health(config, False)
         # Should use health_url, not sse url
         m.assert_called_once_with("http://localhost:3003/health", timeout=5.0)
@@ -952,10 +1129,12 @@ class TestCheckMCPManagedConfig:
 
     def test_valid_managed(self):
         config = {
-            "mcp_servers": {"ado": {
-                "url": "http://localhost:3003",
-                "airlock_managed": {"command": "node", "cwd": "/tmp"},
-            }}
+            "mcp_servers": {
+                "ado": {
+                    "url": "http://localhost:3003",
+                    "airlock_managed": {"command": "node", "cwd": "/tmp"},
+                }
+            }
         }
         with mock.patch("shutil.which", return_value="/usr/bin/node"):
             result = check_mcp_managed_config(config, False)
@@ -963,9 +1142,11 @@ class TestCheckMCPManagedConfig:
 
     def test_missing_command_warns(self):
         config = {
-            "mcp_servers": {"bad": {
-                "airlock_managed": {"cwd": "/tmp"},
-            }}
+            "mcp_servers": {
+                "bad": {
+                    "airlock_managed": {"cwd": "/tmp"},
+                }
+            }
         }
         result = check_mcp_managed_config(config, False)
         assert result.status == CheckStatus.WARN
@@ -973,9 +1154,11 @@ class TestCheckMCPManagedConfig:
 
     def test_bad_cwd_warns(self):
         config = {
-            "mcp_servers": {"bad": {
-                "airlock_managed": {"command": "node", "cwd": "/nonexistent/xyz"},
-            }}
+            "mcp_servers": {
+                "bad": {
+                    "airlock_managed": {"command": "node", "cwd": "/nonexistent/xyz"},
+                }
+            }
         }
         with mock.patch("shutil.which", return_value="/usr/bin/node"):
             result = check_mcp_managed_config(config, False)
@@ -998,7 +1181,9 @@ class TestRunChecks:
         )
         # Config checks should still run
         config_results = [r for r in results if r.group == "Config"]
-        assert all(r.status != CheckStatus.SKIP or r.name == "env_file" for r in config_results)
+        assert all(
+            r.status != CheckStatus.SKIP or r.name == "env_file" for r in config_results
+        )
 
         # Provider/Storage/Guardrail/MCP checks should be skipped
         skipped = [r for r in results if r.detail == "skipped by flag"]
@@ -1015,8 +1200,11 @@ class TestRunChecks:
         def slow_check(config, verbose):
             time.sleep(5)
             return CheckResult(
-                name="slow", status=CheckStatus.PASS,
-                label="Slow", detail="done", group="Config",
+                name="slow",
+                status=CheckStatus.PASS,
+                label="Slow",
+                detail="done",
+                group="Config",
             )
 
         # Temporarily add a slow check
@@ -1046,13 +1234,51 @@ class TestRunChecks:
 class TestRenderText:
     def _make_results(self) -> list[CheckResult]:
         return [
-            CheckResult("config_file", CheckStatus.PASS, "Config file", "found at ./config.yaml", group="Config"),
-            CheckResult("model_list", CheckStatus.PASS, "Model list", "5 models configured", group="Config"),
-            CheckResult("provider_anthropic", CheckStatus.PASS, "Anthropic API", "authenticated (312ms)", group="Providers"),
-            CheckResult("provider_openai", CheckStatus.FAIL, "OpenAI API", "401 Unauthorized", group="Providers"),
-            CheckResult("log_dir", CheckStatus.PASS, "Log directory", "./logs (writable)", group="Storage"),
-            CheckResult("s3", CheckStatus.SKIP, "S3 bucket", "not configured", group="Storage"),
-            CheckResult("presidio", CheckStatus.WARN, "Presidio PII engine", "not available", group="Guardrails"),
+            CheckResult(
+                "config_file",
+                CheckStatus.PASS,
+                "Config file",
+                "found at ./config.yaml",
+                group="Config",
+            ),
+            CheckResult(
+                "model_list",
+                CheckStatus.PASS,
+                "Model list",
+                "5 models configured",
+                group="Config",
+            ),
+            CheckResult(
+                "provider_anthropic",
+                CheckStatus.PASS,
+                "Anthropic API",
+                "authenticated (312ms)",
+                group="Providers",
+            ),
+            CheckResult(
+                "provider_openai",
+                CheckStatus.FAIL,
+                "OpenAI API",
+                "401 Unauthorized",
+                group="Providers",
+            ),
+            CheckResult(
+                "log_dir",
+                CheckStatus.PASS,
+                "Log directory",
+                "./logs (writable)",
+                group="Storage",
+            ),
+            CheckResult(
+                "s3", CheckStatus.SKIP, "S3 bucket", "not configured", group="Storage"
+            ),
+            CheckResult(
+                "presidio",
+                CheckStatus.WARN,
+                "Presidio PII engine",
+                "not available",
+                group="Guardrails",
+            ),
         ]
 
     def test_contains_title(self):
@@ -1123,7 +1349,14 @@ class TestRenderJSON:
 
     def test_check_fields(self):
         results = [
-            CheckResult("check_name", CheckStatus.PASS, "Check Label", "detail text", duration_ms=42.0, group="MyGroup"),
+            CheckResult(
+                "check_name",
+                CheckStatus.PASS,
+                "Check Label",
+                "detail text",
+                duration_ms=42.0,
+                group="MyGroup",
+            ),
         ]
         output = json.loads(render_json(results))
         check = output["checks"][0]
@@ -1145,8 +1378,13 @@ class TestRunEntryPoint:
         monkeypatch.setenv("AIRLOCK_LOG_DIR", str(config_dir / "logs"))
         monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "test")
         args = Namespace(
-            skip_llm=True, skip_storage=False, skip_guardrails=True,
-            json_output=False, no_color=True, verbose=False, timeout=30.0,
+            skip_llm=True,
+            skip_storage=False,
+            skip_guardrails=True,
+            json_output=False,
+            no_color=True,
+            verbose=False,
+            timeout=30.0,
         )
         with pytest.raises(SystemExit) as exc_info:
             run(args)
@@ -1157,8 +1395,13 @@ class TestRunEntryPoint:
         monkeypatch.delenv("AIRLOCK_CONFIG", raising=False)
         # No config.yaml — config_file check will FAIL
         args = Namespace(
-            skip_llm=True, skip_storage=True, skip_guardrails=True,
-            json_output=False, no_color=True, verbose=False, timeout=30.0,
+            skip_llm=True,
+            skip_storage=True,
+            skip_guardrails=True,
+            json_output=False,
+            no_color=True,
+            verbose=False,
+            timeout=30.0,
         )
         with pytest.raises(SystemExit) as exc_info:
             run(args)
@@ -1167,8 +1410,13 @@ class TestRunEntryPoint:
     def test_json_output(self, config_dir, monkeypatch, capsys):
         monkeypatch.setenv("AIRLOCK_LOG_DIR", str(config_dir / "logs"))
         args = Namespace(
-            skip_llm=True, skip_storage=False, skip_guardrails=True,
-            json_output=True, no_color=False, verbose=False, timeout=30.0,
+            skip_llm=True,
+            skip_storage=False,
+            skip_guardrails=True,
+            json_output=True,
+            no_color=False,
+            verbose=False,
+            timeout=30.0,
         )
         with pytest.raises(SystemExit):
             run(args)
@@ -1181,8 +1429,13 @@ class TestRunEntryPoint:
         monkeypatch.setenv("NO_COLOR", "1")
         monkeypatch.setenv("AIRLOCK_LOG_DIR", str(config_dir / "logs"))
         args = Namespace(
-            skip_llm=True, skip_storage=True, skip_guardrails=True,
-            json_output=False, no_color=False, verbose=False, timeout=30.0,
+            skip_llm=True,
+            skip_storage=True,
+            skip_guardrails=True,
+            json_output=False,
+            no_color=False,
+            verbose=False,
+            timeout=30.0,
         )
         with pytest.raises(SystemExit):
             run(args)
@@ -1228,9 +1481,14 @@ class TestMainDispatcher:
         from airlock.cli.main import main
 
         with pytest.raises(SystemExit):
-            main([
-                "post", "--skip-llm", "--skip-storage", "--skip-guardrails",
-                "--no-color",
-            ])
+            main(
+                [
+                    "post",
+                    "--skip-llm",
+                    "--skip-storage",
+                    "--skip-guardrails",
+                    "--no-color",
+                ]
+            )
         out = capsys.readouterr().out
         assert "skipped by flag" in out

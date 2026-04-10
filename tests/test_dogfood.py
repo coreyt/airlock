@@ -10,15 +10,21 @@ from airlock.cli.dogfood_cmd import _quote_value, run
 
 class TestQuoteValue:
     def test_bash_quoting(self):
-        assert _quote_value("http://localhost:4000", "bash") == "'http://localhost:4000'"
+        assert (
+            _quote_value("http://localhost:4000", "bash") == "'http://localhost:4000'"
+        )
 
     def test_fish_quoting(self):
-        assert _quote_value("http://localhost:4000", "fish") == "'http://localhost:4000'"
+        assert (
+            _quote_value("http://localhost:4000", "fish") == "'http://localhost:4000'"
+        )
 
 
 class TestRunBash:
     def test_outputs_export_lines(self, capsys):
-        args = SimpleNamespace(host="localhost", port="4000", master_key="sk-123", shell="bash")
+        args = SimpleNamespace(
+            host="localhost", port="4000", master_key="sk-123", shell="bash"
+        )
         with patch("airlock.cli.dogfood_cmd._probe_health", return_value=True):
             run(args)
         out = capsys.readouterr().out
@@ -26,7 +32,9 @@ class TestRunBash:
         assert "export ANTHROPIC_AUTH_TOKEN='sk-123'" in out
 
     def test_no_auth_token_when_no_key(self, capsys):
-        args = SimpleNamespace(host="localhost", port="4000", master_key="", shell="bash")
+        args = SimpleNamespace(
+            host="localhost", port="4000", master_key="", shell="bash"
+        )
         with patch("airlock.cli.dogfood_cmd._probe_health", return_value=True):
             run(args)
         out = capsys.readouterr().out
@@ -36,7 +44,9 @@ class TestRunBash:
 
 class TestRunFish:
     def test_outputs_set_gx_lines(self, capsys):
-        args = SimpleNamespace(host="localhost", port="4000", master_key="sk-key", shell="fish")
+        args = SimpleNamespace(
+            host="localhost", port="4000", master_key="sk-key", shell="fish"
+        )
         with patch("airlock.cli.dogfood_cmd._probe_health", return_value=True):
             run(args)
         out = capsys.readouterr().out
@@ -46,7 +56,9 @@ class TestRunFish:
 
 class TestRunHealthWarning:
     def test_warns_when_proxy_unreachable(self, capsys):
-        args = SimpleNamespace(host="localhost", port="4000", master_key="", shell="bash")
+        args = SimpleNamespace(
+            host="localhost", port="4000", master_key="", shell="bash"
+        )
         with patch("airlock.cli.dogfood_cmd._probe_health", return_value=False):
             run(args)
         err = capsys.readouterr().err

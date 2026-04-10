@@ -80,8 +80,12 @@ def run(args) -> None:  # noqa: ANN001
         )
         if "Linger=yes" not in result.stdout:
             print()
-            print("  NOTE: Linger is disabled — service only runs while you are logged in.")
-            print(f"        To start at boot: loginctl enable-linger {os.environ.get('USER', '')}")
+            print(
+                "  NOTE: Linger is disabled — service only runs while you are logged in."
+            )
+            print(
+                f"        To start at boot: loginctl enable-linger {os.environ.get('USER', '')}"
+            )
     except FileNotFoundError:
         pass
 

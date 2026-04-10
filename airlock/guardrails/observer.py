@@ -44,7 +44,9 @@ logger = logging.getLogger("airlock.guardrails.observer")
 # ---------------------------------------------------------------------------
 _PII_PATTERNS: dict[str, re.Pattern] = {
     "EMAIL_ADDRESS": re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"),
-    "PHONE_NUMBER": re.compile(r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b"),
+    "PHONE_NUMBER": re.compile(
+        r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b"
+    ),
     "US_SSN": re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
     "CREDIT_CARD": re.compile(r"\b(?:\d[ -]*?){13,19}\b"),
 }
@@ -195,9 +197,7 @@ class AirlockObserver(CustomGuardrail):
                 client_id=client_id,
                 signals=signals,
             )
-            data.setdefault("metadata", {})["airlock_observation"] = asdict(
-                observation
-            )
+            data.setdefault("metadata", {})["airlock_observation"] = asdict(observation)
 
             detected = [s for s in signals if s.detected]
             if detected:

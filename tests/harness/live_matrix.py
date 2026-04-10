@@ -119,9 +119,7 @@ class LiveProxyMatrixBase:
 
     def _live_log_dir(self) -> Path:
         raw = (
-            os.getenv("AIRLOCK_LIVE_LOG_DIR")
-            or os.getenv("AIRLOCK_LOG_DIR")
-            or "logs"
+            os.getenv("AIRLOCK_LIVE_LOG_DIR") or os.getenv("AIRLOCK_LOG_DIR") or "logs"
         )
         return Path(raw)
 
@@ -235,23 +233,16 @@ class LiveProxyMatrixBase:
 
         has_tool_payload = bool(tool_calls) or bool(function_call)
         text_tokens = (
-            (
-                body.get("usage", {})
-                .get("completion_tokens_details", {})
-                .get("text_tokens")
-            )
-            or 0
-        )
+            body.get("usage", {})
+            .get("completion_tokens_details", {})
+            .get("text_tokens")
+        ) or 0
 
         if case.require_text_content:
             assert has_text_content, body
             assert text_tokens > 0, body
         else:
-            assert (
-                has_text_content
-                or has_tool_payload
-                or text_tokens == 0
-            ), body
+            assert has_text_content or has_tool_payload or text_tokens == 0, body
         return body
 
     def _assert_egress_evidence(
@@ -261,10 +252,9 @@ class LiveProxyMatrixBase:
         case: LiveMatrixCase,
     ) -> None:
         response_headers = response.headers
-        override = (
-            response_headers.get("X-Airlock-Model-Override")
-            or response_headers.get("x-airlock-model-override")
-        )
+        override = response_headers.get(
+            "X-Airlock-Model-Override"
+        ) or response_headers.get("x-airlock-model-override")
 
         # Response-side evidence from the proxy pipeline/logging.
         assert (

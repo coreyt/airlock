@@ -28,12 +28,12 @@ class McpServerEntry:
     """Runtime state for one MCP server."""
 
     name: str
-    config: dict                                    # raw config from yaml
-    transport: str                                  # "sse", "http", "stdio"
+    config: dict  # raw config from yaml
+    transport: str  # "sse", "http", "stdio"
     url: str = ""
     is_managed: bool = False
-    managed_config: dict | None = None              # airlock_managed sub-dict
-    health_url: str = ""                            # resolved probe URL
+    managed_config: dict | None = None  # airlock_managed sub-dict
+    health_url: str = ""  # resolved probe URL
     process: subprocess.Popen[str] | None = None
     output_queue: queue.Queue[str] = field(
         default_factory=lambda: queue.Queue(maxsize=1000),
@@ -49,10 +49,11 @@ class McpServerEntry:
 # Config helpers
 # ---------------------------------------------------------------------------
 
+
 def _resolve_env_value(val: str) -> str:
     """Resolve ``os.environ/VAR_NAME`` to the actual env value."""
     if val.startswith("os.environ/"):
-        var = val[len("os.environ/"):]
+        var = val[len("os.environ/") :]
         return os.environ.get(var, "")
     return val
 
@@ -271,7 +272,9 @@ class McpServerManager:
 
         # Start reader thread
         entry.reader_thread = threading.Thread(
-            target=self._reader_loop, args=(entry,), daemon=True,
+            target=self._reader_loop,
+            args=(entry,),
+            daemon=True,
         )
         entry.reader_thread.start()
 
@@ -388,12 +391,14 @@ class McpServerManager:
     @staticmethod
     def _find_config() -> Path | None:
         from airlock.tui.proxy_manager import ProxyManager
+
         return ProxyManager.find_config_static()
 
 
 # ---------------------------------------------------------------------------
 # Standalone HTTP probe (also used by POST checks)
 # ---------------------------------------------------------------------------
+
 
 def probe_http(url: str, timeout: float = 5.0) -> tuple[bool, float]:
     """HTTP GET probe. Returns ``(healthy, latency_ms)``."""

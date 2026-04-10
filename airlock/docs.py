@@ -161,7 +161,11 @@ def _enrich_metadata_schema(body_schema: dict[str, Any]) -> None:
     }
     any_of = metadata.get("anyOf") or []
     object_branch = next(
-        (branch for branch in any_of if isinstance(branch, dict) and branch.get("type") == "object"),
+        (
+            branch
+            for branch in any_of
+            if isinstance(branch, dict) and branch.get("type") == "object"
+        ),
         None,
     )
     if isinstance(object_branch, dict):
@@ -175,7 +179,12 @@ def _enrich_metadata_schema(body_schema: dict[str, Any]) -> None:
                     "properties": {
                         "mode": {
                             "type": "string",
-                            "enum": ["balanced", "deep_reasoning", "text_only", "tool_oriented"],
+                            "enum": [
+                                "balanced",
+                                "deep_reasoning",
+                                "text_only",
+                                "tool_oriented",
+                            ],
                             "description": "Preferred Gemini request behavior resolved by Airlock.",
                         },
                         "visibility": {
@@ -238,7 +247,9 @@ def enrich_openapi_schema(schema: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(operation, dict):
                 continue
             if path == "/health":
-                _append_parameter_ref(operation, "#/components/parameters/XAirlockClient")
+                _append_parameter_ref(
+                    operation, "#/components/parameters/XAirlockClient"
+                )
                 operation.setdefault("responses", {}).setdefault(
                     "401",
                     {
@@ -265,18 +276,34 @@ def enrich_openapi_schema(schema: dict[str, Any]) -> dict[str, Any]:
                 "and Gemini semantics on top of the LiteLLM/OpenAI-compatible request surface.",
             )
 
-            request_body = ((operation.get("requestBody") or {}).get("content") or {}).get("application/json")
+            request_body = (
+                (operation.get("requestBody") or {}).get("content") or {}
+            ).get("application/json")
             body_schema = (request_body or {}).get("schema")
             if isinstance(body_schema, dict):
                 _enrich_metadata_schema(body_schema)
 
             responses = operation.setdefault("responses", {})
-            success = responses.setdefault("200", {"description": "Successful Response"})
+            success = responses.setdefault(
+                "200", {"description": "Successful Response"}
+            )
             success_headers = success.setdefault("headers", {})
-            success_headers.setdefault("X-Airlock-Model-Override", {"$ref": "#/components/headers/X-Airlock-Model-Override"})
-            success_headers.setdefault("X-Airlock-Provider-Mode", {"$ref": "#/components/headers/X-Airlock-Provider-Mode"})
-            success_headers.setdefault("X-Airlock-Reasoning-Mode", {"$ref": "#/components/headers/X-Airlock-Reasoning-Mode"})
-            success_headers.setdefault("X-Airlock-Provider-State", {"$ref": "#/components/headers/X-Airlock-Provider-State"})
+            success_headers.setdefault(
+                "X-Airlock-Model-Override",
+                {"$ref": "#/components/headers/X-Airlock-Model-Override"},
+            )
+            success_headers.setdefault(
+                "X-Airlock-Provider-Mode",
+                {"$ref": "#/components/headers/X-Airlock-Provider-Mode"},
+            )
+            success_headers.setdefault(
+                "X-Airlock-Reasoning-Mode",
+                {"$ref": "#/components/headers/X-Airlock-Reasoning-Mode"},
+            )
+            success_headers.setdefault(
+                "X-Airlock-Provider-State",
+                {"$ref": "#/components/headers/X-Airlock-Provider-State"},
+            )
             success_headers.setdefault(
                 "X-Airlock-Empty-Text-Success",
                 {"$ref": "#/components/headers/X-Airlock-Empty-Text-Success"},
@@ -291,7 +318,9 @@ def enrich_openapi_schema(schema: dict[str, Any]) -> dict[str, Any]:
                     ),
                     "content": {
                         "application/json": {
-                            "schema": {"$ref": "#/components/schemas/AirlockErrorResponse"}
+                            "schema": {
+                                "$ref": "#/components/schemas/AirlockErrorResponse"
+                            }
                         }
                     },
                 },
@@ -428,7 +457,12 @@ def install_airlock_docs(app: FastAPI) -> None:
     if getattr(app.state, "airlock_docs_installed", False):
         return
 
-    @app.get(AIRLOCK_DOCS_PATH, include_in_schema=True, tags=["Airlock"], summary="Airlock conceptual docs")
+    @app.get(
+        AIRLOCK_DOCS_PATH,
+        include_in_schema=True,
+        tags=["Airlock"],
+        summary="Airlock conceptual docs",
+    )
     async def airlock_docs_page() -> HTMLResponse:
         return HTMLResponse(render_airlock_docs_html())
 

@@ -51,12 +51,20 @@ class TestModelOverrideHeaders:
             _hidden_params={},
             model_dump=lambda: {
                 "choices": [{"message": {"content": None}, "finish_reason": "length"}],
-                "usage": {"completion_tokens_details": {"reasoning_tokens": 5, "text_tokens": 0}},
+                "usage": {
+                    "completion_tokens_details": {
+                        "reasoning_tokens": 5,
+                        "text_tokens": 0,
+                    }
+                },
             },
         )
 
         result = await hook.async_post_call_response_headers_hook(
-            data={"model": "gemini-pro", "metadata": {"airlock_gemini": {"mode": "deep_reasoning"}}},
+            data={
+                "model": "gemini-pro",
+                "metadata": {"airlock_gemini": {"mode": "deep_reasoning"}},
+            },
             user_api_key_dict=None,
             response=response,
         )

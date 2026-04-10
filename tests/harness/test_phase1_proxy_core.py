@@ -17,7 +17,6 @@ pytestmark = pytest.mark.harness
 # Live tests (require --run-live)
 # ---------------------------------------------------------------------------
 class TestProxyCoreLive:
-
     @pytest.mark.live
     async def test_health_authenticated(self, http_client):
         resp = await http_client.get("/health")
@@ -110,7 +109,6 @@ class TestProxyCoreLive:
 # Mock tests (config parsing, no proxy)
 # ---------------------------------------------------------------------------
 class TestProxyConfigMock:
-
     def test_config_has_drop_params(self, harness_config):
         config = yaml.safe_load(harness_config.read_text())
         assert config["litellm_settings"]["drop_params"] is True

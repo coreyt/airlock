@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 from airlock.models_catalog import (
     _fetch_gemini_models,
@@ -20,6 +18,7 @@ from airlock.models_catalog import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _cfg(*entries: dict) -> dict:
     return {"model_list": list(entries)}
 
@@ -32,10 +31,13 @@ def _entry(alias: str, model: str, api_key: str = "os.environ/FAKE_KEY") -> dict
 # _load_config
 # ---------------------------------------------------------------------------
 
+
 class TestLoadConfig:
     def test_loads_yaml(self, tmp_path):
         cfg = tmp_path / "config.yaml"
-        cfg.write_text("model_list:\n  - model_name: test\n    litellm_params:\n      model: openai/gpt-4o\n")
+        cfg.write_text(
+            "model_list:\n  - model_name: test\n    litellm_params:\n      model: openai/gpt-4o\n"
+        )
         result = _load_config(cfg)
         assert result["model_list"][0]["model_name"] == "test"
 
@@ -54,14 +56,24 @@ class TestLoadConfig:
 # _get_api_key
 # ---------------------------------------------------------------------------
 
+
 class TestGetApiKey:
     def test_resolves_env_ref(self, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_KEY", "sk-ant-test")
-        config = _cfg(_entry("claude-sonnet", "anthropic/claude-sonnet", "os.environ/ANTHROPIC_KEY"))
+        config = _cfg(
+            _entry(
+                "claude-sonnet", "anthropic/claude-sonnet", "os.environ/ANTHROPIC_KEY"
+            )
+        )
         assert _get_api_key(config, "anthropic") == "sk-ant-test"
 
     def test_inline_key(self):
-        config = _cfg({"model_name": "m", "litellm_params": {"model": "openai/gpt-4o", "api_key": "sk-inline"}})
+        config = _cfg(
+            {
+                "model_name": "m",
+                "litellm_params": {"model": "openai/gpt-4o", "api_key": "sk-inline"},
+            }
+        )
         assert _get_api_key(config, "openai") == "sk-inline"
 
     def test_missing_env_var_returns_none(self, monkeypatch):
@@ -78,6 +90,7 @@ class TestGetApiKey:
 # _fetch_gemini_models — name parsing
 # ---------------------------------------------------------------------------
 
+
 class TestFetchGeminiModels:
     def test_name_field_parsed_to_prefixed_id(self, monkeypatch):
         """'models/gemini-2.5-flash' in the Gemini response → 'gemini/gemini-2.5-flash'."""
@@ -86,12 +99,16 @@ class TestFetchGeminiModels:
         class _FakeResp:
             def read(self):
                 return payload
+
             def __enter__(self):
                 return self
+
             def __exit__(self, *_):
                 pass
 
-        with patch("airlock.models_catalog.urllib.request.urlopen", return_value=_FakeResp()):
+        with patch(
+            "airlock.models_catalog.urllib.request.urlopen", return_value=_FakeResp()
+        ):
             result = _fetch_gemini_models("fake-key", timeout=5.0)
 
         assert len(result) == 1
@@ -99,17 +116,23 @@ class TestFetchGeminiModels:
         assert result[0]["owned_by"] == "gemini"
 
     def test_empty_name_skipped(self, monkeypatch):
-        payload = json.dumps({"models": [{"name": ""}, {"name": "models/gemini-pro"}]}).encode()
+        payload = json.dumps(
+            {"models": [{"name": ""}, {"name": "models/gemini-pro"}]}
+        ).encode()
 
         class _FakeResp:
             def read(self):
                 return payload
+
             def __enter__(self):
                 return self
+
             def __exit__(self, *_):
                 pass
 
-        with patch("airlock.models_catalog.urllib.request.urlopen", return_value=_FakeResp()):
+        with patch(
+            "airlock.models_catalog.urllib.request.urlopen", return_value=_FakeResp()
+        ):
             result = _fetch_gemini_models("fake-key", timeout=5.0)
 
         assert len(result) == 1
@@ -120,10 +143,16 @@ class TestFetchGeminiModels:
 # fetch_live_provider_models
 # ---------------------------------------------------------------------------
 
+
 class TestFetchLiveProviderModels:
     def test_no_keys_returns_empty(self, monkeypatch):
         # Make sure no provider keys are set
-        for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "MISTRAL_API_KEY", "GOOGLE_AISTUDIO_API_KEY"):
+        for var in (
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "MISTRAL_API_KEY",
+            "GOOGLE_AISTUDIO_API_KEY",
+        ):
             monkeypatch.delenv(var, raising=False)
         config = _cfg(_entry("claude", "anthropic/claude-3"))
         result = fetch_live_provider_models(config, timeout=2.0)
@@ -134,7 +163,10 @@ class TestFetchLiveProviderModels:
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
         config = _cfg(_entry("gpt-4o", "openai/gpt-4o", "os.environ/OPENAI_API_KEY"))
 
-        with patch("airlock.models_catalog._fetch_openai_models", side_effect=OSError("refused")):
+        with patch(
+            "airlock.models_catalog._fetch_openai_models",
+            side_effect=OSError("refused"),
+        ):
             result = fetch_live_provider_models(config, timeout=2.0)
 
         assert isinstance(result, list)  # did not raise

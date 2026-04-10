@@ -59,6 +59,7 @@ _AIRLOCK_HEADERS = {
 # Config helpers
 # ---------------------------------------------------------------------------
 
+
 def _load_models_from_config() -> list[dict]:
     """Read model_list from config.yaml."""
     config_path = os.getenv("AIRLOCK_CONFIG", "config.yaml")
@@ -133,6 +134,7 @@ def _models_for_provider(model_list: list[dict], provider: str) -> list[str]:
 # JSON formatting helpers
 # ---------------------------------------------------------------------------
 
+
 def _fmt_json(obj: Any) -> str:
     """Pretty-print a dict/list as indented JSON."""
     return json.dumps(obj, indent=2, ensure_ascii=False, default=str)
@@ -206,6 +208,7 @@ def _build_routing_notice(
 # ---------------------------------------------------------------------------
 # Screen
 # ---------------------------------------------------------------------------
+
 
 class TestPane(Vertical):
     """Test -- send diagnostic requests through the proxy."""
@@ -326,8 +329,14 @@ class TestPane(Vertical):
         """Return (provider, model, effective_provider) from current dropdowns."""
         provider_sel = self.query_one("#chat-provider-select", Select)
         model_sel = self.query_one("#chat-model-select", Select)
-        provider = str(provider_sel.value) if provider_sel.value not in (None, Select.BLANK) else "all"
-        model = str(model_sel.value) if model_sel.value not in (None, Select.BLANK) else ""
+        provider = (
+            str(provider_sel.value)
+            if provider_sel.value not in (None, Select.BLANK)
+            else "all"
+        )
+        model = (
+            str(model_sel.value) if model_sel.value not in (None, Select.BLANK) else ""
+        )
         effective = provider if provider != "all" else self._resolve_provider(model)
         return provider, model, effective
 
@@ -367,7 +376,10 @@ class TestPane(Vertical):
             self._sync_params_to_selection()
 
     def on_key(self, event: events.Key) -> None:
-        if event.key == "ctrl+j" and self.query_one("#chat-user-input", TextArea).has_focus:
+        if (
+            event.key == "ctrl+j"
+            and self.query_one("#chat-user-input", TextArea).has_focus
+        ):
             event.prevent_default()
             event.stop()
             self._send_request()
@@ -405,7 +417,10 @@ class TestPane(Vertical):
             current = defaults_for_schema(schema)
 
         widgets: list[Static | Label | Input | Select | Horizontal] = [
-            Static(f"[bold]Parameters: {_esc(effective)}/{_esc(model)}[/]", classes="builder-title"),
+            Static(
+                f"[bold]Parameters: {_esc(effective)}/{_esc(model)}[/]",
+                classes="builder-title",
+            ),
         ]
 
         for field in schema.fields:
@@ -421,32 +436,38 @@ class TestPane(Vertical):
             cur_val = current.get(field.name, field.default)
 
             if field.type == "bool":
-                widgets.append(Select(
-                    [("True", "true"), ("False", "false")],
-                    value="true" if cur_val else "false",
-                    id=f"builder-{field.name}",
-                    allow_blank=True,
-                ))
+                widgets.append(
+                    Select(
+                        [("True", "true"), ("False", "false")],
+                        value="true" if cur_val else "false",
+                        id=f"builder-{field.name}",
+                        allow_blank=True,
+                    )
+                )
             elif field.type == "enum":
                 options = [(c, c) for c in field.choices]
-                widgets.append(Select(
-                    options,
-                    value=str(cur_val) if cur_val else Select.BLANK,
-                    id=f"builder-{field.name}",
-                    allow_blank=True,
-                ))
+                widgets.append(
+                    Select(
+                        options,
+                        value=str(cur_val) if cur_val else Select.BLANK,
+                        id=f"builder-{field.name}",
+                        allow_blank=True,
+                    )
+                )
             else:
                 display_val = "" if cur_val is None else str(cur_val)
                 if field.name == "stop" and isinstance(cur_val, list):
                     display_val = ",".join(cur_val)
                 widgets.append(Input(value=display_val, id=f"builder-{field.name}"))
 
-        widgets.append(Horizontal(
-            Button("Apply", id="chat-builder-apply", variant="success"),
-            Button("Reset", id="chat-builder-reset", variant="warning"),
-            Button("Cancel", id="chat-builder-cancel", variant="error"),
-            classes="builder-buttons",
-        ))
+        widgets.append(
+            Horizontal(
+                Button("Apply", id="chat-builder-apply", variant="success"),
+                Button("Reset", id="chat-builder-reset", variant="warning"),
+                Button("Cancel", id="chat-builder-cancel", variant="error"),
+                classes="builder-buttons",
+            )
+        )
 
         overlay = VerticalScroll(*widgets, id="chat-builder-overlay")
         self.mount(overlay)
@@ -486,7 +507,9 @@ class TestPane(Vertical):
                     except ValueError:
                         pass
                 elif field.name == "stop":
-                    params[field.name] = [s.strip() for s in raw.split(",") if s.strip()]
+                    params[field.name] = [
+                        s.strip() for s in raw.split(",") if s.strip()
+                    ]
                 else:
                     params[field.name] = raw
 
@@ -530,9 +553,7 @@ class TestPane(Vertical):
 
         # Read params
         try:
-            params = json.loads(
-                self.query_one("#chat-params-input", Input).value
-            )
+            params = json.loads(self.query_one("#chat-params-input", Input).value)
         except (json.JSONDecodeError, TypeError):
             params = {}
 

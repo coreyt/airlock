@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -79,8 +78,14 @@ class TestEnforceMode:
 # ---------------------------------------------------------------------------
 class TestObserveMode:
     async def test_observe_noop(
-        self, enforcer, monkeypatch, mock_cache, mock_user_api_key_dict,
-        fresh_state_store, knobs_dir, keyword_data,
+        self,
+        enforcer,
+        monkeypatch,
+        mock_cache,
+        mock_user_api_key_dict,
+        fresh_state_store,
+        knobs_dir,
+        keyword_data,
     ):
         """Observe mode returns data immediately without evaluation."""
         monkeypatch.delenv("AIRLOCK_ENFORCE_MODE", raising=False)
@@ -99,8 +104,14 @@ class TestObserveMode:
 # ---------------------------------------------------------------------------
 class TestShadowMode:
     async def test_shadow_evaluates_but_passes(
-        self, enforcer, monkeypatch, mock_cache, mock_user_api_key_dict,
-        fresh_state_store, knobs_dir, keyword_data,
+        self,
+        enforcer,
+        monkeypatch,
+        mock_cache,
+        mock_user_api_key_dict,
+        fresh_state_store,
+        knobs_dir,
+        keyword_data,
     ):
         """Shadow mode evaluates and logs but never blocks."""
         monkeypatch.setenv("AIRLOCK_ENFORCE_MODE", "shadow")
@@ -125,8 +136,14 @@ class TestShadowMode:
         assert enforcement["composite_score"] >= 0.3
 
     async def test_shadow_clean_request(
-        self, enforcer, monkeypatch, mock_cache, mock_user_api_key_dict,
-        fresh_state_store, knobs_dir, clean_data,
+        self,
+        enforcer,
+        monkeypatch,
+        mock_cache,
+        mock_user_api_key_dict,
+        fresh_state_store,
+        knobs_dir,
+        clean_data,
     ):
         monkeypatch.setenv("AIRLOCK_ENFORCE_MODE", "shadow")
 
@@ -142,8 +159,14 @@ class TestShadowMode:
 # ---------------------------------------------------------------------------
 class TestEnforceMode2:
     async def test_enforce_blocks_above_threshold(
-        self, enforcer, monkeypatch, mock_cache, mock_user_api_key_dict,
-        fresh_state_store, knobs_dir, keyword_data,
+        self,
+        enforcer,
+        monkeypatch,
+        mock_cache,
+        mock_user_api_key_dict,
+        fresh_state_store,
+        knobs_dir,
+        keyword_data,
     ):
         monkeypatch.setenv("AIRLOCK_ENFORCE_MODE", "enforce")
         monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "forbidden")
@@ -161,8 +184,14 @@ class TestEnforceMode2:
             )
 
     async def test_enforce_passes_clean_request(
-        self, enforcer, monkeypatch, mock_cache, mock_user_api_key_dict,
-        fresh_state_store, knobs_dir, clean_data,
+        self,
+        enforcer,
+        monkeypatch,
+        mock_cache,
+        mock_user_api_key_dict,
+        fresh_state_store,
+        knobs_dir,
+        clean_data,
     ):
         monkeypatch.setenv("AIRLOCK_ENFORCE_MODE", "enforce")
 
@@ -174,8 +203,13 @@ class TestEnforceMode2:
         assert enforcement["should_block"] is False
 
     async def test_enforce_respects_threshold_boundary(
-        self, enforcer, monkeypatch, mock_cache, mock_user_api_key_dict,
-        fresh_state_store, knobs_dir,
+        self,
+        enforcer,
+        monkeypatch,
+        mock_cache,
+        mock_user_api_key_dict,
+        fresh_state_store,
+        knobs_dir,
     ):
         """Score exactly at threshold should block."""
         monkeypatch.setenv("AIRLOCK_ENFORCE_MODE", "enforce")
@@ -199,8 +233,14 @@ class TestEnforceMode2:
             )
 
     async def test_default_knobs_fallback(
-        self, enforcer, monkeypatch, mock_cache, mock_user_api_key_dict,
-        fresh_state_store, knobs_dir, clean_data,
+        self,
+        enforcer,
+        monkeypatch,
+        mock_cache,
+        mock_user_api_key_dict,
+        fresh_state_store,
+        knobs_dir,
+        clean_data,
     ):
         """Without a knobs file, enforcer uses default knobs."""
         monkeypatch.setenv("AIRLOCK_ENFORCE_MODE", "enforce")
@@ -211,8 +251,14 @@ class TestEnforceMode2:
         assert result is not None
 
     async def test_error_message_is_user_safe(
-        self, enforcer, monkeypatch, mock_cache, mock_user_api_key_dict,
-        fresh_state_store, knobs_dir, keyword_data,
+        self,
+        enforcer,
+        monkeypatch,
+        mock_cache,
+        mock_user_api_key_dict,
+        fresh_state_store,
+        knobs_dir,
+        keyword_data,
     ):
         """Error message should not leak internal details."""
         monkeypatch.setenv("AIRLOCK_ENFORCE_MODE", "enforce")
@@ -241,8 +287,13 @@ class TestEnforceMode2:
 # ---------------------------------------------------------------------------
 class TestMCPEnforcement:
     async def test_mcp_enforce_mode_blocks(
-        self, enforcer, fresh_state_store, mock_cache, mock_user_api_key_dict,
-        knobs_dir, monkeypatch,
+        self,
+        enforcer,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
+        knobs_dir,
+        monkeypatch,
     ):
         monkeypatch.setenv("AIRLOCK_ENFORCE_MODE", "enforce")
         monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "forbidden")
@@ -264,7 +315,11 @@ class TestMCPEnforcement:
             )
 
     async def test_mcp_observe_mode_passes(
-        self, enforcer, fresh_state_store, mock_cache, mock_user_api_key_dict,
+        self,
+        enforcer,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
         monkeypatch,
     ):
         monkeypatch.setenv("AIRLOCK_ENFORCE_MODE", "observe")

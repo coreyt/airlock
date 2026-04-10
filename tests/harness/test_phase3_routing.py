@@ -13,7 +13,6 @@ pytestmark = pytest.mark.harness
 
 
 class TestProviderMapping:
-
     @pytest.mark.parametrize(
         "model,expected_provider",
         [
@@ -50,11 +49,9 @@ class TestProviderMapping:
 
 
 class TestFallback:
-
     def test_fallback_on_open_circuit(self, fresh_state_store, monkeypatch):
         import time
         from airlock.fast.circuit_breaker import check_model
-        from airlock.fast.state import CircuitState
 
         monkeypatch.setenv(
             "AIRLOCK_FAILOVER_MAP",
@@ -70,7 +67,6 @@ class TestFallback:
 
 
 class TestCostBasedRouting:
-
     def test_cost_tiers_populated(self):
         from airlock.fast.router import _load_cost_tiers
 
@@ -90,7 +86,6 @@ class TestCostBasedRouting:
 
 
 class TestLiveRouting:
-
     @pytest.mark.live
     async def test_provider_routing_anthropic(self, http_client):
         resp = await http_client.post(
@@ -103,7 +98,10 @@ class TestLiveRouting:
         )
         assert resp.status_code == 200
         body = resp.json()
-        assert "claude" in body.get("model", "").lower() or "anthropic" in body.get("model", "").lower()
+        assert (
+            "claude" in body.get("model", "").lower()
+            or "anthropic" in body.get("model", "").lower()
+        )
 
     @pytest.mark.live
     @pytest.mark.parametrize("model", ["claude-haiku", "gpt-4o-mini", "gemini-flash"])

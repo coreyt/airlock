@@ -22,12 +22,15 @@ import yaml
 
 logger = logging.getLogger("airlock.models_catalog")
 
-_STATIC_CREATED = 1704067200  # 2024-01-01T00:00:00Z — fallback for providers that omit it
+_STATIC_CREATED = (
+    1704067200  # 2024-01-01T00:00:00Z — fallback for providers that omit it
+)
 
 
 # ---------------------------------------------------------------------------
 # Config helpers
 # ---------------------------------------------------------------------------
+
 
 def _load_config(config_path: str | Path | None = None) -> dict:
     if config_path is None:
@@ -63,10 +66,11 @@ def _get_api_key(config: dict, provider_prefix: str) -> str | None:
 # Live provider discovery
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _ProviderFetcher:
-    prefix: str                                  # e.g. "anthropic"
-    fn: Callable[[str, float], list[dict]]       # (api_key, timeout) -> model entries
+    prefix: str  # e.g. "anthropic"
+    fn: Callable[[str, float], list[dict]]  # (api_key, timeout) -> model entries
 
 
 def _fetch_openai_compatible(
@@ -96,12 +100,14 @@ def _fetch_openai_compatible(
         if not model_id:
             continue
         full_id = f"{provider_prefix}/{model_id}"
-        models.append({
-            "id": full_id,
-            "object": "model",
-            "created": item.get("created", _STATIC_CREATED),
-            "owned_by": provider_prefix,
-        })
+        models.append(
+            {
+                "id": full_id,
+                "object": "model",
+                "created": item.get("created", _STATIC_CREATED),
+                "owned_by": provider_prefix,
+            }
+        )
     return models
 
 
@@ -151,12 +157,14 @@ def _fetch_gemini_models(api_key: str, timeout: float) -> list[dict]:
             continue
         bare = name.split("/", 1)[-1]  # "gemini-2.5-flash"
         full_id = f"gemini/{bare}"
-        models.append({
-            "id": full_id,
-            "object": "model",
-            "created": _STATIC_CREATED,
-            "owned_by": "gemini",
-        })
+        models.append(
+            {
+                "id": full_id,
+                "object": "model",
+                "created": _STATIC_CREATED,
+                "owned_by": "gemini",
+            }
+        )
     return models
 
 
@@ -200,9 +208,15 @@ def fetch_live_provider_models(
                 results.extend(entries)
             logger.info(
                 "models_catalog: discovered %d models from %s",
-                len(entries), fetcher.prefix,
+                len(entries),
+                fetcher.prefix,
             )
-        except (urllib.error.URLError, urllib.error.HTTPError, OSError, Exception) as exc:
+        except (
+            urllib.error.URLError,
+            urllib.error.HTTPError,
+            OSError,
+            Exception,
+        ) as exc:
             logger.warning(
                 "models_catalog: %s model discovery failed: %s", fetcher.prefix, exc
             )

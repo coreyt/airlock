@@ -7,7 +7,6 @@ Exercises multiple subsystems together in mock mode.
 from __future__ import annotations
 
 import datetime
-import json
 
 import pytest
 
@@ -16,14 +15,18 @@ pytestmark = pytest.mark.harness
 
 
 class TestPIIAndLogging:
-
     async def test_pii_redacted_and_logged(
-        self, guardrail_chain, mock_cache, mock_user_api_key_dict,
-        harness_log_dir, reset_presidio_singletons, presidio_available,
+        self,
+        guardrail_chain,
+        mock_cache,
+        mock_user_api_key_dict,
+        harness_log_dir,
+        reset_presidio_singletons,
+        presidio_available,
     ):
         if not presidio_available:
             pytest.skip("Presidio not installed")
-        from airlock.callbacks.enterprise_logger import AirlockLogger, _write_log
+        from airlock.callbacks.enterprise_logger import _write_log
 
         chain = guardrail_chain(keywords="topsecret")
         data = {
@@ -45,8 +48,13 @@ class TestPIIAndLogging:
         assert "4111111111111111" not in log_content
 
     async def test_pii_log_no_raw_data(
-        self, guardrail_chain, mock_cache, mock_user_api_key_dict,
-        harness_log_dir, reset_presidio_singletons, presidio_available,
+        self,
+        guardrail_chain,
+        mock_cache,
+        mock_user_api_key_dict,
+        harness_log_dir,
+        reset_presidio_singletons,
+        presidio_available,
     ):
         if not presidio_available:
             pytest.skip("Presidio not installed")
@@ -54,7 +62,12 @@ class TestPIIAndLogging:
 
         chain = guardrail_chain(keywords="topsecret")
         data = {
-            "messages": [{"role": "user", "content": "Email: alice@secret.com Card: 4111111111111111"}],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Email: alice@secret.com Card: 4111111111111111",
+                }
+            ],
             "model": "claude-sonnet",
         }
         result = await chain[0].async_pre_call_hook(
@@ -69,9 +82,11 @@ class TestPIIAndLogging:
 
 
 class TestThreatBurst:
-
     async def test_threat_burst_backoff(
-        self, fresh_state_store, mock_cache, mock_user_api_key_dict,
+        self,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
     ):
         import time as _time
         from airlock.fast.guardian import AirlockFastGuardian
@@ -93,10 +108,14 @@ class TestThreatBurst:
 
 
 class TestSmartSessionPII:
-
     async def test_smart_session_pii(
-        self, fresh_state_store, guardrail_chain, mock_cache,
-        mock_user_api_key_dict, reset_presidio_singletons, presidio_available,
+        self,
+        fresh_state_store,
+        guardrail_chain,
+        mock_cache,
+        mock_user_api_key_dict,
+        reset_presidio_singletons,
+        presidio_available,
         monkeypatch,
     ):
         if not presidio_available:
@@ -108,7 +127,9 @@ class TestSmartSessionPII:
 
         data = {
             "model": "smart",
-            "messages": [{"role": "user", "content": "Contact alice@company.com about monads."}],
+            "messages": [
+                {"role": "user", "content": "Contact alice@company.com about monads."}
+            ],
             "metadata": {"airlock": {"session_id": "e2e-test-1"}},
         }
         # Smart routing
@@ -122,7 +143,9 @@ class TestSmartSessionPII:
         assert "alice@company.com" not in str(result["messages"])
 
     async def test_session_affinity_across_chain(
-        self, fresh_state_store, monkeypatch,
+        self,
+        fresh_state_store,
+        monkeypatch,
     ):
         from airlock.fast.router import apply_routing
 
@@ -140,9 +163,11 @@ class TestSmartSessionPII:
 
 
 class TestKeywordBlockLogged:
-
     async def test_keyword_block_logged(
-        self, guardrail_chain, mock_cache, mock_user_api_key_dict,
+        self,
+        guardrail_chain,
+        mock_cache,
+        mock_user_api_key_dict,
         harness_log_dir,
     ):
         from airlock.callbacks.enterprise_logger import _write_log
@@ -168,17 +193,24 @@ class TestKeywordBlockLogged:
 
 
 class TestFullPipeline:
-
     async def test_full_pipeline_metadata(
-        self, fresh_state_store, mock_cache, mock_user_api_key_dict,
-        reset_presidio_singletons, presidio_available, monkeypatch,
+        self,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
+        reset_presidio_singletons,
+        presidio_available,
+        monkeypatch,
     ):
         if not presidio_available:
             pytest.skip("Presidio not installed")
         from airlock.guardrails.pii_guard import AirlockPIIGuard
         from airlock.guardrails.keyword_guard import AirlockKeywordGuard
         from airlock.guardrails.enforcer import AirlockEnforcer
-        from airlock.guardrails.orchestrator import AirlockOrchestrator, _invalidate_knobs_cache
+        from airlock.guardrails.orchestrator import (
+            AirlockOrchestrator,
+            _invalidate_knobs_cache,
+        )
         from airlock.guardrails.semantic import AirlockSemanticGuard, clear_classifiers
 
         monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "topsecret")
@@ -187,7 +219,12 @@ class TestFullPipeline:
         clear_classifiers()
 
         data = {
-            "messages": [{"role": "user", "content": "My email is alice@company.com. What is Python?"}],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "My email is alice@company.com. What is Python?",
+                }
+            ],
             "model": "claude-sonnet",
         }
 
@@ -218,8 +255,13 @@ class TestFullPipeline:
         _invalidate_knobs_cache()
 
     async def test_full_pipeline_order(
-        self, fresh_state_store, mock_cache, mock_user_api_key_dict,
-        reset_presidio_singletons, presidio_available, monkeypatch,
+        self,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
+        reset_presidio_singletons,
+        presidio_available,
+        monkeypatch,
     ):
         """Guards execute in documented order: PII → keyword → enforcer → semantic → orchestrator."""
         if not presidio_available:
@@ -277,7 +319,6 @@ class TestFullPipeline:
 
 
 class TestLiveE2E:
-
     @pytest.mark.live
     async def test_live_pii_plus_logging(self, http_client):
         resp = await http_client.post(
@@ -299,7 +340,10 @@ class TestLiveE2E:
             json={
                 "model": "claude-haiku",
                 "messages": [
-                    {"role": "user", "content": "My email is alice@company.com. Say hello."}
+                    {
+                        "role": "user",
+                        "content": "My email is alice@company.com. Say hello.",
+                    }
                 ],
                 "max_tokens": 10,
             },

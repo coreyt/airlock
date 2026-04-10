@@ -72,5 +72,7 @@ class TestRequiredTextContentRoundTrip(LiveProxyMatrixBase):
         _TEXT_CONTENT_CASES,
         ids=lambda case: case.id,
     )
-    async def test_required_text_content_round_trip(self, http_client, case: LiveMatrixCase):
+    async def test_required_text_content_round_trip(
+        self, http_client, case: LiveMatrixCase
+    ):
         await self.assert_live_round_trip(http_client, case)

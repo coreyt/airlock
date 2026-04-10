@@ -35,6 +35,7 @@ from litellm.integrations.custom_logger import CustomLogger
 
 logger = logging.getLogger("airlock.logger")
 
+
 def _log_dir() -> Path:
     return Path(os.getenv("AIRLOCK_LOG_DIR", "./logs"))
 
@@ -149,7 +150,9 @@ def _cleanup_old_logs() -> None:
                 path.unlink()
                 logger.info("log_cleanup removed=%s", path.name)
             except OSError:
-                logger.warning("log_cleanup failed to remove %s", path.name, exc_info=True)
+                logger.warning(
+                    "log_cleanup failed to remove %s", path.name, exc_info=True
+                )
 
 
 def _rotate_if_oversized(log_path: Path) -> None:
@@ -231,7 +234,8 @@ def write_precall_block_record(
         "timestamp": now.isoformat(),
         "success": False,
         "model": data.get("model", "unknown"),
-        "user": metadata.get("user_api_key_alias") or metadata.get("user_api_key_user_id"),
+        "user": metadata.get("user_api_key_alias")
+        or metadata.get("user_api_key_user_id"),
         "team": metadata.get("user_api_key_team_alias"),
         "request_id": metadata.get("request_id"),
         "messages": data.get("messages"),
@@ -245,7 +249,9 @@ def write_precall_block_record(
         "duration_ms": 0,
         **guardrail_meta,
     }
-    record["airlock_client"] = _get_airlock_client(metadata, {"headers": data.get("headers")})
+    record["airlock_client"] = _get_airlock_client(
+        metadata, {"headers": data.get("headers")}
+    )
     _write_log(record)
     logger.warning(
         "request_failed model=%s user=%s client=%s category=%s error_type=%s error=%s",
@@ -272,20 +278,38 @@ class AirlockLogger(CustomLogger):
     # ------------------------------------------------------------------
     # Success
     # ------------------------------------------------------------------
-    def log_success_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
-        record = self._build_record(kwargs, response_obj, start_time, end_time, success=True)
+    def log_success_event(
+        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
+        record = self._build_record(
+            kwargs, response_obj, start_time, end_time, success=True
+        )
         _write_log(record)
-        logger.info("request_logged model=%s user=%s tokens=%s", record["model"], record.get("user"), record.get("total_tokens"))
+        logger.info(
+            "request_logged model=%s user=%s tokens=%s",
+            record["model"],
+            record.get("user"),
+            record.get("total_tokens"),
+        )
 
-    async def async_log_success_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
+    async def async_log_success_event(
+        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
         import asyncio
-        await asyncio.to_thread(self.log_success_event, kwargs, response_obj, start_time, end_time)
+
+        await asyncio.to_thread(
+            self.log_success_event, kwargs, response_obj, start_time, end_time
+        )
 
     # ------------------------------------------------------------------
     # Failure
     # ------------------------------------------------------------------
-    def log_failure_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
-        record = self._build_record(kwargs, response_obj, start_time, end_time, success=False)
+    def log_failure_event(
+        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
+        record = self._build_record(
+            kwargs, response_obj, start_time, end_time, success=False
+        )
         _write_log(record)
         logger.warning(
             "request_failed model=%s user=%s client=%s category=%s error_type=%s error=%s",
@@ -297,9 +321,14 @@ class AirlockLogger(CustomLogger):
             record.get("error"),
         )
 
-    async def async_log_failure_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
+    async def async_log_failure_event(
+        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
         import asyncio
-        await asyncio.to_thread(self.log_failure_event, kwargs, response_obj, start_time, end_time)
+
+        await asyncio.to_thread(
+            self.log_failure_event, kwargs, response_obj, start_time, end_time
+        )
 
     # ------------------------------------------------------------------
     # Helpers
@@ -320,7 +349,9 @@ class AirlockLogger(CustomLogger):
         error_type = None
         failure_category = None
         if not success:
-            error, error_type, failure_category = _normalize_failure(kwargs, response_obj)
+            error, error_type, failure_category = _normalize_failure(
+                kwargs, response_obj
+            )
 
         # Token usage
         usage: dict[str, int] = {}
@@ -334,9 +365,7 @@ class AirlockLogger(CustomLogger):
 
         # Collect airlock_* guardrail metadata (semantic scores, priority,
         # failover info) so the slow analyzer can see classifier verdicts.
-        guardrail_meta = {
-            k: v for k, v in metadata.items() if k.startswith("airlock_")
-        }
+        guardrail_meta = {k: v for k, v in metadata.items() if k.startswith("airlock_")}
         provider = metadata.get("airlock_provider") or infer_provider(
             kwargs.get("model", "unknown")
         )
@@ -385,7 +414,8 @@ class AirlockLogger(CustomLogger):
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "success": success,
             "model": kwargs.get("model", "unknown"),
-            "user": metadata.get("user_api_key_alias") or metadata.get("user_api_key_user_id"),
+            "user": metadata.get("user_api_key_alias")
+            or metadata.get("user_api_key_user_id"),
             "team": metadata.get("user_api_key_team_alias"),
             "request_id": kwargs.get("litellm_call_id"),
             "messages": kwargs.get("messages"),
@@ -429,7 +459,9 @@ def _patch_lowest_cost_none_guard() -> None:
 
         _orig = LowestCostLoggingHandler.async_log_success_event
 
-        async def _safe_async_log_success(self, kwargs, response_obj, start_time, end_time):
+        async def _safe_async_log_success(
+            self, kwargs, response_obj, start_time, end_time
+        ):
             if kwargs.get("litellm_params") is None:
                 kwargs["litellm_params"] = {}
             return await _orig(self, kwargs, response_obj, start_time, end_time)
@@ -450,7 +482,10 @@ def _self_register() -> None:
         mgr.add_litellm_async_success_callback(proxy_logger)
         mgr.add_litellm_async_failure_callback(proxy_logger)
     except Exception:
-        logger.warning("enterprise_logger self-registration deferred — litellm not fully loaded", exc_info=True)
+        logger.warning(
+            "enterprise_logger self-registration deferred — litellm not fully loaded",
+            exc_info=True,
+        )
 
     _patch_lowest_cost_none_guard()
 

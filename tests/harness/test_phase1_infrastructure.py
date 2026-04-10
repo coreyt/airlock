@@ -45,9 +45,7 @@ class TestCompletionRequestFactory:
         assert req["max_tokens"] == 50
 
     def test_overrides(self, completion_request):
-        req = completion_request(
-            model="gpt-4o", content="Hello", max_tokens=10
-        )
+        req = completion_request(model="gpt-4o", content="Hello", max_tokens=10)
         assert req["model"] == "gpt-4o"
         assert req["messages"][0]["content"] == "Hello"
         assert req["max_tokens"] == 10

@@ -38,6 +38,7 @@ from typing import Any
 
 logger = logging.getLogger("airlock.slow")
 
+
 def _log_dir() -> Path:
     return Path(os.getenv("AIRLOCK_LOG_DIR", "./logs"))
 
@@ -47,16 +48,16 @@ def _log_dir() -> Path:
 # ---------------------------------------------------------------------------
 @dataclass
 class Optimization:
-    category: str                   # reliability | performance | cost
+    category: str  # reliability | performance | cost
     description: str
-    impact: str                     # high | medium | low
+    impact: str  # high | medium | low
     evidence: dict[str, Any]
 
 
 @dataclass
 class CacheOpportunity:
     pattern: str
-    fingerprint: str                # hash of repeated content
+    fingerprint: str  # hash of repeated content
     frequency: int
     model: str
     estimated_token_savings: int
@@ -66,8 +67,8 @@ class CacheOpportunity:
 @dataclass
 class Trend:
     metric: str
-    direction: str                  # increasing | decreasing | stable
-    magnitude: float                # percent change
+    direction: str  # increasing | decreasing | stable
+    magnitude: float  # percent change
     period_days: int
     details: dict[str, Any]
 
@@ -76,19 +77,20 @@ class Trend:
 class Hypothesis:
     statement: str
     evidence: dict[str, Any]
-    confidence: float               # 0.0 → 1.0
+    confidence: float  # 0.0 → 1.0
     test_proposal: str
 
 
 @dataclass
 class ClassifierStats:
     """Per-classifier aggregate statistics from semantic guard logs."""
+
     name: str
     sample_count: int
     block_count: int
-    block_rate: float               # 0.0 → 1.0
+    block_rate: float  # 0.0 → 1.0
     error_count: int
-    error_rate: float               # 0.0 → 1.0
+    error_rate: float  # 0.0 → 1.0
     score_mean: float
     score_p50: float
     score_p95: float
@@ -98,15 +100,16 @@ class ClassifierStats:
     latency_p95_ms: float
     # How many requests scored within ±20% of threshold ("ambiguous zone")
     ambiguous_count: int
-    ambiguous_rate: float           # 0.0 → 1.0
+    ambiguous_rate: float  # 0.0 → 1.0
 
 
 @dataclass
 class SemanticInsight:
     """Aggregate analysis of semantic guard classifier data."""
-    total_evaluated: int            # requests that hit the semantic guard
+
+    total_evaluated: int  # requests that hit the semantic guard
     total_blocked: int
-    overall_block_rate: float       # 0.0 → 1.0
+    overall_block_rate: float  # 0.0 → 1.0
     classifier_stats: list[ClassifierStats] = field(default_factory=list)
     # Pairs of classifiers that frequently agree on blocking
     classifier_agreement: list[dict[str, Any]] = field(default_factory=list)
@@ -196,19 +199,21 @@ def find_optimizations(records: list[dict]) -> list[Optimization]:
         if total >= 10:
             error_rate = stats["failure"] / total
             if error_rate > 0.1:
-                optimizations.append(Optimization(
-                    category="reliability",
-                    description=(
-                        f"Model '{model}' has a {error_rate:.0%} error rate "
-                        f"over {total} requests"
-                    ),
-                    impact="high" if error_rate > 0.3 else "medium",
-                    evidence={
-                        "model": model,
-                        "total": total,
-                        "error_rate": round(error_rate, 3),
-                    },
-                ))
+                optimizations.append(
+                    Optimization(
+                        category="reliability",
+                        description=(
+                            f"Model '{model}' has a {error_rate:.0%} error rate "
+                            f"over {total} requests"
+                        ),
+                        impact="high" if error_rate > 0.3 else "medium",
+                        evidence={
+                            "model": model,
+                            "total": total,
+                            "error_rate": round(error_rate, 3),
+                        },
+                    )
+                )
 
     # Slow p95 latency
     model_latencies: dict[str, list[float]] = defaultdict(list)
@@ -222,20 +227,22 @@ def find_optimizations(records: list[dict]) -> list[Optimization]:
             p95 = sorted(latencies)[int(len(latencies) * 0.95)]
             median = statistics.median(latencies)
             if p95 > 30_000:
-                optimizations.append(Optimization(
-                    category="performance",
-                    description=(
-                        f"Model '{model}' p95 latency is {p95:.0f} ms "
-                        f"(median {median:.0f} ms)"
-                    ),
-                    impact="high" if p95 > 60_000 else "medium",
-                    evidence={
-                        "model": model,
-                        "p95_ms": round(p95),
-                        "median_ms": round(median),
-                        "samples": len(latencies),
-                    },
-                ))
+                optimizations.append(
+                    Optimization(
+                        category="performance",
+                        description=(
+                            f"Model '{model}' p95 latency is {p95:.0f} ms "
+                            f"(median {median:.0f} ms)"
+                        ),
+                        impact="high" if p95 > 60_000 else "medium",
+                        evidence={
+                            "model": model,
+                            "p95_ms": round(p95),
+                            "median_ms": round(median),
+                            "samples": len(latencies),
+                        },
+                    )
+                )
 
     # Outlier token usage
     model_tokens: dict[str, list[int]] = defaultdict(list)
@@ -249,19 +256,21 @@ def find_optimizations(records: list[dict]) -> list[Optimization]:
             p95_tokens = sorted(tokens)[int(len(tokens) * 0.95)]
             median_tokens = statistics.median(tokens)
             if median_tokens > 0 and p95_tokens > 10 * median_tokens:
-                optimizations.append(Optimization(
-                    category="cost",
-                    description=(
-                        f"Model '{model}' has outlier token usage: "
-                        f"p95={p95_tokens} vs median={median_tokens:.0f}"
-                    ),
-                    impact="medium",
-                    evidence={
-                        "model": model,
-                        "p95_tokens": p95_tokens,
-                        "median_tokens": round(median_tokens),
-                    },
-                ))
+                optimizations.append(
+                    Optimization(
+                        category="cost",
+                        description=(
+                            f"Model '{model}' has outlier token usage: "
+                            f"p95={p95_tokens} vs median={median_tokens:.0f}"
+                        ),
+                        impact="medium",
+                        evidence={
+                            "model": model,
+                            "p95_tokens": p95_tokens,
+                            "median_tokens": round(median_tokens),
+                        },
+                    )
+                )
 
     return optimizations
 
@@ -290,20 +299,19 @@ def find_cache_opportunities(records: list[dict]) -> list[CacheOpportunity]:
 
     for fp, info in fingerprint_info.items():
         if info["count"] >= 3:
-            savings_pct = (
-                (info["count"] - 1) / total_ok * 100 if total_ok > 0 else 0
+            savings_pct = (info["count"] - 1) / total_ok * 100 if total_ok > 0 else 0
+            opportunities.append(
+                CacheOpportunity(
+                    pattern=f"Repeated prompt (seen {info['count']} times)",
+                    fingerprint=fp,
+                    frequency=info["count"],
+                    model=info["model"],
+                    estimated_token_savings=(
+                        info["total_tokens"] - info["total_tokens"] // info["count"]
+                    ),
+                    estimated_cost_savings_pct=round(savings_pct, 2),
+                )
             )
-            opportunities.append(CacheOpportunity(
-                pattern=f"Repeated prompt (seen {info['count']} times)",
-                fingerprint=fp,
-                frequency=info["count"],
-                model=info["model"],
-                estimated_token_savings=(
-                    info["total_tokens"]
-                    - info["total_tokens"] // info["count"]
-                ),
-                estimated_cost_savings_pct=round(savings_pct, 2),
-            ))
 
     opportunities.sort(key=lambda o: o.frequency, reverse=True)
     return opportunities[:20]
@@ -326,9 +334,7 @@ def find_trends(records: list[dict], period_days: int = 7) -> list[Trend]:
         ts = r.get("timestamp", "")
         try:
             record_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-            age_days = (
-                (now - record_time.replace(tzinfo=None)).total_seconds() / 86400
-            )
+            age_days = (now - record_time.replace(tzinfo=None)).total_seconds() / 86400
             if age_days > midpoint:
                 first_half.append(r)
             else:
@@ -340,45 +346,41 @@ def find_trends(records: list[dict], period_days: int = 7) -> list[Trend]:
         return trends
 
     # Volume trend
-    vol_change = (
-        (len(second_half) - len(first_half))
-        / max(len(first_half), 1)
-        * 100
-    )
+    vol_change = (len(second_half) - len(first_half)) / max(len(first_half), 1) * 100
     if abs(vol_change) > 10:
-        trends.append(Trend(
-            metric="request_volume",
-            direction="increasing" if vol_change > 0 else "decreasing",
-            magnitude=round(abs(vol_change), 1),
-            period_days=period_days,
-            details={
-                "first_half": len(first_half),
-                "second_half": len(second_half),
-            },
-        ))
+        trends.append(
+            Trend(
+                metric="request_volume",
+                direction="increasing" if vol_change > 0 else "decreasing",
+                magnitude=round(abs(vol_change), 1),
+                period_days=period_days,
+                details={
+                    "first_half": len(first_half),
+                    "second_half": len(second_half),
+                },
+            )
+        )
 
     # Per-model share shift
     first_models = Counter(r.get("model", "unknown") for r in first_half)
     second_models = Counter(r.get("model", "unknown") for r in second_half)
     for model in set(first_models) | set(second_models):
-        first_pct = (
-            first_models.get(model, 0) / max(len(first_half), 1) * 100
-        )
-        second_pct = (
-            second_models.get(model, 0) / max(len(second_half), 1) * 100
-        )
+        first_pct = first_models.get(model, 0) / max(len(first_half), 1) * 100
+        second_pct = second_models.get(model, 0) / max(len(second_half), 1) * 100
         shift = second_pct - first_pct
         if abs(shift) > 5:
-            trends.append(Trend(
-                metric=f"model_share:{model}",
-                direction="increasing" if shift > 0 else "decreasing",
-                magnitude=round(abs(shift), 1),
-                period_days=period_days,
-                details={
-                    "first_half_pct": round(first_pct, 1),
-                    "second_half_pct": round(second_pct, 1),
-                },
-            ))
+            trends.append(
+                Trend(
+                    metric=f"model_share:{model}",
+                    direction="increasing" if shift > 0 else "decreasing",
+                    magnitude=round(abs(shift), 1),
+                    period_days=period_days,
+                    details={
+                        "first_half_pct": round(first_pct, 1),
+                        "second_half_pct": round(second_pct, 1),
+                    },
+                )
+            )
 
     # Error-rate trend
     first_errors = sum(1 for r in first_half if not r.get("success"))
@@ -387,16 +389,18 @@ def find_trends(records: list[dict], period_days: int = 7) -> list[Trend]:
     second_err_rate = second_errors / max(len(second_half), 1) * 100
     err_shift = second_err_rate - first_err_rate
     if abs(err_shift) > 2:
-        trends.append(Trend(
-            metric="error_rate",
-            direction="increasing" if err_shift > 0 else "decreasing",
-            magnitude=round(abs(err_shift), 1),
-            period_days=period_days,
-            details={
-                "first_half_rate": round(first_err_rate, 1),
-                "second_half_rate": round(second_err_rate, 1),
-            },
-        ))
+        trends.append(
+            Trend(
+                metric="error_rate",
+                direction="increasing" if err_shift > 0 else "decreasing",
+                magnitude=round(abs(err_shift), 1),
+                period_days=period_days,
+                details={
+                    "first_half_rate": round(first_err_rate, 1),
+                    "second_half_rate": round(second_err_rate, 1),
+                },
+            )
+        )
 
     # Latency trend
     first_lat = [
@@ -415,39 +419,39 @@ def find_trends(records: list[dict], period_days: int = 7) -> list[Trend]:
         if first_median > 0:
             lat_change = (second_median - first_median) / first_median * 100
             if abs(lat_change) > 15:
-                trends.append(Trend(
-                    metric="median_latency",
-                    direction=(
-                        "increasing" if lat_change > 0 else "decreasing"
-                    ),
-                    magnitude=round(abs(lat_change), 1),
-                    period_days=period_days,
-                    details={
-                        "first_half_ms": round(first_median),
-                        "second_half_ms": round(second_median),
-                    },
-                ))
+                trends.append(
+                    Trend(
+                        metric="median_latency",
+                        direction=("increasing" if lat_change > 0 else "decreasing"),
+                        magnitude=round(abs(lat_change), 1),
+                        period_days=period_days,
+                        details={
+                            "first_half_ms": round(first_median),
+                            "second_half_ms": round(second_median),
+                        },
+                    )
+                )
 
     # User concentration
-    second_users = Counter(
-        r.get("user") for r in second_half if r.get("user")
-    )
+    second_users = Counter(r.get("user") for r in second_half if r.get("user"))
     if second_users:
         total_second = sum(second_users.values())
         top_user, top_count = second_users.most_common(1)[0]
         top_pct = top_count / total_second * 100
         if top_pct > 50:
-            trends.append(Trend(
-                metric="user_concentration",
-                direction="increasing",
-                magnitude=round(top_pct, 1),
-                period_days=period_days,
-                details={
-                    "top_user": top_user,
-                    "top_user_pct": round(top_pct, 1),
-                    "total_users": len(second_users),
-                },
-            ))
+            trends.append(
+                Trend(
+                    metric="user_concentration",
+                    direction="increasing",
+                    magnitude=round(top_pct, 1),
+                    period_days=period_days,
+                    details={
+                        "top_user": top_user,
+                        "top_user_pct": round(top_pct, 1),
+                        "total_users": len(second_users),
+                    },
+                )
+            )
 
     return trends
 
@@ -484,8 +488,7 @@ def find_semantic_insights(records: list[dict]) -> SemanticInsight | None:
         return None
 
     total_blocked = sum(
-        1 for r in semantic_records
-        if r["airlock_semantic"].get("status") == "blocked"
+        1 for r in semantic_records if r["airlock_semantic"].get("status") == "blocked"
     )
 
     # Collect per-classifier data
@@ -533,23 +536,27 @@ def find_semantic_insights(records: list[dict]) -> SemanticInsight | None:
             low = high = 0.0
         ambiguous = [s for s in scores if low <= s <= high]
 
-        classifier_stats.append(ClassifierStats(
-            name=name,
-            sample_count=count,
-            block_count=cd["blocked"],
-            block_rate=round(cd["blocked"] / max(count, 1), 4),
-            error_count=cd["errors"],
-            error_rate=round(cd["errors"] / max(count, 1), 4),
-            score_mean=round(statistics.mean(scores), 4) if scores else 0.0,
-            score_p50=round(_percentile(scores, 50), 4),
-            score_p95=round(_percentile(scores, 95), 4),
-            score_p99=round(_percentile(scores, 99), 4),
-            current_threshold=threshold,
-            latency_mean_ms=round(statistics.mean(latencies), 2) if latencies else 0.0,
-            latency_p95_ms=round(_percentile(latencies, 95), 2),
-            ambiguous_count=len(ambiguous),
-            ambiguous_rate=round(len(ambiguous) / max(len(scores), 1), 4),
-        ))
+        classifier_stats.append(
+            ClassifierStats(
+                name=name,
+                sample_count=count,
+                block_count=cd["blocked"],
+                block_rate=round(cd["blocked"] / max(count, 1), 4),
+                error_count=cd["errors"],
+                error_rate=round(cd["errors"] / max(count, 1), 4),
+                score_mean=round(statistics.mean(scores), 4) if scores else 0.0,
+                score_p50=round(_percentile(scores, 50), 4),
+                score_p95=round(_percentile(scores, 95), 4),
+                score_p99=round(_percentile(scores, 99), 4),
+                current_threshold=threshold,
+                latency_mean_ms=round(statistics.mean(latencies), 2)
+                if latencies
+                else 0.0,
+                latency_p95_ms=round(_percentile(latencies, 95), 2),
+                ambiguous_count=len(ambiguous),
+                ambiguous_rate=round(len(ambiguous) / max(len(scores), 1), 4),
+            )
+        )
 
     # Cross-classifier agreement: for requests where 2+ classifiers both
     # blocked, track which pairs agree
@@ -564,7 +571,7 @@ def find_semantic_insights(records: list[dict]) -> SemanticInsight | None:
 
         # Count co-occurrences for all pairs
         for i, a in enumerate(names):
-            for b in names[i + 1:]:
+            for b in names[i + 1 :]:
                 pair = (min(a, b), max(a, b))
                 pair_totals[pair] += 1
                 if a in blockers and b in blockers:
@@ -573,20 +580,20 @@ def find_semantic_insights(records: list[dict]) -> SemanticInsight | None:
     for pair, co_blocks in pair_counts.most_common(10):
         total = pair_totals[pair]
         if co_blocks >= 2:
-            agreement.append({
-                "classifier_a": pair[0],
-                "classifier_b": pair[1],
-                "co_block_count": co_blocks,
-                "co_occurrence_count": total,
-                "agreement_rate": round(co_blocks / max(total, 1), 4),
-            })
+            agreement.append(
+                {
+                    "classifier_a": pair[0],
+                    "classifier_b": pair[1],
+                    "co_block_count": co_blocks,
+                    "co_occurrence_count": total,
+                    "agreement_rate": round(co_blocks / max(total, 1), 4),
+                }
+            )
 
     return SemanticInsight(
         total_evaluated=len(semantic_records),
         total_blocked=total_blocked,
-        overall_block_rate=round(
-            total_blocked / max(len(semantic_records), 1), 4
-        ),
+        overall_block_rate=round(total_blocked / max(len(semantic_records), 1), 4),
         classifier_stats=classifier_stats,
         classifier_agreement=agreement,
     )
@@ -612,43 +619,45 @@ def generate_hypotheses(
         )
         savings_pct = total_cacheable_tokens / max(total_tokens, 1) * 100
         if savings_pct > 1:
-            hypotheses.append(Hypothesis(
-                statement=(
-                    f"Enabling prompt caching could reduce token usage "
-                    f"by ~{savings_pct:.1f}%"
-                ),
-                evidence={
-                    "cacheable_patterns": len(cache_opps),
-                    "token_savings": total_cacheable_tokens,
-                    "total_tokens": total_tokens,
-                },
-                confidence=min(0.9, savings_pct / 20),
-                test_proposal=(
-                    "Enable LiteLLM cache for the top repeated prompts and "
-                    "measure token usage reduction over a 24-hour period."
-                ),
-            ))
+            hypotheses.append(
+                Hypothesis(
+                    statement=(
+                        f"Enabling prompt caching could reduce token usage "
+                        f"by ~{savings_pct:.1f}%"
+                    ),
+                    evidence={
+                        "cacheable_patterns": len(cache_opps),
+                        "token_savings": total_cacheable_tokens,
+                        "total_tokens": total_tokens,
+                    },
+                    confidence=min(0.9, savings_pct / 20),
+                    test_proposal=(
+                        "Enable LiteLLM cache for the top repeated prompts and "
+                        "measure token usage reduction over a 24-hour period."
+                    ),
+                )
+            )
 
     # From error patterns
     error_models = [o for o in optimizations if o.category == "reliability"]
     if error_models:
-        worst = max(
-            error_models, key=lambda o: o.evidence.get("error_rate", 0)
+        worst = max(error_models, key=lambda o: o.evidence.get("error_rate", 0))
+        hypotheses.append(
+            Hypothesis(
+                statement=(
+                    f"Configuring automatic failover for "
+                    f"'{worst.evidence['model']}' would reduce user-visible "
+                    f"errors by ~{worst.evidence['error_rate'] * 100:.0f}%"
+                ),
+                evidence=worst.evidence,
+                confidence=0.7,
+                test_proposal=(
+                    f"Enable the circuit breaker for "
+                    f"'{worst.evidence['model']}' with a fallback model and "
+                    f"compare error rates before/after over 48 hours."
+                ),
+            )
         )
-        hypotheses.append(Hypothesis(
-            statement=(
-                f"Configuring automatic failover for "
-                f"'{worst.evidence['model']}' would reduce user-visible "
-                f"errors by ~{worst.evidence['error_rate'] * 100:.0f}%"
-            ),
-            evidence=worst.evidence,
-            confidence=0.7,
-            test_proposal=(
-                f"Enable the circuit breaker for "
-                f"'{worst.evidence['model']}' with a fallback model and "
-                f"compare error rates before/after over 48 hours."
-            ),
-        ))
 
     # From latency trends
     latency_trends = [
@@ -658,20 +667,22 @@ def generate_hypotheses(
     ]
     if latency_trends:
         t = latency_trends[0]
-        hypotheses.append(Hypothesis(
-            statement=(
-                f"Median latency increased {t.magnitude:.0f}% over the last "
-                f"{t.period_days} days — suggesting provider degradation or "
-                f"increased prompt complexity"
-            ),
-            evidence=t.details,
-            confidence=0.6,
-            test_proposal=(
-                "Compare average prompt length (token count) across the "
-                "period to isolate whether the increase is due to larger "
-                "prompts or provider slowdown."
-            ),
-        ))
+        hypotheses.append(
+            Hypothesis(
+                statement=(
+                    f"Median latency increased {t.magnitude:.0f}% over the last "
+                    f"{t.period_days} days — suggesting provider degradation or "
+                    f"increased prompt complexity"
+                ),
+                evidence=t.details,
+                confidence=0.6,
+                test_proposal=(
+                    "Compare average prompt length (token count) across the "
+                    "period to isolate whether the increase is due to larger "
+                    "prompts or provider slowdown."
+                ),
+            )
+        )
 
     # From model concentration shifts
     model_trends = [
@@ -682,116 +693,126 @@ def generate_hypotheses(
     if model_trends:
         t = model_trends[0]
         model_name = t.metric.split(":")[1]
-        hypotheses.append(Hypothesis(
-            statement=(
-                f"Usage of '{model_name}' is increasing "
-                f"({t.magnitude:.1f} pp shift). Consider negotiating "
-                f"volume pricing or pre-provisioning capacity."
-            ),
-            evidence=t.details,
-            confidence=0.5,
-            test_proposal=(
-                f"Monitor '{model_name}' usage daily for the next 2 weeks "
-                f"to confirm the trend before acting on pricing."
-            ),
-        ))
+        hypotheses.append(
+            Hypothesis(
+                statement=(
+                    f"Usage of '{model_name}' is increasing "
+                    f"({t.magnitude:.1f} pp shift). Consider negotiating "
+                    f"volume pricing or pre-provisioning capacity."
+                ),
+                evidence=t.details,
+                confidence=0.5,
+                test_proposal=(
+                    f"Monitor '{model_name}' usage daily for the next 2 weeks "
+                    f"to confirm the trend before acting on pricing."
+                ),
+            )
+        )
 
     # From semantic guard insights
     if semantic:
         for cs in semantic.classifier_stats:
             # High block rate → threshold may be too aggressive
             if cs.block_rate > 0.10 and cs.sample_count >= 20:
-                hypotheses.append(Hypothesis(
-                    statement=(
-                        f"Classifier '{cs.name}' is blocking {cs.block_rate:.0%} "
-                        f"of requests (n={cs.sample_count}). The threshold "
-                        f"({cs.current_threshold}) may be too aggressive, "
-                        f"causing false positives."
-                    ),
-                    evidence={
-                        "classifier": cs.name,
-                        "block_rate": cs.block_rate,
-                        "sample_count": cs.sample_count,
-                        "threshold": cs.current_threshold,
-                        "score_p95": cs.score_p95,
-                    },
-                    confidence=min(0.85, cs.block_rate * 2),
-                    test_proposal=(
-                        f"Raise '{cs.name}' threshold from {cs.current_threshold} "
-                        f"to {cs.score_p95:.2f} (current p95 score) and monitor "
-                        f"block rate reduction over 48 hours."
-                    ),
-                ))
+                hypotheses.append(
+                    Hypothesis(
+                        statement=(
+                            f"Classifier '{cs.name}' is blocking {cs.block_rate:.0%} "
+                            f"of requests (n={cs.sample_count}). The threshold "
+                            f"({cs.current_threshold}) may be too aggressive, "
+                            f"causing false positives."
+                        ),
+                        evidence={
+                            "classifier": cs.name,
+                            "block_rate": cs.block_rate,
+                            "sample_count": cs.sample_count,
+                            "threshold": cs.current_threshold,
+                            "score_p95": cs.score_p95,
+                        },
+                        confidence=min(0.85, cs.block_rate * 2),
+                        test_proposal=(
+                            f"Raise '{cs.name}' threshold from {cs.current_threshold} "
+                            f"to {cs.score_p95:.2f} (current p95 score) and monitor "
+                            f"block rate reduction over 48 hours."
+                        ),
+                    )
+                )
 
             # Many ambiguous requests → threshold is in the noisy zone
             if cs.ambiguous_rate > 0.20 and cs.sample_count >= 20:
-                hypotheses.append(Hypothesis(
-                    statement=(
-                        f"Classifier '{cs.name}' has {cs.ambiguous_rate:.0%} "
-                        f"of scores in the ambiguous zone (within 20% of "
-                        f"threshold={cs.current_threshold}). Consider adding "
-                        f"an LLM-as-judge escalation tier for these requests."
-                    ),
-                    evidence={
-                        "classifier": cs.name,
-                        "ambiguous_rate": cs.ambiguous_rate,
-                        "ambiguous_count": cs.ambiguous_count,
-                        "threshold": cs.current_threshold,
-                        "score_mean": cs.score_mean,
-                    },
-                    confidence=0.6,
-                    test_proposal=(
-                        f"Route requests where '{cs.name}' scores between "
-                        f"{cs.current_threshold * 0.8:.2f}–{cs.current_threshold * 1.2:.2f} "
-                        f"to a secondary LLM-as-judge check and compare "
-                        f"verdicts over 1 week."
-                    ),
-                ))
+                hypotheses.append(
+                    Hypothesis(
+                        statement=(
+                            f"Classifier '{cs.name}' has {cs.ambiguous_rate:.0%} "
+                            f"of scores in the ambiguous zone (within 20% of "
+                            f"threshold={cs.current_threshold}). Consider adding "
+                            f"an LLM-as-judge escalation tier for these requests."
+                        ),
+                        evidence={
+                            "classifier": cs.name,
+                            "ambiguous_rate": cs.ambiguous_rate,
+                            "ambiguous_count": cs.ambiguous_count,
+                            "threshold": cs.current_threshold,
+                            "score_mean": cs.score_mean,
+                        },
+                        confidence=0.6,
+                        test_proposal=(
+                            f"Route requests where '{cs.name}' scores between "
+                            f"{cs.current_threshold * 0.8:.2f}–{cs.current_threshold * 1.2:.2f} "
+                            f"to a secondary LLM-as-judge check and compare "
+                            f"verdicts over 1 week."
+                        ),
+                    )
+                )
 
             # High classifier error rate → reliability problem
             if cs.error_rate > 0.05 and cs.sample_count >= 10:
-                hypotheses.append(Hypothesis(
-                    statement=(
-                        f"Classifier '{cs.name}' is failing on {cs.error_rate:.0%} "
-                        f"of requests (n={cs.error_count}). This may indicate "
-                        f"a model loading issue or resource constraint."
-                    ),
-                    evidence={
-                        "classifier": cs.name,
-                        "error_rate": cs.error_rate,
-                        "error_count": cs.error_count,
-                        "sample_count": cs.sample_count,
-                    },
-                    confidence=0.8,
-                    test_proposal=(
-                        f"Check '{cs.name}' classifier health: model loading, "
-                        f"memory usage, and timeout configuration. Consider "
-                        f"adding a health check endpoint."
-                    ),
-                ))
+                hypotheses.append(
+                    Hypothesis(
+                        statement=(
+                            f"Classifier '{cs.name}' is failing on {cs.error_rate:.0%} "
+                            f"of requests (n={cs.error_count}). This may indicate "
+                            f"a model loading issue or resource constraint."
+                        ),
+                        evidence={
+                            "classifier": cs.name,
+                            "error_rate": cs.error_rate,
+                            "error_count": cs.error_count,
+                            "sample_count": cs.sample_count,
+                        },
+                        confidence=0.8,
+                        test_proposal=(
+                            f"Check '{cs.name}' classifier health: model loading, "
+                            f"memory usage, and timeout configuration. Consider "
+                            f"adding a health check endpoint."
+                        ),
+                    )
+                )
 
             # Classifier latency is high relative to typical LLM latency
             if cs.latency_p95_ms > 5000 and cs.sample_count >= 10:
-                hypotheses.append(Hypothesis(
-                    statement=(
-                        f"Classifier '{cs.name}' p95 latency is "
-                        f"{cs.latency_p95_ms:.0f} ms. If this exceeds the "
-                        f"LLM provider's response time, it becomes the "
-                        f"bottleneck despite running in parallel."
-                    ),
-                    evidence={
-                        "classifier": cs.name,
-                        "latency_p95_ms": cs.latency_p95_ms,
-                        "latency_mean_ms": cs.latency_mean_ms,
-                        "sample_count": cs.sample_count,
-                    },
-                    confidence=0.7,
-                    test_proposal=(
-                        f"Profile '{cs.name}' inference latency. Consider "
-                        f"model quantization, batching, or switching to a "
-                        f"lighter model variant."
-                    ),
-                ))
+                hypotheses.append(
+                    Hypothesis(
+                        statement=(
+                            f"Classifier '{cs.name}' p95 latency is "
+                            f"{cs.latency_p95_ms:.0f} ms. If this exceeds the "
+                            f"LLM provider's response time, it becomes the "
+                            f"bottleneck despite running in parallel."
+                        ),
+                        evidence={
+                            "classifier": cs.name,
+                            "latency_p95_ms": cs.latency_p95_ms,
+                            "latency_mean_ms": cs.latency_mean_ms,
+                            "sample_count": cs.sample_count,
+                        },
+                        confidence=0.7,
+                        test_proposal=(
+                            f"Profile '{cs.name}' inference latency. Consider "
+                            f"model quantization, batching, or switching to a "
+                            f"lighter model variant."
+                        ),
+                    )
+                )
 
     return hypotheses
 
@@ -840,9 +861,7 @@ def analyze(days: int = 7) -> AnalysisReport:
         "total_requests": len(records),
         "successful": len(success_records),
         "failed": len(failure_records),
-        "error_rate": round(
-            len(failure_records) / max(len(records), 1), 3
-        ),
+        "error_rate": round(len(failure_records) / max(len(records), 1), 3),
         "models_used": dict(models_used.most_common()),
         "active_users": users_active,
         "total_tokens": total_tokens,

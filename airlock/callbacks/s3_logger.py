@@ -24,7 +24,6 @@ logger = logging.getLogger("airlock.callbacks.s3")
 
 try:
     import boto3
-    from botocore.exceptions import ClientError
 
     _BOTO3_AVAILABLE = True
 except ImportError:
@@ -56,7 +55,9 @@ class AirlockS3Logger(CustomLogger):
         if self._client is not None:
             return self._client
         if not _BOTO3_AVAILABLE:
-            raise ImportError("boto3 is required for S3 logging: pip install airlock[s3]")
+            raise ImportError(
+                "boto3 is required for S3 logging: pip install airlock[s3]"
+            )
         self._client = boto3.client("s3")
         return self._client
 
@@ -83,7 +84,8 @@ class AirlockS3Logger(CustomLogger):
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "success": success,
             "model": kwargs.get("model", "unknown"),
-            "user": metadata.get("user_api_key_alias") or metadata.get("user_api_key_user_id"),
+            "user": metadata.get("user_api_key_alias")
+            or metadata.get("user_api_key_user_id"),
             "team": metadata.get("user_api_key_team_alias"),
             "request_id": kwargs.get("litellm_call_id"),
             "messages": kwargs.get("messages"),
@@ -107,7 +109,9 @@ class AirlockS3Logger(CustomLogger):
             self._buffer.clear()
 
         if not self._bucket:
-            logger.warning("AIRLOCK_S3_BUCKET not set, discarding %d records", len(records))
+            logger.warning(
+                "AIRLOCK_S3_BUCKET not set, discarding %d records", len(records)
+            )
             return
 
         body = "\n".join(json.dumps(r, default=_serialize) for r in records) + "\n"
@@ -120,7 +124,9 @@ class AirlockS3Logger(CustomLogger):
         try:
             client = self._get_client()
             client.put_object(Bucket=self._bucket, Key=key, Body=body.encode("utf-8"))
-            logger.info("s3_flush bucket=%s key=%s records=%d", self._bucket, key, len(records))
+            logger.info(
+                "s3_flush bucket=%s key=%s records=%d", self._bucket, key, len(records)
+            )
             with self._lock:
                 self._flush_attempts = 0
         except Exception:
@@ -128,14 +134,20 @@ class AirlockS3Logger(CustomLogger):
             if attempts >= _MAX_FLUSH_RETRIES:
                 logger.critical(
                     "s3_flush_dropped bucket=%s key=%s records=%d after %d attempts",
-                    self._bucket, key, len(records), attempts,
+                    self._bucket,
+                    key,
+                    len(records),
+                    attempts,
                 )
                 with self._lock:
                     self._flush_attempts = 0
             else:
                 logger.error(
                     "s3_flush_failed bucket=%s key=%s records=%d attempt=%d, re-queuing",
-                    self._bucket, key, len(records), attempts,
+                    self._bucket,
+                    key,
+                    len(records),
+                    attempts,
                 )
                 with self._lock:
                     self._buffer.extend(records)
@@ -151,24 +163,42 @@ class AirlockS3Logger(CustomLogger):
     # ------------------------------------------------------------------
     # Success
     # ------------------------------------------------------------------
-    def log_success_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
-        record = self._build_record(kwargs, response_obj, start_time, end_time, success=True)
+    def log_success_event(
+        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
+        record = self._build_record(
+            kwargs, response_obj, start_time, end_time, success=True
+        )
         self._append(record)
 
-    async def async_log_success_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
+    async def async_log_success_event(
+        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
         import asyncio
-        await asyncio.to_thread(self.log_success_event, kwargs, response_obj, start_time, end_time)
+
+        await asyncio.to_thread(
+            self.log_success_event, kwargs, response_obj, start_time, end_time
+        )
 
     # ------------------------------------------------------------------
     # Failure
     # ------------------------------------------------------------------
-    def log_failure_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
-        record = self._build_record(kwargs, response_obj, start_time, end_time, success=False)
+    def log_failure_event(
+        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
+        record = self._build_record(
+            kwargs, response_obj, start_time, end_time, success=False
+        )
         self._append(record)
 
-    async def async_log_failure_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
+    async def async_log_failure_event(
+        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
         import asyncio
-        await asyncio.to_thread(self.log_failure_event, kwargs, response_obj, start_time, end_time)
+
+        await asyncio.to_thread(
+            self.log_failure_event, kwargs, response_obj, start_time, end_time
+        )
 
     def flush(self) -> None:
         """Flush any buffered records to S3. Call on shutdown."""

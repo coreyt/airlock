@@ -24,9 +24,7 @@ try:
     from mcp.server.stdio import stdio_server
     from mcp.types import TextContent, Tool
 except ImportError:
-    raise SystemExit(
-        "mcp package required: pip install mcp"
-    )
+    raise SystemExit("mcp package required: pip install mcp")
 
 _DEFAULT_POLL_TIMEOUT = 180  # 3 minutes
 _QUICK_POLL_TIMEOUT = 60  # 1 minute
@@ -48,6 +46,7 @@ def _get_client():
     if not api_key:
         raise ValueError("NEWS_CATCHER_API_KEY environment variable is required")
     from newscatcher_catchall import CatchAllApi
+
     _client = CatchAllApi(api_key=api_key)
     return _client
 
@@ -177,7 +176,11 @@ async def list_tools() -> list[Tool]:
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     query = arguments.get("query", "")
     if not query or not query.strip():
-        return [TextContent(type="text", text="Error: query is required and cannot be empty.")]
+        return [
+            TextContent(
+                type="text", text="Error: query is required and cannot be empty."
+            )
+        ]
 
     max_results = arguments.get("max_results", 10)
 

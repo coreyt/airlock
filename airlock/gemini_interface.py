@@ -9,7 +9,9 @@ _GEMINI_MODES = {"balanced", "deep_reasoning", "text_only", "tool_oriented"}
 _GEMINI_VISIBILITY = {"final_only", "provider_native"}
 
 
-def is_gemini_provider(model_name: str | None = None, provider: str | None = None) -> bool:
+def is_gemini_provider(
+    model_name: str | None = None, provider: str | None = None
+) -> bool:
     """Return True when the request/response targets Gemini."""
     if provider == "gemini":
         return True
@@ -74,9 +76,7 @@ def apply_gemini_request_semantics(
             # that successful non-text completions are acceptable.
             pass
     elif mode != "balanced":
-        warnings.append(
-            "client_explicit_controls_override_airlock_gemini_mode"
-        )
+        warnings.append("client_explicit_controls_override_airlock_gemini_mode")
 
     metadata = data.setdefault("metadata", {})
     metadata["airlock_gemini"] = {
@@ -115,11 +115,13 @@ def classify_gemini_response_body(body: dict[str, Any]) -> dict[str, Any]:
     choice = ((body.get("choices") or [{}])[0]) if isinstance(body, dict) else {}
     message = choice.get("message") or {}
     has_text_content, text_content = _extract_text_content(message)
-    has_tool_calls = bool(message.get("tool_calls")) or bool(message.get("function_call"))
-
-    completion_details = (
-        (body.get("usage") or {}).get("completion_tokens_details") or {}
+    has_tool_calls = bool(message.get("tool_calls")) or bool(
+        message.get("function_call")
     )
+
+    completion_details = (body.get("usage") or {}).get(
+        "completion_tokens_details"
+    ) or {}
     text_tokens = completion_details.get("text_tokens")
     reasoning_tokens = completion_details.get("reasoning_tokens")
     finish_reason = choice.get("finish_reason")

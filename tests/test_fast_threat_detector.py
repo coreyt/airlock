@@ -127,8 +127,9 @@ class TestAssessThreat:
     def test_decay_factor_30_second_halflife(self):
         """A score of 0.7 should take ~30 seconds to decay to 0.35."""
         from airlock.fast.threat_detector import DECAY_FACTOR
+
         # Verify factor: 0.7 * factor^30 should be approximately 0.35
-        decayed = 0.7 * (DECAY_FACTOR ** 30)
+        decayed = 0.7 * (DECAY_FACTOR**30)
         assert decayed == pytest.approx(0.35, abs=0.01)
 
     def test_threat_score_decays_between_requests(self, monkeypatch):

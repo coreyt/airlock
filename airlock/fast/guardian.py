@@ -87,7 +87,9 @@ def _is_client_pinned(original_model: str, data: dict[str, Any]) -> bool:
     return True
 
 
-def _set_model_override(data: dict[str, Any], requested_model: str, final_model: str, reason: str) -> None:
+def _set_model_override(
+    data: dict[str, Any], requested_model: str, final_model: str, reason: str
+) -> None:
     """Record an unpinned model override in metadata for logging/proxy surfaces."""
     metadata = data.setdefault("metadata", {})
     metadata["airlock_model_override"] = {
@@ -199,7 +201,9 @@ class AirlockFastGuardian(CustomGuardrail):
             resolved = alias_table.resolve(model_name)
             if resolved and resolved != model_name:
                 logger.info(
-                    "model_alias %s -> %s", model_name, resolved,
+                    "model_alias %s -> %s",
+                    model_name,
+                    resolved,
                 )
                 data["model"] = resolved
                 metadata = data.setdefault("metadata", {})
@@ -225,7 +229,8 @@ class AirlockFastGuardian(CustomGuardrail):
                             "provider": provider,
                             "requested_model": model_name,
                             "final_model": model_name,
-                            "reason": client_provider.last_reason or "provider_rate_limited",
+                            "reason": client_provider.last_reason
+                            or "provider_rate_limited",
                             "cooldown_seconds": round(cooldown, 1),
                         }
                         logger.warning(
@@ -254,7 +259,8 @@ class AirlockFastGuardian(CustomGuardrail):
                             "provider": provider,
                             "requested_model": model_name,
                             "final_model": model_name,
-                            "reason": provider_state.last_reason or "provider_rate_limited",
+                            "reason": provider_state.last_reason
+                            or "provider_rate_limited",
                             "cooldown_seconds": round(cooldown, 1),
                         }
                         logger.warning(
@@ -293,7 +299,9 @@ class AirlockFastGuardian(CustomGuardrail):
                         blocked_providers.add(provider_name)
                 current_provider = infer_provider(model_name)
                 if current_provider:
-                    client_provider = store.get_client_provider(client_id, current_provider)
+                    client_provider = store.get_client_provider(
+                        client_id, current_provider
+                    )
                     if client_provider.is_quarantined(now):
                         blocked_providers.add(current_provider)
 

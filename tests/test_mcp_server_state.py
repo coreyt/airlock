@@ -134,7 +134,9 @@ class TestStateStoreMcpServers:
         store = StateStore()
         store.get_mcp_server("s")  # creates default
         new_state = McpServerState(
-            name="s", transport="sse", url="http://localhost:3001",
+            name="s",
+            transport="sse",
+            url="http://localhost:3001",
             health=McpServerHealth.HEALTHY,
         )
         store.set_mcp_server("s", new_state)
