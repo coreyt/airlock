@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from airlock.advisor.agent import AdvisorResult
+from airlock.cli.advise_cmd import _resolve_host_port
 
 
 def _make_result(**kwargs) -> AdvisorResult:
@@ -57,7 +58,12 @@ class TestAdviseRun:
 
         result = _make_result(answer="ok")
         args = SimpleNamespace(
-            question="test", host=None, port=None, model=None, local_only=True, interactive=False
+            question="test",
+            host=None,
+            port=None,
+            model=None,
+            local_only=True,
+            interactive=False,
         )
         with patch(
             "airlock.cli.advise_cmd.run_advisor", return_value=result
@@ -65,7 +71,11 @@ class TestAdviseRun:
             run(args)
 
         mock_advisor.assert_called_once_with(
-            "test", proxy_host="localhost", proxy_port="4000", model=None, local_only=True
+            "test",
+            proxy_host="localhost",
+            proxy_port="4000",
+            model=None,
+            local_only=True,
         )
 
     def test_run_model_propagated(self, capsys):
@@ -73,7 +83,12 @@ class TestAdviseRun:
 
         result = _make_result(answer="ok")
         args = SimpleNamespace(
-            question="test", host=None, port=None, model="mymodel", local_only=False, interactive=False
+            question="test",
+            host=None,
+            port=None,
+            model="mymodel",
+            local_only=False,
+            interactive=False,
         )
         with patch(
             "airlock.cli.advise_cmd.run_advisor", return_value=result
@@ -81,7 +96,11 @@ class TestAdviseRun:
             run(args)
 
         mock_advisor.assert_called_once_with(
-            "test", proxy_host="localhost", proxy_port="4000", model="mymodel", local_only=False
+            "test",
+            proxy_host="localhost",
+            proxy_port="4000",
+            model="mymodel",
+            local_only=False,
         )
 
     def test_run_error_exits_1(self, capsys):
@@ -89,7 +108,12 @@ class TestAdviseRun:
 
         result = _make_result(error="something went wrong")
         args = SimpleNamespace(
-            question="test", host=None, port=None, model=None, local_only=False, interactive=False
+            question="test",
+            host=None,
+            port=None,
+            model=None,
+            local_only=False,
+            interactive=False,
         )
         with patch("airlock.cli.advise_cmd.run_advisor", return_value=result):
             with pytest.raises(SystemExit) as exc_info:
@@ -101,7 +125,12 @@ class TestAdviseRun:
 
         result = _make_result(answer="ok", is_local=False, model_used="gpt-4")
         args = SimpleNamespace(
-            question="test", host=None, port=None, model=None, local_only=False, interactive=False
+            question="test",
+            host=None,
+            port=None,
+            model=None,
+            local_only=False,
+            interactive=False,
         )
         with patch("airlock.cli.advise_cmd.run_advisor", return_value=result):
             run(args)
@@ -118,3 +147,40 @@ class TestAdviseRun:
         with pytest.raises(SystemExit) as exc_info:
             run(args)
         assert exc_info.value.code == 1
+
+
+# ---------------------------------------------------------------------------
+# _resolve_host_port
+# ---------------------------------------------------------------------------
+
+
+class TestResolveHostPort:
+    def test_resolve_host_port_defaults(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_HOST", raising=False)
+        monkeypatch.delenv("AIRLOCK_PORT", raising=False)
+        args = SimpleNamespace(host=None, port=None)
+        host, port = _resolve_host_port(args)
+        assert host == "localhost"
+        assert port == "4000"
+
+    def test_resolve_host_port_from_args(self):
+        args = SimpleNamespace(host="myhost", port="8080")
+        host, port = _resolve_host_port(args)
+        assert host == "myhost"
+        assert port == "8080"
+
+    def test_resolve_host_port_from_env(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_HOST", "envhost")
+        monkeypatch.setenv("AIRLOCK_PORT", "9000")
+        args = SimpleNamespace(host=None, port=None)
+        host, port = _resolve_host_port(args)
+        assert host == "envhost"
+        assert port == "9000"
+
+    def test_resolve_host_port_args_override_env(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_HOST", "envhost")
+        monkeypatch.setenv("AIRLOCK_PORT", "9000")
+        args = SimpleNamespace(host="arghost", port="7070")
+        host, port = _resolve_host_port(args)
+        assert host == "arghost"
+        assert port == "7070"

@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
-from airlock.advisor.agent import run_advisor
+from airlock.advisor.agent import _execute_tool, _parse_actions, run_advisor
 
 
 # ---------------------------------------------------------------------------
@@ -286,3 +286,31 @@ class TestAuditLogging:
         assert record["action_type"] == "query"
         assert record["outcome"] == "success"
         assert record["model_used"] == "test-local"
+
+
+# ---------------------------------------------------------------------------
+# Direct unit tests for _parse_actions and _execute_tool
+# ---------------------------------------------------------------------------
+
+
+class TestParseActions:
+    def test_parse_actions_extracts_json(self):
+        text = 'Some text ACTION: {"type": "config_change"} more text'
+        result = _parse_actions(text)
+        assert result == [{"type": "config_change"}]
+
+    def test_parse_actions_no_match(self):
+        result = _parse_actions("no actions here")
+        assert result == []
+
+    def test_parse_actions_malformed_json(self):
+        result = _parse_actions("ACTION: {not valid json}")
+        assert result == []
+
+
+class TestExecuteTool:
+    def test_execute_tool_unknown(self):
+        result = _execute_tool("nonexistent", {}, None, "/tmp", "/tmp/config.yaml")
+        parsed = json.loads(result)
+        assert "error" in parsed
+        assert "Unknown tool" in parsed["error"]
