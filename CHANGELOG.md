@@ -5,6 +5,27 @@ All notable changes to Airlock are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] — 2026-04-10
+
+### Added
+
+- **Admin Advisor** — LLM-powered operational assistant for diagnosing
+  issues and recommending config changes. Includes:
+  - `airlock advise` CLI command (one-shot, interactive, `--local-only`)
+  - TUI Screen 6 ("Advisor") with model selector and chat interface
+  - 9 data-gathering tools (state snapshot, errors, analysis, circuits,
+    config, guard signals, client/model profiles, knobs)
+  - Config proposal system with diff preview, risk classification
+    (low/medium/high), `.bak` backup, and YAML validation
+  - Local-first model selection to avoid sending operational data to
+    remote providers
+  - JSONL audit trail at `logs/advisor-audit.jsonl`
+- **mkdocs documentation site** — organized user-facing docs with
+  Getting Started, User Guide, Operations, and Architecture sections.
+  Build with `uv run mkdocs serve`.
+- **Release workflow** (`.github/workflows/release.yml`) — tag-triggered
+  CD pipeline publishing to PyPI via trusted publishing (OIDC).
+
 ## [0.1.1] — 2026-04-09
 
 First published release. Production-readiness pack on top of the `0.1.0`
