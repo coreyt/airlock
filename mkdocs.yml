@@ -1,0 +1,60 @@
+site_name: Airlock
+site_description: Enterprise LLM proxy — logging, guardrails, and unified access for AI coding tools.
+site_url: https://github.com/coreyt/airlock
+repo_url: https://github.com/coreyt/airlock
+repo_name: coreyt/airlock
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - content.code.copy
+    - toc.follow
+
+markdown_extensions:
+  - tables
+  - admonition
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: getting-started/installation.md
+      - Configuration: getting-started/configuration.md
+      - Connecting Tools: getting-started/connecting-tools.md
+  - User Guide:
+      - TUI Dashboard: guide/tui.md
+      - CLI Reference: guide/cli.md
+      - Advisor: guide/advisor.md
+      - Guardrails: guide/guardrails.md
+      - MCP Servers: guide/mcp-servers.md
+  - Operations:
+      - Deployment: operations.md
+      - Troubleshooting: troubleshooting.md
+  - Architecture:
+      - Overview: architecture/overview.md
+      - System Diagram: architecture/diagram.md
+  - Changelog: changelog.md

@@ -63,6 +63,10 @@ test = [
     "fastapi>=0.100.0",
     "prometheus-client>=0.20.0",
 ]
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+]
 
 [project.urls]
 Homepage = "https://github.com/coreyt/airlock"
