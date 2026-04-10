@@ -37,6 +37,7 @@ Airlock sits between your developers and LLM providers, giving you visibility an
 | **Multi-tool support** | Works with Cursor, Claude Code, GitHub Copilot, and any OpenAI-compatible client |
 | **Self-hosted models** | Route to local vLLM, Ollama, or any OpenAI-compatible endpoint alongside cloud providers |
 | **Interactive testing** | Built-in Basic Chat screen to test LLM connectivity and inspect full request/response cycles |
+| **AI advisor** | Ask an LLM about operational data — diagnose errors, tune guardrails, get config recommendations (local models preferred) |
 
 ## Getting started
 
@@ -108,7 +109,24 @@ curl http://localhost:4000/v1/chat/completions \
   }'
 ```
 
-Or use the TUI's **Basic Chat** screen (press `0`) to interactively test any configured model and inspect the full request/response headers and body.
+Or use the TUI's **Basic Chat** screen (press `5`) to interactively test any configured model and inspect the full request/response headers and body.
+
+### Advisor
+
+Ask an LLM about Airlock's operational data — diagnose errors, tune guardrails, understand trends:
+
+```bash
+# One-shot question
+airlock advise "why does claude-sonnet have a high error rate?"
+
+# Interactive session
+airlock advise --interactive
+
+# Force local model only (no data sent externally)
+airlock advise --local-only "what should I tune?"
+```
+
+Or press `6` in the TUI for the Advisor screen. The advisor prefers local models (vLLM, Ollama) to avoid sending operational data to remote providers.
 
 ### Alternative: Docker
 
@@ -273,8 +291,9 @@ airlock/
 ├── fast/                 # Real-time: threat detection, circuit breaker, priority
 ├── slow/                 # Offline: log analysis, trend detection, tuning
 ├── hooks/                # Claude Code client-side hooks (session, prompt, audit)
-├── cli/                  # Unified CLI: init, start, status, tui, analyze, hooks
-└── tui/                  # Textual terminal dashboard (10 screens, proxy control)
+├── advisor/              # LLM-powered operational advisor (agent loop, tools, proposals)
+├── cli/                  # Unified CLI: init, start, status, tui, analyze, advise, hooks
+└── tui/                  # Textual terminal dashboard (6 screens, proxy control)
 scripts/
 ├── setup.sh              # Standard setup (install + init + spaCy model)
 └── setup-dev.sh          # Developer setup (all extras + tests)

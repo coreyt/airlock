@@ -105,7 +105,8 @@ airlock
   ├── init     → airlock.cli.init_cmd.run()     Generate config files
   ├── start    → airlock.proxy.main()            Launch the proxy
   ├── status   → airlock.cli.status_cmd.run()   Check proxy health
-  └── analyze  → airlock.slow.cli.main()         Offline log analysis
+  ├── analyze  → airlock.slow.cli.main()         Offline log analysis
+  └── advise   → airlock.cli.advise_cmd.run()   LLM-powered operational advisor
 ```
 
 #### Dispatch Architecture
@@ -122,7 +123,8 @@ main(argv)
   │     ├── subparser "init"    → --force, --dir
   │     ├── subparser "start"   → --host, --port, --config
   │     ├── subparser "status"  → --host, --port
-  │     └── subparser "analyze" → --days, --json, --output
+  │     ├── subparser "analyze" → --days, --json, --output
+  │     └── subparser "advise"  → --host, --port, --model, --local-only, --interactive
   │
   ├── No subcommand → print help, exit(0)
   └── Dispatch to handler
@@ -285,6 +287,50 @@ The `_serialize` helper handles edge cases that would otherwise cause
 
 This is passed as the `default` argument to `json.dumps`, ensuring no record
 is ever lost to a serialization error (NFR-7).
+
+### 3.4 Advisor (`airlock/advisor/`)
+
+An LLM-powered operational assistant that lets administrators query
+Airlock's state in natural language.  The advisor runs a bounded
+tool-calling loop (max 5 iterations) against the proxy's own
+`/v1/chat/completions` endpoint, using tools that read from the
+StateStore, JSONL logs, config, and analysis pipeline.
+
+```
+airlock/advisor/
+├── __init__.py
+├── model_select.py   # Local-first model selection
+├── tools.py          # 9 data-gathering tools + TOOL_REGISTRY
+├── audit.py          # JSONL audit logger (advisor-audit.jsonl)
+├── prompts.py        # System prompt + tool description builder
+├── agent.py          # Agent loop with tool execution
+└── proposals.py      # Config change proposals with risk classification
+```
+
+**Key design decisions:**
+
+- **Local-first model selection:** The advisor prefers models with a
+  custom `api_base` (vLLM, Ollama) to avoid sending operational data
+  to remote providers.  Falls back to remote with a warning.
+- **No new network listener:** The advisor runs in-process (TUI worker
+  thread or CLI process).  It calls the proxy as a client, not as an
+  internal endpoint, avoiding circular dependencies.
+- **Tool-based context assembly:** Rather than dumping all data into the
+  prompt, the LLM selectively requests data via function calling.  This
+  keeps token usage bounded and works with smaller local models.
+- **Guarded config writes:** Proposed changes generate a diff preview,
+  require explicit approval, create `.bak` backups, and validate YAML
+  before writing.
+- **Audit trail:** All advisor actions are logged to
+  `logs/advisor-audit.jsonl`.
+
+**Surfaces:**
+
+- `airlock advise "question"` — CLI one-shot query
+- `airlock advise --interactive` — CLI REPL
+- TUI Screen 6 ("Advisor") — key `6`
+
+**Design document:** `dev/feature-admin-advisor.md`
 
 ---
 

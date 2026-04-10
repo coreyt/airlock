@@ -331,6 +331,52 @@ Configuration management — the most widget-dense screen.
 writes to `.env` and/or `config.yaml` and shows a modal: "Settings saved.
 Restart the proxy for changes to take effect."
 
+### 3.7 Advisor
+
+LLM-powered operational diagnostics. The administrator types a
+natural-language question and the advisor runs a tool-calling loop
+against the proxy to gather data, then returns an answer grounded in
+facts.
+
+```
+┌─ Advisor ────────────────────────────────────────────────────────────────┐
+│                                                                          │
+│  Model: [Auto (local preferred) ▼]                                       │
+│                                                                          │
+├──────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  Advisor: claude-sonnet has a 38% error rate over 247 requests in the   │
+│  last 24 hours. The errors are concentrated in the last 3 hours and     │
+│  are all RateLimitError from Anthropic.                                  │
+│                                                                          │
+│  Recommendation: Add claude-haiku as a failover model.                   │
+│                                                                          │
+│  [dim]Tools used: get_model_profile, get_recent_errors[/dim]             │
+│                                                                          │
+├──────────────────────────────────────────────────────────────────────────┤
+│  > ask a question...                                              [Ask]  │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+**Widgets:**
+
+| Region | Widget | Data Source |
+|--------|--------|-------------|
+| Model selector | `Select` | `config.yaml` model_list, local models tagged |
+| Output area | `Static` in `VerticalScroll` | `run_advisor()` result |
+| Input | `Input` + `Button` | User question |
+
+**Execution:** The advisor runs in a `@work(thread=True)` worker.
+`run_advisor()` calls the proxy's `/v1/chat/completions` endpoint,
+handles tool calls from `TOOL_REGISTRY`, and returns an `AdvisorResult`.
+Results are posted back to the main thread via `call_from_thread`.
+
+**Model selection:** Prefers local models (vLLM, Ollama) to avoid sending
+operational data to remote providers. Displays a warning banner when a
+remote model is used.
+
+**Design doc:** `dev/feature-admin-advisor.md`
+
 ---
 
 ## 4. Keyboard Map
@@ -459,3 +505,4 @@ Single new dependency. Install via `pip install airlock-llm[tui]` optional extra
 | 3 | Analysis + Clients | Done | Engineer deep-dive tools |
 | 4 | Flow + MCP Servers | Done | Real-time pipeline visibility and MCP management |
 | 5 | Basic Chat | Done | Interactive LLM connectivity testing |
+| 6 | Advisor | Done | LLM-powered operational diagnostics |

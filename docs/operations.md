@@ -174,24 +174,20 @@ airlock tui --start    # start proxy + dashboard
 airlock tui            # dashboard only (connect to running proxy)
 ```
 
-The TUI provides real-time views of traffic, guardrail decisions, threats, model status, and client activity across 10 screens:
+The TUI provides real-time views of traffic, guardrail decisions, model status, and operational diagnostics across 6 screens:
 
 | Key | Screen | Purpose |
 |-----|--------|---------|
-| `1` | Dashboard | Proxy health, guardrail status, model overview |
-| `2` | Models | Per-model circuit breaker state and metrics |
-| `3` | Threats | Active backoffs and threat detection |
-| `4` | Clients | Per-client request rate and protection status |
-| `5` | Logs | JSONL log browsing with model/user/status filters |
-| `6` | Analysis | Run offline analysis, view reports and trends |
-| `7` | Settings | Configuration management (providers, guardrails, logging) |
-| `8` | Flow | Real-time guardrail pipeline monitor (signals, scoring, verdicts) |
-| `9` | MCP Servers | MCP server health, lifecycle, and tool inventory |
-| `0` | Basic Chat | Interactive LLM connectivity testing |
+| `1` | Overview | Proxy health, guardrail status, model/client/provider overview |
+| `2` | Guards | PII redaction stats, keyword blocking, guardrail signal details |
+| `3` | Logs | JSONL log browsing with model/user/status filters |
+| `4` | Config | Configuration viewer, MCP server management |
+| `5` | Test | Interactive LLM connectivity testing (Basic Chat) |
+| `6` | Advisor | LLM-powered operational diagnostics and config recommendations |
 
-#### Basic Chat
+#### Basic Chat (Test screen)
 
-The **Basic Chat** screen lets administrators test any configured model interactively. Select a provider and model from the dropdowns, compose a prompt, and send. The screen displays four quadrants:
+The **Test** screen lets administrators test any configured model interactively. Select a provider and model from the dropdowns, compose a prompt, and send. The screen displays four quadrants:
 
 - **Q2** (top-left): User query text
 - **Q1** (top-right): Extracted response content with token usage
@@ -199,6 +195,24 @@ The **Basic Chat** screen lets administrators test any configured model interact
 - **Q4** (bottom-right): Full incoming response (HTTP status, headers, JSON body)
 
 Use the **Parameter Builder** button to configure `temperature`, `max_tokens`, `top_p`, `top_k`, `stop` sequences, and `system` prompt without editing JSON directly. All requests route through the Airlock proxy with full guardrail coverage.
+
+#### Advisor
+
+The **Advisor** screen (key `6`) lets administrators ask natural-language questions about Airlock's operational state. The advisor uses an LLM (preferring local models) to query operational data and provide answers grounded in facts.
+
+```bash
+# CLI equivalent
+airlock advise "why does claude-sonnet have a high error rate?"
+airlock advise --interactive
+airlock advise --local-only "what should I tune?"
+airlock advise --host myproxy --port 8080 "check system health"
+```
+
+The advisor has access to 9 data-gathering tools: state snapshots, error logs, analysis reports, circuit health, config, guard signals, client/model profiles, and guardrail knobs. When it identifies actionable fixes, it proposes config changes with a diff preview and risk classification (low/medium/high).
+
+**Privacy:** The advisor prefers local models (vLLM, Ollama — any model with a custom `api_base`) to avoid sending operational data to remote providers. When a remote model is used, a warning is displayed. Use `--local-only` to enforce this.
+
+**Audit trail:** All advisor actions are logged to `logs/advisor-audit.jsonl`.
 
 ## Guardrails
 
