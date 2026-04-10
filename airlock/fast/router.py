@@ -36,15 +36,23 @@ logger = logging.getLogger("airlock.fast.router")
 # ---------------------------------------------------------------------------
 _DEFAULT_COST_TIERS: dict[str, list[str]] = {
     "low": [
-        "claude-haiku", "gemini-flash", "gemini-flash-lite",
-        "gpt-4o-mini", "mistral-small",
+        "claude-haiku",
+        "gemini-flash",
+        "gemini-flash-lite",
+        "gpt-4o-mini",
+        "mistral-small",
     ],
     "medium": [
-        "claude-sonnet", "gemini-pro", "gpt-4o",
-        "mistral-large", "codestral",
+        "claude-sonnet",
+        "gemini-pro",
+        "gpt-4o",
+        "mistral-large",
+        "codestral",
     ],
     "high": [
-        "claude-opus", "gemini-3-pro", "gemini-3.1-pro",
+        "claude-opus",
+        "gemini-3-pro",
+        "gemini-3.1-pro",
         "magistral-medium",
     ],
 }
@@ -64,12 +72,30 @@ _BUDGET_WARN_THRESHOLD = 0.9  # 90% of budget triggers proactive swap
 # ---------------------------------------------------------------------------
 # Smart complexity classifier — all O(n) string ops, no ML, no dependencies
 # ---------------------------------------------------------------------------
-_REASONING_KEYWORDS = frozenset({
-    "analyze", "analyse", "compare", "contrast", "evaluate", "explain why",
-    "implement", "debug", "optimize", "refactor", "design", "architect",
-    "trade-off", "tradeoff", "pros and cons", "step by step",
-    "root cause", "diagnose", "synthesize", "critique",
-})
+_REASONING_KEYWORDS = frozenset(
+    {
+        "analyze",
+        "analyse",
+        "compare",
+        "contrast",
+        "evaluate",
+        "explain why",
+        "implement",
+        "debug",
+        "optimize",
+        "refactor",
+        "design",
+        "architect",
+        "trade-off",
+        "tradeoff",
+        "pros and cons",
+        "step by step",
+        "root cause",
+        "diagnose",
+        "synthesize",
+        "critique",
+    }
+)
 
 _MULTI_STEP_RE = re.compile(
     r"(?:^|\n)\s*(?:\d+[.)]\s|[-*]\s)"
@@ -157,7 +183,7 @@ def _sigmoid(x: float, midpoint: float, steepness: float = 0.05) -> float:
     exp_val = -steepness * (x - midpoint)
     # Clamp to avoid overflow
     exp_val = max(-500, min(500, exp_val))
-    return 1.0 / (1.0 + 2.718281828 ** exp_val)
+    return 1.0 / (1.0 + 2.718281828**exp_val)
 
 
 def classify_complexity(text: str) -> ComplexityResult:
@@ -170,7 +196,9 @@ def classify_complexity(text: str) -> ComplexityResult:
     stripped = text.strip()
     if not stripped:
         return ComplexityResult(
-            complexity="moderate", score=0.45, tier="medium",
+            complexity="moderate",
+            score=0.45,
+            tier="medium",
             features={k: 0.0 for k in _COMPLEXITY_WEIGHTS},
         )
 
@@ -210,8 +238,7 @@ def classify_complexity(text: str) -> ComplexityResult:
     # Feature 6: Sentence length (weak tiebreaker)
     sentences = [s.strip() for s in re.split(r"[.!?]+", stripped) if s.strip()]
     avg_sentence_words = (
-        sum(len(s.split()) for s in sentences) / len(sentences)
-        if sentences else 0
+        sum(len(s.split()) for s in sentences) / len(sentences) if sentences else 0
     )
     f_sentence = min(avg_sentence_words / 25.0, 1.0)
 
@@ -225,9 +252,7 @@ def classify_complexity(text: str) -> ComplexityResult:
     }
 
     # Composite weighted score
-    score = sum(
-        _COMPLEXITY_WEIGHTS[k] * features[k] for k in _COMPLEXITY_WEIGHTS
-    )
+    score = sum(_COMPLEXITY_WEIGHTS[k] * features[k] for k in _COMPLEXITY_WEIGHTS)
     score = round(min(max(score, 0.0), 1.0), 3)
 
     # Map to complexity tier
@@ -241,7 +266,10 @@ def classify_complexity(text: str) -> ComplexityResult:
 
     tier = _TIER_MAP[complexity]
     return ComplexityResult(
-        complexity=complexity, score=score, tier=tier, features=features,
+        complexity=complexity,
+        score=score,
+        tier=tier,
+        features=features,
     )
 
 
@@ -294,9 +322,7 @@ def infer_provider(model_name: str) -> str | None:
 # ---------------------------------------------------------------------------
 # Individual directive handlers
 # ---------------------------------------------------------------------------
-def _apply_cost_tier(
-    tier: str, model: str
-) -> tuple[str, str | None]:
+def _apply_cost_tier(tier: str, model: str) -> tuple[str, str | None]:
     """Restrict model to the requested cost tier.
 
     Returns (model, reason) — reason is None if no change.
@@ -367,14 +393,23 @@ def _apply_budget_awareness(
         alt_budget = budgets.get(alt_provider)
         if not alt_budget:
             # No budget configured for this provider — safe to use
-            return candidate, f"budget({provider}@{spend:.1f}/{budget_limit:.1f}\u2192{candidate})"
+            return (
+                candidate,
+                f"budget({provider}@{spend:.1f}/{budget_limit:.1f}\u2192{candidate})",
+            )
         alt_spend = store.get_provider_spend(alt_provider).recent_spend()
         if alt_spend < alt_budget * _BUDGET_WARN_THRESHOLD:
-            return candidate, f"budget({provider}@{spend:.1f}/{budget_limit:.1f}\u2192{candidate})"
+            return (
+                candidate,
+                f"budget({provider}@{spend:.1f}/{budget_limit:.1f}\u2192{candidate})",
+            )
 
     logger.warning(
         "All providers near budget, staying on %s (%s: $%.1f/$%.1f)",
-        model, provider, spend, budget_limit,
+        model,
+        provider,
+        spend,
+        budget_limit,
     )
     return model, None
 
@@ -411,7 +446,8 @@ def apply_routing(data: dict) -> dict:
 
         # Stash classification for observability (slow analyzer reads this)
         routing_meta = data.setdefault("metadata", {}).setdefault(
-            "airlock_routing", {},
+            "airlock_routing",
+            {},
         )
         routing_meta["smart_classify"] = {
             "complexity": result.complexity,
@@ -454,7 +490,9 @@ def apply_routing(data: dict) -> dict:
 
             if prefer_provider:
                 model, reason = _apply_provider_preference(
-                    prefer_provider, model, tier_candidates,
+                    prefer_provider,
+                    model,
+                    tier_candidates,
                 )
                 if reason:
                     reasons.append(reason)
@@ -475,7 +513,9 @@ def apply_routing(data: dict) -> dict:
 
         if prefer_provider:
             model, reason = _apply_provider_preference(
-                prefer_provider, model, tier_candidates,
+                prefer_provider,
+                model,
+                tier_candidates,
             )
             if reason:
                 reasons.append(reason)
@@ -491,12 +531,14 @@ def apply_routing(data: dict) -> dict:
         metadata = data.setdefault("metadata", {})
         # Merge into existing routing_meta (smart_classify may already be set)
         routing_meta = metadata.setdefault("airlock_routing", {})
-        routing_meta.update({
-            "original_model": original_model,
-            "routed_model": model,
-            "changed": changed,
-            "reasons": reasons,
-        })
+        routing_meta.update(
+            {
+                "original_model": original_model,
+                "routed_model": model,
+                "changed": changed,
+                "reasons": reasons,
+            }
+        )
         if session_id:
             routing_meta["session_id"] = session_id
         if cost_tier:
@@ -505,7 +547,9 @@ def apply_routing(data: dict) -> dict:
         if changed:
             logger.info(
                 "routed %s\u2192%s reasons=%s",
-                original_model, model, reasons,
+                original_model,
+                model,
+                reasons,
             )
 
     return data

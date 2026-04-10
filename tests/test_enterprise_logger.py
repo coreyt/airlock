@@ -7,7 +7,6 @@ import json
 import logging
 from unittest.mock import MagicMock
 
-import pytest
 
 from airlock.callbacks.enterprise_logger import (
     AirlockLogger,
@@ -90,9 +89,7 @@ class TestBuildRecord:
         )
         assert record["duration_ms"] == 1500
 
-    def test_failure_record_has_error(
-        self, mock_failure_kwargs, mock_start_end_times
-    ):
+    def test_failure_record_has_error(self, mock_failure_kwargs, mock_start_end_times):
         start, end = mock_start_end_times
         record = AirlockLogger._build_record(
             mock_failure_kwargs, None, start, end, success=False
@@ -122,14 +119,10 @@ class TestBuildRecord:
             "headers": {"X-Airlock-Client": "incoming-client"},
         }
         start, end = mock_start_end_times
-        record = AirlockLogger._build_record(
-            kwargs, None, start, end, success=False
-        )
+        record = AirlockLogger._build_record(kwargs, None, start, end, success=False)
         assert record["airlock_client"] == "incoming-client"
 
-    def test_blank_failure_marked_eval(
-        self, mock_logger_kwargs, mock_start_end_times
-    ):
+    def test_blank_failure_marked_eval(self, mock_logger_kwargs, mock_start_end_times):
         start, end = mock_start_end_times
         kwargs = {
             **mock_logger_kwargs,
@@ -145,9 +138,7 @@ class TestBuildRecord:
             ],
             "exception": Exception(),
         }
-        record = AirlockLogger._build_record(
-            kwargs, None, start, end, success=False
-        )
+        record = AirlockLogger._build_record(kwargs, None, start, end, success=False)
         assert record["error"] == "Evaluation request failed before provider call"
         assert record["error_type"] == "Exception"
         assert record["failure_category"] == "eval"
@@ -158,11 +149,11 @@ class TestBuildRecord:
         start, end = mock_start_end_times
         kwargs = {
             **mock_logger_kwargs,
-            "messages": [{"role": "user", "content": "Evaluation question: Did it work?"}],
+            "messages": [
+                {"role": "user", "content": "Evaluation question: Did it work?"}
+            ],
         }
-        record = AirlockLogger._build_record(
-            kwargs, None, start, end, success=False
-        )
+        record = AirlockLogger._build_record(kwargs, None, start, end, success=False)
         assert record["error"] == "Evaluation request failed before provider call"
         assert record["error_type"] is None
         assert record["failure_category"] == "eval"
@@ -201,9 +192,7 @@ class TestBuildRecord:
                 }
             },
         }
-        record = AirlockLogger._build_record(
-            kwargs, None, None, None, success=True
-        )
+        record = AirlockLogger._build_record(kwargs, None, None, None, success=True)
         assert record["user"] == "bob"
 
     def test_airlock_metadata_included(self):
@@ -226,9 +215,7 @@ class TestBuildRecord:
                 }
             },
         }
-        record = AirlockLogger._build_record(
-            kwargs, None, None, None, success=True
-        )
+        record = AirlockLogger._build_record(kwargs, None, None, None, success=True)
         assert "airlock_semantic" in record
         assert record["airlock_semantic"]["status"] == "passed"
         assert record["airlock_semantic"]["results"][0]["name"] == "injection"
@@ -295,13 +282,13 @@ class TestPrecallBlockRecord:
                 }
             },
         }
-        record = AirlockLogger._build_record(
-            kwargs, None, None, None, success=True
-        )
+        record = AirlockLogger._build_record(kwargs, None, None, None, success=True)
         assert "airlock_semantic" in record
         assert "some_internal_field" not in record
 
-    def test_no_airlock_metadata_no_extra_keys(self, mock_logger_kwargs, mock_start_end_times):
+    def test_no_airlock_metadata_no_extra_keys(
+        self, mock_logger_kwargs, mock_start_end_times
+    ):
         """When no airlock_* metadata exists, no extra keys are added."""
         start, end = mock_start_end_times
         record = AirlockLogger._build_record(
@@ -321,17 +308,15 @@ class TestPrecallBlockRecord:
         kwargs = {
             "model": "claude-sonnet",
             "messages": [],
-            "litellm_params": {
-                "metadata": {"airlock_observation": observation}
-            },
+            "litellm_params": {"metadata": {"airlock_observation": observation}},
         }
         start, end = mock_start_end_times
-        record = AirlockLogger._build_record(
-            kwargs, None, start, end, success=True
-        )
+        record = AirlockLogger._build_record(kwargs, None, start, end, success=True)
         assert record["airlock_observation"] == observation
 
-    def test_observation_absent_not_in_record(self, mock_logger_kwargs, mock_start_end_times):
+    def test_observation_absent_not_in_record(
+        self, mock_logger_kwargs, mock_start_end_times
+    ):
         """Without observation metadata, no airlock_observation key appears."""
         start, end = mock_start_end_times
         record = AirlockLogger._build_record(
@@ -345,14 +330,10 @@ class TestPrecallBlockRecord:
         kwargs = {
             "model": "claude-sonnet",
             "messages": [],
-            "litellm_params": {
-                "metadata": {"airlock_enforcement": enforcement}
-            },
+            "litellm_params": {"metadata": {"airlock_enforcement": enforcement}},
         }
         start, end = mock_start_end_times
-        record = AirlockLogger._build_record(
-            kwargs, None, start, end, success=True
-        )
+        record = AirlockLogger._build_record(kwargs, None, start, end, success=True)
         assert record["airlock_enforcement"] == enforcement
 
     def test_missing_client_normalized_in_record(self, mock_start_end_times):
@@ -362,9 +343,7 @@ class TestPrecallBlockRecord:
             "litellm_params": {"metadata": {}},
         }
         start, end = mock_start_end_times
-        record = AirlockLogger._build_record(
-            kwargs, None, start, end, success=True
-        )
+        record = AirlockLogger._build_record(kwargs, None, start, end, success=True)
         assert record["airlock_client"] == "no_client"
         assert record["airlock_provider"] == "openai"
 
@@ -388,11 +367,11 @@ class TestPrecallBlockRecord:
         response.usage.total_tokens = 15
         response.model_dump.return_value = {
             "choices": [{"message": {"content": None}, "finish_reason": "length"}],
-            "usage": {"completion_tokens_details": {"reasoning_tokens": 5, "text_tokens": 0}},
+            "usage": {
+                "completion_tokens_details": {"reasoning_tokens": 5, "text_tokens": 0}
+            },
         }
-        record = AirlockLogger._build_record(
-            kwargs, response, start, end, success=True
-        )
+        record = AirlockLogger._build_record(kwargs, response, start, end, success=True)
         assert record["airlock_gemini"]["mode"] == "deep_reasoning"
         assert record["airlock_gemini_response"]["output_shape"] == "thought_only"
         assert record["airlock_response_headers"]["X-Airlock-Provider-Mode"] == "gemini"
@@ -403,7 +382,6 @@ class TestPrecallBlockRecord:
 # ---------------------------------------------------------------------------
 class TestWriteLog:
     def test_creates_log_dir_if_missing(self, tmp_path, monkeypatch):
-        import airlock.callbacks.enterprise_logger as mod
 
         log_path = tmp_path / "new_logs"
         monkeypatch.setenv("AIRLOCK_LOG_DIR", str(log_path))
@@ -508,9 +486,7 @@ class TestCallbackMethods:
     ):
         start, end = mock_start_end_times
         logger = AirlockLogger()
-        await logger.async_log_failure_event(
-            mock_failure_kwargs, None, start, end
-        )
+        await logger.async_log_failure_event(mock_failure_kwargs, None, start, end)
 
         today = datetime.date.today().isoformat()
         log_path = log_dir / f"airlock-{today}.jsonl"
@@ -548,7 +524,9 @@ class TestMCPLogging:
         assert record["mcp_tool_name"] == "read_file"
         assert record["mcp_server_name"] == "filesystem"
 
-    def test_llm_call_no_mcp_fields(self, log_dir, mock_logger_kwargs, mock_response_obj, mock_start_end_times):
+    def test_llm_call_no_mcp_fields(
+        self, log_dir, mock_logger_kwargs, mock_response_obj, mock_start_end_times
+    ):
         """Regular LLM calls should NOT have MCP fields in the record."""
         start, end = mock_start_end_times
         logger = AirlockLogger()
@@ -567,8 +545,12 @@ class TestMCPLogging:
 # ---------------------------------------------------------------------------
 class TestLogCleanup:
     def test_cleanup_removes_old_files(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("airlock.callbacks.enterprise_logger._log_dir", lambda: tmp_path)
-        monkeypatch.setattr("airlock.callbacks.enterprise_logger._max_log_days", lambda: 30)
+        monkeypatch.setattr(
+            "airlock.callbacks.enterprise_logger._log_dir", lambda: tmp_path
+        )
+        monkeypatch.setattr(
+            "airlock.callbacks.enterprise_logger._max_log_days", lambda: 30
+        )
         old_date = (datetime.date.today() - datetime.timedelta(days=45)).isoformat()
         old_file = tmp_path / f"airlock-{old_date}.jsonl"
         old_file.write_text("{}\n")
@@ -576,8 +558,12 @@ class TestLogCleanup:
         assert not old_file.exists()
 
     def test_cleanup_keeps_recent_files(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("airlock.callbacks.enterprise_logger._log_dir", lambda: tmp_path)
-        monkeypatch.setattr("airlock.callbacks.enterprise_logger._max_log_days", lambda: 30)
+        monkeypatch.setattr(
+            "airlock.callbacks.enterprise_logger._log_dir", lambda: tmp_path
+        )
+        monkeypatch.setattr(
+            "airlock.callbacks.enterprise_logger._max_log_days", lambda: 30
+        )
         recent_date = (datetime.date.today() - datetime.timedelta(days=5)).isoformat()
         recent_file = tmp_path / f"airlock-{recent_date}.jsonl"
         recent_file.write_text("{}\n")
@@ -585,8 +571,12 @@ class TestLogCleanup:
         assert recent_file.exists()
 
     def test_cleanup_respects_max_log_days_env(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("airlock.callbacks.enterprise_logger._log_dir", lambda: tmp_path)
-        monkeypatch.setattr("airlock.callbacks.enterprise_logger._max_log_days", lambda: 7)
+        monkeypatch.setattr(
+            "airlock.callbacks.enterprise_logger._log_dir", lambda: tmp_path
+        )
+        monkeypatch.setattr(
+            "airlock.callbacks.enterprise_logger._max_log_days", lambda: 7
+        )
         old_date = (datetime.date.today() - datetime.timedelta(days=10)).isoformat()
         old_file = tmp_path / f"airlock-{old_date}.jsonl"
         old_file.write_text("{}\n")
@@ -594,19 +584,28 @@ class TestLogCleanup:
         assert not old_file.exists()
 
     def test_cleanup_handles_permission_error(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("airlock.callbacks.enterprise_logger._log_dir", lambda: tmp_path)
-        monkeypatch.setattr("airlock.callbacks.enterprise_logger._max_log_days", lambda: 30)
+        monkeypatch.setattr(
+            "airlock.callbacks.enterprise_logger._log_dir", lambda: tmp_path
+        )
+        monkeypatch.setattr(
+            "airlock.callbacks.enterprise_logger._max_log_days", lambda: 30
+        )
         old_date = (datetime.date.today() - datetime.timedelta(days=45)).isoformat()
         old_file = tmp_path / f"airlock-{old_date}.jsonl"
         old_file.write_text("{}\n")
         from unittest.mock import patch as mock_patch
-        with mock_patch.object(type(old_file), "unlink", side_effect=OSError("permission denied")):
+
+        with mock_patch.object(
+            type(old_file), "unlink", side_effect=OSError("permission denied")
+        ):
             _cleanup_old_logs()  # should not crash
 
 
 class TestLogRotation:
     def test_rotate_oversized_file(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("airlock.callbacks.enterprise_logger._max_log_size_mb", lambda: 1)
+        monkeypatch.setattr(
+            "airlock.callbacks.enterprise_logger._max_log_size_mb", lambda: 1
+        )
         log_file = tmp_path / "airlock-2026-04-06.jsonl"
         log_file.write_text("x" * (2 * 1024 * 1024))  # 2MB > 1MB limit
         _rotate_if_oversized(log_file)
@@ -614,14 +613,18 @@ class TestLogRotation:
         assert (tmp_path / "airlock-2026-04-06.1.jsonl").exists()
 
     def test_no_rotate_under_limit(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("airlock.callbacks.enterprise_logger._max_log_size_mb", lambda: 500)
+        monkeypatch.setattr(
+            "airlock.callbacks.enterprise_logger._max_log_size_mb", lambda: 500
+        )
         log_file = tmp_path / "airlock-2026-04-06.jsonl"
         log_file.write_text("small log\n")
         _rotate_if_oversized(log_file)
         assert log_file.exists()  # not rotated
 
     def test_rotate_increments_suffix(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("airlock.callbacks.enterprise_logger._max_log_size_mb", lambda: 1)
+        monkeypatch.setattr(
+            "airlock.callbacks.enterprise_logger._max_log_size_mb", lambda: 1
+        )
         log_file = tmp_path / "airlock-2026-04-06.jsonl"
         (tmp_path / "airlock-2026-04-06.1.jsonl").write_text("old rotated\n")
         log_file.write_text("x" * (2 * 1024 * 1024))
@@ -643,6 +646,7 @@ class TestDiskFullHandling:
             lambda: tmp_path / "logs",
         )
         from unittest.mock import mock_open, patch as mock_patch
+
         m = mock_open()
         m.side_effect = OSError("No space left on device")
         with mock_patch("builtins.open", m):
@@ -652,8 +656,13 @@ class TestDiskFullHandling:
         assert "No space left on device" in caplog.text
 
     def test_log_success_event_survives_disk_full(
-        self, tmp_path, monkeypatch, mock_logger_kwargs, mock_response_obj,
-        mock_start_end_times, caplog,
+        self,
+        tmp_path,
+        monkeypatch,
+        mock_logger_kwargs,
+        mock_response_obj,
+        mock_start_end_times,
+        caplog,
     ):
         """AirlockLogger.log_success_event does not raise on disk full."""
         monkeypatch.setenv("AIRLOCK_LOG_DIR", str(tmp_path / "logs"))
@@ -662,6 +671,7 @@ class TestDiskFullHandling:
             lambda: tmp_path / "logs",
         )
         from unittest.mock import mock_open, patch as mock_patch
+
         m = mock_open()
         m.side_effect = OSError("No space left on device")
         start, end = mock_start_end_times
@@ -674,8 +684,12 @@ class TestDiskFullHandling:
                 )
 
     def test_log_failure_event_survives_disk_full(
-        self, tmp_path, monkeypatch, mock_failure_kwargs,
-        mock_start_end_times, caplog,
+        self,
+        tmp_path,
+        monkeypatch,
+        mock_failure_kwargs,
+        mock_start_end_times,
+        caplog,
     ):
         """AirlockLogger.log_failure_event does not raise on disk full."""
         monkeypatch.setenv("AIRLOCK_LOG_DIR", str(tmp_path / "logs"))
@@ -684,15 +698,14 @@ class TestDiskFullHandling:
             lambda: tmp_path / "logs",
         )
         from unittest.mock import mock_open, patch as mock_patch
+
         m = mock_open()
         m.side_effect = OSError("No space left on device")
         start, end = mock_start_end_times
         logger_inst = AirlockLogger()
         with mock_patch("builtins.open", m):
             with caplog.at_level(logging.ERROR, logger="airlock.logger"):
-                logger_inst.log_failure_event(
-                    mock_failure_kwargs, None, start, end
-                )
+                logger_inst.log_failure_event(mock_failure_kwargs, None, start, end)
 
 
 # ---------------------------------------------------------------------------

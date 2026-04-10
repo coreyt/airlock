@@ -6,16 +6,13 @@ import threading
 import time
 from unittest.mock import patch
 
-import pytest
 
 from airlock.fast.state import (
     CircuitState,
-    ClientProviderState,
     ClientState,
     McpToolState,
     ModelState,
     NO_CLIENT_ID,
-    ProviderState,
     StateStore,
     MAX_SAMPLES,
     normalize_client_id,
@@ -251,8 +248,7 @@ class TestStateStore:
                 errors.append(e)
 
         threads = [
-            threading.Thread(target=worker, args=(f"client-{i}",))
-            for i in range(10)
+            threading.Thread(target=worker, args=(f"client-{i}",)) for i in range(10)
         ]
         for t in threads:
             t.start()
@@ -429,16 +425,19 @@ class TestIngestJsonlRecord:
     @staticmethod
     def _now_iso() -> str:
         from datetime import datetime, timezone
+
         return datetime.now(timezone.utc).isoformat()
 
     def test_success_record_populates_model(self):
         store = StateStore()
-        store.ingest_jsonl_record({
-            "model": "claude-sonnet",
-            "success": True,
-            "duration_ms": 250.0,
-            "timestamp": self._now_iso(),
-        })
+        store.ingest_jsonl_record(
+            {
+                "model": "claude-sonnet",
+                "success": True,
+                "duration_ms": 250.0,
+                "timestamp": self._now_iso(),
+            }
+        )
         models = store.all_models()
         assert "claude-sonnet" in models
         assert len(models["claude-sonnet"].success_times) == 1
@@ -446,37 +445,43 @@ class TestIngestJsonlRecord:
 
     def test_failure_record_populates_model(self):
         store = StateStore()
-        store.ingest_jsonl_record({
-            "model": "gpt-4o",
-            "success": False,
-            "duration_ms": 0,
-            "timestamp": self._now_iso(),
-        })
+        store.ingest_jsonl_record(
+            {
+                "model": "gpt-4o",
+                "success": False,
+                "duration_ms": 0,
+                "timestamp": self._now_iso(),
+            }
+        )
         models = store.all_models()
         assert "gpt-4o" in models
         assert len(models["gpt-4o"].failure_times) == 1
 
     def test_tracks_llm_call_type(self):
         store = StateStore()
-        store.ingest_jsonl_record({
-            "model": "claude-sonnet",
-            "success": True,
-            "timestamp": self._now_iso(),
-        })
+        store.ingest_jsonl_record(
+            {
+                "model": "claude-sonnet",
+                "success": True,
+                "timestamp": self._now_iso(),
+            }
+        )
         llm, mcp = store.traffic_split()
         assert llm == 1
         assert mcp == 0
 
     def test_tracks_mcp_call_type(self):
         store = StateStore()
-        store.ingest_jsonl_record({
-            "model": "mcp-tool",
-            "success": True,
-            "call_type": "call_mcp_tool",
-            "mcp_tool_name": "read_file",
-            "mcp_server_name": "fs",
-            "timestamp": self._now_iso(),
-        })
+        store.ingest_jsonl_record(
+            {
+                "model": "mcp-tool",
+                "success": True,
+                "call_type": "call_mcp_tool",
+                "mcp_tool_name": "read_file",
+                "mcp_server_name": "fs",
+                "timestamp": self._now_iso(),
+            }
+        )
         llm, mcp = store.traffic_split()
         assert llm == 0
         assert mcp == 1
@@ -496,26 +501,30 @@ class TestIngestJsonlRecord:
     def test_multiple_records(self):
         store = StateStore()
         for i in range(5):
-            store.ingest_jsonl_record({
-                "model": "claude-sonnet",
-                "success": True,
-                "duration_ms": 100.0 + i * 10,
-                "timestamp": self._now_iso(),
-            })
+            store.ingest_jsonl_record(
+                {
+                    "model": "claude-sonnet",
+                    "success": True,
+                    "duration_ms": 100.0 + i * 10,
+                    "timestamp": self._now_iso(),
+                }
+            )
         model = store.all_models()["claude-sonnet"]
         assert len(model.success_times) == 5
 
     def test_ingests_gemini_outcome_stats(self):
         store = StateStore()
-        store.ingest_jsonl_record({
-            "model": "gemini-pro",
-            "success": True,
-            "airlock_provider": "gemini",
-            "airlock_client": "client-a",
-            "airlock_gemini": {"mode": "deep_reasoning"},
-            "airlock_gemini_response": {"output_shape": "thought_only"},
-            "timestamp": self._now_iso(),
-        })
+        store.ingest_jsonl_record(
+            {
+                "model": "gemini-pro",
+                "success": True,
+                "airlock_provider": "gemini",
+                "airlock_client": "client-a",
+                "airlock_gemini": {"mode": "deep_reasoning"},
+                "airlock_gemini_response": {"output_shape": "thought_only"},
+                "timestamp": self._now_iso(),
+            }
+        )
         client = store.all_clients()["client-a"]
         provider = store.all_providers()["gemini"]
         assert client.recent_gemini_outcome_count("thought_only") == 1
@@ -554,7 +563,9 @@ class TestCircuitBreakerHalfOpenRace:
             t.join()
 
         # Exactly one thread should have been admitted
-        assert admitted.count(True) == 1, f"Expected 1 admitted, got {admitted.count(True)}"
+        assert admitted.count(True) == 1, (
+            f"Expected 1 admitted, got {admitted.count(True)}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -573,6 +584,7 @@ class TestCircuitBreakerPersistence:
         assert path.exists()
 
         import json
+
         data = json.loads(path.read_text())
         assert "claude-sonnet" in data["models"]
         assert data["models"]["claude-sonnet"]["circuit"] == "open"
@@ -596,13 +608,19 @@ class TestCircuitBreakerPersistence:
 
     def test_restore_ignores_stale_file(self, tmp_path):
         """State files older than 5 minutes should be ignored."""
-        import json, os
+        import json
 
         path = tmp_path / "cb_state.json"
-        path.write_text(json.dumps({
-            "timestamp": time.time() - 400,  # > 5 min ago
-            "models": {"old-model": {"circuit": "open", "consecutive_failures": 5}},
-        }))
+        path.write_text(
+            json.dumps(
+                {
+                    "timestamp": time.time() - 400,  # > 5 min ago
+                    "models": {
+                        "old-model": {"circuit": "open", "consecutive_failures": 5}
+                    },
+                }
+            )
+        )
 
         store = StateStore()
         restore_state(store, str(path))
@@ -614,10 +632,16 @@ class TestCircuitBreakerPersistence:
         import json
 
         path = tmp_path / "cb_state.json"
-        path.write_text(json.dumps({
-            "timestamp": time.time() - 60,  # 1 min ago, within threshold
-            "models": {"recent-model": {"circuit": "open", "consecutive_failures": 5}},
-        }))
+        path.write_text(
+            json.dumps(
+                {
+                    "timestamp": time.time() - 60,  # 1 min ago, within threshold
+                    "models": {
+                        "recent-model": {"circuit": "open", "consecutive_failures": 5}
+                    },
+                }
+            )
+        )
 
         store = StateStore()
         restore_state(store, str(path))
@@ -644,6 +668,7 @@ class TestTailJsonl:
     @staticmethod
     def _now_iso() -> str:
         from datetime import datetime, timezone
+
         return datetime.now(timezone.utc).isoformat()
 
     def test_tails_new_lines(self, tmp_path):
@@ -675,12 +700,17 @@ class TestTailJsonl:
 
             # Append a record
             with open(log_file, "a") as f:
-                f.write(json.dumps({
-                    "model": "claude-sonnet",
-                    "success": True,
-                    "duration_ms": 150.0,
-                    "timestamp": self._now_iso(),
-                }) + "\n")
+                f.write(
+                    json.dumps(
+                        {
+                            "model": "claude-sonnet",
+                            "success": True,
+                            "duration_ms": 150.0,
+                            "timestamp": self._now_iso(),
+                        }
+                    )
+                    + "\n"
+                )
 
             # Wait for tailer to pick it up
             time.sleep(0.5)
@@ -713,12 +743,17 @@ class TestTailJsonl:
 
             with open(log_file, "a") as f:
                 f.write("not valid json\n")
-                f.write(json.dumps({
-                    "model": "gpt-4o",
-                    "success": True,
-                    "duration_ms": 100.0,
-                    "timestamp": self._now_iso(),
-                }) + "\n")
+                f.write(
+                    json.dumps(
+                        {
+                            "model": "gpt-4o",
+                            "success": True,
+                            "duration_ms": 100.0,
+                            "timestamp": self._now_iso(),
+                        }
+                    )
+                    + "\n"
+                )
 
             time.sleep(0.5)
             stop.set()

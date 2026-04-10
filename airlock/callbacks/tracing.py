@@ -68,9 +68,8 @@ class AirlockTracingCallback(CustomLogger):
             span.set_attribute("llm.success", True)
             span.set_attribute("llm.request_id", kwargs.get("litellm_call_id", ""))
 
-            user = (
-                metadata.get("user_api_key_alias")
-                or metadata.get("user_api_key_user_id")
+            user = metadata.get("user_api_key_alias") or metadata.get(
+                "user_api_key_user_id"
             )
             if user:
                 span.set_attribute("llm.user", user)

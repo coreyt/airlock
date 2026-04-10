@@ -67,32 +67,53 @@ _CATEGORY_WEIGHTS = {
 _TOTAL_WEIGHT = sum(_CATEGORY_WEIGHTS.values())
 
 _INJECTION_PATTERNS: list[re.Pattern] = [
-    re.compile(r"ignore\s+(?:all\s+)?(?:previous|prior|above)\s+(?:instructions|prompts|rules)", re.IGNORECASE),
-    re.compile(r"disregard\s+(?:your\s+)?(?:system\s+)?(?:prompt|instructions|rules)", re.IGNORECASE),
-    re.compile(r"forget\s+(?:everything|all|your)\s+(?:instructions|you\s+were\s+told)", re.IGNORECASE),
+    re.compile(
+        r"ignore\s+(?:all\s+)?(?:previous|prior|above)\s+(?:instructions|prompts|rules)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"disregard\s+(?:your\s+)?(?:system\s+)?(?:prompt|instructions|rules)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"forget\s+(?:everything|all|your)\s+(?:instructions|you\s+were\s+told)",
+        re.IGNORECASE,
+    ),
     re.compile(r"you\s+are\s+now\s+(?:a\s+)?(?:new|different|my)", re.IGNORECASE),
-    re.compile(r"(?:new|updated|override)\s+(?:system\s+)?instructions\s*:", re.IGNORECASE),
+    re.compile(
+        r"(?:new|updated|override)\s+(?:system\s+)?instructions\s*:", re.IGNORECASE
+    ),
     re.compile(r"DAN\s+mode", re.IGNORECASE),
     re.compile(r"do\s+anything\s+now", re.IGNORECASE),
-    re.compile(r"pretend\s+(?:you\s+)?(?:are|to\s+be)\s+(?:an?\s+)?(?:unrestricted|unfiltered)", re.IGNORECASE),
+    re.compile(
+        r"pretend\s+(?:you\s+)?(?:are|to\s+be)\s+(?:an?\s+)?(?:unrestricted|unfiltered)",
+        re.IGNORECASE,
+    ),
 ]
 
 _OVERRIDE_PATTERNS: list[re.Pattern] = [
     re.compile(r"\[(?:SYSTEM|INST|/INST|ADMIN)\]", re.IGNORECASE),
     re.compile(r"<\|(?:im_start|im_end|system|endoftext)\|>"),
     re.compile(r"###\s+(?:System|Human|Assistant)\s*:"),
-    re.compile(r"(?:begin|start)\s+(?:new\s+)?(?:conversation|session|context)", re.IGNORECASE),
+    re.compile(
+        r"(?:begin|start)\s+(?:new\s+)?(?:conversation|session|context)", re.IGNORECASE
+    ),
 ]
 
 _EXFILTRATION_PATTERNS: list[re.Pattern] = [
     # Credential-like: key=<base64 40+ chars>
     re.compile(r"(?:key|token|secret|password)\s*=\s*[A-Za-z0-9+/]{40,}"),
     # URL with sensitive query params
-    re.compile(r"https?://[^\s]+\?(?:[^\s]*&)?(?:key|token|secret|password)=[^\s&]{8,}"),
+    re.compile(
+        r"https?://[^\s]+\?(?:[^\s]*&)?(?:key|token|secret|password)=[^\s&]{8,}"
+    ),
     # Markdown image exfiltration
     re.compile(r"!\[[^\]]*\]\(https?://[^\)]+\?[^\)]*data=[^\)]+\)"),
     # Explicit exfil language
-    re.compile(r"(?:send|forward|transmit|exfiltrate)\s+(?:(?:this|the)\s+)?(?:data|conversation|information|content)\s+to", re.IGNORECASE),
+    re.compile(
+        r"(?:send|forward|transmit|exfiltrate)\s+(?:(?:this|the)\s+)?(?:data|conversation|information|content)\s+to",
+        re.IGNORECASE,
+    ),
 ]
 
 _TOOL_CALL_PATTERNS: list[re.Pattern] = [
@@ -231,9 +252,7 @@ class AirlockResponseScanner(CustomGuardrail):
         )
 
         if result.should_block and mode == "enforce":
-            raise ValueError(
-                "Response blocked: potential injection content detected"
-            )
+            raise ValueError("Response blocked: potential injection content detected")
 
         return response
 
@@ -286,9 +305,7 @@ class AirlockResponseScanner(CustomGuardrail):
         result = _scan_text(text, mode)
 
         # Attach to kwargs metadata for enterprise logger
-        metadata = kwargs.setdefault("litellm_params", {}).setdefault(
-            "metadata", {}
-        )
+        metadata = kwargs.setdefault("litellm_params", {}).setdefault("metadata", {})
         metadata["airlock_response_scan"] = result.to_dict()
 
         if result.detected_categories:
@@ -311,7 +328,9 @@ _VALID_SCAN_MODES = {"observe", "enforce"}
 def _mode() -> str:
     raw = os.getenv("AIRLOCK_RESPONSE_SCAN_MODE", "observe").strip().lower()
     if raw not in _VALID_SCAN_MODES:
-        logger.warning("Invalid AIRLOCK_RESPONSE_SCAN_MODE=%r, falling back to 'observe'", raw)
+        logger.warning(
+            "Invalid AIRLOCK_RESPONSE_SCAN_MODE=%r, falling back to 'observe'", raw
+        )
         return "observe"
     return raw
 

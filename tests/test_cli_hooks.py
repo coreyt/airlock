@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import http.server
 import json
-import threading
-from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -126,9 +123,7 @@ class TestDogfood:
         monkeypatch.setenv("AIRLOCK_PORT", "4000")
         monkeypatch.setenv("AIRLOCK_MASTER_KEY", "sk-airlock-test")
         # Mock health check to avoid network call
-        monkeypatch.setattr(
-            "airlock.cli.dogfood_cmd._probe_health", lambda *a: True
-        )
+        monkeypatch.setattr("airlock.cli.dogfood_cmd._probe_health", lambda *a: True)
 
         main(["dogfood"])
         out = capsys.readouterr().out
@@ -141,9 +136,7 @@ class TestDogfood:
         monkeypatch.setenv("AIRLOCK_HOST", "localhost")
         monkeypatch.setenv("AIRLOCK_PORT", "4000")
         monkeypatch.delenv("AIRLOCK_MASTER_KEY", raising=False)
-        monkeypatch.setattr(
-            "airlock.cli.dogfood_cmd._probe_health", lambda *a: False
-        )
+        monkeypatch.setattr("airlock.cli.dogfood_cmd._probe_health", lambda *a: False)
 
         main(["dogfood"])
         err = capsys.readouterr().err
@@ -153,9 +146,7 @@ class TestDogfood:
         monkeypatch.setenv("AIRLOCK_HOST", "localhost")
         monkeypatch.setenv("AIRLOCK_PORT", "4000")
         monkeypatch.delenv("AIRLOCK_MASTER_KEY", raising=False)
-        monkeypatch.setattr(
-            "airlock.cli.dogfood_cmd._probe_health", lambda *a: True
-        )
+        monkeypatch.setattr("airlock.cli.dogfood_cmd._probe_health", lambda *a: True)
 
         main(["dogfood"])
         out = capsys.readouterr().out
@@ -166,9 +157,7 @@ class TestDogfood:
         monkeypatch.setenv("AIRLOCK_HOST", "localhost")
         monkeypatch.setenv("AIRLOCK_PORT", "4000")
         monkeypatch.setenv("AIRLOCK_MASTER_KEY", "sk-test")
-        monkeypatch.setattr(
-            "airlock.cli.dogfood_cmd._probe_health", lambda *a: True
-        )
+        monkeypatch.setattr("airlock.cli.dogfood_cmd._probe_health", lambda *a: True)
 
         main(["dogfood", "--shell", "fish"])
         out = capsys.readouterr().out
@@ -178,9 +167,7 @@ class TestDogfood:
         monkeypatch.delenv("AIRLOCK_HOST", raising=False)
         monkeypatch.delenv("AIRLOCK_PORT", raising=False)
         monkeypatch.delenv("AIRLOCK_MASTER_KEY", raising=False)
-        monkeypatch.setattr(
-            "airlock.cli.dogfood_cmd._probe_health", lambda *a: True
-        )
+        monkeypatch.setattr("airlock.cli.dogfood_cmd._probe_health", lambda *a: True)
 
         main(["dogfood", "--host", "10.0.0.1", "--port", "8080"])
         out = capsys.readouterr().out

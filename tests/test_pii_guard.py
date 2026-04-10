@@ -29,7 +29,9 @@ def _make_tool_call(name: str, arguments: dict) -> SimpleNamespace:
     )
 
 
-def _make_response(content: str | None = None, tool_calls: list | None = None) -> SimpleNamespace:
+def _make_response(
+    content: str | None = None, tool_calls: list | None = None
+) -> SimpleNamespace:
     return SimpleNamespace(
         choices=[
             SimpleNamespace(
@@ -45,7 +47,12 @@ def _make_response(content: str | None = None, tool_calls: list | None = None) -
 class TestConfiguredEntities:
     def test_defaults(self):
         entities = _configured_entities()
-        assert set(entities) == {"CREDIT_CARD", "US_SSN", "EMAIL_ADDRESS", "PHONE_NUMBER"}
+        assert set(entities) == {
+            "CREDIT_CARD",
+            "US_SSN",
+            "EMAIL_ADDRESS",
+            "PHONE_NUMBER",
+        }
 
     def test_custom_entities(self, monkeypatch):
         monkeypatch.setenv("AIRLOCK_PII_ENTITIES", "PERSON,LOCATION")
@@ -114,14 +121,19 @@ class TestScrubMessages:
                 "role": "user",
                 "content": [
                     {"type": "text", "text": "Contact alice@corp.com please"},
-                    {"type": "image_url", "image_url": {"url": "https://example.com/img.png"}},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "https://example.com/img.png"},
+                    },
                 ],
             }
         ]
         result = _scrub_messages(messages)
         assert "alice@corp.com" not in result[0]["content"][0]["text"]
         assert result[0]["content"][1]["type"] == "image_url"
-        assert result[0]["content"][1]["image_url"]["url"] == "https://example.com/img.png"
+        assert (
+            result[0]["content"][1]["image_url"]["url"] == "https://example.com/img.png"
+        )
 
     def test_empty_messages(self):
         assert _scrub_messages([]) == []
@@ -242,7 +254,9 @@ class TestAsyncPreCallHook:
         if not presidio_available:
             pytest.skip("Presidio not available")
 
-    async def test_hook_scrubs_pii_and_returns_data(self, mock_cache, mock_user_api_key_dict):
+    async def test_hook_scrubs_pii_and_returns_data(
+        self, mock_cache, mock_user_api_key_dict
+    ):
         guard = AirlockPIIGuard()
         data = {
             "messages": [{"role": "user", "content": "Contact alice@corp.com"}],
@@ -276,7 +290,11 @@ class TestAsyncPreCallHook:
 # ---------------------------------------------------------------------------
 class TestMCPPIIScrubbing:
     async def test_mcp_arguments_scrubbed(
-        self, mock_cache, mock_user_api_key_dict, reset_presidio_singletons, presidio_available,
+        self,
+        mock_cache,
+        mock_user_api_key_dict,
+        reset_presidio_singletons,
+        presidio_available,
     ):
         if not presidio_available:
             pytest.skip("Presidio not installed")
@@ -297,7 +315,11 @@ class TestMCPPIIScrubbing:
         assert result["mcp_arguments"]["limit"] == "10"
 
     async def test_mcp_nested_arguments_scrubbed(
-        self, mock_cache, mock_user_api_key_dict, reset_presidio_singletons, presidio_available,
+        self,
+        mock_cache,
+        mock_user_api_key_dict,
+        reset_presidio_singletons,
+        presidio_available,
     ):
         if not presidio_available:
             pytest.skip("Presidio not installed")
@@ -320,7 +342,9 @@ class TestMCPPIIScrubbing:
         assert result["mcp_arguments"]["tags"][0] == "safe"
 
     async def test_mcp_no_arguments_passes(
-        self, mock_cache, mock_user_api_key_dict,
+        self,
+        mock_cache,
+        mock_user_api_key_dict,
     ):
         guard = AirlockPIIGuard()
         data = {"mcp_tool_name": "list_tools"}
@@ -341,7 +365,9 @@ class TestScrubTextWithMapping:
 
     def test_single_email_numbered(self):
         mapping, counters = {}, {}
-        result = _scrub_text_with_mapping("Email me at alice@corp.com", mapping, counters)
+        result = _scrub_text_with_mapping(
+            "Email me at alice@corp.com", mapping, counters
+        )
         assert "alice@corp.com" not in result
         assert "<EMAIL_ADDRESS_1>" in result
         assert mapping["<EMAIL_ADDRESS_1>"] == "alice@corp.com"
@@ -349,7 +375,9 @@ class TestScrubTextWithMapping:
     def test_two_same_type_get_distinct_numbers(self):
         mapping, counters = {}, {}
         result = _scrub_text_with_mapping(
-            "From alice@corp.com to bob@corp.com", mapping, counters,
+            "From alice@corp.com to bob@corp.com",
+            mapping,
+            counters,
         )
         assert "<EMAIL_ADDRESS_1>" in result
         assert "<EMAIL_ADDRESS_2>" in result
@@ -359,7 +387,9 @@ class TestScrubTextWithMapping:
     def test_mixed_entity_types(self):
         mapping, counters = {}, {}
         result = _scrub_text_with_mapping(
-            "Email alice@corp.com card 4111111111111111", mapping, counters,
+            "Email alice@corp.com card 4111111111111111",
+            mapping,
+            counters,
         )
         assert "<EMAIL_ADDRESS_1>" in result
         assert "alice@corp.com" not in result
@@ -373,7 +403,9 @@ class TestScrubTextWithMapping:
     def test_same_value_deduplicates(self):
         mapping, counters = {}, {}
         result = _scrub_text_with_mapping(
-            "From alice@corp.com and again alice@corp.com", mapping, counters,
+            "From alice@corp.com and again alice@corp.com",
+            mapping,
+            counters,
         )
         assert result.count("<EMAIL_ADDRESS_1>") == 2
         assert len(mapping) == 1
@@ -389,7 +421,9 @@ class TestScrubTextWithMapping:
 
     def test_safe_text_no_mapping(self):
         mapping, counters = {}, {}
-        result = _scrub_text_with_mapping("What is the capital of France?", mapping, counters)
+        result = _scrub_text_with_mapping(
+            "What is the capital of France?", mapping, counters
+        )
         assert result == "What is the capital of France?"
         assert mapping == {}
 
@@ -403,7 +437,9 @@ class TestMappingStorage:
         if not presidio_available:
             pytest.skip("Presidio not available")
 
-    async def test_mapping_attached_after_redaction(self, mock_cache, mock_user_api_key_dict):
+    async def test_mapping_attached_after_redaction(
+        self, mock_cache, mock_user_api_key_dict
+    ):
         guard = AirlockPIIGuard()
         data = {
             "messages": [{"role": "user", "content": "Email alice@corp.com"}],
@@ -429,11 +465,16 @@ class TestMappingStorage:
         )
         assert "airlock_pii_map" not in result.get("metadata", {})
 
-    async def test_mapping_correct_for_multiple_entities(self, mock_cache, mock_user_api_key_dict):
+    async def test_mapping_correct_for_multiple_entities(
+        self, mock_cache, mock_user_api_key_dict
+    ):
         guard = AirlockPIIGuard()
         data = {
             "messages": [
-                {"role": "user", "content": "Email alice@corp.com card 4111111111111111"},
+                {
+                    "role": "user",
+                    "content": "Email alice@corp.com card 4111111111111111",
+                },
             ],
             "model": "claude-sonnet",
         }
@@ -445,7 +486,9 @@ class TestMappingStorage:
         assert "alice@corp.com" in pii_map.values()
         assert "4111111111111111" in pii_map.values()
 
-    async def test_preserves_existing_metadata(self, mock_cache, mock_user_api_key_dict):
+    async def test_preserves_existing_metadata(
+        self, mock_cache, mock_user_api_key_dict
+    ):
         guard = AirlockPIIGuard()
         data = {
             "messages": [{"role": "user", "content": "Email alice@corp.com"}],
@@ -458,7 +501,9 @@ class TestMappingStorage:
         assert result["metadata"]["airlock_other"] is True
         assert "airlock_pii_map" in result["metadata"]
 
-    async def test_mapping_available_in_mcp_path(self, mock_cache, mock_user_api_key_dict):
+    async def test_mapping_available_in_mcp_path(
+        self, mock_cache, mock_user_api_key_dict
+    ):
         guard = AirlockPIIGuard()
         data = {
             "mcp_tool_name": "search",
@@ -478,13 +523,17 @@ class TestMappingStorage:
 class TestHydrateValueRecursive:
     def test_embedded_placeholder_in_string(self):
         mapping = {"<EMAIL_ADDRESS_1>": "alice@corp.com"}
-        val, count = _hydrate_value_recursive("from:<EMAIL_ADDRESS_1> newer_than:7d", mapping)
+        val, count = _hydrate_value_recursive(
+            "from:<EMAIL_ADDRESS_1> newer_than:7d", mapping
+        )
         assert val == "from:alice@corp.com newer_than:7d"
         assert count == 1
 
     def test_nested_dict(self):
         mapping = {"<EMAIL_ADDRESS_1>": "alice@corp.com"}
-        val, count = _hydrate_value_recursive({"config": {"recipient": "<EMAIL_ADDRESS_1>"}}, mapping)
+        val, count = _hydrate_value_recursive(
+            {"config": {"recipient": "<EMAIL_ADDRESS_1>"}}, mapping
+        )
         assert val == {"config": {"recipient": "alice@corp.com"}}
         assert count == 1
 
@@ -494,7 +543,12 @@ class TestHydrateValueRecursive:
             "<EMAIL_ADDRESS_2>": "bob@corp.com",
         }
         val, count = _hydrate_value_recursive(
-            {"attendees": [{"email": "<EMAIL_ADDRESS_1>"}, {"email": "<EMAIL_ADDRESS_2>"}]},
+            {
+                "attendees": [
+                    {"email": "<EMAIL_ADDRESS_1>"},
+                    {"email": "<EMAIL_ADDRESS_2>"},
+                ]
+            },
             mapping,
         )
         assert val["attendees"][0]["email"] == "alice@corp.com"
@@ -513,12 +567,16 @@ class TestHydrateValueRecursive:
         assert count == 1
 
     def test_empty_string(self):
-        val, count = _hydrate_value_recursive("", {"<EMAIL_ADDRESS_1>": "alice@corp.com"})
+        val, count = _hydrate_value_recursive(
+            "", {"<EMAIL_ADDRESS_1>": "alice@corp.com"}
+        )
         assert val == ""
         assert count == 0
 
     def test_empty_dict(self):
-        val, count = _hydrate_value_recursive({}, {"<EMAIL_ADDRESS_1>": "alice@corp.com"})
+        val, count = _hydrate_value_recursive(
+            {}, {"<EMAIL_ADDRESS_1>": "alice@corp.com"}
+        )
         assert val == {}
         assert count == 0
 
@@ -560,10 +618,13 @@ class TestHydrateToolCalls:
             "<EMAIL_ADDRESS_1>": "alice@corp.com",
             "<EMAIL_ADDRESS_2>": "bob@corp.com",
         }
-        tc = _make_tool_call("send_email", {
-            "to": "<EMAIL_ADDRESS_1>",
-            "cc": "<EMAIL_ADDRESS_2>",
-        })
+        tc = _make_tool_call(
+            "send_email",
+            {
+                "to": "<EMAIL_ADDRESS_1>",
+                "cc": "<EMAIL_ADDRESS_2>",
+            },
+        )
         response = _make_response(tool_calls=[tc])
         count = _hydrate_tool_calls(response, mapping)
         assert count == 2
@@ -576,7 +637,9 @@ class TestHydrateToolCalls:
         response = _make_response(content="Contact <EMAIL_ADDRESS_1> for help")
         count = _hydrate_tool_calls(response, mapping)
         assert count == 0
-        assert response.choices[0].message.content == "Contact <EMAIL_ADDRESS_1> for help"
+        assert (
+            response.choices[0].message.content == "Contact <EMAIL_ADDRESS_1> for help"
+        )
 
     def test_no_tool_calls_passes_through(self):
         mapping = {"<EMAIL_ADDRESS_1>": "alice@corp.com"}
@@ -645,7 +708,9 @@ class TestPostCallSuccessHook:
         guard = AirlockPIIGuard()
         # Pre-call: redact
         data = {
-            "messages": [{"role": "user", "content": "search gmail for alice@corp.com"}],
+            "messages": [
+                {"role": "user", "content": "search gmail for alice@corp.com"}
+            ],
             "model": "claude-sonnet",
         }
         data = await guard.async_pre_call_hook(
@@ -660,7 +725,9 @@ class TestPostCallSuccessHook:
         response = _make_response(tool_calls=[tc])
 
         # Post-call: hydrate
-        result = await guard.async_post_call_success_hook(data, mock_user_api_key_dict, response)
+        result = await guard.async_post_call_success_hook(
+            data, mock_user_api_key_dict, response
+        )
         args = json.loads(result.choices[0].message.tool_calls[0].function.arguments)
         assert args["from_address"] == "alice@corp.com"
 
@@ -669,17 +736,33 @@ class TestPostCallSuccessHook:
         data = {"metadata": {}}
         tc = _make_tool_call("gmail_search", {"from": "<EMAIL_ADDRESS_1>"})
         response = _make_response(tool_calls=[tc])
-        result = await guard.async_post_call_success_hook(data, mock_user_api_key_dict, response)
+        result = await guard.async_post_call_success_hook(
+            data, mock_user_api_key_dict, response
+        )
         # Placeholder left as-is
-        assert json.loads(result.choices[0].message.tool_calls[0].function.arguments)["from"] == "<EMAIL_ADDRESS_1>"
+        assert (
+            json.loads(result.choices[0].message.tool_calls[0].function.arguments)[
+                "from"
+            ]
+            == "<EMAIL_ADDRESS_1>"
+        )
 
-    async def test_empty_mapping_passes_through(self, mock_cache, mock_user_api_key_dict):
+    async def test_empty_mapping_passes_through(
+        self, mock_cache, mock_user_api_key_dict
+    ):
         guard = AirlockPIIGuard()
         data = {"metadata": {"airlock_pii_map": {}}}
         tc = _make_tool_call("gmail_search", {"from": "<EMAIL_ADDRESS_1>"})
         response = _make_response(tool_calls=[tc])
-        result = await guard.async_post_call_success_hook(data, mock_user_api_key_dict, response)
-        assert json.loads(result.choices[0].message.tool_calls[0].function.arguments)["from"] == "<EMAIL_ADDRESS_1>"
+        result = await guard.async_post_call_success_hook(
+            data, mock_user_api_key_dict, response
+        )
+        assert (
+            json.loads(result.choices[0].message.tool_calls[0].function.arguments)[
+                "from"
+            ]
+            == "<EMAIL_ADDRESS_1>"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -704,12 +787,21 @@ class TestHydrationConfig:
     async def test_hook_skips_when_disabled(self, monkeypatch, mock_user_api_key_dict):
         monkeypatch.setenv("AIRLOCK_PII_HYDRATION", "off")
         guard = AirlockPIIGuard()
-        data = {"metadata": {"airlock_pii_map": {"<EMAIL_ADDRESS_1>": "alice@corp.com"}}}
+        data = {
+            "metadata": {"airlock_pii_map": {"<EMAIL_ADDRESS_1>": "alice@corp.com"}}
+        }
         tc = _make_tool_call("gmail_search", {"from": "<EMAIL_ADDRESS_1>"})
         response = _make_response(tool_calls=[tc])
-        result = await guard.async_post_call_success_hook(data, mock_user_api_key_dict, response)
+        result = await guard.async_post_call_success_hook(
+            data, mock_user_api_key_dict, response
+        )
         # Should NOT hydrate
-        assert json.loads(result.choices[0].message.tool_calls[0].function.arguments)["from"] == "<EMAIL_ADDRESS_1>"
+        assert (
+            json.loads(result.choices[0].message.tool_calls[0].function.arguments)[
+                "from"
+            ]
+            == "<EMAIL_ADDRESS_1>"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -717,8 +809,11 @@ class TestHydrationConfig:
 # ---------------------------------------------------------------------------
 class TestEdgeCases:
     async def test_sequential_requests_have_independent_mappings(
-        self, mock_cache, mock_user_api_key_dict,
-        presidio_available, reset_presidio_singletons,
+        self,
+        mock_cache,
+        mock_user_api_key_dict,
+        presidio_available,
+        reset_presidio_singletons,
     ):
         """I6: separate pre-call hooks produce independent mappings."""
         if not presidio_available:
@@ -746,8 +841,9 @@ class TestEdgeCases:
 
         assert map_a is not map_b
 
-    async def test_presidio_unavailable_full_round_trip(self, mock_user_api_key_dict,
-                                                         reset_presidio_singletons):
+    async def test_presidio_unavailable_full_round_trip(
+        self, mock_user_api_key_dict, reset_presidio_singletons
+    ):
         """I7: when Presidio is not installed, pre-call raises ImportError,
         no mapping is stored, and post-call passes response through unchanged."""
         import airlock.guardrails.pii_guard as pii_mod
@@ -777,8 +873,15 @@ class TestEdgeCases:
         # Post-call with no mapping passes through unchanged
         tc = _make_tool_call("gmail_search", {"from": "<EMAIL_ADDRESS_1>"})
         response = _make_response(tool_calls=[tc])
-        result = await guard.async_post_call_success_hook(data, mock_user_api_key_dict, response)
-        assert json.loads(result.choices[0].message.tool_calls[0].function.arguments)["from"] == "<EMAIL_ADDRESS_1>"
+        result = await guard.async_post_call_success_hook(
+            data, mock_user_api_key_dict, response
+        )
+        assert (
+            json.loads(result.choices[0].message.tool_calls[0].function.arguments)[
+                "from"
+            ]
+            == "<EMAIL_ADDRESS_1>"
+        )
 
 
 class TestPrivacyBoundary:
@@ -787,7 +890,9 @@ class TestPrivacyBoundary:
         if not presidio_available:
             pytest.skip("Presidio not available")
 
-    async def test_pre_call_logs_no_raw_values(self, mock_cache, mock_user_api_key_dict, caplog):
+    async def test_pre_call_logs_no_raw_values(
+        self, mock_cache, mock_user_api_key_dict, caplog
+    ):
         """F2: log output from redaction contains entity types and counts
         but never the raw original PII values."""
         guard = AirlockPIIGuard()
@@ -803,15 +908,21 @@ class TestPrivacyBoundary:
         assert "pii_redacted" in caplog.text
         assert "alice@corp.com" not in caplog.text
 
-    async def test_post_call_logs_no_raw_values(self, mock_cache, mock_user_api_key_dict, caplog):
+    async def test_post_call_logs_no_raw_values(
+        self, mock_cache, mock_user_api_key_dict, caplog
+    ):
         """F3: log output from hydration contains count but never the
         restored original PII values."""
         guard = AirlockPIIGuard()
-        data = {"metadata": {"airlock_pii_map": {"<EMAIL_ADDRESS_1>": "alice@corp.com"}}}
+        data = {
+            "metadata": {"airlock_pii_map": {"<EMAIL_ADDRESS_1>": "alice@corp.com"}}
+        }
         tc = _make_tool_call("gmail_search", {"from": "<EMAIL_ADDRESS_1>"})
         response = _make_response(tool_calls=[tc])
         with caplog.at_level("INFO", logger="airlock.guardrails.pii"):
-            await guard.async_post_call_success_hook(data, mock_user_api_key_dict, response)
+            await guard.async_post_call_success_hook(
+                data, mock_user_api_key_dict, response
+            )
         assert len(caplog.records) > 0
         assert "pii_hydrated" in caplog.text
         assert "alice@corp.com" not in caplog.text
@@ -840,7 +951,8 @@ class TestHydrateMultiplePlaceholdersInOneString:
             "<EMAIL_ADDRESS_2>": "bob@corp.com",
         }
         val, count = _hydrate_value_recursive(
-            "from:<EMAIL_ADDRESS_1> to:<EMAIL_ADDRESS_2>", mapping,
+            "from:<EMAIL_ADDRESS_1> to:<EMAIL_ADDRESS_2>",
+            mapping,
         )
         assert val == "from:alice@corp.com to:bob@corp.com"
         assert count == 2
@@ -877,8 +989,12 @@ class TestHydrateToolCallsMultipleChoices:
         tc2 = _make_tool_call("tool_b", {"addr": "<EMAIL_ADDRESS_1>"})
         response = SimpleNamespace(
             choices=[
-                SimpleNamespace(message=SimpleNamespace(content=None, tool_calls=[tc1])),
-                SimpleNamespace(message=SimpleNamespace(content=None, tool_calls=[tc2])),
+                SimpleNamespace(
+                    message=SimpleNamespace(content=None, tool_calls=[tc1])
+                ),
+                SimpleNamespace(
+                    message=SimpleNamespace(content=None, tool_calls=[tc2])
+                ),
             ],
         )
         count = _hydrate_tool_calls(response, mapping)
@@ -906,8 +1022,15 @@ class TestPostCallNoMetadata:
         data = {}  # no "metadata" key at all
         tc = _make_tool_call("gmail_search", {"from": "<EMAIL_ADDRESS_1>"})
         response = _make_response(tool_calls=[tc])
-        result = await guard.async_post_call_success_hook(data, mock_user_api_key_dict, response)
-        assert json.loads(result.choices[0].message.tool_calls[0].function.arguments)["from"] == "<EMAIL_ADDRESS_1>"
+        result = await guard.async_post_call_success_hook(
+            data, mock_user_api_key_dict, response
+        )
+        assert (
+            json.loads(result.choices[0].message.tool_calls[0].function.arguments)[
+                "from"
+            ]
+            == "<EMAIL_ADDRESS_1>"
+        )
 
 
 class TestScrubMessagesDefaultMapping:
@@ -968,7 +1091,9 @@ class TestMappingPlaceholderConsistency:
             assert placeholder in result
 
     async def test_round_trip_mapping_keys_match_scrubbed_output(
-        self, mock_cache, mock_user_api_key_dict,
+        self,
+        mock_cache,
+        mock_user_api_key_dict,
     ):
         guard = AirlockPIIGuard()
         data = {
@@ -999,12 +1124,18 @@ class TestLogEntityTypeExtraction:
             pytest.skip("Presidio not available")
 
     async def test_entity_types_in_log_are_correct(
-        self, mock_cache, mock_user_api_key_dict, caplog,
+        self,
+        mock_cache,
+        mock_user_api_key_dict,
+        caplog,
     ):
         guard = AirlockPIIGuard()
         data = {
             "messages": [
-                {"role": "user", "content": "Email alice@corp.com card 4111111111111111"},
+                {
+                    "role": "user",
+                    "content": "Email alice@corp.com card 4111111111111111",
+                },
             ],
             "model": "claude-sonnet",
         }
@@ -1023,7 +1154,11 @@ class TestLogEntityTypeExtraction:
 # ---------------------------------------------------------------------------
 class TestStreamingPiiWarning:
     async def test_streaming_request_logs_warning(
-        self, mock_cache, mock_user_api_key_dict, caplog, reset_presidio_singletons,
+        self,
+        mock_cache,
+        mock_user_api_key_dict,
+        caplog,
+        reset_presidio_singletons,
         presidio_available,
     ):
         """When streaming is enabled and PII mapping exists, a warning is logged."""
@@ -1044,7 +1179,11 @@ class TestStreamingPiiWarning:
         assert any("stream" in r.message.lower() for r in caplog.records)
 
     async def test_non_streaming_request_no_warning(
-        self, mock_cache, mock_user_api_key_dict, caplog, reset_presidio_singletons,
+        self,
+        mock_cache,
+        mock_user_api_key_dict,
+        caplog,
+        reset_presidio_singletons,
         presidio_available,
     ):
         """Non-streaming requests should not log the streaming warning."""

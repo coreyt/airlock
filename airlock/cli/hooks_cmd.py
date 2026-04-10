@@ -81,9 +81,7 @@ def run_install(args) -> None:
     existing["hooks"] = _HOOKS_CONFIG
 
     claude_dir.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(
-        json.dumps(existing, indent=2) + "\n", encoding="utf-8"
-    )
+    settings_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
 
     # Summary
     print()

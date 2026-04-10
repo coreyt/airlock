@@ -91,10 +91,12 @@ class TestCheckArguments:
 
     def test_nested_safe_values(self):
         """Safe nested values should pass."""
-        result = _check_arguments({
-            "options": {"recursive": "true", "depth": "3"},
-            "files": ["/home/user/doc.txt"],
-        })
+        result = _check_arguments(
+            {
+                "options": {"recursive": "true", "depth": "3"},
+                "files": ["/home/user/doc.txt"],
+            }
+        )
         assert result is None
 
 
@@ -123,7 +125,9 @@ class TestMCPToolGuardHook:
         )
         assert result is data
 
-    async def test_allowed_tool_passes(self, guard, mock_user_api_key_dict, mock_cache, monkeypatch):
+    async def test_allowed_tool_passes(
+        self, guard, mock_user_api_key_dict, mock_cache, monkeypatch
+    ):
         monkeypatch.setenv("AIRLOCK_MCP_ALLOWED_TOOLS", "read_file,search")
         data = {
             "mcp_tool_name": "read_file",
@@ -134,7 +138,9 @@ class TestMCPToolGuardHook:
         )
         assert result is data
 
-    async def test_blocked_tool_raises(self, guard, mock_user_api_key_dict, mock_cache, monkeypatch):
+    async def test_blocked_tool_raises(
+        self, guard, mock_user_api_key_dict, mock_cache, monkeypatch
+    ):
         monkeypatch.setenv("AIRLOCK_MCP_BLOCKED_TOOLS", "delete_file")
         data = {
             "mcp_tool_name": "delete_file",

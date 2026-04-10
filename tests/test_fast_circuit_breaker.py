@@ -5,10 +5,8 @@ from __future__ import annotations
 import json
 import time
 
-import pytest
 
 from airlock.fast.circuit_breaker import (
-    FailoverResult,
     _load_failover_map,
     check_model,
 )

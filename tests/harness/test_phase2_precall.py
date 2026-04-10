@@ -6,7 +6,6 @@ Direct guardrail hook calls, no proxy needed.
 
 from __future__ import annotations
 
-import time
 
 import pytest
 
@@ -18,8 +17,9 @@ pytestmark = pytest.mark.harness
 # Keyword Guard (3.3–3.4)
 # ---------------------------------------------------------------------------
 class TestKeywordGuard:
-
-    async def test_keyword_blocks(self, monkeypatch, mock_cache, mock_user_api_key_dict):
+    async def test_keyword_blocks(
+        self, monkeypatch, mock_cache, mock_user_api_key_dict
+    ):
         monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "classified,topsecret")
         from airlock.guardrails.keyword_guard import AirlockKeywordGuard
 
@@ -35,7 +35,11 @@ class TestKeywordGuard:
 
     @pytest.mark.parametrize("variant", ["CLASSIFIED", "Classified", "classified"])
     async def test_keyword_case_insensitive(
-        self, monkeypatch, mock_cache, mock_user_api_key_dict, variant,
+        self,
+        monkeypatch,
+        mock_cache,
+        mock_user_api_key_dict,
+        variant,
     ):
         monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "classified")
         from airlock.guardrails.keyword_guard import AirlockKeywordGuard
@@ -51,7 +55,10 @@ class TestKeywordGuard:
             )
 
     async def test_keyword_error_no_echo(
-        self, monkeypatch, mock_cache, mock_user_api_key_dict,
+        self,
+        monkeypatch,
+        mock_cache,
+        mock_user_api_key_dict,
     ):
         monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "classified")
         from airlock.guardrails.keyword_guard import AirlockKeywordGuard
@@ -70,7 +77,10 @@ class TestKeywordGuard:
         )
 
     async def test_no_keywords_configured_passes(
-        self, monkeypatch, mock_cache, mock_user_api_key_dict,
+        self,
+        monkeypatch,
+        mock_cache,
+        mock_user_api_key_dict,
     ):
         monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "")
         from airlock.guardrails.keyword_guard import AirlockKeywordGuard
@@ -90,9 +100,11 @@ class TestKeywordGuard:
 # Threat Detection (3.5–3.6)
 # ---------------------------------------------------------------------------
 class TestThreatDetection:
-
     async def test_rapid_fire_increases_threat_score(
-        self, fresh_state_store, mock_cache, mock_user_api_key_dict,
+        self,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
     ):
         from airlock.fast.guardian import AirlockFastGuardian
 
@@ -114,7 +126,10 @@ class TestThreatDetection:
         assert client.threat_score > 0
 
     async def test_large_payload_anomaly(
-        self, fresh_state_store, mock_cache, mock_user_api_key_dict,
+        self,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
     ):
         from airlock.fast.guardian import AirlockFastGuardian
 
@@ -134,7 +149,10 @@ class TestThreatDetection:
         assert client.threat_score >= 0
 
     async def test_backoff_applied_after_burst(
-        self, fresh_state_store, mock_cache, mock_user_api_key_dict,
+        self,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
     ):
         import time as _time
         from airlock.fast.guardian import AirlockFastGuardian
@@ -159,9 +177,11 @@ class TestThreatDetection:
 # MCP Guard (3.7–3.8)
 # ---------------------------------------------------------------------------
 class TestMCPGuard:
-
     async def test_mcp_allowlist_permits(
-        self, monkeypatch, mock_cache, mock_user_api_key_dict,
+        self,
+        monkeypatch,
+        mock_cache,
+        mock_user_api_key_dict,
     ):
         monkeypatch.setenv("AIRLOCK_MCP_ALLOWED_TOOLS", "read_file,search")
         from airlock.guardrails.mcp_tool_guard import AirlockMCPToolGuard
@@ -177,7 +197,10 @@ class TestMCPGuard:
         assert result is not None
 
     async def test_mcp_blocklist_blocks(
-        self, monkeypatch, mock_cache, mock_user_api_key_dict,
+        self,
+        monkeypatch,
+        mock_cache,
+        mock_user_api_key_dict,
     ):
         monkeypatch.setenv("AIRLOCK_MCP_BLOCKED_TOOLS", "delete_file")
         from airlock.guardrails.mcp_tool_guard import AirlockMCPToolGuard
@@ -193,7 +216,10 @@ class TestMCPGuard:
             )
 
     async def test_mcp_path_traversal_blocked(
-        self, monkeypatch, mock_cache, mock_user_api_key_dict,
+        self,
+        monkeypatch,
+        mock_cache,
+        mock_user_api_key_dict,
     ):
         monkeypatch.delenv("AIRLOCK_MCP_ALLOWED_TOOLS", raising=False)
         monkeypatch.delenv("AIRLOCK_MCP_BLOCKED_TOOLS", raising=False)
@@ -210,7 +236,10 @@ class TestMCPGuard:
             )
 
     async def test_mcp_shell_metachar_blocked(
-        self, monkeypatch, mock_cache, mock_user_api_key_dict,
+        self,
+        monkeypatch,
+        mock_cache,
+        mock_user_api_key_dict,
     ):
         monkeypatch.delenv("AIRLOCK_MCP_ALLOWED_TOOLS", raising=False)
         monkeypatch.delenv("AIRLOCK_MCP_BLOCKED_TOOLS", raising=False)
@@ -231,9 +260,12 @@ class TestMCPGuard:
 # Enforcer (3.9)
 # ---------------------------------------------------------------------------
 class TestEnforcer:
-
     async def test_enforcer_observe_passes(
-        self, monkeypatch, mock_cache, mock_user_api_key_dict, fresh_state_store,
+        self,
+        monkeypatch,
+        mock_cache,
+        mock_user_api_key_dict,
+        fresh_state_store,
     ):
         monkeypatch.setenv("AIRLOCK_ENFORCE_MODE", "observe")
         from airlock.guardrails.enforcer import AirlockEnforcer
@@ -249,7 +281,11 @@ class TestEnforcer:
         assert result is data
 
     async def test_enforcer_enforce_blocks(
-        self, monkeypatch, mock_cache, mock_user_api_key_dict, fresh_state_store,
+        self,
+        monkeypatch,
+        mock_cache,
+        mock_user_api_key_dict,
+        fresh_state_store,
     ):
         monkeypatch.setenv("AIRLOCK_ENFORCE_MODE", "enforce")
         monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "classified")
@@ -270,7 +306,11 @@ class TestEnforcer:
             )
 
     async def test_enforcer_logs_would_block(
-        self, monkeypatch, mock_cache, mock_user_api_key_dict, fresh_state_store,
+        self,
+        monkeypatch,
+        mock_cache,
+        mock_user_api_key_dict,
+        fresh_state_store,
     ):
         monkeypatch.setenv("AIRLOCK_ENFORCE_MODE", "shadow")
         monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "classified")

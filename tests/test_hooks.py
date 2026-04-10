@@ -146,7 +146,9 @@ class TestProbeHealth:
         probe_health(self.host, self.port)
         assert "Authorization" not in self.last_headers
 
-    def test_returns_false_without_auth_on_protected_server(self, _auth_server, monkeypatch):
+    def test_returns_false_without_auth_on_protected_server(
+        self, _auth_server, monkeypatch
+    ):
         """Server requiring auth returns 400 — probe must fail without key."""
         monkeypatch.delenv("AIRLOCK_MASTER_KEY", raising=False)
         # Server returns 400 for missing/wrong auth; urllib raises HTTPError
@@ -167,7 +169,9 @@ class TestDotenvLoading:
         import ast
         import inspect
 
-        source = inspect.getsource(__import__("airlock.hooks._common", fromlist=["_common"]))
+        source = inspect.getsource(
+            __import__("airlock.hooks._common", fromlist=["_common"])
+        )
         tree = ast.parse(source)
 
         # Check for load_dotenv() call at module level
@@ -186,7 +190,6 @@ class TestDotenvLoading:
 
     def test_common_imports_dotenv(self):
         """_common.py must import from dotenv."""
-        import airlock.hooks._common as mod
 
         # Module should have loaded dotenv — verify the function is accessible
         import dotenv
@@ -201,7 +204,9 @@ class TestDotenvLoading:
 
 class TestSessionStart:
     def test_reports_proxy_running(self, monkeypatch, capsys):
-        monkeypatch.setattr("airlock.hooks.session_start.probe_health", lambda *a, **kw: True)
+        monkeypatch.setattr(
+            "airlock.hooks.session_start.probe_health", lambda *a, **kw: True
+        )
         monkeypatch.setenv("AIRLOCK_HOST", "localhost")
         monkeypatch.setenv("AIRLOCK_PORT", "4000")
 
@@ -214,7 +219,9 @@ class TestSessionStart:
         assert "running" in out["additionalContext"]
 
     def test_reports_proxy_down(self, monkeypatch, capsys):
-        monkeypatch.setattr("airlock.hooks.session_start.probe_health", lambda *a, **kw: False)
+        monkeypatch.setattr(
+            "airlock.hooks.session_start.probe_health", lambda *a, **kw: False
+        )
         monkeypatch.setenv("AIRLOCK_HOST", "localhost")
         monkeypatch.setenv("AIRLOCK_PORT", "4000")
 
@@ -257,7 +264,9 @@ class TestPreSubmit:
 
     def test_blocks_on_keyword_match(self, monkeypatch, capsys):
         monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "secret,classified")
-        monkeypatch.setattr("sys.stdin", StringIO('{"prompt": "tell me the Secret plan"}'))
+        monkeypatch.setattr(
+            "sys.stdin", StringIO('{"prompt": "tell me the Secret plan"}')
+        )
 
         from airlock.hooks.pre_submit import main
 
@@ -271,7 +280,9 @@ class TestPreSubmit:
 
     def test_case_insensitive_matching(self, monkeypatch, capsys):
         monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "Project X")
-        monkeypatch.setattr("sys.stdin", StringIO('{"prompt": "what about PROJECT X?"}'))
+        monkeypatch.setattr(
+            "sys.stdin", StringIO('{"prompt": "what about PROJECT X?"}')
+        )
 
         from airlock.hooks.pre_submit import main
 
@@ -365,11 +376,15 @@ class TestPostTool:
         monkeypatch.setenv("AIRLOCK_LOG_DIR", str(log_dir))
         monkeypatch.setattr(
             "sys.stdin",
-            StringIO(json.dumps({
-                "tool_name": "Bash",
-                "tool_input": {"command": "ls"},
-                "tool_output": "file1.py\nfile2.py",
-            })),
+            StringIO(
+                json.dumps(
+                    {
+                        "tool_name": "Bash",
+                        "tool_input": {"command": "ls"},
+                        "tool_output": "file1.py\nfile2.py",
+                    }
+                )
+            ),
         )
 
         from airlock.hooks.post_tool import main
@@ -390,11 +405,15 @@ class TestPostTool:
         monkeypatch.setenv("AIRLOCK_LOG_DIR", str(log_dir))
         monkeypatch.setattr(
             "sys.stdin",
-            StringIO(json.dumps({
-                "tool_name": "Read",
-                "tool_input": {},
-                "tool_output": "x" * 5000,
-            })),
+            StringIO(
+                json.dumps(
+                    {
+                        "tool_name": "Read",
+                        "tool_input": {},
+                        "tool_output": "x" * 5000,
+                    }
+                )
+            ),
         )
 
         from airlock.hooks.post_tool import main

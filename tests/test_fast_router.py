@@ -9,7 +9,6 @@ import pytest
 
 from airlock.fast.monitor import AirlockFastMonitor, _infer_provider
 from airlock.fast.router import (
-    ComplexityResult,
     _apply_budget_awareness,
     _apply_cost_tier,
     _apply_provider_preference,
@@ -320,10 +319,12 @@ class TestApplyRouting:
         """Cost tier + provider preference — cost tier narrows, then preference tiebreaks."""
         data = {
             "model": "claude-opus",
-            "metadata": {"airlock": {
-                "cost_tier": "low",
-                "prefer_provider": "gemini",
-            }},
+            "metadata": {
+                "airlock": {
+                    "cost_tier": "low",
+                    "prefer_provider": "gemini",
+                }
+            },
         }
         result = apply_routing(data)
         # Cost tier narrows to low models, then provider preference picks gemini
@@ -352,8 +353,12 @@ class TestMonitorSpendTracking:
         return AirlockFastMonitor()
 
     def test_success_with_cost_records_spend(
-        self, monitor, fresh_state_store, mock_logger_kwargs,
-        mock_response_obj, mock_start_end_times,
+        self,
+        monitor,
+        fresh_state_store,
+        mock_logger_kwargs,
+        mock_response_obj,
+        mock_start_end_times,
     ):
         kwargs = {**mock_logger_kwargs, "response_cost": 0.05}
         start, end = mock_start_end_times
@@ -363,19 +368,25 @@ class TestMonitorSpendTracking:
         assert spend.recent_spend() == pytest.approx(0.05)
 
     def test_success_without_cost_no_spend(
-        self, monitor, fresh_state_store, mock_logger_kwargs,
-        mock_response_obj, mock_start_end_times,
+        self,
+        monitor,
+        fresh_state_store,
+        mock_logger_kwargs,
+        mock_response_obj,
+        mock_start_end_times,
     ):
         start, end = mock_start_end_times
-        monitor.log_success_event(
-            mock_logger_kwargs, mock_response_obj, start, end
-        )
+        monitor.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
 
         spend = fresh_state_store.get_provider_spend("anthropic")
         assert spend.recent_spend() == 0.0
 
     def test_unknown_provider_no_spend(
-        self, monitor, fresh_state_store, mock_start_end_times, mock_response_obj,
+        self,
+        monitor,
+        fresh_state_store,
+        mock_start_end_times,
+        mock_response_obj,
     ):
         kwargs = {
             "model": "llama-3-70b",
@@ -505,16 +516,19 @@ class TestComplexityClassifier:
     def test_features_dict_has_all_keys(self):
         result = classify_complexity("Hello world")
         expected_keys = {
-            "token_count", "code_blocks", "reasoning",
-            "multi_step", "vocab_rich", "sentence_len",
+            "token_count",
+            "code_blocks",
+            "reasoning",
+            "multi_step",
+            "vocab_rich",
+            "sentence_len",
         }
         assert set(result.features.keys()) == expected_keys
 
     def test_code_blocks_boost_score(self):
         text_no_code = "Write a sorting function in Python"
         text_with_code = (
-            "Write a sorting function in Python\n"
-            "```python\ndef sort(arr): pass\n```"
+            "Write a sorting function in Python\n```python\ndef sort(arr): pass\n```"
         )
         score_no_code = classify_complexity(text_no_code).score
         score_with_code = classify_complexity(text_with_code).score
@@ -547,18 +561,27 @@ class TestExtractText:
         assert _extract_text(data) == "Hello"
 
     def test_multimodal_content_blocks(self):
-        data = {"messages": [{"role": "user", "content": [
-            {"type": "text", "text": "Look at this"},
-            {"type": "image_url", "image_url": {"url": "..."}},
-        ]}]}
+        data = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Look at this"},
+                        {"type": "image_url", "image_url": {"url": "..."}},
+                    ],
+                }
+            ]
+        }
         assert _extract_text(data) == "Look at this"
 
     def test_skips_non_user_messages(self):
-        data = {"messages": [
-            {"role": "system", "content": "You are helpful"},
-            {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "Hi there"},
-        ]}
+        data = {
+            "messages": [
+                {"role": "system", "content": "You are helpful"},
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": "Hi there"},
+            ]
+        }
         assert _extract_text(data) == "Hello"
 
     def test_empty_messages(self):

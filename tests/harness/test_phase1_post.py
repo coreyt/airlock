@@ -48,21 +48,16 @@ def post_config_dir(tmp_path, monkeypatch):
 
 
 class TestPostChecks:
-
     def test_full_run_returns_groups(self, post_config_dir):
         from airlock.cli.post_cmd import run_checks
 
-        results = run_checks(
-            skip_llm=True, skip_storage=True, skip_mcp=True
-        )
+        results = run_checks(skip_llm=True, skip_storage=True, skip_mcp=True)
         assert len(results) > 0
 
     def test_all_checks_have_name_and_status(self, post_config_dir):
         from airlock.cli.post_cmd import run_checks
 
-        results = run_checks(
-            skip_llm=True, skip_storage=True, skip_mcp=True
-        )
+        results = run_checks(skip_llm=True, skip_storage=True, skip_mcp=True)
         for r in results:
             assert r.name
             assert r.status is not None
@@ -70,9 +65,7 @@ class TestPostChecks:
     def test_json_output_valid(self, post_config_dir):
         from airlock.cli.post_cmd import run_checks, render_json
 
-        results = run_checks(
-            skip_llm=True, skip_storage=True, skip_mcp=True
-        )
+        results = run_checks(skip_llm=True, skip_storage=True, skip_mcp=True)
         json_str = render_json(results)
         data = json.loads(json_str)
         assert "checks" in data
@@ -90,8 +83,11 @@ class TestPostChecks:
         results = run_checks(skip_mcp=True)
         mcp_checks = [r for r in results if r.group == "MCP"]
         # All MCP checks should be SKIP or already-skipped for other reasons
-        assert all(r.status == CheckStatus.SKIP for r in mcp_checks
-                    if "skipped by flag" in r.detail)
+        assert all(
+            r.status == CheckStatus.SKIP
+            for r in mcp_checks
+            if "skipped by flag" in r.detail
+        )
 
     def test_skip_storage(self, post_config_dir):
         from airlock.cli.post_cmd import run_checks, CheckStatus
@@ -103,12 +99,11 @@ class TestPostChecks:
     def test_multiple_skip_flags(self, post_config_dir):
         from airlock.cli.post_cmd import run_checks, CheckStatus
 
-        results = run_checks(
-            skip_llm=True, skip_storage=True, skip_mcp=True
-        )
+        results = run_checks(skip_llm=True, skip_storage=True, skip_mcp=True)
         skip_groups = {"Providers", "Storage", "MCP"}
         flag_skipped = [
-            r for r in results
+            r
+            for r in results
             if r.group in skip_groups and "skipped by flag" in r.detail
         ]
         assert len(flag_skipped) > 0
@@ -123,7 +118,8 @@ class TestPostChecks:
         # (no HTTP connectivity test), since those can legitimately PASS.
         _presence_only = {"provider_keys", "provider_newscatcher"}
         connectivity_checks = [
-            r for r in results
+            r
+            for r in results
             if r.group == "Providers" and r.name not in _presence_only
         ]
         for r in connectivity_checks:

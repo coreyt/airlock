@@ -10,7 +10,7 @@ from typing import Any
 
 from textual import work
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, VerticalScroll
 from textual.timer import Timer
 from textual.widgets import (
     Button,
@@ -94,9 +94,13 @@ class LogsPane(VerticalScroll):
                     "[dim]Press 'Run Analysis' to generate a report.[/]",
                     id="logs-analysis-hyp",
                 )
-        with Collapsible(title="Log Entries", collapsed=False, id="logs-stream-collapsible"):
+        with Collapsible(
+            title="Log Entries", collapsed=False, id="logs-stream-collapsible"
+        ):
             table = _SafeDataTable(id="logs-table", cursor_type="row")
-            table.add_columns("Timestamp", "Type", "Model", "User", "Tokens", "Duration", "OK")
+            table.add_columns(
+                "Timestamp", "Type", "Model", "User", "Tokens", "Duration", "OK"
+            )
             yield table
 
     def on_mount(self) -> None:
@@ -188,8 +192,7 @@ class LogsPane(VerticalScroll):
             filtered = [r for r in filtered if r.get("model") == model_val]
         if user_val:
             filtered = [
-                r for r in filtered
-                if user_val in (r.get("user") or "").lower()
+                r for r in filtered if user_val in (r.get("user") or "").lower()
             ]
         if status_val == "ok":
             filtered = [r for r in filtered if r.get("success")]
@@ -201,7 +204,8 @@ class LogsPane(VerticalScroll):
             filtered = [r for r in filtered if r.get("call_type") != "call_mcp_tool"]
         if tool_val:
             filtered = [
-                r for r in filtered
+                r
+                for r in filtered
                 if tool_val in (r.get("mcp_tool_name") or "").lower()
             ]
 
@@ -331,9 +335,7 @@ class LogsPane(VerticalScroll):
         if report.optimizations:
             lines = []
             for i, o in enumerate(report.optimizations, 1):
-                lines.append(
-                    f"  {i}. [{o.impact.upper()}] {o.description}"
-                )
+                lines.append(f"  {i}. [{o.impact.upper()}] {o.description}")
             opts_text = "\n".join(lines)
         else:
             opts_text = "[dim]No optimizations found.[/]"

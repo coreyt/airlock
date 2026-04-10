@@ -31,7 +31,9 @@ class TestFindConfig:
     def test_project_root_config(self, config_file, monkeypatch):
         # Set AIRLOCK_CONFIG to a non-existent path so first candidate fails,
         # then patch __file__ so parent.parent points to tmp_path
-        monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file.parent / "nonexistent.yaml"))
+        monkeypatch.setenv(
+            "AIRLOCK_CONFIG", str(config_file.parent / "nonexistent.yaml")
+        )
 
         import airlock.proxy as proxy_mod
 
@@ -67,9 +69,11 @@ class TestMain:
         monkeypatch.setenv("AIRLOCK_PORT", "4000")
 
         mock_result = MagicMock(returncode=0)
-        with patch("airlock.proxy.subprocess.run", return_value=mock_result) as mock_run, \
-             patch("airlock.proxy.fetch_live_provider_models", return_value=[]), \
-             pytest.raises(SystemExit):
+        with (
+            patch("airlock.proxy.subprocess.run", return_value=mock_result) as mock_run,
+            patch("airlock.proxy.fetch_live_provider_models", return_value=[]),
+            pytest.raises(SystemExit),
+        ):
             main()
 
         cmd = mock_run.call_args[0][0]
@@ -85,9 +89,11 @@ class TestMain:
         monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
 
         mock_result = MagicMock(returncode=0)
-        with patch("airlock.proxy.subprocess.run", return_value=mock_result) as mock_run, \
-             patch("airlock.proxy.fetch_live_provider_models", return_value=[]), \
-             pytest.raises(SystemExit):
+        with (
+            patch("airlock.proxy.subprocess.run", return_value=mock_result) as mock_run,
+            patch("airlock.proxy.fetch_live_provider_models", return_value=[]),
+            pytest.raises(SystemExit),
+        ):
             main()
 
         mock_run.assert_called_once()
@@ -100,9 +106,11 @@ class TestMain:
         monkeypatch.delenv("AIRLOCK_PORT", raising=False)
 
         mock_result = MagicMock(returncode=0)
-        with patch("airlock.proxy.subprocess.run", return_value=mock_result) as mock_run, \
-             patch("airlock.proxy.fetch_live_provider_models", return_value=[]), \
-             pytest.raises(SystemExit):
+        with (
+            patch("airlock.proxy.subprocess.run", return_value=mock_result) as mock_run,
+            patch("airlock.proxy.fetch_live_provider_models", return_value=[]),
+            pytest.raises(SystemExit),
+        ):
             main()
 
         cmd = mock_run.call_args[0][0]
@@ -114,10 +122,15 @@ class TestMain:
         dotenv_called = []
 
         mock_result = MagicMock(returncode=0)
-        with patch("airlock.proxy.load_dotenv", side_effect=lambda *a, **kw: dotenv_called.append(True)), \
-             patch("airlock.proxy.subprocess.run", return_value=mock_result), \
-             patch("airlock.proxy.fetch_live_provider_models", return_value=[]), \
-             pytest.raises(SystemExit):
+        with (
+            patch(
+                "airlock.proxy.load_dotenv",
+                side_effect=lambda *a, **kw: dotenv_called.append(True),
+            ),
+            patch("airlock.proxy.subprocess.run", return_value=mock_result),
+            patch("airlock.proxy.fetch_live_provider_models", return_value=[]),
+            pytest.raises(SystemExit),
+        ):
             main()
 
         assert len(dotenv_called) == 1
@@ -126,9 +139,11 @@ class TestMain:
         monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
 
         mock_result = MagicMock(returncode=42)
-        with patch("airlock.proxy.subprocess.run", return_value=mock_result), \
-             patch("airlock.proxy.fetch_live_provider_models", return_value=[]), \
-             pytest.raises(SystemExit) as exc_info:
+        with (
+            patch("airlock.proxy.subprocess.run", return_value=mock_result),
+            patch("airlock.proxy.fetch_live_provider_models", return_value=[]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
             main()
 
         assert exc_info.value.code == 42
@@ -138,10 +153,14 @@ class TestMain:
         discovery_called = []
 
         mock_result = MagicMock(returncode=0)
-        with patch("airlock.proxy.fetch_live_provider_models",
-                   side_effect=lambda *a, **kw: discovery_called.append(True) or []), \
-             patch("airlock.proxy.subprocess.run", return_value=mock_result), \
-             pytest.raises(SystemExit):
+        with (
+            patch(
+                "airlock.proxy.fetch_live_provider_models",
+                side_effect=lambda *a, **kw: discovery_called.append(True) or [],
+            ),
+            patch("airlock.proxy.subprocess.run", return_value=mock_result),
+            pytest.raises(SystemExit),
+        ):
             main()
 
         assert len(discovery_called) == 1
@@ -178,29 +197,40 @@ class TestMasterKeyValidation:
 class TestShutdownHandlers:
     def test_sigterm_handler_registered(self):
         import signal
+
         _register_shutdown_handlers()
         assert signal.getsignal(signal.SIGTERM) != signal.SIG_DFL
 
     def test_sigterm_handler_flushes_s3(self, monkeypatch):
         from unittest.mock import MagicMock
+
         mock_flush = MagicMock()
-        monkeypatch.setattr("airlock.callbacks.s3_logger.proxy_s3_logger.flush", mock_flush)
+        monkeypatch.setattr(
+            "airlock.callbacks.s3_logger.proxy_s3_logger.flush", mock_flush
+        )
         _register_shutdown_handlers()
         import signal
+
         handler = signal.getsignal(signal.SIGTERM)
         with pytest.raises(SystemExit) as exc_info:
             handler(signal.SIGTERM, None)
         assert exc_info.value.code == 0
         mock_flush.assert_called_once()
 
-    def test_sigterm_handler_checkpoints_circuit_breaker_state(self, monkeypatch, tmp_path):
+    def test_sigterm_handler_checkpoints_circuit_breaker_state(
+        self, monkeypatch, tmp_path
+    ):
         """Shutdown handler should checkpoint circuit breaker state."""
         from unittest.mock import MagicMock
-        monkeypatch.setattr("airlock.callbacks.s3_logger.proxy_s3_logger.flush", MagicMock())
+
+        monkeypatch.setattr(
+            "airlock.callbacks.s3_logger.proxy_s3_logger.flush", MagicMock()
+        )
         monkeypatch.setenv("AIRLOCK_STATE_DIR", str(tmp_path))
 
         _register_shutdown_handlers()
         import signal
+
         handler = signal.getsignal(signal.SIGTERM)
         with pytest.raises(SystemExit):
             handler(signal.SIGTERM, None)
@@ -247,28 +277,21 @@ class TestConfigValidation:
     def test_model_missing_model_name(self, tmp_path):
         cfg = tmp_path / "config.yaml"
         cfg.write_text(
-            "model_list:\n"
-            "  - litellm_params:\n"
-            "      model: anthropic/claude\n"
+            "model_list:\n  - litellm_params:\n      model: anthropic/claude\n"
         )
         warnings = _validate_config(str(cfg))
         assert any("model_name" in w for w in warnings)
 
     def test_model_missing_litellm_params_model(self, tmp_path):
         cfg = tmp_path / "config.yaml"
-        cfg.write_text(
-            "model_list:\n"
-            "  - model_name: claude\n"
-            "    litellm_params: {}\n"
-        )
+        cfg.write_text("model_list:\n  - model_name: claude\n    litellm_params: {}\n")
         warnings = _validate_config(str(cfg))
         assert any("litellm_params.model" in w for w in warnings)
 
     def test_guardrail_missing_name(self, tmp_path):
         cfg = tmp_path / "config.yaml"
         cfg.write_text(
-            _VALID_CONFIG +
-            "guardrails:\n"
+            _VALID_CONFIG + "guardrails:\n"
             "  - litellm_params:\n"
             "      guardrail: airlock.guardrails.pii_guard\n"
         )
@@ -278,8 +301,7 @@ class TestConfigValidation:
     def test_guardrail_missing_guardrail_param(self, tmp_path):
         cfg = tmp_path / "config.yaml"
         cfg.write_text(
-            _VALID_CONFIG +
-            "guardrails:\n"
+            _VALID_CONFIG + "guardrails:\n"
             "  - guardrail_name: pii\n"
             "    litellm_params: {}\n"
         )
@@ -289,10 +311,7 @@ class TestConfigValidation:
     def test_mcp_stdio_missing_command(self, tmp_path):
         cfg = tmp_path / "config.yaml"
         cfg.write_text(
-            _VALID_CONFIG +
-            "mcp_servers:\n"
-            "  search:\n"
-            "    transport: stdio\n"
+            _VALID_CONFIG + "mcp_servers:\n  search:\n    transport: stdio\n"
         )
         warnings = _validate_config(str(cfg))
         assert any("command" in w and "search" in w for w in warnings)
@@ -300,8 +319,7 @@ class TestConfigValidation:
     def test_mcp_http_no_command_required(self, tmp_path):
         cfg = tmp_path / "config.yaml"
         cfg.write_text(
-            _VALID_CONFIG +
-            "mcp_servers:\n"
+            _VALID_CONFIG + "mcp_servers:\n"
             "  api:\n"
             "    url: http://localhost:3001/sse\n"
             "    transport: http\n"
@@ -310,11 +328,7 @@ class TestConfigValidation:
 
     def test_general_settings_port_wrong_type(self, tmp_path):
         cfg = tmp_path / "config.yaml"
-        cfg.write_text(
-            _VALID_CONFIG +
-            "general_settings:\n"
-            "  port: not-a-number\n"
-        )
+        cfg.write_text(_VALID_CONFIG + "general_settings:\n  port: not-a-number\n")
         warnings = _validate_config(str(cfg))
         assert any("port" in w and "int" in w for w in warnings)
 
@@ -327,13 +341,11 @@ class TestConfigValidation:
     def test_multiple_warnings_accumulated(self, tmp_path):
         cfg = tmp_path / "config.yaml"
         cfg.write_text(
-            "model_list:\n"
-            "  - litellm_params: {}\n"
-            "guardrails:\n"
-            "  - litellm_params: {}\n"
+            "model_list:\n  - litellm_params: {}\nguardrails:\n  - litellm_params: {}\n"
         )
         warnings = _validate_config(str(cfg))
         assert len(warnings) >= 2
+
 
 # ---------------------------------------------------------------------------
 # _warn_observe_mode() (P2 Fix #9)
@@ -359,7 +371,6 @@ class TestObserveModeWarning:
         assert "observe" not in captured.err.lower()
 
 
-
 # ---------------------------------------------------------------------------
 # Circuit breaker health endpoint
 # ---------------------------------------------------------------------------
@@ -378,7 +389,7 @@ class TestCircuitHealthEndpoint:
         from airlock.health import get_circuit_health
 
         store = StateStore()
-        model_a = store.get_model("gpt-4o")
+        store.get_model("gpt-4o")
         model_b = store.get_model("claude-sonnet")
         # model_a stays closed (default)
         # model_b is open
@@ -429,7 +440,13 @@ class TestCircuitHealthEndpoint:
 
 class TestConfigValidationExtra:
     def test_shipped_template_is_valid(self):
-        template = Path(__file__).resolve().parent.parent / "airlock" / "cli" / "templates" / "config.yaml"
+        template = (
+            Path(__file__).resolve().parent.parent
+            / "airlock"
+            / "cli"
+            / "templates"
+            / "config.yaml"
+        )
         if template.exists():
             warnings = _validate_config(str(template))
             assert warnings == [], f"Template config has warnings: {warnings}"

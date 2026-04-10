@@ -255,15 +255,24 @@ class AirlockSemanticGuard(CustomGuardrail):
                 logger.warning(
                     "classifier_result name=%s label=%s score=%.4f "
                     "threshold=%.2f blocked=%s error=%s duration_ms=%.1f",
-                    r.name, r.label, r.score, r.threshold,
-                    r.blocked, r.error, r.duration_ms,
+                    r.name,
+                    r.label,
+                    r.score,
+                    r.threshold,
+                    r.blocked,
+                    r.error,
+                    r.duration_ms,
                 )
             else:
                 logger.info(
                     "classifier_result name=%s label=%s score=%.4f "
                     "threshold=%.2f blocked=%s duration_ms=%.1f",
-                    r.name, r.label, r.score, r.threshold,
-                    r.blocked, r.duration_ms,
+                    r.name,
+                    r.label,
+                    r.score,
+                    r.threshold,
+                    r.blocked,
+                    r.duration_ms,
                 )
 
         if verdict.blocked:

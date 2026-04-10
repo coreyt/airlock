@@ -14,7 +14,6 @@ pytestmark = pytest.mark.harness
 
 
 class TestCircuitBreakerStates:
-
     def test_initial_state_closed(self, fresh_state_store):
         from airlock.fast.state import CircuitState
 
@@ -60,7 +59,6 @@ class TestCircuitBreakerStates:
 
 
 class TestFailover:
-
     def test_failover_first_healthy(self, fresh_state_store, monkeypatch):
         from airlock.fast.circuit_breaker import check_model
 

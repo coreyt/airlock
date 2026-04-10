@@ -29,19 +29,20 @@ from .state import ClientState, WINDOW_SECONDS
 @dataclass
 class PrioritySignal:
     """Result of priority evaluation for a single request."""
-    score: float            # 0.0 (lowest) → 1.0 (highest)
-    boost: bool             # whether this client gets a speed burst
-    reasons: list[str]      # human-readable explanation
+
+    score: float  # 0.0 (lowest) → 1.0 (highest)
+    boost: bool  # whether this client gets a speed burst
+    reasons: list[str]  # human-readable explanation
 
 
 # ---------------------------------------------------------------------------
 # Tuning constants
 # ---------------------------------------------------------------------------
-INTERACTIVE_GAP_MAX_S = 60.0        # requests ≤60 s apart = interactive
-INTERACTIVE_MIN_REQUESTS = 3        # need ≥3 in window to judge cadence
-ERROR_RATE_BOOST_THRESHOLD = 0.3    # >30 % errors → recovery signal
-LATENCY_SPIKE_FACTOR = 2.0         # 2× above baseline → spike
-BOOST_THRESHOLD = 0.6              # composite score ≥ this → boost
+INTERACTIVE_GAP_MAX_S = 60.0  # requests ≤60 s apart = interactive
+INTERACTIVE_MIN_REQUESTS = 3  # need ≥3 in window to judge cadence
+ERROR_RATE_BOOST_THRESHOLD = 0.3  # >30 % errors → recovery signal
+LATENCY_SPIKE_FACTOR = 2.0  # 2× above baseline → spike
+BOOST_THRESHOLD = 0.6  # composite score ≥ this → boost
 
 
 def compute_priority(client: ClientState) -> PrioritySignal:
@@ -54,8 +55,7 @@ def compute_priority(client: ClientState) -> PrioritySignal:
     recent_times = [t for t in client.request_times if t > now - WINDOW_SECONDS]
     if len(recent_times) >= INTERACTIVE_MIN_REQUESTS:
         gaps = [
-            recent_times[i] - recent_times[i - 1]
-            for i in range(1, len(recent_times))
+            recent_times[i] - recent_times[i - 1] for i in range(1, len(recent_times))
         ]
         avg_gap = sum(gaps) / len(gaps) if gaps else float("inf")
         if avg_gap <= INTERACTIVE_GAP_MAX_S:
@@ -85,9 +85,7 @@ def compute_priority(client: ClientState) -> PrioritySignal:
     request_count = client.recent_request_count()
     if request_count > 5 and error_rate > 0.5:
         score += 0.15
-        reasons.append(
-            f"starvation(requests={request_count},errors={error_rate:.0%})"
-        )
+        reasons.append(f"starvation(requests={request_count},errors={error_rate:.0%})")
 
     score = min(1.0, score)
     return PrioritySignal(

@@ -38,7 +38,10 @@ class TestExtractTextFromMessages:
                 "role": "user",
                 "content": [
                     {"type": "text", "text": "Describe this"},
-                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/png;base64,abc"},
+                    },
                 ],
             }
         ]

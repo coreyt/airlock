@@ -11,12 +11,11 @@ import importlib
 import json
 import os
 import ssl
-import sys
 import threading
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
@@ -74,7 +73,9 @@ def _register(
     """Decorator to register a check function."""
 
     def decorator(fn: Callable) -> Callable:
-        _CHECKS.append(_CheckEntry(name=name, label=label, group=group, fn=fn, skip_flag=skip_flag))
+        _CHECKS.append(
+            _CheckEntry(name=name, label=label, group=group, fn=fn, skip_flag=skip_flag)
+        )
         return fn
 
     return decorator
@@ -307,15 +308,21 @@ def _check_provider_http(
 
     if not _has_provider(config, provider):
         return CheckResult(
-            name=name, status=CheckStatus.SKIP, label=label,
-            detail=f"no {label} models configured", group="Providers",
+            name=name,
+            status=CheckStatus.SKIP,
+            label=label,
+            detail=f"no {label} models configured",
+            group="Providers",
         )
 
     api_key = _get_api_key_for_provider(config, provider)
     if not api_key:
         return CheckResult(
-            name=name, status=CheckStatus.SKIP, label=label,
-            detail="API key not set", group="Providers",
+            name=name,
+            status=CheckStatus.SKIP,
+            label=label,
+            detail="API key not set",
+            group="Providers",
         )
 
     t0 = time.monotonic()
@@ -325,42 +332,57 @@ def _check_provider_http(
         urllib.request.urlopen(req, timeout=15, context=ctx)  # noqa: S310
         elapsed = (time.monotonic() - t0) * 1000
         return CheckResult(
-            name=name, status=CheckStatus.PASS, label=label,
+            name=name,
+            status=CheckStatus.PASS,
+            label=label,
             detail=f"authenticated ({elapsed:.0f}ms)",
-            duration_ms=elapsed, group="Providers",
+            duration_ms=elapsed,
+            group="Providers",
         )
     except urllib.error.HTTPError as exc:
         elapsed = (time.monotonic() - t0) * 1000
         return CheckResult(
-            name=name, status=CheckStatus.FAIL, label=label,
+            name=name,
+            status=CheckStatus.FAIL,
+            label=label,
             detail=f"{exc.code} {exc.reason}",
-            duration_ms=elapsed, group="Providers",
+            duration_ms=elapsed,
+            group="Providers",
         )
     except (urllib.error.URLError, OSError) as exc:
         elapsed = (time.monotonic() - t0) * 1000
         reason = str(getattr(exc, "reason", exc))
         return CheckResult(
-            name=name, status=CheckStatus.WARN, label=label,
+            name=name,
+            status=CheckStatus.WARN,
+            label=label,
             detail=f"connection error: {reason}",
-            duration_ms=elapsed, group="Providers",
+            duration_ms=elapsed,
+            group="Providers",
         )
 
 
 def _bearer_get(url: str) -> Callable[[str], urllib.request.Request]:
     """Build a GET request factory with Bearer auth."""
+
     def _build(api_key: str) -> urllib.request.Request:
-        return urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"})
+        return urllib.request.Request(
+            url, headers={"Authorization": f"Bearer {api_key}"}
+        )
+
     return _build
 
 
 @_register("provider_anthropic", "Anthropic API", "Providers", skip_flag="skip_llm")
 def check_provider_anthropic(config: dict, verbose: bool) -> CheckResult:
     def _build(api_key: str) -> urllib.request.Request:
-        payload = json.dumps({
-            "model": "claude-haiku-4-5-20251001",
-            "max_tokens": 1,
-            "messages": [{"role": "user", "content": "hi"}],
-        }).encode()
+        payload = json.dumps(
+            {
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 1,
+                "messages": [{"role": "user", "content": "hi"}],
+            }
+        ).encode()
         return urllib.request.Request(
             "https://api.anthropic.com/v1/messages",
             data=payload,
@@ -370,13 +392,16 @@ def check_provider_anthropic(config: dict, verbose: bool) -> CheckResult:
                 "anthropic-version": "2023-06-01",
             },
         )
+
     return _check_provider_http(config, "anthropic", "Anthropic API", _build)
 
 
 @_register("provider_openai", "OpenAI API", "Providers", skip_flag="skip_llm")
 def check_provider_openai(config: dict, verbose: bool) -> CheckResult:
     return _check_provider_http(
-        config, "openai", "OpenAI API",
+        config,
+        "openai",
+        "OpenAI API",
         _bearer_get("https://api.openai.com/v1/models"),
     )
 
@@ -384,7 +409,9 @@ def check_provider_openai(config: dict, verbose: bool) -> CheckResult:
 @_register("provider_mistral", "Mistral AI API", "Providers", skip_flag="skip_llm")
 def check_provider_mistral(config: dict, verbose: bool) -> CheckResult:
     return _check_provider_http(
-        config, "mistral", "Mistral AI API",
+        config,
+        "mistral",
+        "Mistral AI API",
         _bearer_get("https://api.mistral.ai/v1/models"),
     )
 
@@ -392,10 +419,12 @@ def check_provider_mistral(config: dict, verbose: bool) -> CheckResult:
 @_register("provider_gemini", "Google Gemini API", "Providers", skip_flag="skip_llm")
 def check_provider_gemini(config: dict, verbose: bool) -> CheckResult:
     def _build(api_key: str) -> urllib.request.Request:
-        payload = json.dumps({
-            "contents": [{"parts": [{"text": "hi"}]}],
-            "generationConfig": {"maxOutputTokens": 1},
-        }).encode()
+        payload = json.dumps(
+            {
+                "contents": [{"parts": [{"text": "hi"}]}],
+                "generationConfig": {"maxOutputTokens": 1},
+            }
+        ).encode()
         return urllib.request.Request(
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
             data=payload,
@@ -404,13 +433,16 @@ def check_provider_gemini(config: dict, verbose: bool) -> CheckResult:
                 "x-goog-api-key": api_key,
             },
         )
+
     return _check_provider_http(config, "gemini", "Google Gemini API", _build)
 
 
 @_register("provider_perplexity", "Perplexity API", "Providers", skip_flag="skip_llm")
 def check_provider_perplexity(config: dict, verbose: bool) -> CheckResult:
     return _check_provider_http(
-        config, "perplexity", "Perplexity API",
+        config,
+        "perplexity",
+        "Perplexity API",
         _bearer_get("https://api.perplexity.ai/v1/models"),
     )
 
@@ -428,6 +460,7 @@ def check_provider_tavily(config: dict, verbose: bool) -> CheckResult:
                 "Authorization": f"Bearer {api_key}",
             },
         )
+
     return _check_provider_http(config, "tavily", "Tavily API", _build)
 
 
@@ -437,21 +470,27 @@ def check_provider_newscatcher(config: dict, verbose: bool) -> CheckResult:
     api_key = os.environ.get("NEWS_CATCHER_API_KEY")
     if not api_key:
         return CheckResult(
-            name="provider_newscatcher", status=CheckStatus.SKIP,
-            label="NewsCatcher API", detail="NEWS_CATCHER_API_KEY not set",
+            name="provider_newscatcher",
+            status=CheckStatus.SKIP,
+            label="NewsCatcher API",
+            detail="NEWS_CATCHER_API_KEY not set",
             group="Providers",
         )
     try:
         import newscatcher_catchall  # noqa: F401
     except ImportError:
         return CheckResult(
-            name="provider_newscatcher", status=CheckStatus.FAIL,
-            label="NewsCatcher API", detail="newscatcher-catchall-sdk not installed",
+            name="provider_newscatcher",
+            status=CheckStatus.FAIL,
+            label="NewsCatcher API",
+            detail="newscatcher-catchall-sdk not installed",
             group="Providers",
         )
     return CheckResult(
-        name="provider_newscatcher", status=CheckStatus.PASS,
-        label="NewsCatcher API", detail="API key set, SDK available",
+        name="provider_newscatcher",
+        status=CheckStatus.PASS,
+        label="NewsCatcher API",
+        detail="API key set, SDK available",
         group="Providers",
     )
 
@@ -643,7 +682,9 @@ def check_keywords(config: dict, verbose: bool) -> CheckResult:
     )
 
 
-@_register("guardrail_modules", "Guardrail modules", "Guardrails", skip_flag="skip_guardrails")
+@_register(
+    "guardrail_modules", "Guardrail modules", "Guardrails", skip_flag="skip_guardrails"
+)
 def check_guardrail_modules(config: dict, verbose: bool) -> CheckResult:
     guardrails = config.get("guardrails", [])
     if not guardrails:
@@ -745,7 +786,11 @@ def check_mcp_server_health(config: dict, verbose: bool) -> CheckResult:
     healthy: list[str] = []
     unhealthy: list[str] = []
     for name, srv in mcp_servers.items():
-        managed = srv.get("airlock_managed") if isinstance(srv.get("airlock_managed"), dict) else None
+        managed = (
+            srv.get("airlock_managed")
+            if isinstance(srv.get("airlock_managed"), dict)
+            else None
+        )
         url = _resolve_health_url(srv, managed)
 
         if url:
@@ -782,7 +827,9 @@ def check_mcp_server_health(config: dict, verbose: bool) -> CheckResult:
     )
 
 
-@_register("mcp_managed_config", "MCP managed server config", "MCP", skip_flag="skip_mcp")
+@_register(
+    "mcp_managed_config", "MCP managed server config", "MCP", skip_flag="skip_mcp"
+)
 def check_mcp_managed_config(config: dict, verbose: bool) -> CheckResult:
     mcp_servers = config.get("mcp_servers")
     if not mcp_servers or not isinstance(mcp_servers, dict):
@@ -796,7 +843,11 @@ def check_mcp_managed_config(config: dict, verbose: bool) -> CheckResult:
 
     import shutil
 
-    managed = {n: s for n, s in mcp_servers.items() if isinstance(s.get("airlock_managed"), dict)}
+    managed = {
+        n: s
+        for n, s in mcp_servers.items()
+        if isinstance(s.get("airlock_managed"), dict)
+    }
     if not managed:
         return CheckResult(
             name="mcp_managed_config",
@@ -837,7 +888,9 @@ def check_mcp_managed_config(config: dict, verbose: bool) -> CheckResult:
     )
 
 
-@_register("mcp_guardrail_hooks", "MCP guardrail hooks", "MCP", skip_flag="skip_guardrails")
+@_register(
+    "mcp_guardrail_hooks", "MCP guardrail hooks", "MCP", skip_flag="skip_guardrails"
+)
 def check_mcp_guardrail_hooks(config: dict, verbose: bool) -> CheckResult:
     guardrails = config.get("guardrails", [])
     if not guardrails:
@@ -981,7 +1034,7 @@ _COLORS = {
     CheckStatus.PASS: "\033[32m",  # green
     CheckStatus.FAIL: "\033[31m",  # red
     CheckStatus.WARN: "\033[33m",  # yellow
-    CheckStatus.SKIP: "\033[2m",   # dim
+    CheckStatus.SKIP: "\033[2m",  # dim
 }
 _RESET = "\033[0m"
 
@@ -1029,7 +1082,11 @@ def render_text(results: list[CheckResult], *, use_color: bool = True) -> str:
 
     overall = "PASS" if counts[CheckStatus.FAIL] == 0 else "FAIL"
     if use_color:
-        color = _COLORS[CheckStatus.PASS] if overall == "PASS" else _COLORS[CheckStatus.FAIL]
+        color = (
+            _COLORS[CheckStatus.PASS]
+            if overall == "PASS"
+            else _COLORS[CheckStatus.FAIL]
+        )
         lines.append(f"  Status:  {color}{overall}{_RESET}")
     else:
         lines.append(f"  Status:  {overall}")

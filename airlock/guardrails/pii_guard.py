@@ -135,13 +135,21 @@ def _scrub_messages(
     for msg in messages:
         content = msg.get("content")
         if isinstance(content, str):
-            msg = {**msg, "content": _scrub_text_with_mapping(content, mapping, counters)}
+            msg = {
+                **msg,
+                "content": _scrub_text_with_mapping(content, mapping, counters),
+            }
         elif isinstance(content, list):
             new_parts = []
             for part in content:
                 if isinstance(part, dict) and part.get("type") == "text":
                     new_parts.append(
-                        {**part, "text": _scrub_text_with_mapping(part.get("text", ""), mapping, counters)}
+                        {
+                            **part,
+                            "text": _scrub_text_with_mapping(
+                                part.get("text", ""), mapping, counters
+                            ),
+                        }
                     )
                 else:
                     new_parts.append(part)
@@ -285,7 +293,9 @@ def _hydrate_tool_calls(response: Any, mapping: dict[str, str]) -> int:
 
 
 def _hydrate_value_recursive(
-    value: Any, mapping: dict[str, str], _depth: int = 0,
+    value: Any,
+    mapping: dict[str, str],
+    _depth: int = 0,
 ) -> tuple[Any, int]:
     """Replace known placeholders in a JSON-decoded value. Returns (value, count)."""
     if _depth >= 20:

@@ -11,7 +11,6 @@ pytestmark = pytest.mark.harness
 
 
 class TestTavilyMock:
-
     def test_extract_query(self):
         from airlock.providers.tavily_provider import _extract_query
 
@@ -49,7 +48,6 @@ class TestTavilyMock:
 
 
 class TestTavilyLive:
-
     @pytest.mark.live
     async def test_tavily_live_search(self, http_client):
         resp = await http_client.post(
@@ -78,7 +76,6 @@ class TestTavilyLive:
 
 
 class TestPerplexityLive:
-
     @pytest.mark.live
     async def test_perplexity_live_search(self, http_client):
         resp = await http_client.post(
@@ -107,7 +104,6 @@ class TestPerplexityLive:
 
 
 class TestNewsCatcherMock:
-
     def test_extract_snippet_with_enrichment(self):
         from airlock.mcp_servers.newscatcher_server import _extract_snippet
 
@@ -144,7 +140,6 @@ class TestNewsCatcherMock:
 
 
 class TestNewsCatcherLive:
-
     @pytest.mark.live
     async def test_newscatcher_mcp_search(self, http_client):
         resp = await http_client.post(

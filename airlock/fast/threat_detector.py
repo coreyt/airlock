@@ -31,25 +31,26 @@ logger = logging.getLogger("airlock.fast.threat")
 @dataclass
 class ThreatAssessment:
     """Result of threat evaluation for a single request."""
-    threat_score: float         # 0.0 (safe) → 1.0 (definite threat)
-    blocked: bool               # whether to reject the request
-    backoff_seconds: float      # how long client must wait (0 if not blocked)
-    reasons: list[str]          # what triggered the score
+
+    threat_score: float  # 0.0 (safe) → 1.0 (definite threat)
+    blocked: bool  # whether to reject the request
+    backoff_seconds: float  # how long client must wait (0 if not blocked)
+    reasons: list[str]  # what triggered the score
 
 
 # ---------------------------------------------------------------------------
 # Tuning constants
 # ---------------------------------------------------------------------------
-VOLUME_SPIKE_MULTIPLIER = 5.0       # 5× baseline rate triggers spike
-RAPID_FIRE_MIN_GAP_S = 0.1         # <100 ms between requests
-RAPID_FIRE_COUNT = 10               # need 10+ rapid-fire requests
-LARGE_PAYLOAD_CHARS = 100_000       # >100 k chars is suspicious
-ERROR_PROBE_RATE = 0.8              # >80 % errors = probing
-ERROR_PROBE_MIN_REQUESTS = 10       # need enough samples
-THREAT_BLOCK_THRESHOLD = 0.7        # above this → block
-MAX_BACKOFF_S = 3600.0              # cap at 1 hour
-BASE_BACKOFF_S = 2.0                # starting back-off
-DECAY_FACTOR = 0.977                # per-second decay; score halves in ~30 s
+VOLUME_SPIKE_MULTIPLIER = 5.0  # 5× baseline rate triggers spike
+RAPID_FIRE_MIN_GAP_S = 0.1  # <100 ms between requests
+RAPID_FIRE_COUNT = 10  # need 10+ rapid-fire requests
+LARGE_PAYLOAD_CHARS = 100_000  # >100 k chars is suspicious
+ERROR_PROBE_RATE = 0.8  # >80 % errors = probing
+ERROR_PROBE_MIN_REQUESTS = 10  # need enough samples
+THREAT_BLOCK_THRESHOLD = 0.7  # above this → block
+MAX_BACKOFF_S = 3600.0  # cap at 1 hour
+BASE_BACKOFF_S = 2.0  # starting back-off
+DECAY_FACTOR = 0.977  # per-second decay; score halves in ~30 s
 
 
 def assess_threat(
@@ -82,13 +83,10 @@ def assess_threat(
             reasons.append(f"volume_spike({spike:.1f}x)")
 
     # ----- Heuristic 2: Rapid-fire -----
-    recent_times = sorted(
-        t for t in client.request_times if t > now - short_window
-    )
+    recent_times = sorted(t for t in client.request_times if t > now - short_window)
     if len(recent_times) >= RAPID_FIRE_COUNT:
         gaps = [
-            recent_times[i] - recent_times[i - 1]
-            for i in range(1, len(recent_times))
+            recent_times[i] - recent_times[i - 1] for i in range(1, len(recent_times))
         ]
         rapid_count = sum(1 for g in gaps if g < RAPID_FIRE_MIN_GAP_S)
         if rapid_count >= RAPID_FIRE_COUNT - 1:
@@ -107,14 +105,9 @@ def assess_threat(
     # ----- Heuristic 4: Error probing -----
     error_rate = client.recent_error_rate(window_seconds=60.0)
     recent_requests = client.recent_request_count(window_seconds=60.0)
-    if (
-        recent_requests >= ERROR_PROBE_MIN_REQUESTS
-        and error_rate >= ERROR_PROBE_RATE
-    ):
+    if recent_requests >= ERROR_PROBE_MIN_REQUESTS and error_rate >= ERROR_PROBE_RATE:
         score += 0.3
-        reasons.append(
-            f"error_probing(rate={error_rate:.0%},n={recent_requests})"
-        )
+        reasons.append(f"error_probing(rate={error_rate:.0%},n={recent_requests})")
 
     # Blend with accumulated score, decayed proportionally to elapsed time.
     # 0.977 per second: score halves in ~30 seconds.
@@ -126,7 +119,7 @@ def assess_threat(
     else:
         elapsed = 1.0
     elapsed = max(elapsed, 0.01)  # guard against zero/negative
-    decay_factor = DECAY_FACTOR ** elapsed
+    decay_factor = DECAY_FACTOR**elapsed
     combined = max(score, client.threat_score * decay_factor)
     client.threat_score = combined
 
@@ -136,7 +129,7 @@ def assess_threat(
 
     if blocked:
         exponent = min(10, int(combined * 10))
-        backoff_seconds = min(MAX_BACKOFF_S, BASE_BACKOFF_S * (2 ** exponent))
+        backoff_seconds = min(MAX_BACKOFF_S, BASE_BACKOFF_S * (2**exponent))
         client.backoff_until = now + backoff_seconds
         logger.warning(
             "threat_blocked client=%s score=%.2f backoff=%.0fs reasons=%s",

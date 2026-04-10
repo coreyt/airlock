@@ -25,7 +25,10 @@ def _base_schema() -> dict:
                                         "messages": {"type": "array"},
                                         "metadata": {
                                             "anyOf": [
-                                                {"type": "object", "additionalProperties": True},
+                                                {
+                                                    "type": "object",
+                                                    "additionalProperties": True,
+                                                },
                                                 {"type": "null"},
                                             ],
                                             "default": None,
@@ -35,7 +38,12 @@ def _base_schema() -> dict:
                             }
                         }
                     },
-                    "responses": {"200": {"description": "ok", "content": {"application/json": {"schema": {}}}}},
+                    "responses": {
+                        "200": {
+                            "description": "ok",
+                            "content": {"application/json": {"schema": {}}},
+                        }
+                    },
                 }
             },
             "/health": {
@@ -60,7 +68,9 @@ def test_enrich_openapi_schema_adds_airlock_extensions() -> None:
     assert "headers" in op["responses"]["200"]
     assert "X-Airlock-Model-Override" in op["responses"]["200"]["headers"]
 
-    body_props = op["requestBody"]["content"]["application/json"]["schema"]["properties"]
+    body_props = op["requestBody"]["content"]["application/json"]["schema"][
+        "properties"
+    ]
     assert "reasoning_effort" in body_props
     assert "thinking" in body_props
     assert body_props["metadata"]["example"]["airlock"]["gemini"]["mode"] == "balanced"
@@ -92,4 +102,6 @@ def test_install_airlock_docs_adds_route_and_enriched_openapi() -> None:
 
     schema = client.get("/openapi.json").json()
     assert AIRLOCK_DOCS_PATH in schema["paths"]
-    assert {"$ref": "#/components/parameters/XAirlockClient"} in schema["paths"]["/v1/chat/completions"]["post"]["parameters"]
+    assert {"$ref": "#/components/parameters/XAirlockClient"} in schema["paths"][
+        "/v1/chat/completions"
+    ]["post"]["parameters"]

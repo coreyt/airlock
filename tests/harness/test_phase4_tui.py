@@ -18,7 +18,6 @@ def app():
 
 
 class TestTUIBasic:
-
     def test_app_instantiates(self, app):
         assert app is not None
 
@@ -26,7 +25,7 @@ class TestTUIBasic:
         from airlock.tui.app import AirlockApp
 
         app = AirlockApp()
-        async with app.run_test(size=(120, 40)) as pilot:
+        async with app.run_test(size=(120, 40)) as _pilot:
             workspace = app.query_one("#workspace")
             assert workspace.current == "overview"
 
@@ -34,7 +33,7 @@ class TestTUIBasic:
         from airlock.tui.app import AirlockApp
 
         app = AirlockApp()
-        async with app.run_test(size=(120, 40)) as pilot:
+        async with app.run_test(size=(120, 40)) as _pilot:
             overview = app.query_one("#overview")
             assert overview is not None
 
@@ -76,7 +75,6 @@ class TestTUIBasic:
 
 
 class TestTUINavigation:
-
     async def test_navigation_by_number_keys(self):
         from airlock.tui.app import AirlockApp
 

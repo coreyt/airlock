@@ -34,7 +34,9 @@ from .enterprise_logger import _serialize
 def _get_table() -> Any:
     """Define the airlock_logs table schema."""
     if not _SA_AVAILABLE:
-        raise ImportError("sqlalchemy is required for SQL logging: pip install airlock[sql]")
+        raise ImportError(
+            "sqlalchemy is required for SQL logging: pip install airlock[sql]"
+        )
 
     metadata = sa.MetaData()
     table = sa.Table(
@@ -72,7 +74,9 @@ class AirlockSQLLogger(CustomLogger):
         if self._initialized:
             return
         if not _SA_AVAILABLE:
-            raise ImportError("sqlalchemy is required for SQL logging: pip install airlock[sql]")
+            raise ImportError(
+                "sqlalchemy is required for SQL logging: pip install airlock[sql]"
+            )
         if not self._url:
             logger.warning("AIRLOCK_SQL_URL not set, SQL logging disabled")
             self._initialized = True
@@ -106,11 +110,14 @@ class AirlockSQLLogger(CustomLogger):
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "success": success,
             "model": kwargs.get("model", "unknown"),
-            "user": lp_metadata.get("user_api_key_alias") or lp_metadata.get("user_api_key_user_id"),
+            "user": lp_metadata.get("user_api_key_alias")
+            or lp_metadata.get("user_api_key_user_id"),
             "team": lp_metadata.get("user_api_key_team_alias"),
             "request_id": kwargs.get("litellm_call_id"),
             "messages": json.dumps(kwargs.get("messages"), default=_serialize),
-            "response": json.dumps(_serialize(response_obj), default=_serialize) if response_obj else None,
+            "response": json.dumps(_serialize(response_obj), default=_serialize)
+            if response_obj
+            else None,
             "error": str(kwargs.get("exception")) if not success else None,
             "duration_ms": (
                 int((end_time - start_time).total_seconds() * 1000)
@@ -135,24 +142,42 @@ class AirlockSQLLogger(CustomLogger):
     # ------------------------------------------------------------------
     # Success
     # ------------------------------------------------------------------
-    def log_success_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
-        record = self._build_record(kwargs, response_obj, start_time, end_time, success=True)
+    def log_success_event(
+        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
+        record = self._build_record(
+            kwargs, response_obj, start_time, end_time, success=True
+        )
         self._insert(record)
 
-    async def async_log_success_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
+    async def async_log_success_event(
+        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
         import asyncio
-        await asyncio.to_thread(self.log_success_event, kwargs, response_obj, start_time, end_time)
+
+        await asyncio.to_thread(
+            self.log_success_event, kwargs, response_obj, start_time, end_time
+        )
 
     # ------------------------------------------------------------------
     # Failure
     # ------------------------------------------------------------------
-    def log_failure_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
-        record = self._build_record(kwargs, response_obj, start_time, end_time, success=False)
+    def log_failure_event(
+        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
+        record = self._build_record(
+            kwargs, response_obj, start_time, end_time, success=False
+        )
         self._insert(record)
 
-    async def async_log_failure_event(self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any) -> None:
+    async def async_log_failure_event(
+        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
         import asyncio
-        await asyncio.to_thread(self.log_failure_event, kwargs, response_obj, start_time, end_time)
+
+        await asyncio.to_thread(
+            self.log_failure_event, kwargs, response_obj, start_time, end_time
+        )
 
 
 # Module-level instance for LiteLLM config.yaml callback registration.

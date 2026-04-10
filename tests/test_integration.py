@@ -9,18 +9,17 @@ from __future__ import annotations
 import datetime
 import json
 import time
-from unittest.mock import MagicMock, patch
 
 import pytest
 
-from airlock.callbacks.enterprise_logger import AirlockLogger, _write_log
+from airlock.callbacks.enterprise_logger import AirlockLogger
 from airlock.fast.guardian import AirlockFastGuardian
 from airlock.fast.monitor import AirlockFastMonitor
 from airlock.fast.state import CircuitState
 from airlock.guardrails.enforcer import AirlockEnforcer
 from airlock.guardrails.keyword_guard import AirlockKeywordGuard
 from airlock.guardrails.observer import AirlockObserver
-from airlock.guardrails.orchestrator import AirlockOrchestrator, _invalidate_knobs_cache
+from airlock.guardrails.orchestrator import _invalidate_knobs_cache
 from airlock.guardrails.pii_guard import AirlockPIIGuard
 from airlock.guardrails.schemas import GuardrailKnobs
 from airlock.slow.tuner import write_knobs
@@ -63,7 +62,10 @@ class TestGuardrailChain:
         pii_text = "john.doe@example.com"
         data = {
             "messages": [
-                {"role": "user", "content": f"Contact me at {pii_text}. Tell me about allowed topics."}
+                {
+                    "role": "user",
+                    "content": f"Contact me at {pii_text}. Tell me about allowed topics.",
+                }
             ],
             "model": "claude-sonnet",
         }
@@ -133,7 +135,10 @@ class TestGuardrailChain:
 
         data = {
             "messages": [
-                {"role": "user", "content": "This is forbidden. Contact alice@corp.com."}
+                {
+                    "role": "user",
+                    "content": "This is forbidden. Contact alice@corp.com.",
+                }
             ],
             "model": "claude-sonnet",
         }
@@ -199,7 +204,11 @@ class TestLoggerReceivesScrubbed:
 # ---------------------------------------------------------------------------
 class TestFailoverInLogs:
     async def test_unpinned_override_metadata_in_log(
-        self, fresh_state_store, log_dir, mock_cache, mock_user_api_key_dict,
+        self,
+        fresh_state_store,
+        log_dir,
+        mock_cache,
+        mock_user_api_key_dict,
         mock_response_obj,
     ):
         """When an unpinned request reroutes, the override metadata is logged."""
@@ -252,9 +261,7 @@ class TestMonitorFeedbackLoop:
         end = datetime.datetime(2024, 1, 15, 10, 0, 1)
         kwargs = {
             "model": "claude-sonnet",
-            "litellm_params": {
-                "metadata": {"user_api_key_alias": "test-user"}
-            },
+            "litellm_params": {"metadata": {"user_api_key_alias": "test-user"}},
             "exception": Exception("timeout"),
         }
 
@@ -272,7 +279,10 @@ class TestMonitorFeedbackLoop:
 # ---------------------------------------------------------------------------
 class TestFullPipeline:
     async def test_success_pipeline_data_shape(
-        self, fresh_state_store, mock_cache, mock_user_api_key_dict,
+        self,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
     ):
         """All guardrails pass → data has expected shape."""
         keyword_guard = AirlockKeywordGuard()
@@ -325,7 +335,10 @@ class TestFullPipeline:
 # ---------------------------------------------------------------------------
 class TestObserverIntegration:
     async def test_observer_after_precall_chain(
-        self, fresh_state_store, mock_cache, mock_user_api_key_dict,
+        self,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
     ):
         """Observer runs alongside the full pre_call chain without conflict."""
         keyword_guard = AirlockKeywordGuard()
@@ -354,7 +367,11 @@ class TestObserverIntegration:
         assert len(obs["signals"]) == 3
 
     async def test_observation_appears_in_jsonl(
-        self, fresh_state_store, log_dir, mock_cache, mock_user_api_key_dict,
+        self,
+        fresh_state_store,
+        log_dir,
+        mock_cache,
+        mock_user_api_key_dict,
         mock_response_obj,
     ):
         """Observer observation flows through to enterprise logger JSONL."""
@@ -400,7 +417,11 @@ class TestEnforcerIntegration:
         return tmp_path
 
     async def test_enforcer_observe_in_chain(
-        self, fresh_state_store, mock_cache, mock_user_api_key_dict, knobs_dir,
+        self,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
+        knobs_dir,
     ):
         """Enforcer in observe mode passes through without evaluation."""
         keyword_guard = AirlockKeywordGuard()
@@ -426,7 +447,11 @@ class TestEnforcerIntegration:
         assert "airlock_enforcement" not in data.get("metadata", {})
 
     async def test_enforcer_shadow_in_chain(
-        self, monkeypatch, fresh_state_store, mock_cache, mock_user_api_key_dict,
+        self,
+        monkeypatch,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
         knobs_dir,
     ):
         """Enforcer in shadow mode evaluates but doesn't block."""
@@ -460,7 +485,11 @@ class TestEnforcerIntegration:
         assert data["metadata"]["airlock_enforcement"]["mode"] == "shadow"
 
     async def test_enforcer_enforce_blocks_in_chain(
-        self, monkeypatch, fresh_state_store, mock_cache, mock_user_api_key_dict,
+        self,
+        monkeypatch,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
         knobs_dir,
     ):
         """Enforcer in enforce mode blocks above threshold."""

@@ -4,17 +4,15 @@ from __future__ import annotations
 
 import collections
 import os
-import queue
 import subprocess
 import textwrap
-import time
 from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from airlock.fast.state import McpServerHealth, McpServerState, StateStore, store
+from airlock.fast.state import McpServerHealth, store
 from airlock.tui.mcp_manager import (
     McpServerEntry,
     McpServerManager,
@@ -74,6 +72,7 @@ def _clean_store():
 # Config helpers
 # ---------------------------------------------------------------------------
 
+
 class TestClassifyTransport:
     def test_sse(self):
         assert _classify_transport({"url": "http://localhost/sse"}) == "sse"
@@ -118,11 +117,17 @@ class TestResolveHealthUrl:
 # Config loading
 # ---------------------------------------------------------------------------
 
+
 class TestLoadConfig:
     def test_loads_all_servers(self, config_file: Path):
         mgr = McpServerManager()
         names = mgr.load_config(config_file)
-        assert sorted(names) == ["local-ado", "remote-http", "remote-sse", "stdio-search"]
+        assert sorted(names) == [
+            "local-ado",
+            "remote-http",
+            "remote-sse",
+            "stdio-search",
+        ]
 
     def test_classifies_transports(self, config_file: Path):
         mgr = McpServerManager()
@@ -175,6 +180,7 @@ class TestLoadConfig:
 # Health probing
 # ---------------------------------------------------------------------------
 
+
 class TestProbeServer:
     def testprobe_http_healthy(self, config_file: Path):
         mgr = McpServerManager()
@@ -213,8 +219,10 @@ class TestProbeServer:
     def test_probe_all_updates_state(self, config_file: Path):
         mgr = McpServerManager()
         mgr.load_config(config_file)
-        with patch("airlock.tui.mcp_manager.probe_http", return_value=(True, 10.0)), \
-             patch("shutil.which", return_value="/usr/bin/npx"):
+        with (
+            patch("airlock.tui.mcp_manager.probe_http", return_value=(True, 10.0)),
+            patch("shutil.which", return_value="/usr/bin/npx"),
+        ):
             results = mgr.probe_all()
         assert len(results) == 4
         srv = store.get_mcp_server("remote-sse")
@@ -224,6 +232,7 @@ class TestProbeServer:
 # ---------------------------------------------------------------------------
 # Lifecycle management
 # ---------------------------------------------------------------------------
+
 
 class TestLifecycle:
     def test_start_server_not_managed(self, config_file: Path):
@@ -348,6 +357,7 @@ class TestLifecycle:
 # Reader loop and ring buffer
 # ---------------------------------------------------------------------------
 
+
 class TestReaderLoop:
     def test_tees_to_ring_and_queue(self):
         entry = McpServerEntry(
@@ -409,6 +419,7 @@ class TestReaderLoop:
 # Crash detection
 # ---------------------------------------------------------------------------
 
+
 class TestCheckCrashes:
     def test_detects_crashed_process(self, config_file: Path):
         mgr = McpServerManager()
@@ -441,6 +452,7 @@ class TestCheckCrashes:
 # HTTP probe
 # ---------------------------------------------------------------------------
 
+
 class TestProbeHttp:
     def test_healthy(self):
         with patch("urllib.request.urlopen") as mock_open:
@@ -451,9 +463,14 @@ class TestProbeHttp:
 
     def test_server_error(self):
         import urllib.error
+
         with patch("urllib.request.urlopen") as mock_open:
             mock_open.side_effect = urllib.error.HTTPError(
-                "http://x", 500, "ISE", {}, None,
+                "http://x",
+                500,
+                "ISE",
+                {},
+                None,
             )
             healthy, _ = probe_http("http://localhost:3000")
         assert healthy is False
@@ -461,9 +478,14 @@ class TestProbeHttp:
     def test_client_error_still_healthy(self):
         """4xx means server is up but may need auth — consider healthy."""
         import urllib.error
+
         with patch("urllib.request.urlopen") as mock_open:
             mock_open.side_effect = urllib.error.HTTPError(
-                "http://x", 401, "Unauthorized", {}, None,
+                "http://x",
+                401,
+                "Unauthorized",
+                {},
+                None,
             )
             healthy, _ = probe_http("http://localhost:3000")
         assert healthy is True
@@ -478,6 +500,7 @@ class TestProbeHttp:
 # ---------------------------------------------------------------------------
 # Health loop
 # ---------------------------------------------------------------------------
+
 
 class TestHealthLoop:
     def test_start_stop(self):
@@ -500,12 +523,16 @@ class TestHealthLoop:
 # Properties
 # ---------------------------------------------------------------------------
 
+
 class TestProperties:
     def test_server_names(self, config_file: Path):
         mgr = McpServerManager()
         mgr.load_config(config_file)
         assert sorted(mgr.server_names) == [
-            "local-ado", "remote-http", "remote-sse", "stdio-search",
+            "local-ado",
+            "remote-http",
+            "remote-sse",
+            "stdio-search",
         ]
 
     def test_is_running_no_process(self):

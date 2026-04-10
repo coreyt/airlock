@@ -82,8 +82,6 @@ class AirlockEnforcer(CustomGuardrail):
             )
 
         if should_block and mode == "enforce":
-            raise ValueError(
-                "Request blocked by Airlock adaptive guardrails."
-            )
+            raise ValueError("Request blocked by Airlock adaptive guardrails.")
 
         return data

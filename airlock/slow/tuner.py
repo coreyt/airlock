@@ -24,8 +24,11 @@ from airlock.guardrails.schemas import GuardrailKnobs, default_knobs
 
 logger = logging.getLogger("airlock.slow.tuner")
 
+
 def _log_dir() -> Path:
     return Path(os.getenv("AIRLOCK_LOG_DIR", "./logs"))
+
+
 KNOBS_FILENAME = "airlock-knobs.json"
 
 
@@ -105,11 +108,7 @@ def _compute_detection_rates(
             if signal.get("detected"):
                 counts[name] += 1
 
-    return {
-        name: counts[name] / totals[name]
-        for name in totals
-        if totals[name] > 0
-    }
+    return {name: counts[name] / totals[name] for name in totals if totals[name] > 0}
 
 
 def _compute_outcome_correlations(
@@ -146,9 +145,7 @@ def _compute_outcome_correlations(
     for name, stats in signal_outcomes.items():
         if stats["detected_total"] > 0:
             # Proportion of detections that correspond to failures
-            correlations[name] = (
-                stats["detected_failed"] / stats["detected_total"]
-            )
+            correlations[name] = stats["detected_failed"] / stats["detected_total"]
         else:
             correlations[name] = 0.0
 
@@ -187,9 +184,7 @@ def _compute_weights(
     return defaults.weights
 
 
-def _compute_threshold(
-    observations: list[dict], weights: dict[str, float]
-) -> float:
+def _compute_threshold(observations: list[dict], weights: dict[str, float]) -> float:
     """Set threshold from observed composite score distribution.
 
     Defaults to 0.5 with few observations.  With enough data, uses the
@@ -210,9 +205,7 @@ def _compute_threshold(
     return round(max(0.3, min(0.9, p90)), 4)
 
 
-def _weighted_score(
-    signals: list[dict], weights: dict[str, float]
-) -> float:
+def _weighted_score(signals: list[dict], weights: dict[str, float]) -> float:
     """Compute weighted average score for a set of signals."""
     total_weight = 0.0
     weighted_sum = 0.0

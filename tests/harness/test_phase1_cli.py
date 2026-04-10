@@ -102,7 +102,13 @@ class TestAnalyze:
         main(["analyze", "--json"])
         output = capsys.readouterr().out
         data = json.loads(output)
-        for key in ["optimizations", "cache_opportunities", "trends", "semantic_insights", "hypotheses"]:
+        for key in [
+            "optimizations",
+            "cache_opportunities",
+            "trends",
+            "semantic_insights",
+            "hypotheses",
+        ]:
             assert key in data
 
     def test_with_days_flag(self, populated_log_dir, capsys, monkeypatch):

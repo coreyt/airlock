@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -191,7 +190,9 @@ class TestAirlockObserver:
         await observer.async_moderation_hook(data, mock_user_api_key_dict, "completion")
 
         obs = data["metadata"]["airlock_observation"]
-        pii_signal = next(s for s in obs["signals"] if s["guardrail_name"] == "pii_scan")
+        pii_signal = next(
+            s for s in obs["signals"] if s["guardrail_name"] == "pii_scan"
+        )
         assert pii_signal["detected"] is True
 
     async def test_detects_keywords_in_metadata(
@@ -205,7 +206,9 @@ class TestAirlockObserver:
         await observer.async_moderation_hook(data, mock_user_api_key_dict, "completion")
 
         obs = data["metadata"]["airlock_observation"]
-        kw_signal = next(s for s in obs["signals"] if s["guardrail_name"] == "keyword_scan")
+        kw_signal = next(
+            s for s in obs["signals"] if s["guardrail_name"] == "keyword_scan"
+        )
         assert kw_signal["detected"] is True
 
     async def test_never_raises(
@@ -233,7 +236,9 @@ class TestAirlockObserver:
         await observer.async_moderation_hook(data, mock_user_api_key_dict, "completion")
 
         obs = data["metadata"]["airlock_observation"]
-        threat_signal = next(s for s in obs["signals"] if s["guardrail_name"] == "threat_read")
+        threat_signal = next(
+            s for s in obs["signals"] if s["guardrail_name"] == "threat_read"
+        )
         assert threat_signal["score"] == 0.5
 
     async def test_handles_empty_messages(
@@ -244,7 +249,9 @@ class TestAirlockObserver:
 
         obs = data["metadata"]["airlock_observation"]
         assert len(obs["signals"]) == 3
-        pii_signal = next(s for s in obs["signals"] if s["guardrail_name"] == "pii_scan")
+        pii_signal = next(
+            s for s in obs["signals"] if s["guardrail_name"] == "pii_scan"
+        )
         assert pii_signal["detected"] is False
 
 

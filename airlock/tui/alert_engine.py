@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Literal
 
-from airlock.fast.state import McpServerHealth, StateStore, store as _store
+from airlock.fast.state import McpServerHealth, StateStore
 
 _log = logging.getLogger(__name__)
 
@@ -21,6 +21,7 @@ _log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class Alert:
@@ -51,25 +52,28 @@ class AlertRule:
 # Built-in rule condition functions
 # ---------------------------------------------------------------------------
 
+
 def _check_circuit_open(store: StateStore) -> list[Alert]:
     """Fire a critical alert for any model whose circuit breaker is open."""
     alerts: list[Alert] = []
     try:
         for name, ms in store.all_models().items():
             if ms.circuit.value == "open":
-                alerts.append(Alert(
-                    rule_name="circuit_open",
-                    severity="critical",
-                    title=f"{name} circuit OPEN ({ms.consecutive_failures} failures)",
-                    detail=(
-                        f"Model {name} has tripped its circuit breaker after "
-                        f"{ms.consecutive_failures} consecutive failures.  "
-                        f"Requests will failover until the recovery timeout elapses."
-                    ),
-                    entity_type="model",
-                    entity_id=name,
-                    timestamp=time.time(),
-                ))
+                alerts.append(
+                    Alert(
+                        rule_name="circuit_open",
+                        severity="critical",
+                        title=f"{name} circuit OPEN ({ms.consecutive_failures} failures)",
+                        detail=(
+                            f"Model {name} has tripped its circuit breaker after "
+                            f"{ms.consecutive_failures} consecutive failures.  "
+                            f"Requests will failover until the recovery timeout elapses."
+                        ),
+                        entity_type="model",
+                        entity_id=name,
+                        timestamp=time.time(),
+                    )
+                )
     except Exception:
         _log.debug("alert rule error", exc_info=True)
     return alerts
@@ -83,18 +87,20 @@ def _check_provider_quarantine(store: StateStore) -> list[Alert]:
         for name, ps in store.all_providers().items():
             if ps.quarantine_until and ps.quarantine_until > now:
                 remaining = ps.quarantine_until - now
-                alerts.append(Alert(
-                    rule_name="provider_quarantine",
-                    severity="critical",
-                    title=f"{name} quarantined ({remaining:.0f}s remaining)",
-                    detail=(
-                        f"Provider {name} is quarantined until "
-                        f"{remaining:.0f}s from now due to: {ps.last_reason or 'rate limiting'}."
-                    ),
-                    entity_type="provider",
-                    entity_id=name,
-                    timestamp=now,
-                ))
+                alerts.append(
+                    Alert(
+                        rule_name="provider_quarantine",
+                        severity="critical",
+                        title=f"{name} quarantined ({remaining:.0f}s remaining)",
+                        detail=(
+                            f"Provider {name} is quarantined until "
+                            f"{remaining:.0f}s from now due to: {ps.last_reason or 'rate limiting'}."
+                        ),
+                        entity_type="provider",
+                        entity_id=name,
+                        timestamp=now,
+                    )
+                )
     except Exception:
         _log.debug("alert rule error", exc_info=True)
     return alerts
@@ -106,19 +112,21 @@ def _check_client_threat(store: StateStore) -> list[Alert]:
     try:
         for cid, cs in store.all_clients().items():
             if cs.threat_score > 0.6:
-                alerts.append(Alert(
-                    rule_name="client_threat",
-                    severity="warning",
-                    title=f"{cid} threat score {cs.threat_score:.2f}",
-                    detail=(
-                        f"Client {cid} has a threat score of {cs.threat_score:.2f}, "
-                        f"which exceeds the 0.60 threshold.  Review recent request "
-                        f"patterns for anomalies."
-                    ),
-                    entity_type="client",
-                    entity_id=cid,
-                    timestamp=time.time(),
-                ))
+                alerts.append(
+                    Alert(
+                        rule_name="client_threat",
+                        severity="warning",
+                        title=f"{cid} threat score {cs.threat_score:.2f}",
+                        detail=(
+                            f"Client {cid} has a threat score of {cs.threat_score:.2f}, "
+                            f"which exceeds the 0.60 threshold.  Review recent request "
+                            f"patterns for anomalies."
+                        ),
+                        entity_type="client",
+                        entity_id=cid,
+                        timestamp=time.time(),
+                    )
+                )
     except Exception:
         _log.debug("alert rule error", exc_info=True)
     return alerts
@@ -131,18 +139,20 @@ def _check_provider_error_rate(store: StateStore) -> list[Alert]:
         for name, ps in store.all_providers().items():
             rate = ps.recent_error_rate()
             if rate > 0.20:
-                alerts.append(Alert(
-                    rule_name="provider_error_rate",
-                    severity="warning",
-                    title=f"{name} error rate {rate:.0%}",
-                    detail=(
-                        f"Provider {name} has a recent error rate of {rate:.0%}, "
-                        f"exceeding the 20% threshold."
-                    ),
-                    entity_type="provider",
-                    entity_id=name,
-                    timestamp=time.time(),
-                ))
+                alerts.append(
+                    Alert(
+                        rule_name="provider_error_rate",
+                        severity="warning",
+                        title=f"{name} error rate {rate:.0%}",
+                        detail=(
+                            f"Provider {name} has a recent error rate of {rate:.0%}, "
+                            f"exceeding the 20% threshold."
+                        ),
+                        entity_type="provider",
+                        entity_id=name,
+                        timestamp=time.time(),
+                    )
+                )
     except Exception:
         _log.debug("alert rule error", exc_info=True)
     return alerts
@@ -165,19 +175,21 @@ def _check_mcp_unhealthy(store: StateStore) -> list[Alert]:
     try:
         for name, ss in store.all_mcp_servers().items():
             if ss.health == McpServerHealth.UNHEALTHY:
-                alerts.append(Alert(
-                    rule_name="mcp_unhealthy",
-                    severity="warning",
-                    title=f"{name} unhealthy",
-                    detail=(
-                        f"MCP server {name} is reporting as unhealthy after "
-                        f"{ss.consecutive_failures} consecutive failed health "
-                        f"checks."
-                    ),
-                    entity_type="mcp",
-                    entity_id=name,
-                    timestamp=time.time(),
-                ))
+                alerts.append(
+                    Alert(
+                        rule_name="mcp_unhealthy",
+                        severity="warning",
+                        title=f"{name} unhealthy",
+                        detail=(
+                            f"MCP server {name} is reporting as unhealthy after "
+                            f"{ss.consecutive_failures} consecutive failed health "
+                            f"checks."
+                        ),
+                        entity_type="mcp",
+                        entity_id=name,
+                        timestamp=time.time(),
+                    )
+                )
     except Exception:
         _log.debug("alert rule error", exc_info=True)
     return alerts
@@ -246,6 +258,7 @@ _DEFAULT_RULES: list[AlertRule] = [
 # ---------------------------------------------------------------------------
 # Alert engine
 # ---------------------------------------------------------------------------
+
 
 class AlertEngine:
     """Evaluates alert rules against the state store and manages active alerts."""

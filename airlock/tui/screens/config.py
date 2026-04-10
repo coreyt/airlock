@@ -10,7 +10,6 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import (
     Button,
-    Collapsible,
     DataTable,
     Input,
     Label,
@@ -85,7 +84,11 @@ class ConfigPane(Vertical):
                     # Enforcement mode
                     yield Label("Enforcement Mode")
                     yield Select(
-                        [("Observe", "observe"), ("Shadow", "shadow"), ("Enforce", "enforce")],
+                        [
+                            ("Observe", "observe"),
+                            ("Shadow", "shadow"),
+                            ("Enforce", "enforce"),
+                        ],
                         value=os.getenv("AIRLOCK_ENFORCE_MODE", "observe"),
                         id="cfg-enforce-mode",
                         allow_blank=False,
@@ -131,40 +134,81 @@ class ConfigPane(Vertical):
                 with VerticalScroll(classes="config-form"):
                     threat_vals = self._load_threat_defaults()
                     yield Label("Block Threshold")
-                    yield Input(value=threat_vals["block_threshold"], id="cfg-threat-block-threshold")
+                    yield Input(
+                        value=threat_vals["block_threshold"],
+                        id="cfg-threat-block-threshold",
+                    )
                     yield Label("Base Backoff (seconds)")
-                    yield Input(value=threat_vals["base_backoff"], id="cfg-threat-base-backoff")
+                    yield Input(
+                        value=threat_vals["base_backoff"], id="cfg-threat-base-backoff"
+                    )
                     yield Label("Max Backoff (seconds)")
-                    yield Input(value=threat_vals["max_backoff"], id="cfg-threat-max-backoff")
+                    yield Input(
+                        value=threat_vals["max_backoff"], id="cfg-threat-max-backoff"
+                    )
                     yield Label("Volume Spike Multiplier")
-                    yield Input(value=threat_vals["volume_spike"], id="cfg-threat-volume-spike")
+                    yield Input(
+                        value=threat_vals["volume_spike"], id="cfg-threat-volume-spike"
+                    )
                     yield Label("Rapid-Fire Min Gap (seconds)")
-                    yield Input(value=threat_vals["rapid_fire"], id="cfg-threat-rapid-fire")
+                    yield Input(
+                        value=threat_vals["rapid_fire"], id="cfg-threat-rapid-fire"
+                    )
                     yield Label("Payload Max Chars")
-                    yield Input(value=threat_vals["payload_max"], id="cfg-threat-payload-max")
+                    yield Input(
+                        value=threat_vals["payload_max"], id="cfg-threat-payload-max"
+                    )
                     yield Label("Error Probe Rate")
-                    yield Input(value=threat_vals["error_rate"], id="cfg-threat-error-rate")
+                    yield Input(
+                        value=threat_vals["error_rate"], id="cfg-threat-error-rate"
+                    )
 
             # Tab 4 — MCP
             with TabPane("MCP", id="cfg-tab-mcp"):
                 with Vertical(classes="config-form"):
                     yield Static("MCP Servers: loading...", id="cfg-mcp-status")
                     with Horizontal(id="cfg-mcp-actions"):
-                        yield Button("Start", id="cfg-mcp-start", variant="success", disabled=True)
-                        yield Button("Stop", id="cfg-mcp-stop", variant="error", disabled=True)
-                        yield Button("Restart", id="cfg-mcp-restart", variant="warning", disabled=True)
+                        yield Button(
+                            "Start",
+                            id="cfg-mcp-start",
+                            variant="success",
+                            disabled=True,
+                        )
+                        yield Button(
+                            "Stop", id="cfg-mcp-stop", variant="error", disabled=True
+                        )
+                        yield Button(
+                            "Restart",
+                            id="cfg-mcp-restart",
+                            variant="warning",
+                            disabled=True,
+                        )
                         yield Button("Probe Now", id="cfg-mcp-probe", variant="primary")
                     table = _SafeDataTable(id="cfg-mcp-table", cursor_type="row")
-                    table.add_columns("Name", "Type", "URL / Command", "Health", "Latency", "PID", "Uptime")
+                    table.add_columns(
+                        "Name",
+                        "Type",
+                        "URL / Command",
+                        "Health",
+                        "Latency",
+                        "PID",
+                        "Uptime",
+                    )
                     yield table
                     with TabbedContent(id="cfg-mcp-detail-tabs"):
                         with TabPane("Info", id="cfg-mcp-tab-info"):
-                            yield Static("Select a server to view details.", id="cfg-mcp-info")
+                            yield Static(
+                                "Select a server to view details.", id="cfg-mcp-info"
+                            )
                         with TabPane("Console", id="cfg-mcp-tab-console"):
                             yield RichLog(id="cfg-mcp-console", max_lines=500)
                         with TabPane("Tools", id="cfg-mcp-tab-tools"):
-                            tools_table = _SafeDataTable(id="cfg-mcp-tools-table", cursor_type="row")
-                            tools_table.add_columns("Tool", "Calls", "Err%", "Avg Latency")
+                            tools_table = _SafeDataTable(
+                                id="cfg-mcp-tools-table", cursor_type="row"
+                            )
+                            tools_table.add_columns(
+                                "Tool", "Calls", "Err%", "Avg Latency"
+                            )
                             yield tools_table
                     yield Label("Allowed Tools (comma-separated)")
                     yield Input(
@@ -351,7 +395,16 @@ class ConfigPane(Vertical):
                     uptime_str = "-"
 
                 rows.append(
-                    (name, type_label, url_display, health_str, lat_str, pid_str, uptime_str, name)
+                    (
+                        name,
+                        type_label,
+                        url_display,
+                        health_str,
+                        lat_str,
+                        pid_str,
+                        uptime_str,
+                        name,
+                    )
                 )
 
         def _apply() -> None:
@@ -487,9 +540,7 @@ class ConfigPane(Vertical):
         rate = srv.recent_success_rate()
         history_len = len(srv.health_history)
         if history_len > 0:
-            lines.append(
-                f"  Success rate: {rate * 100:.0f}% ({history_len} checks)"
-            )
+            lines.append(f"  Success rate: {rate * 100:.0f}% ({history_len} checks)")
 
         info.update("\n".join(lines))
 

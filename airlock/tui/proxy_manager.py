@@ -21,9 +21,7 @@ _ENV_REF_PREFIX = "os.environ/"
 _MAX_LOG_LINES = 1000
 
 # Matches lines that already have a timestamp prefix (HH:MM:SS or ISO-like)
-_HAS_TIMESTAMP = re.compile(
-    r"^(?:\d{4}-\d{2}-\d{2}[T ])?(\d{2}:\d{2}:\d{2})"
-)
+_HAS_TIMESTAMP = re.compile(r"^(?:\d{4}-\d{2}-\d{2}[T ])?(\d{2}:\d{2}:\d{2})")
 
 
 class ProxyManager:
@@ -93,7 +91,7 @@ class ProxyManager:
             for _key, value in (server_cfg.get("env") or {}).items():
                 if not isinstance(value, str) or not value.startswith(_ENV_REF_PREFIX):
                     continue
-                var_name = value[len(_ENV_REF_PREFIX):]
+                var_name = value[len(_ENV_REF_PREFIX) :]
                 if not os.environ.get(var_name):
                     errors.append(
                         f"  MCP server '{server_name}' requires {var_name} "
@@ -217,7 +215,8 @@ class ProxyManager:
         )
 
         self._reader_thread = threading.Thread(
-            target=self._reader_loop, daemon=True,
+            target=self._reader_loop,
+            daemon=True,
         )
         self._reader_thread.start()
 

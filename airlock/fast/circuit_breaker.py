@@ -62,10 +62,11 @@ def _load_failover_map() -> dict[str, list[str]]:
 @dataclass
 class FailoverResult:
     """Outcome of a circuit-breaker check."""
+
     original_model: str
-    allowed: bool                   # True if original model is healthy
-    failover_model: str | None      # suggested replacement (if any)
-    circuit_state: str              # current state label
+    allowed: bool  # True if original model is healthy
+    failover_model: str | None  # suggested replacement (if any)
+    circuit_state: str  # current state label
     reason: str
 
 
@@ -87,9 +88,11 @@ def check_model_with_filters(
     blocked_models = blocked_models or set()
     current_provider = infer_provider(model_name)
 
-    if model_name not in blocked_models and (
-        current_provider is None or current_provider not in blocked_providers
-    ) and store.should_allow_request(model_name):
+    if (
+        model_name not in blocked_models
+        and (current_provider is None or current_provider not in blocked_providers)
+        and store.should_allow_request(model_name)
+    ):
         return FailoverResult(
             original_model=model_name,
             allowed=True,
@@ -112,7 +115,6 @@ def check_model_with_filters(
         provider = infer_provider(fallback)
         if provider and provider in blocked_providers:
             continue
-        fallback_state = store.get_model(fallback)
         if store.should_allow_request(fallback):
             logger.warning(
                 "circuit_open model=%s failover=%s consecutive_failures=%d",
@@ -129,9 +131,7 @@ def check_model_with_filters(
             )
 
     # No healthy fallback
-    logger.error(
-        "circuit_open model=%s no_healthy_fallback available", model_name
-    )
+    logger.error("circuit_open model=%s no_healthy_fallback available", model_name)
     return FailoverResult(
         original_model=model_name,
         allowed=False,

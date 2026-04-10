@@ -40,9 +40,7 @@ class TestSQLLogger:
         self, sql_logger, mock_logger_kwargs, mock_response_obj, mock_start_end_times
     ):
         start, end = mock_start_end_times
-        sql_logger.log_success_event(
-            mock_logger_kwargs, mock_response_obj, start, end
-        )
+        sql_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
 
         with sql_logger._engine.connect() as conn:
             result = conn.execute(sa.text("SELECT * FROM airlock_logs"))
@@ -53,9 +51,7 @@ class TestSQLLogger:
         self, sql_logger, mock_logger_kwargs, mock_response_obj, mock_start_end_times
     ):
         start, end = mock_start_end_times
-        sql_logger.log_success_event(
-            mock_logger_kwargs, mock_response_obj, start, end
-        )
+        sql_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
 
         with sql_logger._engine.connect() as conn:
             result = conn.execute(sa.text("SELECT * FROM airlock_logs"))
@@ -73,9 +69,7 @@ class TestSQLLogger:
         self, sql_logger, mock_logger_kwargs, mock_response_obj, mock_start_end_times
     ):
         start, end = mock_start_end_times
-        sql_logger.log_success_event(
-            mock_logger_kwargs, mock_response_obj, start, end
-        )
+        sql_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
 
         with sql_logger._engine.connect() as conn:
             result = conn.execute(sa.text("SELECT messages FROM airlock_logs"))
@@ -136,4 +130,5 @@ class TestSQLGracefulDegradation:
     def test_module_loads_without_sqlalchemy(self):
         """Module imports fine even without sqlalchemy."""
         import airlock.callbacks.sql_logger as mod
+
         assert hasattr(mod, "AirlockSQLLogger")

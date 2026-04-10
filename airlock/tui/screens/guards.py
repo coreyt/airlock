@@ -20,7 +20,7 @@ from rich.markup import escape
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import VerticalScroll
 from textual.widgets import Collapsible, DataTable, Static, TabbedContent, TabPane
 
 from airlock.tui.widgets.safe_data_table import _SafeDataTable
@@ -143,15 +143,15 @@ def _render_signals(entry: FlowEntry) -> str:
         mode = entry.enforcement.get("mode", "?")
         lines.append(f"  Threshold:         {threshold}")
         if should_block:
-            lines.append(f"  Verdict:           [red]⊘ block[/]")
+            lines.append("  Verdict:           [red]⊘ block[/]")
         else:
-            lines.append(f"  Verdict:           [green]✓ pass[/]")
+            lines.append("  Verdict:           [green]✓ pass[/]")
         lines.append(f"  Enforce mode:      {mode}")
     elif entry.would_block is not None:
         if entry.would_block:
-            lines.append(f"  Verdict:           [yellow]⊘ would block[/]")
+            lines.append("  Verdict:           [yellow]⊘ would block[/]")
         else:
-            lines.append(f"  Verdict:           [green]✓ pass[/]")
+            lines.append("  Verdict:           [green]✓ pass[/]")
 
     # Show the global enforcement mode so the operator sees what *would*
     # happen vs what *did* happen for every entry.
@@ -430,14 +430,27 @@ class GuardsPane(VerticalScroll):
                     id="guards-signals",
                 )
             with TabPane("Pipeline", id="guards-tab-pipeline"):
-                yield Static("Select a request to view pipeline stages.", id="guards-pipeline")
+                yield Static(
+                    "Select a request to view pipeline stages.", id="guards-pipeline"
+                )
             with TabPane("Raw", id="guards-tab-raw"):
                 yield Static("Select a request to view raw JSON.", id="guards-raw")
             with TabPane("Tool Result", id="guards-tab-tool"):
                 yield Static("Select an MCP request...", id="guards-tool-result")
-        with Collapsible(title="Request Stream", collapsed=False, id="guards-stream-collapsible"):
+        with Collapsible(
+            title="Request Stream", collapsed=False, id="guards-stream-collapsible"
+        ):
             table = _SafeDataTable(id="guards-table", cursor_type="row")
-            table.add_columns("Time", "Type", "Server", "Model", "Client", "Score", "Verdict", "Enforce")
+            table.add_columns(
+                "Time",
+                "Type",
+                "Server",
+                "Model",
+                "Client",
+                "Score",
+                "Verdict",
+                "Enforce",
+            )
             yield table
 
     def on_mount(self) -> None:
@@ -545,19 +558,37 @@ class GuardsPane(VerticalScroll):
                 ts = entry.timestamp[-8:]
             else:
                 ts = entry.timestamp
-            call_type = (entry.mcp_tool_name or "MCP") if entry.call_type == "call_mcp_tool" else "LLM"
+            call_type = (
+                (entry.mcp_tool_name or "MCP")
+                if entry.call_type == "call_mcp_tool"
+                else "LLM"
+            )
             server = entry.mcp_server_name[:12] if entry.mcp_server_name else "-"
             model = _model_display(entry)
-            client = entry.client_id[-12:] if len(entry.client_id) > 12 else entry.client_id
-            score = f"{entry.composite_score:.2f}" if entry.composite_score is not None else "-"
+            client = (
+                entry.client_id[-12:] if len(entry.client_id) > 12 else entry.client_id
+            )
+            score = (
+                f"{entry.composite_score:.2f}"
+                if entry.composite_score is not None
+                else "-"
+            )
             verdict = _verdict_text(entry)
             enforce = _enforce_text(entry)
-            table.add_row(ts, call_type, server, model, client, score, verdict, enforce, key=str(i))
+            table.add_row(
+                ts,
+                call_type,
+                server,
+                model,
+                client,
+                score,
+                verdict,
+                enforce,
+                key=str(i),
+            )
 
         if not self._entries:
-            table.add_row(
-                "(waiting)", "-", "-", "-", "-", "-", "-", "-", key="_empty"
-            )
+            table.add_row("(waiting)", "-", "-", "-", "-", "-", "-", "-", key="_empty")
 
     def _refresh_status(self) -> None:
         mode = _get_enforce_mode()

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
-from unittest.mock import patch
 
 import pytest
 
@@ -16,7 +14,6 @@ from airlock.guardrails.orchestrator import (
 from airlock.guardrails.schemas import (
     GuardrailKnobs,
     GuardrailSignal,
-    default_knobs,
 )
 from airlock.slow.tuner import write_knobs
 
@@ -164,7 +161,11 @@ class TestAirlockOrchestrator:
         assert obs["orchestrator_version"] is not None
 
     async def test_would_block_above_threshold(
-        self, orchestrator, monkeypatch, fresh_state_store, mock_user_api_key_dict,
+        self,
+        orchestrator,
+        monkeypatch,
+        fresh_state_store,
+        mock_user_api_key_dict,
         knobs_dir,
     ):
         """Keyword match with high weight → would_block=True."""
@@ -291,9 +292,7 @@ class TestKnobsCacheThreadSafety:
             except Exception as e:
                 errors.append(e)
 
-        threads = [
-            threading.Thread(target=reader) for _ in range(5)
-        ] + [
+        threads = [threading.Thread(target=reader) for _ in range(5)] + [
             threading.Thread(target=invalidator) for _ in range(2)
         ]
         for t in threads:

@@ -30,7 +30,9 @@ def add_airlock_client_header(req: urllib.request.Request) -> urllib.request.Req
     return req
 
 
-def extract_airlock_client_from_headers(headers: Mapping[str, Any] | None) -> str | None:
+def extract_airlock_client_from_headers(
+    headers: Mapping[str, Any] | None,
+) -> str | None:
     """Read Airlock client identity from a headers mapping."""
     if not headers:
         return None
@@ -61,7 +63,9 @@ def extract_airlock_client_from_kwargs(kwargs: Mapping[str, Any]) -> str | None:
 
     header_sources: list[Mapping[str, Any] | None] = [
         kwargs.get("headers") if isinstance(kwargs.get("headers"), Mapping) else None,
-        metadata.get("headers") if isinstance(metadata.get("headers"), Mapping) else None,
+        metadata.get("headers")
+        if isinstance(metadata.get("headers"), Mapping)
+        else None,
     ]
     for key in ("request", "proxy_server_request", "http_request"):
         obj = kwargs.get(key)

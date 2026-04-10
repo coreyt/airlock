@@ -50,6 +50,7 @@ def install_circuit_health_endpoint(
 
     if state_store is None:
         from airlock.fast.state import store
+
         state_store = store
 
     # Capture in closure

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import io
 import subprocess
-import threading
 from pathlib import Path
 from unittest import mock
 
@@ -26,7 +25,9 @@ def test_find_config_returns_path_when_exists(tmp_path: Path) -> None:
         assert pm.find_config() == cfg
 
 
-def test_find_config_returns_none_when_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_find_config_returns_none_when_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("AIRLOCK_CONFIG", str(tmp_path / "nope.yaml"))
     # Also patch the module-relative candidate to avoid finding the real config
@@ -73,7 +74,9 @@ def test_start_launches_popen(tmp_path: Path) -> None:
     fake_proc.poll.return_value = None
     fake_proc.stdout = None
 
-    with mock.patch("airlock.tui.proxy_manager.subprocess.Popen", return_value=fake_proc) as mock_popen:
+    with mock.patch(
+        "airlock.tui.proxy_manager.subprocess.Popen", return_value=fake_proc
+    ) as mock_popen:
         err = pm.start()
 
     assert err is None
@@ -99,7 +102,9 @@ def test_start_launches_detached_in_daemon_mode(tmp_path: Path) -> None:
     fake_proc.poll.return_value = None
     fake_proc.stdout = None
 
-    with mock.patch("airlock.tui.proxy_manager.subprocess.Popen", return_value=fake_proc) as mock_popen:
+    with mock.patch(
+        "airlock.tui.proxy_manager.subprocess.Popen", return_value=fake_proc
+    ) as mock_popen:
         err = pm.start()
 
     assert err is None
@@ -118,7 +123,9 @@ def test_start_rejects_double_start(tmp_path: Path) -> None:
     fake_proc.poll.return_value = None  # still alive
     fake_proc.stdout = None
 
-    with mock.patch("airlock.tui.proxy_manager.subprocess.Popen", return_value=fake_proc):
+    with mock.patch(
+        "airlock.tui.proxy_manager.subprocess.Popen", return_value=fake_proc
+    ):
         pm.start()
 
     err = pm.start()
@@ -423,7 +430,9 @@ def test_start_loads_existing_log(tmp_path: Path, monkeypatch) -> None:
     fake_proc = mock.MagicMock(spec=subprocess.Popen)
     fake_proc.poll.return_value = None
     fake_proc.stdout = None
-    with mock.patch("airlock.tui.proxy_manager.subprocess.Popen", return_value=fake_proc):
+    with mock.patch(
+        "airlock.tui.proxy_manager.subprocess.Popen", return_value=fake_proc
+    ):
         pm.start()
 
     assert "previous session line" in pm._ring

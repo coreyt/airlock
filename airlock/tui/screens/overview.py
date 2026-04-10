@@ -20,7 +20,6 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.strip import Strip
 from textual.widgets import Button, Collapsible, DataTable, RichLog, Static
 
-from airlock.tui.widgets.metric_card import MetricCard
 from airlock.tui.widgets.safe_data_table import _SafeDataTable
 from airlock.tui.widgets.status_indicator import StatusIndicator
 
@@ -31,6 +30,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
+
 
 class _SafeRichLog(RichLog):
     """RichLog with bounds guard, sticky scroll, and text selection.
@@ -103,6 +103,7 @@ def _enforce_color(mode: str) -> str:
 # OverviewPane
 # ---------------------------------------------------------------------------
 
+
 class OverviewPane(VerticalScroll):
     """Unified dense overview — proxy status, providers, models, clients."""
 
@@ -130,7 +131,9 @@ class OverviewPane(VerticalScroll):
         with Horizontal(id="ov-top-row"):
             with Vertical(id="ov-status-panel"):
                 yield StatusIndicator(
-                    "Checking...", status="warn", id="ov-proxy-indicator",
+                    "Checking...",
+                    status="warn",
+                    id="ov-proxy-indicator",
                 )
                 yield Static("", id="ov-proxy-detail")
                 yield Button(
@@ -152,7 +155,12 @@ class OverviewPane(VerticalScroll):
         yield Static("[bold]Providers[/]", id="ov-providers-header")
         providers = _SafeDataTable(id="ov-providers", cursor_type="row")
         providers.add_columns(
-            "Provider", "Status", "Req/5m", "Err%", "Recovery", "Impacted",
+            "Provider",
+            "Status",
+            "Req/5m",
+            "Err%",
+            "Recovery",
+            "Impacted",
         )
         yield providers
 
@@ -160,7 +168,12 @@ class OverviewPane(VerticalScroll):
         yield Static("[bold]Models[/]", id="ov-models-header")
         models = _SafeDataTable(id="ov-models", cursor_type="row")
         models.add_columns(
-            "Model", "Circuit", "Failures", "Latency", "p95", "Failover Chain",
+            "Model",
+            "Circuit",
+            "Failures",
+            "Latency",
+            "p95",
+            "Failover Chain",
         )
         yield models
 
@@ -168,7 +181,13 @@ class OverviewPane(VerticalScroll):
         yield Static("[bold]Clients[/]", id="ov-clients-header")
         clients = _SafeDataTable(id="ov-clients", cursor_type="row")
         clients.add_columns(
-            "Client", "Req/5m", "Err%", "Latency", "Threat", "Backoff", "Quarantines",
+            "Client",
+            "Req/5m",
+            "Err%",
+            "Latency",
+            "Threat",
+            "Backoff",
+            "Quarantines",
         )
         yield clients
 
@@ -349,7 +368,8 @@ class OverviewPane(VerticalScroll):
                 self._externally_running = True
             else:
                 indicator.set_status(
-                    "error", f"Not reachable at {self._host}:{self._port}",
+                    "error",
+                    f"Not reachable at {self._host}:{self._port}",
                 )
                 btn.label = "Start Proxy"
                 btn.variant = "success"
@@ -404,7 +424,8 @@ class OverviewPane(VerticalScroll):
     # -- context-sensitive detail -------------------------------------------
 
     def on_data_table_row_highlighted(
-        self, event: DataTable.RowHighlighted,
+        self,
+        event: DataTable.RowHighlighted,
     ) -> None:
         if event.row_key is None:
             return
@@ -580,6 +601,7 @@ class OverviewPane(VerticalScroll):
                 # Infer provider from model name
                 try:
                     from airlock.fast.router import infer_provider
+
                     model_provider = infer_provider(name)
                 except ImportError:
                     model_provider = None
@@ -622,15 +644,17 @@ class OverviewPane(VerticalScroll):
             backoff = "-"
             if client.backoff_until > now:
                 backoff = f"{client.backoff_until - now:.0f}s"
-            client_rows.append((
-                client_id,
-                str(client.recent_request_count()),
-                f"{client.recent_error_rate() * 100:.1f}%",
-                lat_str,
-                threat,
-                backoff,
-                str(quarantines),
-            ))
+            client_rows.append(
+                (
+                    client_id,
+                    str(client.recent_request_count()),
+                    f"{client.recent_error_rate() * 100:.1f}%",
+                    lat_str,
+                    threat,
+                    backoff,
+                    str(quarantines),
+                )
+            )
             client_keys.append(client_id)
 
         # --- traffic split / MCP ---
@@ -652,7 +676,12 @@ class OverviewPane(VerticalScroll):
                     ptable.add_row(*row, key=key)
             else:
                 ptable.add_row(
-                    "(no providers tracked)", "-", "-", "-", "-", "-",
+                    "(no providers tracked)",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
                     key="_empty-providers",
                 )
 
@@ -664,7 +693,12 @@ class OverviewPane(VerticalScroll):
                     mtable.add_row(*row, key=key)
             else:
                 mtable.add_row(
-                    "(no models tracked)", "-", "-", "-", "-", "-",
+                    "(no models tracked)",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
                     key="_empty-models",
                 )
 
@@ -676,7 +710,13 @@ class OverviewPane(VerticalScroll):
                     ctable.add_row(*row, key=key)
             else:
                 ctable.add_row(
-                    "(no clients tracked)", "-", "-", "-", "-", "-", "-",
+                    "(no clients tracked)",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
                     key="_empty-clients",
                 )
 

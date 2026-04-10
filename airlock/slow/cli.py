@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from dataclasses import asdict
 
 from .analyzer import analyze
@@ -43,23 +42,16 @@ def _format_text(report) -> str:
     # ---- Optimizations ----
     if report.optimizations:
         lines.append("")
-        lines.append(
-            f"  OPTIMIZATIONS ({len(report.optimizations)} found)"
-        )
+        lines.append(f"  OPTIMIZATIONS ({len(report.optimizations)} found)")
         lines.append("  " + "-" * 38)
         for i, opt in enumerate(report.optimizations, 1):
-            lines.append(
-                f"    {i}. [{opt.impact.upper()}] {opt.description}"
-            )
+            lines.append(f"    {i}. [{opt.impact.upper()}] {opt.description}")
             lines.append(f"       Category: {opt.category}")
 
     # ---- Cache opportunities ----
     if report.cache_opportunities:
         lines.append("")
-        lines.append(
-            f"  CACHE OPPORTUNITIES "
-            f"({len(report.cache_opportunities)} found)"
-        )
+        lines.append(f"  CACHE OPPORTUNITIES ({len(report.cache_opportunities)} found)")
         lines.append("  " + "-" * 38)
         for i, cache in enumerate(report.cache_opportunities, 1):
             lines.append(f"    {i}. {cache.pattern}")
@@ -68,8 +60,7 @@ def _format_text(report) -> str:
                 f"Token savings: {cache.estimated_token_savings:,}"
             )
             lines.append(
-                f"       Est. cost reduction: "
-                f"{cache.estimated_cost_savings_pct:.1f}%"
+                f"       Est. cost reduction: {cache.estimated_cost_savings_pct:.1f}%"
             )
 
     # ---- Trends ----
@@ -98,9 +89,7 @@ def _format_text(report) -> str:
         )
         lines.append("  " + "-" * 38)
         for cs in sem.classifier_stats:
-            lines.append(
-                f"    {cs.name}  (n={cs.sample_count})"
-            )
+            lines.append(f"    {cs.name}  (n={cs.sample_count})")
             lines.append(
                 f"      Scores   : "
                 f"mean={cs.score_mean:.4f}  "
@@ -118,10 +107,7 @@ def _format_text(report) -> str:
                 f"p95={cs.latency_p95_ms:.0f} ms"
             )
             if cs.error_count > 0:
-                lines.append(
-                    f"      Errors   : {cs.error_count} "
-                    f"({cs.error_rate:.1%})"
-                )
+                lines.append(f"      Errors   : {cs.error_count} ({cs.error_rate:.1%})")
             if cs.ambiguous_count > 0:
                 lines.append(
                     f"      Ambiguous: {cs.ambiguous_count} "
@@ -141,9 +127,7 @@ def _format_text(report) -> str:
     # ---- Hypotheses ----
     if report.hypotheses:
         lines.append("")
-        lines.append(
-            f"  HYPOTHESES ({len(report.hypotheses)} generated)"
-        )
+        lines.append(f"  HYPOTHESES ({len(report.hypotheses)} generated)")
         lines.append("  " + "-" * 38)
         for i, hyp in enumerate(report.hypotheses, 1):
             lines.append(f"    {i}. {hyp.statement}")

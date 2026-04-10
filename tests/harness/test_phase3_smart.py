@@ -12,7 +12,6 @@ pytestmark = pytest.mark.harness
 
 
 class TestComplexityClassification:
-
     def test_simple_prompt_low_tier(self):
         from airlock.fast.router import classify_complexity
 
@@ -61,7 +60,6 @@ class TestComplexityClassification:
 
 
 class TestSessionAffinity:
-
     def test_same_session_same_model(self, fresh_state_store, monkeypatch):
         from airlock.fast.router import apply_routing
 
@@ -99,7 +97,6 @@ class TestSessionAffinity:
 
 
 class TestCostTierDirective:
-
     def test_cost_tier_high_override(self, fresh_state_store, monkeypatch):
         from airlock.fast.router import apply_routing
 
@@ -127,7 +124,6 @@ class TestCostTierDirective:
 
 
 class TestProviderPreference:
-
     def test_provider_pref_openai(self, fresh_state_store, monkeypatch):
         from airlock.fast.router import apply_routing
 
@@ -154,7 +150,6 @@ class TestProviderPreference:
 
 
 class TestBudgetAwareness:
-
     def test_budget_awareness_skips_exhausted(self, fresh_state_store, monkeypatch):
         from airlock.fast.router import apply_routing
 
@@ -164,6 +159,7 @@ class TestBudgetAwareness:
             '{"anthropic": 0.001, "openai": 0.001, "google": 100.0}',
         )
         import time as _time
+
         now = _time.time()
         fresh_state_store.get_provider_spend("anthropic").record_spend(now, 1.0)
         fresh_state_store.get_provider_spend("openai").record_spend(now, 1.0)
@@ -176,7 +172,6 @@ class TestBudgetAwareness:
 
 
 class TestLiveSmart:
-
     @pytest.mark.live
     async def test_smart_simple_routes_cheap(self, http_client):
         resp = await http_client.post(

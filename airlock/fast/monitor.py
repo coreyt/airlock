@@ -38,10 +38,9 @@ def _extract_client_id(kwargs: dict) -> str:
     object is used for pre-call threat/priority and post-call metrics.
     """
     metadata = kwargs.get("litellm_params", {}).get("metadata", {}) or {}
-    airlock_client = (
-        metadata.get("airlock_client")
-        or extract_airlock_client_from_kwargs(kwargs)
-    )
+    airlock_client = metadata.get(
+        "airlock_client"
+    ) or extract_airlock_client_from_kwargs(kwargs)
     if airlock_client:
         return normalize_client_id(airlock_client)
     # Primary: raw API key (same as guardian uses from user_api_key_dict.api_key)
@@ -49,10 +48,7 @@ def _extract_client_id(kwargs: dict) -> str:
     if len(api_key) > 8:
         return f"key:{api_key[-8:]}"
     # Fallback: user alias or user ID
-    user = (
-        metadata.get("user_api_key_alias")
-        or metadata.get("user_api_key_user_id")
-    )
+    user = metadata.get("user_api_key_alias") or metadata.get("user_api_key_user_id")
     if user:
         return f"user:{user}"
     return normalize_client_id(None)
@@ -128,16 +124,14 @@ class AirlockFastMonitor(CustomLogger):
                     )
 
         # Track MCP tool state and traffic split
-        is_mcp = (
-            kwargs.get("call_type") == "call_mcp_tool"
-            or "mcp_tool_name" in kwargs
-        )
+        is_mcp = kwargs.get("call_type") == "call_mcp_tool" or "mcp_tool_name" in kwargs
         store.record_call_type(is_mcp)
         if is_mcp:
             tool_name = kwargs.get("mcp_tool_name", "unknown")
             server_name = kwargs.get("mcp_server_name", "")
             store.get_mcp_tool(tool_name, server_name).record_success(
-                now, duration_ms,
+                now,
+                duration_ms,
             )
 
         logger.debug(
@@ -203,7 +197,11 @@ class AirlockFastMonitor(CustomLogger):
             )
             metadata = litellm_params.get("metadata") or {}
             litellm_params["metadata"] = metadata
-            action = "provider_quarantine" if outcome["provider_quarantined"] else "client_quarantine"
+            action = (
+                "provider_quarantine"
+                if outcome["provider_quarantined"]
+                else "client_quarantine"
+            )
             cooldown = (
                 outcome["provider_cooldown_seconds"]
                 if outcome["provider_quarantined"]
@@ -212,7 +210,9 @@ class AirlockFastMonitor(CustomLogger):
             metadata["airlock_provider"] = provider
             metadata["airlock_provider_protection"] = {
                 "action": action,
-                "scope": "provider" if outcome["provider_quarantined"] else "client_provider",
+                "scope": "provider"
+                if outcome["provider_quarantined"]
+                else "client_provider",
                 "client_id": client_id,
                 "provider": provider,
                 "requested_model": model_name,
@@ -233,10 +233,7 @@ class AirlockFastMonitor(CustomLogger):
             )
 
         # Track MCP tool state and traffic split
-        is_mcp = (
-            kwargs.get("call_type") == "call_mcp_tool"
-            or "mcp_tool_name" in kwargs
-        )
+        is_mcp = kwargs.get("call_type") == "call_mcp_tool" or "mcp_tool_name" in kwargs
         store.record_call_type(is_mcp)
         if is_mcp:
             tool_name = kwargs.get("mcp_tool_name", "unknown")

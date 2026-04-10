@@ -76,8 +76,13 @@ class TestRecordPiiRedaction:
         record_pii_redaction("SSN")
         record_pii_redaction("SSN")
         record_pii_redaction("EMAIL")
-        assert fresh_metrics["pii_redactions"].labels(entity_type="SSN")._value.get() == 2
-        assert fresh_metrics["pii_redactions"].labels(entity_type="EMAIL")._value.get() == 1
+        assert (
+            fresh_metrics["pii_redactions"].labels(entity_type="SSN")._value.get() == 2
+        )
+        assert (
+            fresh_metrics["pii_redactions"].labels(entity_type="EMAIL")._value.get()
+            == 1
+        )
 
 
 class TestRecordKeywordBlock:
@@ -90,7 +95,12 @@ class TestRecordKeywordBlock:
 class TestRecordResponseScanDetection:
     def test_increments_counter_with_labels(self, fresh_metrics):
         record_response_scan_detection("pii", "block")
-        assert fresh_metrics["response_scan_detections"].labels(category="pii", mode="block")._value.get() == 1
+        assert (
+            fresh_metrics["response_scan_detections"]
+            .labels(category="pii", mode="block")
+            ._value.get()
+            == 1
+        )
 
 
 class TestRecordThreatBlock:
@@ -102,19 +112,31 @@ class TestRecordThreatBlock:
 class TestSetCircuitBreakerState:
     def test_maps_closed_to_zero(self, fresh_metrics):
         set_circuit_breaker_state("gpt-4", "closed")
-        assert fresh_metrics["circuit_breaker_state"].labels(model="gpt-4")._value.get() == 0
+        assert (
+            fresh_metrics["circuit_breaker_state"].labels(model="gpt-4")._value.get()
+            == 0
+        )
 
     def test_maps_half_open_to_one(self, fresh_metrics):
         set_circuit_breaker_state("gpt-4", "half_open")
-        assert fresh_metrics["circuit_breaker_state"].labels(model="gpt-4")._value.get() == 1
+        assert (
+            fresh_metrics["circuit_breaker_state"].labels(model="gpt-4")._value.get()
+            == 1
+        )
 
     def test_maps_open_to_two(self, fresh_metrics):
         set_circuit_breaker_state("gpt-4", "open")
-        assert fresh_metrics["circuit_breaker_state"].labels(model="gpt-4")._value.get() == 2
+        assert (
+            fresh_metrics["circuit_breaker_state"].labels(model="gpt-4")._value.get()
+            == 2
+        )
 
     def test_unknown_state_maps_to_negative_one(self, fresh_metrics):
         set_circuit_breaker_state("gpt-4", "bogus")
-        assert fresh_metrics["circuit_breaker_state"].labels(model="gpt-4")._value.get() == -1
+        assert (
+            fresh_metrics["circuit_breaker_state"].labels(model="gpt-4")._value.get()
+            == -1
+        )
 
 
 class TestAirlockMetricsCallback:
@@ -128,9 +150,12 @@ class TestAirlockMetricsCallback:
         }
         cb.log_success_event(kwargs, MagicMock(), start, end)
 
-        assert fresh_metrics["requests_total"].labels(
-            model="gpt-4", user="alice", success="true"
-        )._value.get() == 1
+        assert (
+            fresh_metrics["requests_total"]
+            .labels(model="gpt-4", user="alice", success="true")
+            ._value.get()
+            == 1
+        )
 
     def test_log_failure_event(self, fresh_metrics):
         cb = AirlockMetricsCallback()
@@ -140,15 +165,21 @@ class TestAirlockMetricsCallback:
         }
         cb.log_failure_event(kwargs, MagicMock(), None, None)
 
-        assert fresh_metrics["requests_total"].labels(
-            model="gpt-4", user="bob", success="false"
-        )._value.get() == 1
+        assert (
+            fresh_metrics["requests_total"]
+            .labels(model="gpt-4", user="bob", success="false")
+            ._value.get()
+            == 1
+        )
 
     def test_log_success_unknown_user(self, fresh_metrics):
         cb = AirlockMetricsCallback()
         kwargs = {"model": "gpt-4", "litellm_params": {"metadata": {}}}
         cb.log_success_event(kwargs, MagicMock(), None, None)
 
-        assert fresh_metrics["requests_total"].labels(
-            model="gpt-4", user="unknown", success="true"
-        )._value.get() == 1
+        assert (
+            fresh_metrics["requests_total"]
+            .labels(model="gpt-4", user="unknown", success="true")
+            ._value.get()
+            == 1
+        )

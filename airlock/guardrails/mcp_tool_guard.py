@@ -27,13 +27,13 @@ logger = logging.getLogger("airlock.guardrails.mcp_tool")
 # Shell metacharacters and path traversal patterns to reject
 _DANGEROUS_PATTERNS = re.compile(
     r"(?:"
-    r"\.\./|"                    # path traversal (literal)
-    r"%2e%2e[%2f/\\]|"          # path traversal (URL-encoded)
-    r"\.\.\\|"                   # path traversal (backslash)
-    r"[;|&`$\n\r]|"             # shell metacharacters + newlines
-    r"\$\(|"                     # command substitution
-    r">\s*/|"                    # redirect to root
-    r"<\s*/"                     # read from root
+    r"\.\./|"  # path traversal (literal)
+    r"%2e%2e[%2f/\\]|"  # path traversal (URL-encoded)
+    r"\.\.\\|"  # path traversal (backslash)
+    r"[;|&`$\n\r]|"  # shell metacharacters + newlines
+    r"\$\(|"  # command substitution
+    r">\s*/|"  # redirect to root
+    r"<\s*/"  # read from root
     r")",
     re.IGNORECASE,
 )
