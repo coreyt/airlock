@@ -283,6 +283,36 @@ def main(argv: list[str] | None = None) -> None:
         help="Shell syntax (default: bash).",
     )
 
+    # -- advise --
+    advise_parser = subparsers.add_parser(
+        "advise",
+        help="Ask the advisor about Airlock operational data.",
+    )
+    advise_parser.add_argument(
+        "question",
+        nargs="?",
+        default=None,
+        help="Question to ask the advisor.",
+    )
+    advise_parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Override advisor model selection.",
+    )
+    advise_parser.add_argument(
+        "--local-only",
+        action="store_true",
+        default=False,
+        help="Only use local models (error if none available).",
+    )
+    advise_parser.add_argument(
+        "--interactive",
+        action="store_true",
+        default=False,
+        help="Start an interactive advisor session.",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command is None:
@@ -385,6 +415,11 @@ def main(argv: list[str] | None = None) -> None:
 
     elif args.command == "dogfood":
         from airlock.cli.dogfood_cmd import run
+
+        run(args)
+
+    elif args.command == "advise":
+        from airlock.cli.advise_cmd import run
 
         run(args)
 
