@@ -1,0 +1,143 @@
+# Publish to PyPI when a version tag is pushed.
+#
+# Usage:
+#   1. Bump version in pyproject.toml
+#   2. Commit: git commit -am "Release 0.2.0"
+#   3. Tag:    git tag v0.2.0
+#   4. Push:   git push origin main --tags
+#
+# The workflow builds the package, runs tests, and publishes to PyPI
+# using trusted publishing (no API tokens needed — configure the
+# trusted publisher in PyPI project settings).
+#
+# PyPI trusted publisher setup (one-time):
+#   Go to https://pypi.org/manage/project/airlock-llm/settings/publishing/
+#   Add a new publisher:
+#     - Owner: coreyt
+#     - Repository: airlock
+#     - Workflow: release.yml
+#     - Environment: pypi
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write   # create GitHub release
+  id-token: write   # PyPI trusted publishing (OIDC)
+
+jobs:
+  # Gate: run the full test suite before publishing
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --extra test
+
+      - name: Download spaCy model
+        run: uv run python -m spacy download en_core_web_lg
+
+      - name: Run tests
+        run: uv run pytest --tb=short -q
+
+  # Gate: verify the tag version matches pyproject.toml
+  check-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify tag matches pyproject.toml version
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          PKG_VERSION=$(python -c "
+          import tomllib
+          with open('pyproject.toml', 'rb') as f:
+              print(tomllib.load(f)['project']['version'])
+          ")
+          echo "Tag version:     $TAG_VERSION"
+          echo "Package version: $PKG_VERSION"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag v$TAG_VERSION does not match pyproject.toml version $PKG_VERSION"
+            exit 1
+          fi
+
+  # Build sdist and wheel
+  build:
+    needs: [test, check-version]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build package
+        run: uv build
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  # Publish to PyPI via trusted publishing
+  publish:
+    needs: [build]
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  # Create a GitHub release with the built artifacts
+  github-release:
+    needs: [publish]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          files: dist/*
