@@ -40,6 +40,8 @@ class TestAdviseRun:
         result = _make_result(answer="The answer is 42.")
         args = SimpleNamespace(
             question="What is the answer?",
+            host=None,
+            port=None,
             model=None,
             local_only=False,
             interactive=False,
@@ -55,35 +57,39 @@ class TestAdviseRun:
 
         result = _make_result(answer="ok")
         args = SimpleNamespace(
-            question="test", model=None, local_only=True, interactive=False
+            question="test", host=None, port=None, model=None, local_only=True, interactive=False
         )
         with patch(
             "airlock.cli.advise_cmd.run_advisor", return_value=result
         ) as mock_advisor:
             run(args)
 
-        mock_advisor.assert_called_once_with("test", model=None, local_only=True)
+        mock_advisor.assert_called_once_with(
+            "test", proxy_host="localhost", proxy_port="4000", model=None, local_only=True
+        )
 
     def test_run_model_propagated(self, capsys):
         from airlock.cli.advise_cmd import run
 
         result = _make_result(answer="ok")
         args = SimpleNamespace(
-            question="test", model="mymodel", local_only=False, interactive=False
+            question="test", host=None, port=None, model="mymodel", local_only=False, interactive=False
         )
         with patch(
             "airlock.cli.advise_cmd.run_advisor", return_value=result
         ) as mock_advisor:
             run(args)
 
-        mock_advisor.assert_called_once_with("test", model="mymodel", local_only=False)
+        mock_advisor.assert_called_once_with(
+            "test", proxy_host="localhost", proxy_port="4000", model="mymodel", local_only=False
+        )
 
     def test_run_error_exits_1(self, capsys):
         from airlock.cli.advise_cmd import run
 
         result = _make_result(error="something went wrong")
         args = SimpleNamespace(
-            question="test", model=None, local_only=False, interactive=False
+            question="test", host=None, port=None, model=None, local_only=False, interactive=False
         )
         with patch("airlock.cli.advise_cmd.run_advisor", return_value=result):
             with pytest.raises(SystemExit) as exc_info:
@@ -95,7 +101,7 @@ class TestAdviseRun:
 
         result = _make_result(answer="ok", is_local=False, model_used="gpt-4")
         args = SimpleNamespace(
-            question="test", model=None, local_only=False, interactive=False
+            question="test", host=None, port=None, model=None, local_only=False, interactive=False
         )
         with patch("airlock.cli.advise_cmd.run_advisor", return_value=result):
             run(args)

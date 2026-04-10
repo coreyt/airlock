@@ -18,6 +18,14 @@ from textual.widgets import (
 from airlock.advisor.agent import AdvisorResult, run_advisor
 from airlock.advisor.model_select import is_local_model
 
+_ADVISOR_DOCSTRING = """Advisor — ask LLMs about Airlock operational data.
+
+Provides a chat-style interface for administrators to query an LLM
+about Airlock operational state.  The advisor selects a model (local
+preferred), runs a tool-calling loop against the proxy, and displays
+the answer with any proposed config changes.
+"""
+
 
 def _load_models_from_config() -> list[dict]:
     """Read model_list from config.yaml."""
@@ -43,34 +51,32 @@ def _get_model_choices(model_list: list[dict]) -> list[tuple[str, str]]:
     return choices
 
 
-class AdvisorPane(Static):
+class AdvisorPane(Vertical):
     """Advisor screen — ask questions about Airlock operational data."""
 
     def compose(self) -> ComposeResult:
         model_list = _load_models_from_config()
         choices = _get_model_choices(model_list)
 
-        with Vertical(id="advisor-layout"):
-            yield Label("Advisor", id="advisor-title")
+        yield Label("Advisor", id="advisor-title")
 
-            yield Select(
-                [(label, val) for label, val in choices],
-                id="advisor-model-select",
-                value="auto",
+        yield Select(
+            choices,
+            id="advisor-model-select",
+            value="auto",
+        )
+
+        with VerticalScroll(id="advisor-output-scroll"):
+            yield Static(
+                "Ask a question about Airlock operational data.",
+                id="advisor-output",
             )
 
-            with VerticalScroll(id="advisor-output-scroll"):
-                yield Static(
-                    "Ask a question about Airlock operational data.",
-                    id="advisor-output",
-                )
-
-            with Vertical(id="advisor-input-area"):
-                yield Input(
-                    placeholder="Ask a question...",
-                    id="advisor-input",
-                )
-                yield Button("Ask", id="advisor-submit", variant="primary")
+        yield Input(
+            placeholder="Ask a question...",
+            id="advisor-input",
+        )
+        yield Button("Ask", id="advisor-submit", variant="primary")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "advisor-submit":

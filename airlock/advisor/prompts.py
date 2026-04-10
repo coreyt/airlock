@@ -1,4 +1,11 @@
-"""System prompts and tool description formatting for the advisor agent loop."""
+"""
+Airlock Advisor — system prompt and tool description formatting.
+
+Builds the system prompt that briefs the LLM on Airlock concepts
+(circuit breaker, threat detector, guardrail chain, smart router,
+provider protection) and converts the TOOL_REGISTRY into the OpenAI
+function-calling schema the proxy expects.
+"""
 
 from __future__ import annotations
 

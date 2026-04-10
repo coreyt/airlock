@@ -1,10 +1,21 @@
-"""Config proposal parsing, diffing, risk classification, and safe application."""
+"""
+Airlock Advisor — config proposal handling.
+
+Parses ACTION blocks from LLM output into structured ``ConfigProposal``
+objects, generates unified diffs, classifies risk (low / medium / high),
+and applies changes with safety rails (.bak backup, YAML validation).
+"""
+
+from __future__ import annotations
 
 import difflib
 import shutil
 from dataclasses import dataclass
+from typing import Literal
 
 import yaml
+
+RiskLevel = Literal["low", "medium", "high"]
 
 
 @dataclass
@@ -16,7 +27,7 @@ class ConfigProposal:
     original_yaml: str
     modified_yaml: str
     diff_preview: str
-    risk_level: str  # "low" | "medium" | "high"
+    risk_level: RiskLevel
     requires_restart: bool
 
 
@@ -86,7 +97,7 @@ def generate_diff(original: str, modified: str) -> str:
     return "".join(diff_lines)
 
 
-def classify_risk(changes: dict, original: dict | None = None) -> str:
+def classify_risk(changes: dict, original: dict | None = None) -> RiskLevel:
     """Classify the risk level of proposed changes.
 
     - guardrails, general_settings → "high"

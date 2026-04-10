@@ -60,8 +60,18 @@ def _print_result(result) -> None:
                 print("Skipped.")
 
 
+def _resolve_host_port(args) -> tuple[str, str]:
+    """Resolve proxy host/port from args, env, or defaults."""
+    import os
+
+    host = args.host or os.getenv("AIRLOCK_HOST", "localhost")
+    port = args.port or os.getenv("AIRLOCK_PORT", "4000")
+    return host, port
+
+
 def _interactive_loop(args) -> None:
     """Run an interactive advisor REPL."""
+    host, port = _resolve_host_port(args)
     print("Airlock Advisor (interactive mode). Type 'quit' to exit.\n")
     while True:
         try:
@@ -78,6 +88,8 @@ def _interactive_loop(args) -> None:
 
         result = run_advisor(
             question,
+            proxy_host=host,
+            proxy_port=port,
             model=args.model,
             local_only=args.local_only,
         )
@@ -96,8 +108,11 @@ def run(args) -> None:
         print("       airlock advise --interactive", file=sys.stderr)
         sys.exit(1)
 
+    host, port = _resolve_host_port(args)
     result = run_advisor(
         args.question,
+        proxy_host=host,
+        proxy_port=port,
         model=args.model,
         local_only=args.local_only,
     )

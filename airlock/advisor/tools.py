@@ -1,15 +1,32 @@
-"""Advisor data-gathering tools for querying Airlock operational state."""
+"""
+Airlock Advisor — data-gathering tools.
+
+Each tool is a function that returns a JSON-serializable dict.  The
+``TOOL_REGISTRY`` maps tool names to ``(callable, parameter_schema)``
+tuples so the agent loop can expose them via OpenAI function-calling
+format and inject ``store`` / ``log_dir`` / ``config_path`` at call
+time.
+
+Tools read from four data sources:
+  - StateStore singleton (real-time in-memory metrics)
+  - JSONL logs (historical request/response records)
+  - config.yaml (current proxy configuration)
+  - airlock-knobs.json (guardrail tuning state)
+"""
 
 from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
 from airlock.fast.state import StateStore
+
+logger = logging.getLogger("airlock.advisor.tools")
 
 
 # ---------------------------------------------------------------------------
@@ -156,13 +173,24 @@ def get_recent_errors(log_dir: str, days: int = 2) -> dict:
 
 
 def get_analysis_report(days: int = 7) -> dict:
-    """Run analyzer.analyze() and serialize to dict."""
+    """Run analyzer.analyze() and serialize to dict.
+
+    Temporarily replaces ``write_knobs`` with a no-op so the advisor
+    does not mutate the knobs file as a side effect of reading.
+    """
     try:
+        from airlock.slow import tuner
         from airlock.slow.analyzer import analyze
 
-        report = analyze(days=days)
+        original_write = tuner.write_knobs
+        tuner.write_knobs = lambda *a, **kw: None  # type: ignore[assignment]
+        try:
+            report = analyze(days=days)
+        finally:
+            tuner.write_knobs = original_write
         return dataclasses.asdict(report)
     except Exception as e:
+        logger.warning("analysis report failed: %s", e)
         return {"error": str(e)}
 
 
@@ -262,13 +290,42 @@ def get_guard_signals(
 
 
 # ---------------------------------------------------------------------------
+# Shared log analysis helper
+# ---------------------------------------------------------------------------
+
+
+def _historical_stats(
+    records: list[dict[str, Any]], key: str, value: str
+) -> dict[str, Any]:
+    """Filter log records by key==value and compute common historical stats."""
+    matched = [r for r in records if r.get(key) == value]
+    successes = [r for r in matched if r.get("success")]
+    failures = [r for r in matched if not r.get("success")]
+    total = len(matched)
+
+    durations = [r.get("duration_ms", 0) for r in matched if r.get("duration_ms")]
+
+    error_types: Counter = Counter()
+    for r in failures:
+        error_types[r.get("error_type", "unknown")] += 1
+
+    return {
+        "total_requests": total,
+        "successes": len(successes),
+        "total_errors": len(failures),
+        "error_rate": len(failures) / total if total > 0 else 0.0,
+        "avg_duration_ms": sum(durations) / len(durations) if durations else 0.0,
+        "error_types": dict(error_types),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Tool 7: get_client_profile
 # ---------------------------------------------------------------------------
 
 
 def get_client_profile(store: StateStore, log_dir: str, client_id: str) -> dict:
     """Combine StateStore data with log analysis for one client."""
-    # Realtime from StateStore
     cs = store.get_client(client_id)
     realtime = {
         "request_count": cs.recent_request_count(),
@@ -278,24 +335,15 @@ def get_client_profile(store: StateStore, log_dir: str, client_id: str) -> dict:
         "in_backoff": cs.is_in_backoff(),
     }
 
-    # Historical from logs
     records = _load_logs(log_dir, days=7)
-    client_records = [r for r in records if r.get("airlock_client") == client_id]
-    failures = [r for r in client_records if not r.get("success")]
+    historical = _historical_stats(records, "airlock_client", client_id)
 
+    # Add client-specific model usage breakdown
+    client_records = [r for r in records if r.get("airlock_client") == client_id]
     models_used: Counter = Counter()
-    error_types: Counter = Counter()
     for r in client_records:
         models_used[r.get("model", "unknown")] += 1
-    for r in failures:
-        error_types[r.get("error_type", "unknown")] += 1
-
-    historical = {
-        "total_requests": len(client_records),
-        "total_errors": len(failures),
-        "models_used": dict(models_used),
-        "error_types": dict(error_types),
-    }
+    historical["models_used"] = dict(models_used)
 
     return {
         "client_id": client_id,
@@ -319,26 +367,7 @@ def get_model_profile(store: StateStore, log_dir: str, model_name: str) -> dict:
     }
 
     records = _load_logs(log_dir, days=7)
-    model_records = [r for r in records if r.get("model") == model_name]
-    successes = [r for r in model_records if r.get("success")]
-    failures = [r for r in model_records if not r.get("success")]
-
-    durations = [r.get("duration_ms", 0) for r in model_records if r.get("duration_ms")]
-    avg_duration = sum(durations) / len(durations) if durations else 0.0
-
-    error_types: Counter = Counter()
-    for r in failures:
-        error_types[r.get("error_type", "unknown")] += 1
-
-    total = len(model_records)
-    historical = {
-        "total_requests": total,
-        "successes": len(successes),
-        "failures": len(failures),
-        "error_rate": len(failures) / total if total > 0 else 0.0,
-        "avg_duration_ms": avg_duration,
-        "error_types": dict(error_types),
-    }
+    historical = _historical_stats(records, "model", model_name)
 
     return {
         "model_name": model_name,

@@ -1,9 +1,18 @@
-"""Advisor agent loop -- query LLMs about Airlock operational data."""
+"""
+Airlock Advisor — agent loop for operational queries.
+
+Takes a natural-language question from an administrator, selects an
+LLM (preferring local models), builds a prompt with Airlock context,
+and runs a bounded tool-calling loop against the proxy's chat
+completions endpoint.  Tools from ``airlock.advisor.tools`` provide
+access to the StateStore, JSONL logs, config, and analysis reports.
+"""
 
 from __future__ import annotations
 
 import inspect
 import json
+import logging
 import os
 import re
 import urllib.error
@@ -21,6 +30,14 @@ from airlock.advisor.prompts import (
 from airlock.advisor.tools import TOOL_REGISTRY
 from airlock.fast.state import StateStore
 
+logger = logging.getLogger("airlock.advisor.agent")
+
+# Pre-compute injectable parameters per tool to avoid inspect.signature() per call
+_TOOL_PARAMS: dict[str, set[str]] = {
+    name: set(inspect.signature(func).parameters)
+    for name, (func, _) in TOOL_REGISTRY.items()
+}
+
 
 @dataclass
 class AdvisorResult:
@@ -33,15 +50,15 @@ class AdvisorResult:
     error: str | None = None
 
 
-def _load_config(config_path: str | None = None) -> dict:
+def _load_config(config_path: str) -> dict:
     """Load config.yaml for model selection."""
     import yaml
 
-    path = config_path or os.getenv("AIRLOCK_CONFIG", "config.yaml")
     try:
-        with open(path, encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
     except Exception:
+        logger.warning("failed to load config from %s", config_path)
         return {}
 
 
@@ -95,21 +112,21 @@ def _execute_tool(
         return json.dumps({"error": f"Unknown tool: {tool_name}"})
 
     func, _ = TOOL_REGISTRY[tool_name]
-
-    sig = inspect.signature(func)
+    params = _TOOL_PARAMS[tool_name]
     kwargs = dict(arguments)
 
-    if "store" in sig.parameters and store is not None:
+    if "store" in params and store is not None:
         kwargs["store"] = store
-    if "log_dir" in sig.parameters:
+    if "log_dir" in params:
         kwargs["log_dir"] = log_dir
-    if "config_path" in sig.parameters:
+    if "config_path" in params:
         kwargs["config_path"] = config_path
 
     try:
         result = func(**kwargs)
         return format_tool_result(tool_name, result)
     except Exception as e:
+        logger.warning("tool %s failed: %s", tool_name, e)
         return json.dumps({"error": f"Tool {tool_name} failed: {e!s}"})
 
 
@@ -173,6 +190,7 @@ def run_advisor(
                 actual_master_key,
             )
         except (urllib.error.URLError, urllib.error.HTTPError, Exception) as e:
+            logger.error("LLM call failed on iteration %d: %s", iteration + 1, e)
             result.error = f"LLM call failed: {e!s}"
             break
 

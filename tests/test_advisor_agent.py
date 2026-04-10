@@ -74,11 +74,9 @@ def tmp_config(tmp_path):
 
 
 @pytest.fixture()
-def tmp_log_dir(tmp_path):
-    """Return a temp log directory path."""
-    d = tmp_path / "logs"
-    d.mkdir()
-    return str(d)
+def tmp_log_dir(log_dir):
+    """Wrap conftest log_dir as a str path for run_advisor()."""
+    return str(log_dir)
 
 
 # ---------------------------------------------------------------------------

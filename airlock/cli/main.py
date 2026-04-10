@@ -295,6 +295,16 @@ def main(argv: list[str] | None = None) -> None:
         help="Question to ask the advisor.",
     )
     advise_parser.add_argument(
+        "--host",
+        default=None,
+        help="Proxy host (default: AIRLOCK_HOST or localhost).",
+    )
+    advise_parser.add_argument(
+        "--port",
+        default=None,
+        help="Proxy port (default: AIRLOCK_PORT or 4000).",
+    )
+    advise_parser.add_argument(
         "--model",
         type=str,
         default=None,

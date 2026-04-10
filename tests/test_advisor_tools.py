@@ -352,7 +352,7 @@ def test_get_model_profile_returns_circuit_state(fresh_state_store, log_dir):
     assert result["realtime"]["circuit"] in ("closed", "open", "half_open")
     assert "historical" in result
     assert result["historical"]["total_requests"] == 2
-    assert result["historical"]["failures"] == 1
+    assert result["historical"]["total_errors"] == 1
 
 
 # ---------------------------------------------------------------------------
