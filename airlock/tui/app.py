@@ -132,7 +132,10 @@ class AirlockApp(App):
 
         # Update badge on tab bar
         unack = self._alert_engine.active_count()
-        self.query_one("#tab-bar", TabBar).update_badge(unack)
+        try:
+            self.query_one("#tab-bar", TabBar).update_badge(unack)
+        except NoMatches:
+            pass
 
         # Update Overview alerts panel
         if active:

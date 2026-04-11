@@ -24,6 +24,10 @@ class _SafeDataTable(DataTable):
         except KeyError:
             # Cache miss due to thread race — recompute without caching.
             y_offsets: list[tuple] = []
-            for row in self.ordered_rows:
+            try:
+                rows = self.ordered_rows
+            except KeyError:
+                rows = list(self.rows.values())
+            for row in rows:
                 y_offsets += [(row.key, y) for y in range(row.height)]
             return y_offsets

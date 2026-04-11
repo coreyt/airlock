@@ -132,7 +132,7 @@ def _compute_outcome_correlations(
 
     for obs in observations:
         rid = obs.get("request_id")
-        success = outcome_map.get(rid, True)
+        success = outcome_map.get(str(rid), True) if rid is not None else True
         for signal in obs.get("signals", []):
             name = signal.get("guardrail_name", "")
             signal_outcomes[name]["total"] += 1
