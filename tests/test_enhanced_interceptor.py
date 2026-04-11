@@ -16,13 +16,19 @@ async def test_no_enhanced_profile(interceptor: EnhancedModelInterceptor) -> Non
 
 
 @pytest.mark.asyncio
-async def test_missing_target_model(interceptor: EnhancedModelInterceptor) -> None:
+async def test_missing_target_model(
+    interceptor: EnhancedModelInterceptor, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
     data = {
         "model": "enhanced-missing",
         "litellm_params": {"enhanced_profile": {"system_prompt": "test"}},
     }
-    with pytest.raises(ValueError, match="is missing 'target_model'"):
-        await interceptor.async_pre_call(data)
+    with caplog.at_level(logging.WARNING):
+        result = await interceptor.async_pre_call(data)
+    assert result == data
+    assert "is missing 'target_model'" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -107,3 +113,53 @@ async def test_merge_optional_params(interceptor: EnhancedModelInterceptor) -> N
     assert result["optional_params"]["thinking"] is True
     assert result["optional_params"]["temperature"] == 0.5
     assert result["model"] == "physical-model"
+
+
+@pytest.mark.asyncio
+async def test_inject_system_prompt_empty_content(
+    interceptor: EnhancedModelInterceptor,
+) -> None:
+    data = {
+        "model": "logical-model",
+        "messages": [{"role": "system", "content": ""}],
+        "litellm_params": {
+            "enhanced_profile": {
+                "target_model": "physical-model",
+                "system_prompt": "New system prompt",
+            }
+        },
+    }
+    result = await interceptor.async_pre_call(data)
+    assert result["messages"][0] == {"role": "system", "content": "New system prompt"}
+
+
+@pytest.mark.asyncio
+async def test_none_messages(interceptor: EnhancedModelInterceptor) -> None:
+    data = {
+        "model": "logical-model",
+        "messages": None,
+        "litellm_params": {
+            "enhanced_profile": {
+                "target_model": "physical-model",
+                "system_prompt": "New system prompt",
+            }
+        },
+    }
+    result = await interceptor.async_pre_call(data)
+    assert result["messages"][0] == {"role": "system", "content": "New system prompt"}
+
+
+@pytest.mark.asyncio
+async def test_none_optional_params(interceptor: EnhancedModelInterceptor) -> None:
+    data = {
+        "model": "logical-model",
+        "optional_params": None,
+        "litellm_params": {
+            "enhanced_profile": {
+                "target_model": "physical-model",
+                "params": {"temperature": 0.5},
+            }
+        },
+    }
+    result = await interceptor.async_pre_call(data)
+    assert result["optional_params"]["temperature"] == 0.5

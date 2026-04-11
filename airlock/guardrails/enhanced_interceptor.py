@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 from litellm.integrations.custom_guardrail import CustomGuardrail
@@ -21,17 +22,18 @@ class EnhancedModelInterceptor(CustomGuardrail):
         params_override = enhanced_profile.get("params", {})
 
         if not target_model:
-            raise ValueError(
+            logging.warning(
                 f"Enhanced profile for {data.get('model')} is missing 'target_model'"
             )
+            return data
 
         if system_prompt:
-            messages = data.get("messages", [])
+            messages = data.get("messages") or []
             self._inject_or_append_system_prompt(messages, system_prompt)
             data["messages"] = messages
 
         if params_override:
-            optional_params = data.get("optional_params", {})
+            optional_params = data.get("optional_params") or {}
             optional_params.update(params_override)
             data["optional_params"] = optional_params
 
