@@ -72,6 +72,17 @@ model_list:
       model: gemini/gemini-3.1-pro-preview-customtools
       api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
 
+  - model_name: gemini-coding
+    litellm_params:
+      model: enhanced/gemini-coding
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+      enhanced_profile:
+        target_model: gemini/gemini-3.1-pro-preview-customtools
+        system_prompt: "CRITICAL: You are operating in a multi-turn tool-calling loop. You must retain and finalize all reasoning pathways. Do not truncate internal thoughts."
+        params:
+          thinking: true
+          thinking_level: "MEDIUM"
+
   # --- Mistral AI ---
   - model_name: mistral-small
     litellm_params:
@@ -205,6 +216,12 @@ guardrails:
   - guardrail_name: airlock-keyword-guard
     litellm_params:
       guardrail: airlock.guardrails.keyword_guard.AirlockKeywordGuard
+      mode: [pre_call, pre_mcp_call]
+      default_on: true
+
+  - guardrail_name: airlock-enhanced-interceptor
+    litellm_params:
+      guardrail: airlock.guardrails.enhanced_interceptor.EnhancedModelInterceptor
       mode: [pre_call, pre_mcp_call]
       default_on: true
 
