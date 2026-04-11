@@ -31,3 +31,11 @@ class _SafeDataTable(DataTable):
             for row in rows:
                 y_offsets += [(row.key, y) for y in range(row.height)]
             return y_offsets
+
+    def _get_row_renderables(self, row_index: int):
+        from textual.widgets._data_table import RowDoesNotExist, RowRenderables
+
+        try:
+            return super()._get_row_renderables(row_index)
+        except RowDoesNotExist:
+            return RowRenderables(None, [])

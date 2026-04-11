@@ -15,9 +15,7 @@ class TestSystemPrompt:
     def test_system_prompt_contains_circuit_breaker(self):
         prompt = build_system_prompt()
         lower = prompt.lower()
-        assert "circuit breaker" in lower or (
-            "closed" in prompt and "open" in prompt
-        )
+        assert "circuit breaker" in lower or ("closed" in prompt and "open" in prompt)
 
     def test_system_prompt_contains_guardrail_chain(self):
         prompt = build_system_prompt()

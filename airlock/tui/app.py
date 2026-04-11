@@ -11,6 +11,7 @@ import threading
 from pathlib import Path
 
 from textual.app import App, ComposeResult
+from textual.css.query import NoMatches
 from textual.widgets import ContentSwitcher, Footer, Header
 
 from airlock.tui.alert_engine import AlertEngine

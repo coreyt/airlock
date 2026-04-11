@@ -174,11 +174,20 @@ class LogsPane(VerticalScroll):
 
         # Populate model filter options
         models = sorted({r.get("model", "unknown") for r in self._records})
-        model_select = self.query_one("#logs-model-filter", Select)
         options = [("All Models", "all")] + [(m, m) for m in models]
-        self.app.call_from_thread(model_select.set_options, options)
 
-        self.app.call_from_thread(self._apply_filters)
+        def update_ui():
+            try:
+                model_select = self.query_one("#logs-model-filter", Select)
+                model_select.set_options(options)
+            except Exception:
+                pass
+            try:
+                self._apply_filters()
+            except Exception:
+                pass
+
+        self.app.call_from_thread(update_ui)
 
     def _apply_filters(self) -> None:
         model_val = self.query_one("#logs-model-filter", Select).value
