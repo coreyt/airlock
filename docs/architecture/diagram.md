@@ -119,6 +119,7 @@
      │  │                                                        │  │
      │  │  airlock init │ start │ status │ tui │ analyze │ post  │  │
      │  │  airlock advise │ hooks │ install-service │ dogfood    │  │
+     │  │  airlock config                                        │  │
      │  └────────────────────────────────────────────────────────┘  │
      └──────────────────────────────────────────────────────────────┘
 ```

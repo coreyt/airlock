@@ -4,6 +4,20 @@ Airlock provides a unified `airlock` command with subcommands.
 
 ## Commands
 
+### `airlock config`
+
+Export or import Airlock configurations (`config.yaml`, `.env`, `logs/airlock-knobs.json`) as a `.zip` archive.
+
+```bash
+airlock config export          # creates a zip archive in the current directory
+airlock config export --dir ~  # creates a zip archive in the home directory
+
+airlock config import backup.zip          # extracts into current directory
+airlock config import backup.zip --dir ~  # extracts into home directory
+```
+
+Existing files will be safely backed up before being overwritten during an import.
+
 ### `airlock init`
 
 Generate `config.yaml`, `.env`, and `logs/` in the current directory.
