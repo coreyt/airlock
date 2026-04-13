@@ -33,6 +33,25 @@ VLLM_API_KEY=dummy-key
 
 The model will appear in the TUI Basic Chat screen for interactive testing and can be used by any connected client via `model: "gemma-4"`.
 
+## Enhanced Models
+
+Airlock supports "enhanced" model profiles to silently inject constraints (like forcing an LLM to retain its reasoning loops) or default parameters out-of-band. This is especially useful for agentic workflows using models like `gemini-3.1-pro-preview-customtools`.
+
+Define an `enhanced_profile` in `litellm_params`. Airlock will intercept requests to this model, inject the prompt/parameters, and seamlessly rewrite the routing target to the physical model:
+
+```yaml
+# config.yaml — add to model_list
+- model_name: gemini-coding
+  litellm_params:
+    model: enhanced/gemini-coding  # The logical name clients request
+    enhanced_profile:
+      target_model: gemini/gemini-3.1-pro-preview-customtools
+      system_prompt: "CRITICAL: You are operating in a multi-turn tool-calling loop. You must retain and finalize all reasoning pathways. Do not truncate internal thoughts."
+      params:
+        thinking: true
+        thinking_level: "MEDIUM"
+```
+
 ## Environment variables
 
 | Variable | Description | Default |

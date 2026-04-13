@@ -239,6 +239,7 @@ is:
 
 1. **PII Guard** — redact sensitive data first
 2. **Keyword Guard** — then check for restricted terms
+3. **Enhanced Model Interceptor** — intercept and mutate enhanced profiles (see [Enhanced Provider Design Note](design-note-enhanced-provider.md))
 
 This order is deliberate: PII redaction runs first so that even if a keyword
 check fails and the error is logged, the log record contains redacted content
