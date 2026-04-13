@@ -283,6 +283,37 @@ def main(argv: list[str] | None = None) -> None:
         help="Shell syntax (default: bash).",
     )
 
+    # -- config --
+    config_parser = subparsers.add_parser(
+        "config",
+        help="Export or import Airlock configurations (.zip).",
+    )
+    config_sub = config_parser.add_subparsers(dest="config_action")
+
+    config_export = config_sub.add_parser(
+        "export",
+        help="Export Airlock configurations to a zip archive.",
+    )
+    config_export.add_argument(
+        "--dir",
+        default=".",
+        help="Target directory to create the zip file in (default: current directory).",
+    )
+
+    config_import = config_sub.add_parser(
+        "import",
+        help="Import Airlock configurations from a zip archive.",
+    )
+    config_import.add_argument(
+        "file",
+        help="Path to the zip file to import.",
+    )
+    config_import.add_argument(
+        "--dir",
+        default=".",
+        help="Target directory to extract files to (default: current directory).",
+    )
+
     # -- advise --
     advise_parser = subparsers.add_parser(
         "advise",
@@ -425,6 +456,11 @@ def main(argv: list[str] | None = None) -> None:
 
     elif args.command == "dogfood":
         from airlock.cli.dogfood_cmd import run
+
+        run(args)
+
+    elif args.command == "config":
+        from airlock.cli.config_cmd import run
 
         run(args)
 
