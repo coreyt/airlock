@@ -79,6 +79,18 @@ full cycle. Infrastructure failures (permissions, worktree, disk) affect
 all agents equally — launching N agents into a broken environment wastes
 N × the tokens.
 
+**Step 1a: Permission canary (first agent of every session).**
+Before any real implementer, launch one minimal implementer whose entire
+prompt is: "Run `./scripts/agent-permission-canary.sh` inside the
+worktree. Report the exit code and stdout. Do not edit or commit any
+files." If it exits non-zero, the `.claude/settings.json` allow/deny
+list is incomplete or out of sync with the subagent environment — fix
+the list and re-run the canary before any real work. This catches Bash
+permission-denied failures up front instead of during the first real
+pack, and also verifies that the deny list actually blocks destructive
+commands. The canary implementer can run foreground since it's <10s.
+
+**Step 1b: Implementation canary.**
 1. Run `./scripts/preflight.sh`. Confirm main is clean.
 2. Create the worktree from the recorded base commit:
    ```bash
