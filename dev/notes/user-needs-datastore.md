@@ -27,5 +27,9 @@ While this zero-infrastructure approach is excellent for getting started quickly
 **Need:** A Graph structure.
 **Why:** Airlock extracts "Profiles" for clients and models by aggregating flat data. A graph datastore natively models relationships: `(Client: Alice) -> [USED] -> (Model: GPT-4o) -> [TRIGGERED] -> (Guardrail: PII_Block)`. This allows for instant traversal of interaction chains to visualize complex threat vectors, routing bottlenecks, and team-specific security alerts on the dashboard and offline slow analyzer.
 
+### 5. High-Concurrency Async Reads
+**Need:** A non-blocking, multi-reader architecture.
+**Why:** Airlock is an asynchronous proxy serving hundreds of concurrent requests. Any database integrated into the critical path (like for Semantic Caching or Threat Detection) must support high-concurrency read access without locking the event loop, while ensuring safe, serialized writes.
+
 ## Conclusion
-Airlock requires a **local, AI-native datastore** that supports vectors, full-text search, graph relations, and durable ledgers, while adhering to its core design tenet: requiring zero DevOps infrastructure (e.g., a single-node embedded file like SQLite).
+Airlock requires a **local, AI-native datastore** that supports vectors, full-text search, graph relations, and durable ledgers, while adhering to its core design tenet: requiring zero DevOps infrastructure (e.g., a single-node embedded file like SQLite). It must also feature a robust concurrency model (like a WAL-backed reader pool) to prevent proxy deadlocks.
