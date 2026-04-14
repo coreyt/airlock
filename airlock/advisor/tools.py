@@ -25,6 +25,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from airlock.fast.state import StateStore
+from airlock.api.queries import search_logs
+import airlock.datastore
 
 logger = logging.getLogger("airlock.advisor.tools")
 
@@ -136,8 +138,15 @@ def get_state_snapshot(store: StateStore) -> dict:
 
 def get_recent_errors(log_dir: str, days: int = 2) -> dict:
     """Load JSONL logs, filter to failures, group by model and error_type."""
-    records = _load_logs(log_dir, days=days)
-    failures = [r for r in records if not r.get("success")]
+    engine = getattr(airlock.datastore, "engine", None)
+    
+    if engine is not None:
+        nodes = search_logs(engine, "error")
+        records = [n.properties if hasattr(n, "properties") else n for n in nodes]
+        failures = [r for r in records if not r.get("success")]
+    else:
+        records = _load_logs(log_dir, days=days)
+        failures = [r for r in records if not r.get("success")]
 
     by_model: Counter = Counter()
     by_error_type: Counter = Counter()
