@@ -49,25 +49,52 @@ def benchmark():
 
     print(f"Write Latency (1 node payload): Avg {statistics.mean(write_times):.2f} ms, p95 {statistics.quantiles(write_times, n=100)[94]:.2f} ms")
 
-    # 3. Read Latency (Simple filter Query via Python API - simulated as fetch since python querying can be complex)
+    # 3. Read Latency
     read_times = []
     total_reads = 1000
     for i in range(total_reads):
         start_r = time.perf_counter()
-        # The python SDK may require specific query structures. FathomDB nodes are accessed via `engine.nodes`? Wait, I saw it in the documentation. Let's try standard execute if it is available.
-        # Fallback: Just read one by ID to ensure read timing works if filter fails
         try:
-            rows = engine._query_nodes("RequestLog", limit=50) # Fallback if filter syntax fails
+            list(engine.nodes("RequestLog"))
         except:
-            pass # We will see if it fails. Actually we know from python help that it might not have `.nodes()` exposed directly this way.
+            pass 
         read_times.append((time.perf_counter() - start_r) * 1000)
     
-    print(f"Read Latency (Simple node fetch, limit 50): Avg {statistics.mean(read_times):.2f} ms, p95 {statistics.quantiles(read_times, n=100)[94]:.2f} ms")
+    print(f"Read Latency (Node fetch): Avg {statistics.mean(read_times):.2f} ms, p95 {statistics.quantiles(read_times, n=100)[94]:.2f} ms")
+
+    # 4. Concurrency (Simulating concurrent async proxy readers)
+    concurrent_read_times = []
+    def concurrent_reader():
+        for _ in range(50):
+            start_cr = time.perf_counter()
+            try:
+                list(engine.nodes("RequestLog"))
+            except:
+                pass
+            concurrent_read_times.append((time.perf_counter() - start_cr) * 1000)
+
+    threads = []
+    for _ in range(10): # 10 threads doing 50 reads each
+        t = threading.Thread(target=concurrent_reader)
+        threads.append(t)
+    
+    start_concurrent = time.perf_counter()
+    for t in threads: t.start()
+    for t in threads: t.join()
+    concurrent_duration = (time.perf_counter() - start_concurrent) * 1000
+    
+    print(f"Concurrent Reads (500 queries across 10 threads): Total {concurrent_duration:.2f} ms")
+    if concurrent_read_times:
+        print(f"Concurrent Read Latency per query: Avg {statistics.mean(concurrent_read_times):.2f} ms, p95 {statistics.quantiles(concurrent_read_times, n=100)[94]:.2f} ms")
 
     # Cleanup
     engine.close()
     if DB_PATH.exists():
         DB_PATH.unlink()
+    if Path(f"{DB_PATH}-wal").exists():
+        Path(f"{DB_PATH}-wal").unlink()
+    if Path(f"{DB_PATH}-shm").exists():
+        Path(f"{DB_PATH}-shm").unlink()
 
 if __name__ == "__main__":
     benchmark()
