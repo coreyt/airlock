@@ -23,6 +23,12 @@ from textual.widgets import Button, Collapsible, DataTable, RichLog, Static
 
 from airlock.tui.widgets.safe_data_table import _SafeDataTable
 from airlock.tui.widgets.status_indicator import StatusIndicator
+from airlock.api.queries import get_billing_metrics
+
+try:
+    from airlock.datastore import engine as db_engine
+except ImportError:
+    db_engine = None
 
 if TYPE_CHECKING:
     from airlock.tui.proxy_manager import ProxyManager
@@ -751,8 +757,15 @@ class OverviewPane(VerticalScroll):
                     mcp_str = f"MCP: {len(mcp_tools)} tools"
 
             status_line = self.query_one("#ov-status-line", Static)
+            billing_str = "Cost: $0.00"
+            if db_engine is not None:
+                try:
+                    metrics = get_billing_metrics(db_engine)
+                    billing_str = f"MTD: ${metrics.get('MTD_cost', 0):.4f} | YTD: ${metrics.get('YTD_cost', 0):.4f}"
+                except Exception:
+                    pass
             status_line.update(
-                f"Guard: [{enforce_clr}]{enforce_mode}[/]  {split_str}  {mcp_str}"
+                f"Guard: [{enforce_clr}]{enforce_mode}[/]  {split_str}  {mcp_str}  {billing_str}"
             )
 
         self.app.call_from_thread(_update_ui)
