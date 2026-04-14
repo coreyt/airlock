@@ -50,6 +50,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+db = ["fathomdb>=0.3.1"]
 s3 = ["boto3>=1.34.0"]
 sql = ["sqlalchemy>=2.0.0"]
 metrics = ["prometheus-client>=0.20.0"]

@@ -162,6 +162,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+db = [
+    { name = "fathomdb" },
+]
 docs = [
     { name = "mkdocs" },
     { name = "mkdocs-material" },
@@ -198,6 +201,7 @@ tui = [
 requires-dist = [
     { name = "boto3", marker = "extra == 's3'", specifier = ">=1.34.0" },
     { name = "fastapi", marker = "extra == 'test'", specifier = ">=0.100.0" },
+    { name = "fathomdb", marker = "extra == 'db'", specifier = ">=0.3.1" },
     { name = "litellm", extras = ["proxy"], specifier = ">=1.55.0,!=1.82.7,!=1.82.8" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6" },
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.5" },
@@ -218,7 +222,7 @@ requires-dist = [
     { name = "textual", specifier = ">=6.2.1" },
     { name = "textual", marker = "extra == 'tui'", specifier = ">=0.40.0" },
 ]
-provides-extras = ["s3", "sql", "metrics", "tui", "search", "tracing", "test", "docs"]
+provides-extras = ["db", "s3", "sql", "metrics", "tui", "search", "tracing", "test", "docs"]
 
 [[package]]
 name = "annotated-doc"
@@ -1037,6 +1041,28 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/e0/c8/2ce1c78f983a2c4987ea865d9516dbdfb141a120fd3abb977ae6f02ba7ca/fastuuid-0.14.0-cp314-cp314-musllinux_1_1_x86_64.whl", hash = "sha256:ec27778c6ca3393ef662e2762dba8af13f4ec1aaa32d08d77f71f2a70ae9feb8", size = 450837, upload-time = "2025-10-19T22:34:37.178Z" },
     { url = "https://files.pythonhosted.org/packages/df/60/dad662ec9a33b4a5fe44f60699258da64172c39bd041da2994422cdc40fe/fastuuid-0.14.0-cp314-cp314-win32.whl", hash = "sha256:e23fc6a83f112de4be0cc1990e5b127c27663ae43f866353166f87df58e73d06", size = 154532, upload-time = "2025-10-19T22:35:18.217Z" },
     { url = "https://files.pythonhosted.org/packages/1f/f6/da4db31001e854025ffd26bc9ba0740a9cbba2c3259695f7c5834908b336/fastuuid-0.14.0-cp314-cp314-win_amd64.whl", hash = "sha256:df61342889d0f5e7a32f7284e55ef95103f2110fee433c2ae7c2c0956d76ac8a", size = 156457, upload-time = "2025-10-19T22:33:44.579Z" },
+]
+
+[[package]]
+name = "fathomdb"
+version = "0.3.1"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/24/aa/54c827449484391acb65e576131ae39c30d0ae762fe8b31dfb885810143e/fathomdb-0.3.1-cp310-cp310-macosx_10_12_x86_64.whl", hash = "sha256:15bfd3770b794bfbdcaba514e5a5f0db9632f3ed960745737b03580c3607b14e", size = 2259304, upload-time = "2026-04-14T02:33:49.099Z" },
+    { url = "https://files.pythonhosted.org/packages/7e/55/44d1fc732649d274f8b5ecab311c69804a70dda9da2f46f519d53933af7f/fathomdb-0.3.1-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:d4bd30629473ebec321bc23a15bb2d98f98f5a2e22a048d29952191fe2a380db", size = 2144851, upload-time = "2026-04-14T02:33:51.292Z" },
+    { url = "https://files.pythonhosted.org/packages/14/f1/911a861b9af5fc6baa6022e421487bb8a715899292df1918059bfb10af34/fathomdb-0.3.1-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:50175fa59ca07cffee8901a5bb2bc82d97c1a6dd02b54422a64c31ddf13cae05", size = 2194072, upload-time = "2026-04-14T02:33:53.32Z" },
+    { url = "https://files.pythonhosted.org/packages/4e/7d/8e03e032b3ecde88e351a45c75e67132a9070b57e64b34888de1a02ffe2e/fathomdb-0.3.1-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:9b9be3d4008b98370ab10564e13350a6d9e47056607b1c245cfbe8eeb15434bc", size = 2433979, upload-time = "2026-04-14T02:33:55.526Z" },
+    { url = "https://files.pythonhosted.org/packages/79/14/e897da4ae712440db77aa43ad0d716e449f321e7c7fa5b4351c5df3d317e/fathomdb-0.3.1-cp310-cp310-win_amd64.whl", hash = "sha256:cc0901827b3c33f1091d7183e81a8b3f1ad34c5c7248ae21a53627267d64260a", size = 2061136, upload-time = "2026-04-14T02:33:57.566Z" },
+    { url = "https://files.pythonhosted.org/packages/42/6b/0f8c553a94dced671df9f72feb1b20b76ce4b7da1c023eb5caa51557f170/fathomdb-0.3.1-cp311-cp311-macosx_10_12_x86_64.whl", hash = "sha256:97210071290cc2aff16e30f68805fd7d3e94821901b8df44efc69520fc92ddbb", size = 2259383, upload-time = "2026-04-14T02:33:59.36Z" },
+    { url = "https://files.pythonhosted.org/packages/a1/a0/be03b7245e0bd1b127e3f92e3df098a0d85bfce2b9bb38c207ba6af2e7ce/fathomdb-0.3.1-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:9dcdc8ffc87d6d0c966f7ddf88f8834f490f37cfc2142ae42ee1be4f15a0a347", size = 2144957, upload-time = "2026-04-14T02:34:01.21Z" },
+    { url = "https://files.pythonhosted.org/packages/40/b7/7f249cb2d3cfa1cd7c6471bb0ab22147c965903a745eaf6d385cd795febd/fathomdb-0.3.1-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:b640d840b74ccef1cc44c6df4dc782f9c4c043de8a5e43683823c3ca4aa69a53", size = 2195100, upload-time = "2026-04-14T02:34:03.035Z" },
+    { url = "https://files.pythonhosted.org/packages/3a/0f/498e3c3275bd2a9b6b27ba73352d0ba1318fc49839d870c72bd6b2663d39/fathomdb-0.3.1-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:1727c77c68438ac2df1a61a3f9e60cdc2090614f6deca66498ea261ba9a42980", size = 2433272, upload-time = "2026-04-14T02:34:04.836Z" },
+    { url = "https://files.pythonhosted.org/packages/a4/a2/7d4a1412a9836e326e659717474af4055becfdc4c76958c6c703eab17a86/fathomdb-0.3.1-cp311-cp311-win_amd64.whl", hash = "sha256:8c91fe8fd3d58f866faac2f11ed226291ae88a725b0478c4230ff2379451c344", size = 2061370, upload-time = "2026-04-14T02:34:06.45Z" },
+    { url = "https://files.pythonhosted.org/packages/e0/44/282940943eb5d9359bd792895267037d5571ecba447b93abfd5d42c2fca9/fathomdb-0.3.1-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:2777db06abc17c8fb6d14d2dc4a7dfd34075d39395709b0ae4fa90fa99506e10", size = 2253193, upload-time = "2026-04-14T02:34:08.359Z" },
+    { url = "https://files.pythonhosted.org/packages/7b/24/61b8be06809dfb0bfdd18b0a8423e3d112fdca525608c9987a795fe7c33b/fathomdb-0.3.1-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:211f05231a88f7396767d2396b5b0ed12378eecb5889b3645ef1ea6449e9255c", size = 2138763, upload-time = "2026-04-14T02:34:10.35Z" },
+    { url = "https://files.pythonhosted.org/packages/34/b6/d7725a3f1b9415500af257ff681ea8d42f97aaa162e486022ef56a808d94/fathomdb-0.3.1-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:3779eb00b1a59e3a9af05325c87cffacf546fc465496e68bd553dcceb8c89ece", size = 2186584, upload-time = "2026-04-14T02:34:12.117Z" },
+    { url = "https://files.pythonhosted.org/packages/d2/2b/c282c3a39d208afa78e1ead4e77da663e6918f5bcef97d54a14c3e724a93/fathomdb-0.3.1-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:f56ac09e069e08c39d963503b97387895354c2573381f116253bacbe260f9f72", size = 2423430, upload-time = "2026-04-14T02:34:14.2Z" },
+    { url = "https://files.pythonhosted.org/packages/89/77/8e12a0f288a2c08716c599ace6704bd1e967b54e3af6664a23cc1c7f3490/fathomdb-0.3.1-cp312-cp312-win_amd64.whl", hash = "sha256:70888ebc63138ad96c00a6bae04a66ca58c55584c9bb7115a5d728664b7b42bb", size = 2060381, upload-time = "2026-04-14T02:34:16.066Z" },
 ]
 
 [[package]]
