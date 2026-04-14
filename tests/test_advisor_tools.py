@@ -88,8 +88,9 @@ def test_get_state_snapshot_empty(fresh_state_store):
 # ---------------------------------------------------------------------------
 
 
-def test_get_recent_errors_filters_failures(log_dir):
+def test_get_recent_errors_filters_failures(log_dir, monkeypatch):
     """Only failure records are counted."""
+    monkeypatch.setattr("airlock.datastore.engine", None, raising=False)
     today = datetime.date.today()
     log_file = log_dir / f"airlock-{today.isoformat()}.jsonl"
 
@@ -127,8 +128,9 @@ def test_get_recent_errors_filters_failures(log_dir):
     assert result["total_errors"] == 2
 
 
-def test_get_recent_errors_groups_by_model(log_dir):
+def test_get_recent_errors_groups_by_model(log_dir, monkeypatch):
     """Failures are grouped by model."""
+    monkeypatch.setattr("airlock.datastore.engine", None, raising=False)
     today = datetime.date.today()
     log_file = log_dir / f"airlock-{today.isoformat()}.jsonl"
 

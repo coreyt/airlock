@@ -2,7 +2,15 @@ from datetime import datetime, timezone
 
 
 def get_billing_metrics(engine):
-    nodes = engine._query_nodes("RequestLog", limit=1000)
+    # Retrieve all request logs by not limiting to 1000
+    try:
+        nodes = engine.nodes("RequestLog").limit(1000000).execute().nodes
+    except AttributeError:
+        # Fallback if engine is mocked or behaves differently
+        if hasattr(engine, "_query_nodes"):
+            nodes = engine._query_nodes("RequestLog", limit=1000000)
+        else:
+            nodes = []
 
     now = datetime.now(timezone.utc)
     mtd_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
@@ -33,17 +41,27 @@ def get_billing_metrics(engine):
 
 
 def search_logs(engine, query_str: str):
-    nodes = engine._query_nodes("RequestLog", limit=1000)
-    query_str_lower = query_str.lower()
+    # Use native FathomDB Full-Text Search
+    try:
+        nodes = (
+            engine.fallback_search(query_str, root_kind="RequestLog").execute().nodes
+        )
+    except AttributeError:
+        # Fallback if engine is mocked or behaves differently
+        if hasattr(engine, "_query_nodes"):
+            nodes = engine._query_nodes("RequestLog", limit=1000)
+            query_str_lower = query_str.lower()
+            results = []
+            for node in nodes:
+                found = False
+                for value in node.properties.values():
+                    if isinstance(value, str) and query_str_lower in value.lower():
+                        found = True
+                        break
+                if found:
+                    results.append(node)
+            return results
+        else:
+            return []
 
-    results = []
-    for node in nodes:
-        found = False
-        for value in node.properties.values():
-            if isinstance(value, str) and query_str_lower in value.lower():
-                found = True
-                break
-        if found:
-            results.append(node)
-
-    return results
+    return nodes

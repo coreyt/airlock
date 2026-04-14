@@ -20,8 +20,16 @@ class AirlockFathomLogger(CustomLogger):
     def __init__(self, engine: Any = None):
         self.engine = engine
 
+    def _get_engine(self) -> Any | None:
+        if self.engine:
+            return self.engine
+        import airlock.datastore
+
+        return airlock.datastore.engine
+
     def _log_event(self, kwargs: dict, response_obj: Any, error_flag: bool) -> None:
-        if not self.engine or WriteRequestBuilder is None:
+        db_engine = self._get_engine()
+        if not db_engine or WriteRequestBuilder is None:
             return
 
         model = kwargs.get("model", "unknown")
@@ -46,7 +54,7 @@ class AirlockFathomLogger(CustomLogger):
             },
         )
         try:
-            self.engine.write(builder.build())
+            db_engine.write(builder.build())
         except Exception as e:
             logger.error(f"FathomDB write failed: {e}")
 

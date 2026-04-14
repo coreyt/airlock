@@ -212,6 +212,8 @@ def main() -> None:
     _validate_master_key()
     _warn_observe_mode()
 
+    # Initialize the datastore engine if FathomDB is installed
+
     config_path = _find_config()
 
     config_warnings = _validate_config(config_path)

@@ -20,7 +20,7 @@ def test_get_billing_metrics(monkeypatch):
 
     engine = MagicMock()
 
-    engine._query_nodes.return_value = [
+    mock_nodes = [
         # YTD only
         MockNodeRow("1", {"cost": 10.0, "timestamp": "2023-02-01T00:00:00+00:00"}),
         # MTD
@@ -31,25 +31,30 @@ def test_get_billing_metrics(monkeypatch):
         MockNodeRow("4", {"cost": 1.5, "timestamp": "2023-06-10T00:00:00+00:00"}),
     ]
 
+    engine.nodes.return_value.limit.return_value.execute.return_value.nodes = mock_nodes
+
     metrics = get_billing_metrics(engine)
 
     assert metrics["MTD_cost"] == 6.5
     assert metrics["YTD_cost"] == 16.5
 
-    engine._query_nodes.assert_called_with("RequestLog", limit=1000)
+    engine.nodes.assert_called_with("RequestLog")
+    engine.nodes.return_value.limit.assert_called_with(1000000)
 
 
 def test_search_logs():
     engine = MagicMock()
-    engine._query_nodes.return_value = [
+
+    mock_results = [
         MockNodeRow("1", {"message": "User login failed", "level": "ERROR"}),
-        MockNodeRow("2", {"message": "Data saved successfully", "level": "INFO"}),
         MockNodeRow("3", {"message": "Connection timeout error", "level": "ERROR"}),
     ]
+    engine.fallback_search.return_value.execute.return_value.nodes = mock_results
 
     results = search_logs(engine, "error")
+
     assert len(results) == 2
     assert results[0].logical_id == "1"
     assert results[1].logical_id == "3"
 
-    engine._query_nodes.assert_called_with("RequestLog", limit=1000)
+    engine.fallback_search.assert_called_with("error", root_kind="RequestLog")
