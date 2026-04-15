@@ -45,7 +45,7 @@ def _get_tracer() -> Any:
         provider = TracerProvider(resource=resource)
         trace.set_tracer_provider(provider)
 
-    return trace.get_tracer("airlock", "0.2.1")
+    return trace.get_tracer("airlock", "0.3.0")
 
 
 _tracer = _get_tracer()
