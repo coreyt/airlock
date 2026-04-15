@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import logging
 import uuid
 from typing import Any
@@ -42,7 +43,7 @@ class AirlockFathomLogger(CustomLogger):
 
         builder = WriteRequestBuilder("airlock_log")
         builder.add_node(
-            row_id=call_id,
+            row_id=uuid.uuid4().hex,
             logical_id=call_id,
             kind="RequestLog",
             properties={
@@ -51,7 +52,9 @@ class AirlockFathomLogger(CustomLogger):
                 "cost": cost,
                 "error_flag": error_flag,
                 "call_id": call_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             },
+            upsert=True,
         )
         try:
             db_engine.write(builder.build())
@@ -88,19 +91,3 @@ class AirlockFathomLogger(CustomLogger):
 
 
 proxy_fathom_logger = AirlockFathomLogger()
-
-
-def _self_register() -> None:
-    try:
-        import litellm
-
-        mgr = litellm.logging_callback_manager
-        mgr.add_litellm_success_callback(proxy_fathom_logger)
-        mgr.add_litellm_failure_callback(proxy_fathom_logger)
-        mgr.add_litellm_async_success_callback(proxy_fathom_logger)
-        mgr.add_litellm_async_failure_callback(proxy_fathom_logger)
-    except Exception:
-        pass
-
-
-_self_register()

@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from dotenv import load_dotenv
@@ -106,8 +107,18 @@ def _startup_model_discovery_enabled() -> bool:
     return _env_flag("AIRLOCK_STARTUP_MODEL_DISCOVERY", default=False)
 
 
-def _runtime_mcp_servers_enabled() -> bool:
-    return _env_flag("AIRLOCK_ENABLE_MCP_SERVERS", default=True)
+def _mcp_startup_mode() -> Literal["off", "lazy", "eager"]:
+    value = os.getenv("AIRLOCK_MCP_STARTUP_MODE")
+    if value:
+        normalized = value.strip().lower()
+        if normalized in {"off", "lazy", "eager"}:
+            return normalized  # type: ignore[return-value]
+
+    legacy = os.getenv("AIRLOCK_ENABLE_MCP_SERVERS")
+    if legacy is not None:
+        return "eager" if _env_flag("AIRLOCK_ENABLE_MCP_SERVERS") else "off"
+
+    return "lazy"
 
 
 def _background_health_checks_override() -> bool | None:
@@ -117,17 +128,24 @@ def _background_health_checks_override() -> bool | None:
     return _env_flag("AIRLOCK_BACKGROUND_HEALTH_CHECKS", default=False)
 
 
+def _fathom_logger_enabled() -> bool:
+    return _env_flag("AIRLOCK_ENABLE_FATHOM_LOGGER", default=False)
+
+
 def _prepare_runtime_config(config_path: str) -> tuple[str, str | None]:
     """Apply env-driven startup overrides and return a config path for LiteLLM."""
     with open(config_path, encoding="utf-8") as f:
         config = yaml.safe_load(f) or {}
 
     changed = False
+    mcp_mode = _mcp_startup_mode()
 
-    if not _runtime_mcp_servers_enabled() and config.get("mcp_servers"):
+    if mcp_mode == "off" and config.get("mcp_servers"):
         config.pop("mcp_servers", None)
         changed = True
-        print("Configured MCP servers disabled for startup (AIRLOCK_ENABLE_MCP_SERVERS=0).")
+        print("Configured MCP servers disabled for startup (AIRLOCK_MCP_STARTUP_MODE=off).")
+    elif mcp_mode == "lazy" and config.get("mcp_servers"):
+        print("Configured MCP servers enabled in lazy startup mode (startup tool discovery suppressed).")
 
     background_override = _background_health_checks_override()
     if background_override is not None:
@@ -137,6 +155,17 @@ def _prepare_runtime_config(config_path: str) -> tuple[str, str | None]:
             changed = True
         mode = "enabled" if background_override else "disabled"
         print(f"Background health checks {mode} by AIRLOCK_BACKGROUND_HEALTH_CHECKS.")
+
+    if _fathom_logger_enabled():
+        litellm_settings = config.setdefault("litellm_settings", {})
+        fathom_callback = "airlock.callbacks.fathom_logger.proxy_fathom_logger"
+        for key in ("success_callback", "failure_callback"):
+            callbacks = list(litellm_settings.get(key) or [])
+            if fathom_callback not in callbacks:
+                callbacks.append(fathom_callback)
+                litellm_settings[key] = callbacks
+                changed = True
+        print("Fathom logger enabled for startup (AIRLOCK_ENABLE_FATHOM_LOGGER=1).")
 
     if not changed:
         return config_path, None
@@ -268,7 +297,8 @@ def _warn_observe_mode() -> None:
 
 
 def main() -> None:
-    _project_env = Path(__file__).resolve().parent.parent / ".env"
+    project_root = Path(__file__).resolve().parent.parent
+    _project_env = project_root / ".env"
     load_dotenv(_project_env)
 
     _validate_master_key()
@@ -328,6 +358,14 @@ def main() -> None:
         "--port",
         str(port),
     ]
+    env = os.environ.copy()
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    repo_pythonpath = str(project_root)
+    env["PYTHONPATH"] = (
+        f"{repo_pythonpath}:{existing_pythonpath}"
+        if existing_pythonpath
+        else repo_pythonpath
+    )
 
     _register_shutdown_handlers()
 
@@ -345,7 +383,7 @@ def main() -> None:
 
     print(f"Airlock starting on {host}:{port}")
     try:
-        sys.exit(subprocess.run(litellm_cmd, check=False).returncode)
+        sys.exit(subprocess.run(litellm_cmd, check=False, env=env).returncode)
     finally:
         if temp_config_path:
             try:

@@ -1,4 +1,5 @@
 import os
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -15,10 +16,34 @@ def fathomdb_enabled() -> bool:
     return _env_flag("AIRLOCK_ENABLE_FATHOMDB", default=False)
 
 
+def _ensure_vector_stub_table(db_path: str) -> None:
+    """Create Fathom's missing vec projection table when bootstrapping a fresh DB.
+
+    FathomDB 0.3.1 writes can emit stderr noise about ``vec_nodes_active`` being
+    absent on fresh databases even though normal node writes succeed. Airlock's
+    request logging does not depend on vector search, so pre-creating the table
+    avoids that write-path failure mode without changing the query surface.
+    """
+    db_parent = Path(db_path).parent
+    db_parent.mkdir(parents=True, exist_ok=True)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS vec_nodes_active (
+                chunk_id TEXT PRIMARY KEY,
+                embedding BLOB
+            )
+            """
+        )
+        conn.commit()
+
+
 def init_engine(db_path: str) -> Any | None:
     try:
         from fathomdb import Engine
 
+        _ensure_vector_stub_table(db_path)
         return Engine.open(db_path, embedder="builtin")
     except ImportError:
         return None

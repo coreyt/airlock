@@ -11,8 +11,9 @@ import pytest
 from airlock.proxy import (
     _find_config,
     _background_health_checks_override,
+    _fathom_logger_enabled,
+    _mcp_startup_mode,
     _prepare_runtime_config,
-    _runtime_mcp_servers_enabled,
     _startup_model_discovery_enabled,
     _validate_config,
     _validate_master_key,
@@ -396,13 +397,28 @@ class TestStartupFlags:
         monkeypatch.setenv("AIRLOCK_STARTUP_MODEL_DISCOVERY", "true")
         assert _startup_model_discovery_enabled() is True
 
-    def test_runtime_mcp_servers_enabled_default_on(self, monkeypatch):
+    def test_mcp_startup_mode_defaults_to_lazy(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_MCP_STARTUP_MODE", raising=False)
         monkeypatch.delenv("AIRLOCK_ENABLE_MCP_SERVERS", raising=False)
-        assert _runtime_mcp_servers_enabled() is True
+        assert _mcp_startup_mode() == "lazy"
 
-    def test_runtime_mcp_servers_can_be_disabled(self, monkeypatch):
+    def test_mcp_startup_mode_env_eager(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_MCP_STARTUP_MODE", "eager")
+        assert _mcp_startup_mode() == "eager"
+
+    def test_mcp_startup_mode_env_off(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_MCP_STARTUP_MODE", "off")
+        assert _mcp_startup_mode() == "off"
+
+    def test_mcp_startup_mode_legacy_disable_maps_to_off(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_MCP_STARTUP_MODE", raising=False)
         monkeypatch.setenv("AIRLOCK_ENABLE_MCP_SERVERS", "0")
-        assert _runtime_mcp_servers_enabled() is False
+        assert _mcp_startup_mode() == "off"
+
+    def test_mcp_startup_mode_legacy_enable_maps_to_eager(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_MCP_STARTUP_MODE", raising=False)
+        monkeypatch.setenv("AIRLOCK_ENABLE_MCP_SERVERS", "1")
+        assert _mcp_startup_mode() == "eager"
 
     def test_background_health_checks_override_unset(self, monkeypatch):
         monkeypatch.delenv("AIRLOCK_BACKGROUND_HEALTH_CHECKS", raising=False)
@@ -416,6 +432,14 @@ class TestStartupFlags:
         monkeypatch.setenv("AIRLOCK_BACKGROUND_HEALTH_CHECKS", "true")
         assert _background_health_checks_override() is True
 
+    def test_fathom_logger_disabled_by_default(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_ENABLE_FATHOM_LOGGER", raising=False)
+        assert _fathom_logger_enabled() is False
+
+    def test_fathom_logger_enabled_by_env(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_ENABLE_FATHOM_LOGGER", "1")
+        assert _fathom_logger_enabled() is True
+
 
 class TestRuntimeConfigPreparation:
     def test_prepare_runtime_config_returns_original_when_no_overrides(
@@ -424,6 +448,7 @@ class TestRuntimeConfigPreparation:
         cfg = tmp_path / "config.yaml"
         cfg.write_text(_VALID_CONFIG)
 
+        monkeypatch.setenv("AIRLOCK_MCP_STARTUP_MODE", "eager")
         monkeypatch.delenv("AIRLOCK_ENABLE_MCP_SERVERS", raising=False)
         monkeypatch.delenv("AIRLOCK_BACKGROUND_HEALTH_CHECKS", raising=False)
 
@@ -431,7 +456,7 @@ class TestRuntimeConfigPreparation:
         assert runtime_path == str(cfg)
         assert temp_path is None
 
-    def test_prepare_runtime_config_can_strip_mcp_servers(
+    def test_prepare_runtime_config_can_strip_mcp_servers_in_off_mode(
         self, tmp_path, monkeypatch
     ):
         cfg = tmp_path / "config.yaml"
@@ -439,7 +464,7 @@ class TestRuntimeConfigPreparation:
             _VALID_CONFIG
             + "mcp_servers:\n  demo:\n    transport: stdio\n    command: python3\n"
         )
-        monkeypatch.setenv("AIRLOCK_ENABLE_MCP_SERVERS", "0")
+        monkeypatch.setenv("AIRLOCK_MCP_STARTUP_MODE", "off")
         monkeypatch.delenv("AIRLOCK_BACKGROUND_HEALTH_CHECKS", raising=False)
 
         runtime_path, temp_path = _prepare_runtime_config(str(cfg))
@@ -450,6 +475,22 @@ class TestRuntimeConfigPreparation:
         with open(runtime_path, encoding="utf-8") as f:
             loaded = yaml.safe_load(f) or {}
         assert "mcp_servers" not in loaded
+
+    def test_prepare_runtime_config_keeps_mcp_servers_in_lazy_mode(
+        self, tmp_path, monkeypatch
+    ):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            _VALID_CONFIG
+            + "mcp_servers:\n  demo:\n    transport: stdio\n    command: python3\n"
+        )
+        monkeypatch.setenv("AIRLOCK_MCP_STARTUP_MODE", "lazy")
+        monkeypatch.delenv("AIRLOCK_ENABLE_MCP_SERVERS", raising=False)
+        monkeypatch.delenv("AIRLOCK_BACKGROUND_HEALTH_CHECKS", raising=False)
+
+        runtime_path, temp_path = _prepare_runtime_config(str(cfg))
+        assert runtime_path == str(cfg)
+        assert temp_path is None
 
     def test_prepare_runtime_config_can_override_health_checks(
         self, tmp_path, monkeypatch
@@ -470,6 +511,32 @@ class TestRuntimeConfigPreparation:
         with open(runtime_path, encoding="utf-8") as f:
             loaded = yaml.safe_load(f) or {}
         assert loaded["general_settings"]["background_health_checks"] is False
+
+    def test_prepare_runtime_config_can_enable_fathom_logger(
+        self, tmp_path, monkeypatch
+    ):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            _VALID_CONFIG
+            + "litellm_settings:\n"
+            + "  success_callback: [\"airlock.callbacks.enterprise_logger.proxy_logger\"]\n"
+            + "  failure_callback: [\"airlock.callbacks.enterprise_logger.proxy_logger\"]\n"
+        )
+        monkeypatch.setenv("AIRLOCK_ENABLE_FATHOM_LOGGER", "1")
+        monkeypatch.setenv("AIRLOCK_MCP_STARTUP_MODE", "eager")
+        monkeypatch.delenv("AIRLOCK_BACKGROUND_HEALTH_CHECKS", raising=False)
+
+        runtime_path, temp_path = _prepare_runtime_config(str(cfg))
+        assert temp_path is not None
+
+        import yaml
+
+        with open(runtime_path, encoding="utf-8") as f:
+            loaded = yaml.safe_load(f) or {}
+
+        fathom = "airlock.callbacks.fathom_logger.proxy_fathom_logger"
+        assert fathom in loaded["litellm_settings"]["success_callback"]
+        assert fathom in loaded["litellm_settings"]["failure_callback"]
 
     def test_shadow_mode_no_warning(self, monkeypatch, capsys):
         monkeypatch.setenv("AIRLOCK_ENFORCE_MODE", "shadow")

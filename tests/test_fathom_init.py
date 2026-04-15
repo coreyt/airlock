@@ -1,3 +1,4 @@
+import sqlite3
 import sys
 from unittest.mock import patch
 
@@ -16,6 +17,35 @@ def test_init_engine_with_fathomdb(tmp_path):
     engine = init_engine(str(tmp_path / "test.db"))
     assert engine is not None
     assert engine.__class__.__name__ == "Engine"
+
+
+def test_init_engine_bootstraps_vec_stub_table(tmp_path):
+    db_path = tmp_path / "test.db"
+    seen = {}
+
+    class FakeEngine:
+        @staticmethod
+        def open(path, embedder=None):
+            with sqlite3.connect(path) as conn:
+                row = conn.execute(
+                    """
+                    SELECT name
+                    FROM sqlite_master
+                    WHERE type = 'table' AND name = 'vec_nodes_active'
+                    """
+                ).fetchone()
+            seen["table_exists"] = row is not None
+            seen["embedder"] = embedder
+            return "engine"
+
+    fake_module = type("FakeFathomModule", (), {"Engine": FakeEngine})
+
+    with patch.dict(sys.modules, {"fathomdb": fake_module}):
+        engine = init_engine(str(db_path))
+
+    assert engine == "engine"
+    assert seen["table_exists"] is True
+    assert seen["embedder"] == "builtin"
 
 
 def test_get_engine_disabled_by_default(monkeypatch):
