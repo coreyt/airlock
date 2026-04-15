@@ -20,7 +20,16 @@ from airlock.fast.router import (
     apply_routing,
     classify_complexity,
     infer_provider,
+    set_router_config,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_router_config():
+    """Every test starts with an empty router config cache."""
+    set_router_config(None)
+    yield
+    set_router_config(None)
 
 
 # ---------------------------------------------------------------------------
@@ -45,6 +54,45 @@ class TestLoadCostTiers:
         tiers = _load_cost_tiers()
         # Falls back to defaults
         assert "low" in tiers
+
+    def test_from_config(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_COST_TIERS", raising=False)
+        set_router_config(
+            {
+                "cost_tiers": {
+                    "low": ["gpt-5-mini"],
+                    "medium": ["gpt-5"],
+                    "high": ["gpt-5-pro"],
+                }
+            }
+        )
+        tiers = _load_cost_tiers()
+        assert tiers["low"] == ["gpt-5-mini"]
+        assert tiers["high"] == ["gpt-5-pro"]
+
+    def test_env_overrides_config(self, monkeypatch):
+        monkeypatch.setenv(
+            "AIRLOCK_COST_TIERS", json.dumps({"low": ["env-only"]})
+        )
+        set_router_config({"cost_tiers": {"low": ["config-only"]}})
+        tiers = _load_cost_tiers()
+        assert tiers["low"] == ["env-only"]
+
+    def test_invalid_config_falls_back_to_defaults(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_COST_TIERS", raising=False)
+        set_router_config({"cost_tiers": {"low": "not-a-list"}})
+        tiers = _load_cost_tiers()
+        assert "claude-haiku" in tiers["low"]  # built-in defaults
+
+    def test_config_cost_tier_swaps_model(self, monkeypatch):
+        """End-to-end: cost_tiers from config drives _apply_cost_tier swaps."""
+        monkeypatch.delenv("AIRLOCK_COST_TIERS", raising=False)
+        set_router_config(
+            {"cost_tiers": {"low": ["gpt-5-mini"], "high": ["gpt-5-pro"]}}
+        )
+        model, reason = _apply_cost_tier("low", "gpt-5")
+        assert model == "gpt-5-mini"
+        assert reason is not None
 
 
 class TestLoadSessionTtl:

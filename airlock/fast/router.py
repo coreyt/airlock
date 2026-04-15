@@ -34,25 +34,29 @@ logger = logging.getLogger("airlock.fast.router")
 # ---------------------------------------------------------------------------
 # Default cost tiers
 # ---------------------------------------------------------------------------
+# Default tier targets — model aliases that must exist in the shipped
+# config.yaml template `model_list`. Override per-deployment via the
+# `cost_tiers:` block in config.yaml or the AIRLOCK_COST_TIERS env var.
 _DEFAULT_COST_TIERS: dict[str, list[str]] = {
     "low": [
         "claude-haiku",
         "gemini-flash",
         "gemini-flash-lite",
-        "gpt-4o-mini",
+        "gpt-5-nano",
         "mistral-small",
     ],
     "medium": [
         "claude-sonnet",
         "gemini-pro",
-        "gpt-4o",
-        "mistral-large",
+        "gpt-5-mini",
+        "mistral-medium",
         "codestral",
     ],
     "high": [
         "claude-opus",
-        "gemini-3-pro",
-        "gemini-3.1-pro",
+        "gpt-5",
+        "gpt-5-pro",
+        "mistral-large",
         "magistral-medium",
     ],
 }
@@ -127,8 +131,13 @@ class ComplexityResult:
     features: dict[str, float] = field(default_factory=dict)
 
 
-# Provider inference — prefix heuristic. monitor.py imports infer_provider
-# from here; guardian.py and enterprise_logger.py also use it.
+# Provider inference — catalog-first, prefix-fallback.
+#
+# `infer_provider` consults an alias→provider map rebuilt from the cached
+# `model_list` whenever `set_router_config` runs, so adding a model to
+# config.yaml automatically wires routing/metrics without editing code.
+# The prefix map below is the safety net for model names that weren't in
+# the cached config (offline tests, ad-hoc aliases, brand-new families).
 _PROVIDER_PREFIXES = {
     "claude": "anthropic",
     "gpt": "openai",
@@ -141,6 +150,9 @@ _PROVIDER_PREFIXES = {
     "sonar": "perplexity",
     "tavily": "tavily",
 }
+
+# Populated by `set_router_config`: alias ("claude-sonnet") → provider ("anthropic").
+_alias_provider_map: dict[str, str] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -276,15 +288,71 @@ def classify_complexity(text: str) -> ComplexityResult:
 # ---------------------------------------------------------------------------
 # Env-var loaders
 # ---------------------------------------------------------------------------
+_config_cache: dict = {}
+
+
+def set_router_config(config: dict | None) -> None:
+    """Cache the loaded ``config.yaml`` so router loaders can read from it.
+
+    Called once at proxy startup. Env vars still take precedence over
+    config values, so existing deployments behave identically unless they
+    opt into the new config blocks. Also rebuilds the alias→provider map
+    used by ``infer_provider`` so code never needs to hardcode new models.
+    """
+    global _config_cache, _alias_provider_map
+    _config_cache = dict(config) if isinstance(config, dict) else {}
+
+    alias_map: dict[str, str] = {}
+    for entry in _config_cache.get("model_list", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        alias = entry.get("model_name")
+        params = entry.get("litellm_params") or {}
+        model_str = params.get("model", "")
+        if (
+            isinstance(alias, str)
+            and isinstance(model_str, str)
+            and "/" in model_str
+        ):
+            provider = model_str.split("/", 1)[0]
+            alias_map[alias] = provider
+    _alias_provider_map = alias_map
+
+
+def _validate_cost_tiers(value: object) -> dict[str, list[str]] | None:
+    """Return ``value`` if it is a well-formed cost-tier mapping, else None."""
+    if not isinstance(value, dict) or not value:
+        return None
+    validated: dict[str, list[str]] = {}
+    for tier, models in value.items():
+        if not isinstance(tier, str) or not isinstance(models, list):
+            return None
+        if not all(isinstance(m, str) for m in models):
+            return None
+        validated[tier] = list(models)
+    return validated
+
+
 def _load_cost_tiers() -> dict[str, list[str]]:
     raw = os.environ.get("AIRLOCK_COST_TIERS")
-    if not raw:
-        return dict(_DEFAULT_COST_TIERS)
-    try:
-        return json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        logger.warning("Invalid AIRLOCK_COST_TIERS JSON, using defaults")
-        return dict(_DEFAULT_COST_TIERS)
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("Invalid AIRLOCK_COST_TIERS JSON, using defaults")
+        else:
+            validated = _validate_cost_tiers(parsed)
+            if validated is not None:
+                return validated
+            logger.warning("AIRLOCK_COST_TIERS has wrong shape, using defaults")
+
+    cfg_tiers = _validate_cost_tiers(_config_cache.get("cost_tiers"))
+    if cfg_tiers is not None:
+        return cfg_tiers
+    if _config_cache.get("cost_tiers") is not None:
+        logger.warning("Invalid cost_tiers in config.yaml, using defaults")
+
+    return dict(_DEFAULT_COST_TIERS)
 
 
 def _load_session_ttl() -> int:
@@ -312,7 +380,16 @@ def _load_provider_budgets() -> dict[str, float]:
 # Provider inference
 # ---------------------------------------------------------------------------
 def infer_provider(model_name: str) -> str | None:
-    """Map a model alias to its provider name via prefix matching."""
+    """Map a model alias to its provider name.
+
+    Catalog-first: if the alias is present in the loaded ``config.yaml``
+    ``model_list`` (populated via ``set_router_config``), use the exact
+    provider from the entry's ``litellm_params.model`` prefix. Otherwise
+    fall back to the static family-prefix heuristic below.
+    """
+    cached = _alias_provider_map.get(model_name)
+    if cached:
+        return cached
     for prefix, provider in _PROVIDER_PREFIXES.items():
         if model_name.startswith(prefix):
             return provider

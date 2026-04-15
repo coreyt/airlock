@@ -7,9 +7,11 @@ from unittest.mock import patch
 
 
 from airlock.models_catalog import (
+    _custom_fetchers_from_config,
     _fetch_gemini_models,
     _get_api_key,
     _load_config,
+    _resolve_secret,
     fetch_live_provider_models,
 )
 
@@ -170,3 +172,132 @@ class TestFetchLiveProviderModels:
             result = fetch_live_provider_models(config, timeout=2.0)
 
         assert isinstance(result, list)  # did not raise
+
+
+# ---------------------------------------------------------------------------
+# Custom providers (issue: support LiteLLM proxy or similar)
+# ---------------------------------------------------------------------------
+
+
+class _FakeResp:
+    def __init__(self, payload: bytes) -> None:
+        self._payload = payload
+
+    def read(self) -> bytes:
+        return self._payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        pass
+
+
+class TestResolveSecret:
+    def test_literal(self):
+        assert _resolve_secret("sk-123") == "sk-123"
+
+    def test_env_ref(self, monkeypatch):
+        monkeypatch.setenv("MY_KEY", "sk-env")
+        assert _resolve_secret("os.environ/MY_KEY") == "sk-env"
+
+    def test_missing_env_ref(self, monkeypatch):
+        monkeypatch.delenv("MISSING", raising=False)
+        assert _resolve_secret("os.environ/MISSING") is None
+
+    def test_empty_and_non_str(self):
+        assert _resolve_secret("") is None
+        assert _resolve_secret(None) is None
+        assert _resolve_secret(123) is None
+
+
+class TestCustomFetchersFromConfig:
+    def test_builds_fetcher(self, monkeypatch):
+        monkeypatch.setenv("LITELLM_KEY", "sk-proxy")
+        config = {
+            "providers": [
+                {
+                    "name": "litellm-lan",
+                    "base_url": "http://192.168.1.45:4000/v1/models",
+                    "api_key": "os.environ/LITELLM_KEY",
+                }
+            ]
+        }
+        fetchers = _custom_fetchers_from_config(config)
+        assert len(fetchers) == 1
+        assert fetchers[0].prefix == "litellm-lan"
+        assert fetchers[0].api_key_override == "sk-proxy"
+
+    def test_missing_required_fields_skipped(self):
+        config = {"providers": [{"name": "x"}, {"base_url": "http://y"}, {}]}
+        assert _custom_fetchers_from_config(config) == []
+
+    def test_missing_key_skipped(self, monkeypatch):
+        monkeypatch.delenv("NOPE", raising=False)
+        config = {
+            "providers": [
+                {
+                    "name": "p",
+                    "base_url": "http://host/v1/models",
+                    "api_key": "os.environ/NOPE",
+                }
+            ]
+        }
+        assert _custom_fetchers_from_config(config) == []
+
+    def test_fetch_live_includes_custom(self, monkeypatch):
+        for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "MISTRAL_API_KEY"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv("LITELLM_KEY", "sk-proxy")
+        payload = json.dumps(
+            {"data": [{"id": "gpt-5.4"}, {"id": "claude-sonnet"}]}
+        ).encode()
+        config = {
+            "providers": [
+                {
+                    "name": "litellm-lan",
+                    "base_url": "http://192.168.1.45:4000/v1/models",
+                    "api_key": "os.environ/LITELLM_KEY",
+                }
+            ]
+        }
+        with patch(
+            "airlock.models_catalog.urllib.request.urlopen",
+            return_value=_FakeResp(payload),
+        ):
+            result = fetch_live_provider_models(config, timeout=2.0)
+        ids = sorted(m["id"] for m in result)
+        assert ids == ["litellm-lan/claude-sonnet", "litellm-lan/gpt-5.4"]
+
+    def test_custom_prefix_overrides_builtin(self, monkeypatch):
+        """A custom 'openai' entry should replace the built-in openai fetcher."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-real")
+        monkeypatch.setenv("LITELLM_KEY", "sk-proxy")
+        payload = json.dumps({"data": [{"id": "gpt-5.4"}]}).encode()
+        config = {
+            "model_list": [
+                {
+                    "model_name": "gpt",
+                    "litellm_params": {
+                        "model": "openai/gpt-4o",
+                        "api_key": "os.environ/OPENAI_API_KEY",
+                    },
+                }
+            ],
+            "providers": [
+                {
+                    "name": "openai",
+                    "base_url": "http://proxy/v1/models",
+                    "api_key": "os.environ/LITELLM_KEY",
+                }
+            ],
+        }
+        with patch(
+            "airlock.models_catalog._fetch_openai_models",
+            side_effect=AssertionError("built-in must not be called"),
+        ), patch(
+            "airlock.models_catalog.urllib.request.urlopen",
+            return_value=_FakeResp(payload),
+        ):
+            result = fetch_live_provider_models(config, timeout=2.0)
+        assert [m["id"] for m in result] == ["openai/gpt-5.4"]

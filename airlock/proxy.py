@@ -238,6 +238,9 @@ def main() -> None:
     # Log live provider models at startup (informational — does not affect routing).
     with open(config_path) as f:
         config = yaml.safe_load(f) or {}
+    from airlock.fast.router import set_router_config
+
+    set_router_config(config)
     live_models = fetch_live_provider_models(config)
     if live_models:
         providers = sorted({m["id"].split("/")[0] for m in live_models})

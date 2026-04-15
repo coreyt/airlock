@@ -46,6 +46,16 @@ def _load_config(config_path: str | Path | None = None) -> dict:
         return {}
 
 
+def _resolve_secret(value: object) -> str | None:
+    """Resolve a literal secret or an ``os.environ/NAME`` reference to its value."""
+    if not isinstance(value, str) or not value:
+        return None
+    if value.startswith("os.environ/"):
+        env_var = value.split("/", 1)[1]
+        return os.environ.get(env_var) or None
+    return value
+
+
 def _get_api_key(config: dict, provider_prefix: str) -> str | None:
     """Find the first API key configured for a given provider prefix."""
     for entry in config.get("model_list", []):
@@ -53,12 +63,9 @@ def _get_api_key(config: dict, provider_prefix: str) -> str | None:
         model_str = params.get("model", "")
         if not model_str.startswith(f"{provider_prefix}/"):
             continue
-        api_key = params.get("api_key", "")
-        if isinstance(api_key, str) and api_key.startswith("os.environ/"):
-            env_var = api_key.split("/", 1)[1]
-            return os.environ.get(env_var) or None
-        if api_key:
-            return api_key
+        resolved = _resolve_secret(params.get("api_key", ""))
+        if resolved:
+            return resolved
     return None
 
 
@@ -71,6 +78,7 @@ def _get_api_key(config: dict, provider_prefix: str) -> str | None:
 class _ProviderFetcher:
     prefix: str  # e.g. "anthropic"
     fn: Callable[[str, float], list[dict]]  # (api_key, timeout) -> model entries
+    api_key_override: str | None = None  # pre-resolved key for custom providers
 
 
 def _fetch_openai_compatible(
@@ -186,6 +194,72 @@ _FETCHERS: list[_ProviderFetcher] = [
 ]
 
 
+def _custom_fetchers_from_config(config: dict) -> list[_ProviderFetcher]:
+    """Build fetchers for any ``providers:`` entries in config.yaml.
+
+    Each entry describes an OpenAI-compatible ``/v1/models`` endpoint —
+    e.g. a self-hosted LiteLLM proxy or vLLM gateway. Example::
+
+        providers:
+          - name: litellm-lan
+            base_url: http://192.168.1.45:4000/v1/models
+            api_key: os.environ/LITELLM_API_KEY
+            auth_header: Authorization   # optional
+            auth_scheme: Bearer          # optional
+            extra_headers: {}            # optional
+    """
+    fetchers: list[_ProviderFetcher] = []
+    for entry in config.get("providers", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        base_url = entry.get("base_url")
+        if not name or not base_url:
+            logger.warning(
+                "models_catalog: skipping providers entry missing name/base_url"
+            )
+            continue
+        api_key = _resolve_secret(entry.get("api_key", ""))
+        if not api_key:
+            logger.warning(
+                "models_catalog: providers entry %r has no resolvable api_key, skipping",
+                name,
+            )
+            continue
+        auth_header = entry.get("auth_header", "Authorization")
+        auth_scheme = entry.get("auth_scheme", "Bearer")
+        extra_headers = entry.get("extra_headers")
+
+        def _make_fn(
+            url: str,
+            prefix: str,
+            hdr: str,
+            scheme: str,
+            extra: dict | None,
+        ) -> Callable[[str, float], list[dict]]:
+            def _fn(key: str, timeout: float) -> list[dict]:
+                return _fetch_openai_compatible(
+                    url,
+                    provider_prefix=prefix,
+                    api_key=key,
+                    timeout=timeout,
+                    auth_header=hdr,
+                    auth_scheme=scheme,
+                    extra_headers=extra,
+                )
+
+            return _fn
+
+        fetchers.append(
+            _ProviderFetcher(
+                prefix=name,
+                fn=_make_fn(base_url, name, auth_header, auth_scheme, extra_headers),
+                api_key_override=api_key,
+            )
+        )
+    return fetchers
+
+
 def fetch_live_provider_models(
     config: dict,
     timeout: float = 10.0,
@@ -194,12 +268,28 @@ def fetch_live_provider_models(
 
     Returns a (possibly empty) list of model entries. Provider failures
     are logged and skipped — this is best-effort discovery.
+
+    Custom ``providers:`` entries in ``config`` replace any built-in
+    fetcher sharing the same prefix, giving users an explicit escape
+    hatch to point at a self-hosted proxy instead of upstream vendors.
     """
+    custom = _custom_fetchers_from_config(config)
+    custom_prefixes = {f.prefix for f in custom}
+    overridden = custom_prefixes & {f.prefix for f in _FETCHERS}
+    if overridden:
+        logger.info(
+            "models_catalog: custom providers override built-ins: %s",
+            ", ".join(sorted(overridden)),
+        )
+    active: list[_ProviderFetcher] = [
+        f for f in _FETCHERS if f.prefix not in custom_prefixes
+    ] + custom
+
     results: list[dict] = []
     lock = threading.Lock()
 
     def _run(fetcher: _ProviderFetcher) -> None:
-        api_key = _get_api_key(config, fetcher.prefix)
+        api_key = fetcher.api_key_override or _get_api_key(config, fetcher.prefix)
         if not api_key:
             return
         try:
@@ -221,7 +311,7 @@ def fetch_live_provider_models(
                 "models_catalog: %s model discovery failed: %s", fetcher.prefix, exc
             )
 
-    threads = [threading.Thread(target=_run, args=(f,), daemon=True) for f in _FETCHERS]
+    threads = [threading.Thread(target=_run, args=(f,), daemon=True) for f in active]
     for t in threads:
         t.start()
     for t in threads:

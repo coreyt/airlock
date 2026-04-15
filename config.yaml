@@ -8,10 +8,15 @@
 # Model definitions
 # ---------------------------------------------------------------------------
 model_list:
-  # --- Anthropic (Claude) ---
+  # --- Anthropic (Claude 4.6 / 4.5) ---
+  - model_name: claude-opus
+    litellm_params:
+      model: anthropic/claude-opus-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+
   - model_name: claude-sonnet
     litellm_params:
-      model: anthropic/claude-sonnet-4-20250514
+      model: anthropic/claude-sonnet-4-6
       api_key: os.environ/ANTHROPIC_API_KEY
 
   - model_name: claude-haiku
@@ -19,20 +24,30 @@ model_list:
       model: anthropic/claude-haiku-4-5-20251001
       api_key: os.environ/ANTHROPIC_API_KEY
 
-  - model_name: claude-opus
+  # --- OpenAI (GPT-5.4 family) ---
+  - model_name: gpt-5-pro
     litellm_params:
-      model: anthropic/claude-opus-4-20250514
-      api_key: os.environ/ANTHROPIC_API_KEY
-
-  # --- OpenAI ---
-  - model_name: gpt-4o
-    litellm_params:
-      model: openai/gpt-4o
+      model: openai/gpt-5.4-pro
       api_key: os.environ/OPENAI_API_KEY
 
-  - model_name: gpt-4o-mini
+  - model_name: gpt-5
     litellm_params:
-      model: openai/gpt-4o-mini
+      model: openai/gpt-5.4
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: gpt-5-mini
+    litellm_params:
+      model: openai/gpt-5.4-mini
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: gpt-5-nano
+    litellm_params:
+      model: openai/gpt-5.4-nano
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: gpt-5-codex
+    litellm_params:
+      model: openai/gpt-5.1-codex
       api_key: os.environ/OPENAI_API_KEY
 
   # --- Google (Gemini) ---
@@ -83,15 +98,20 @@ model_list:
           thinking: true
           thinking_level: "MEDIUM"
 
-  # --- Mistral AI ---
-  - model_name: mistral-small
-    litellm_params:
-      model: mistral/mistral-small-latest
-      api_key: os.environ/MISTRAL_API_KEY
-
+  # --- Mistral AI (large-3 / medium / small-4 / magistral / codestral) ---
   - model_name: mistral-large
     litellm_params:
       model: mistral/mistral-large-latest
+      api_key: os.environ/MISTRAL_API_KEY
+
+  - model_name: mistral-medium
+    litellm_params:
+      model: mistral/mistral-medium-latest
+      api_key: os.environ/MISTRAL_API_KEY
+
+  - model_name: mistral-small
+    litellm_params:
+      model: mistral/mistral-small-latest
       api_key: os.environ/MISTRAL_API_KEY
 
   - model_name: codestral
@@ -101,13 +121,28 @@ model_list:
 
   - model_name: magistral-medium
     litellm_params:
-      model: mistral/magistral-medium-2509
+      model: mistral/magistral-medium-latest
       api_key: os.environ/MISTRAL_API_KEY
 
-  # --- Perplexity ---
+  # --- Perplexity Sonar ---
   - model_name: perplexity-sonar
     litellm_params:
       model: perplexity/sonar
+      api_key: os.environ/PERPLEXITY_API_KEY
+
+  - model_name: perplexity-sonar-pro
+    litellm_params:
+      model: perplexity/sonar-pro
+      api_key: os.environ/PERPLEXITY_API_KEY
+
+  - model_name: perplexity-sonar-reasoning-pro
+    litellm_params:
+      model: perplexity/sonar-reasoning-pro
+      api_key: os.environ/PERPLEXITY_API_KEY
+
+  - model_name: perplexity-sonar-deep-research
+    litellm_params:
+      model: perplexity/sonar-deep-research
       api_key: os.environ/PERPLEXITY_API_KEY
 
   # --- Tavily (web search as chat completion) ---
@@ -118,12 +153,13 @@ model_list:
 
   # --- Smart Router (auto-selects model by query complexity) ---
   # Send model: "smart" and Airlock auto-classifies prompt complexity:
-  #   simple → low-cost tier (claude-haiku, gemini-flash, gpt-4o-mini)
-  #   moderate → balanced tier (claude-sonnet, gemini-pro, gpt-4o)
-  #   complex → powerful tier (claude-opus, gemini-3-pro)
+  #   simple   → low    tier (claude-haiku, gemini-flash, gpt-5-nano, mistral-small)
+  #   moderate → medium tier (claude-sonnet, gemini-pro, gpt-5-mini, mistral-medium)
+  #   complex  → high   tier (claude-opus, gpt-5, gpt-5-pro, magistral-medium)
   # Native heuristic classifier in router.py — no ML deps, ~50μs latency.
   # Thresholds configurable via AIRLOCK_SMART_THRESHOLDS env var.
-  # Composes with other directives: session_id, prefer_provider, cost_tier.
+  # Tier membership is overridable via the `cost_tiers:` block below or
+  # AIRLOCK_COST_TIERS env var. Composes with session_id / prefer_provider.
 
   # --- Local vLLM (Gemma 4 31B AWQ) ---
   - model_name: gemma-4
@@ -187,21 +223,64 @@ router_settings:
     mistral:
       budget_limit: 25.0
       time_period: "1d"
+    perplexity:
+      budget_limit: 25.0
+      time_period: "1d"
   fallbacks:
-    - claude-sonnet: [claude-haiku, gpt-4o, gemini-pro]
-    - claude-haiku: [gemini-flash, gpt-4o-mini, mistral-small]
-    - claude-opus: [claude-sonnet, gemini-3.1-pro, gpt-4o]
-    - gpt-4o: [claude-sonnet, gemini-pro, mistral-large]
-    - gpt-4o-mini: [claude-haiku, gemini-flash, mistral-small]
-    - gemini-flash: [claude-haiku, gpt-4o-mini, mistral-small]
-    - gemini-pro: [claude-sonnet, gpt-4o, mistral-large]
-    - gemini-3-pro: [gemini-3.1-pro, claude-opus, gpt-4o]
-    - gemini-3.1-pro: [gemini-3-pro, claude-opus, gpt-4o]
-    - mistral-small: [claude-haiku, gemini-flash, gpt-4o-mini]
-    - mistral-large: [claude-sonnet, gpt-4o, gemini-pro]
-    - codestral: [claude-sonnet, gpt-4o, gemini-pro]
-    - magistral-medium: [claude-opus, gemini-3.1-pro, gpt-4o]
+    - claude-opus: [claude-sonnet, gpt-5-pro, gemini-3.1-pro]
+    - claude-sonnet: [claude-haiku, gpt-5-mini, gemini-pro]
+    - claude-haiku: [gemini-flash, gpt-5-nano, mistral-small]
+    - gpt-5-pro: [gpt-5, claude-opus, gemini-3.1-pro]
+    - gpt-5: [gpt-5-mini, claude-sonnet, gemini-pro]
+    - gpt-5-mini: [gpt-5-nano, claude-haiku, gemini-flash]
+    - gpt-5-nano: [claude-haiku, gemini-flash, mistral-small]
+    - gpt-5-codex: [codestral, gpt-5, claude-sonnet]
+    - gemini-flash: [claude-haiku, gpt-5-nano, mistral-small]
+    - gemini-flash-lite: [gemini-flash, claude-haiku, gpt-5-nano]
+    - gemini-pro: [claude-sonnet, gpt-5-mini, mistral-large]
+    - gemini-3-flash: [gemini-flash, claude-haiku, gpt-5-nano]
+    - gemini-3-pro: [gemini-3.1-pro, claude-opus, gpt-5]
+    - gemini-3.1-pro: [gemini-3-pro, claude-opus, gpt-5-pro]
+    - gemini-3.1-pro-tools: [gemini-3.1-pro, gemini-3-pro, claude-opus]
+    - gemini-coding: [gemini-3.1-pro-tools, claude-opus, gpt-5-codex]
+    - mistral-large: [claude-sonnet, gpt-5, gemini-pro]
+    - mistral-medium: [mistral-large, claude-sonnet, gpt-5-mini]
+    - mistral-small: [claude-haiku, gemini-flash, gpt-5-nano]
+    - codestral: [gpt-5-codex, claude-sonnet, gpt-5]
+    - magistral-medium: [claude-opus, gpt-5-pro, gemini-3.1-pro]
+    - perplexity-sonar: [perplexity-sonar-pro]
+    - perplexity-sonar-pro: [perplexity-sonar-reasoning-pro, perplexity-sonar]
+    - perplexity-sonar-reasoning-pro: [perplexity-sonar-pro]
     - gemma-4: [claude-haiku, gemini-flash, mistral-small]
+
+# ---------------------------------------------------------------------------
+# Cost tiers — Airlock routing directive targets
+# ---------------------------------------------------------------------------
+# Used by cost_tier / smart routing directives. Each tier is an ordered list
+# of `model_name` aliases from `model_list` above; the first entry is the
+# default swap target for that tier. Env var AIRLOCK_COST_TIERS (JSON) takes
+# precedence if set.
+cost_tiers:
+  low:
+    - claude-haiku
+    - gemini-flash
+    - gemini-flash-lite
+    - gpt-5-nano
+    - mistral-small
+    - gemma-4
+  medium:
+    - claude-sonnet
+    - gemini-pro
+    - gpt-5-mini
+    - mistral-medium
+    - codestral
+  high:
+    - claude-opus
+    - gpt-5
+    - gpt-5-pro
+    - mistral-large
+    - magistral-medium
+    - gemini-3.1-pro
 
 # ---------------------------------------------------------------------------
 # Guardrails
