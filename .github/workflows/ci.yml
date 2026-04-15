@@ -29,7 +29,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --extra test
+          uv sync --extra test --extra db
 
       - name: Download spaCy model
         run: |
@@ -67,7 +67,7 @@ jobs:
 
       - name: Install dependencies and linters
         run: |
-          uv sync --extra test
+          uv sync --extra test --extra db
           # Pin linter versions so CI is reproducible and a new ruff/mypy
           # release can't silently turn the build red on an unrelated PR.
           uv pip install "ruff==0.15.9" "mypy==1.20.0"
@@ -106,6 +106,6 @@ jobs:
 
       - name: Install and audit
         run: |
-          uv sync
+          uv sync --extra db
           uv pip install "pip-audit==2.7.3"
           uv run pip-audit
