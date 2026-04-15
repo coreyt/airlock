@@ -61,8 +61,21 @@ def test_get_engine_disabled_by_default(monkeypatch):
 def test_get_engine_enabled_uses_init(monkeypatch):
     monkeypatch.setenv("AIRLOCK_ENABLE_FATHOMDB", "1")
     monkeypatch.setattr(datastore, "engine", None, raising=False)
+    monkeypatch.setattr(datastore, "engine_pid", None, raising=False)
 
     with patch("airlock.datastore.init_engine", return_value="engine") as mock_init:
         assert datastore.get_engine() == "engine"
 
     mock_init.assert_called_once()
+
+
+def test_get_engine_returns_none_for_foreign_process(monkeypatch):
+    monkeypatch.setenv("AIRLOCK_ENABLE_FATHOMDB", "1")
+    monkeypatch.setattr(datastore, "engine", "engine", raising=False)
+    monkeypatch.setattr(datastore, "engine_pid", 111, raising=False)
+    monkeypatch.setattr(datastore.os, "getpid", lambda: 222)
+
+    with patch("airlock.datastore.init_engine") as mock_init:
+        assert datastore.get_engine() is None
+
+    mock_init.assert_not_called()

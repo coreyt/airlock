@@ -56,14 +56,19 @@ def get_db_path() -> str:
 
 
 engine: Any | None = None
+engine_pid: int | None = None
 
 
 def get_engine() -> Any | None:
     """Lazily initialize the FathomDB engine only when explicitly enabled."""
-    global engine
+    global engine, engine_pid
+    current_pid = os.getpid()
     if engine is not None:
-        return engine
+        if engine_pid == current_pid:
+            return engine
+        return None
     if not fathomdb_enabled():
         return None
     engine = init_engine(get_db_path())
+    engine_pid = current_pid if engine is not None else None
     return engine

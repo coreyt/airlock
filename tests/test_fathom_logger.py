@@ -32,6 +32,7 @@ def test_fathom_logger_success():
         assert call_kwargs["logical_id"] == "call-123"
         assert call_kwargs["upsert"] is True
         assert call_kwargs["row_id"] != "call-123"
+        assert call_kwargs["source_ref"] == "airlock:fathom_logger"
         assert call_kwargs["properties"]["model"] == "gpt-4"
         assert call_kwargs["properties"]["total_tokens"] == 100
         assert call_kwargs["properties"]["cost"] == 0.05
@@ -61,6 +62,7 @@ def test_fathom_logger_failure():
         assert call_kwargs["logical_id"] == "call-456"
         assert call_kwargs["upsert"] is True
         assert call_kwargs["row_id"] != "call-456"
+        assert call_kwargs["source_ref"] == "airlock:fathom_logger"
         assert call_kwargs["properties"]["model"] == "gpt-3.5"
         assert call_kwargs["properties"]["total_tokens"] == 50
         assert call_kwargs["properties"]["cost"] == 0.01
@@ -79,3 +81,37 @@ def test_fathom_logger_no_fathomdb():
     with patch("airlock.callbacks.fathom_logger.WriteRequestBuilder", None):
         logger.log_success_event(kwargs, None, None, None)
         engine_mock.write.assert_not_called()
+
+
+def test_fathom_logger_skips_duplicate_call_ids():
+    engine_mock = MagicMock()
+    logger = AirlockFathomLogger(engine=engine_mock)
+
+    kwargs = {"model": "gpt-4", "response_cost": 0.05, "litellm_call_id": "call-123"}
+    response_obj = MockResponse(total_tokens=100)
+
+    with patch("airlock.callbacks.fathom_logger.WriteRequestBuilder") as MockBuilder:
+        builder_instance = MockBuilder.return_value
+        builder_instance.build.return_value = "mock_request"
+
+        logger.log_success_event(kwargs, response_obj, None, None)
+        logger.log_failure_event(kwargs, response_obj, None, None)
+
+        builder_instance.add_node.assert_called_once()
+        engine_mock.write.assert_called_once_with("mock_request")
+
+
+def test_fathom_logger_skips_when_metadata_requests_suppression():
+    engine_mock = MagicMock()
+    logger = AirlockFathomLogger(engine=engine_mock)
+    kwargs = {
+        "model": "gpt-4",
+        "litellm_call_id": "call-123",
+        "litellm_params": {"metadata": {"airlock_skip_fathom_logger": True}},
+    }
+
+    with patch("airlock.callbacks.fathom_logger.WriteRequestBuilder") as MockBuilder:
+        logger.log_success_event(kwargs, MockResponse(total_tokens=100), None, None)
+
+    MockBuilder.assert_not_called()
+    engine_mock.write.assert_not_called()
