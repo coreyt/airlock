@@ -35,7 +35,7 @@ Definition lives at `.claude/agents/code-reviewer.md` (create if missing).
 
 | Property | Value |
 |---|---|
-| Tools | `Read`, `Glob`, `Grep`, `Bash` (read-only commands like `git show`, `git diff`, `cargo check`). No `Edit`/`Write`. |
+| Tools | `Read`, `Glob`, `Grep`, `Bash` (read-only commands like `git show`, `git diff`, `uv run pytest`). No `Edit`/`Write`. |
 | Background | `run_in_background: true` (always) |
 | Model | `sonnet` (not haiku — 50% false positive rate observed with haiku) |
 | Parallelism | unlimited (read-only) |
@@ -64,7 +64,7 @@ fill in the bracketed values.
 The worktree path is supplied by the harness when `isolation: "worktree"`
 is set — the agent starts *inside* the worktree. The orchestrator must
 still name it explicitly so the agent can verify it is in the right tree
-and never wanders back to `/home/coreyt/projects/fathomdb`.
+and never wanders back to `/home/coreyt/projects/airlock`.
 
 ```markdown
 You are an implementing agent for Pack {PACK_ID} — {DESCRIPTION}.
@@ -76,7 +76,7 @@ Branch: {BRANCH}
 Base commit (fresh from main): {COMMIT_HASH}
 
 Do ALL work inside the worktree. Do NOT cd into
-/home/coreyt/projects/fathomdb for any reason. Do NOT edit, stage, or
+/home/coreyt/projects/airlock for any reason. Do NOT edit, stage, or
 commit files there. If any command below targets the main checkout,
 STOP and report.
 
@@ -86,7 +86,7 @@ cd {WORKTREE_ABSOLUTE_PATH}
 git rev-parse --show-toplevel    # must equal {WORKTREE_ABSOLUTE_PATH}
 git log --oneline -1             # must show {COMMIT_HASH}
 git status --short               # must be clean
-cargo nextest run {TEST_SPEC} 2>&1 | tail -5
+uv run pytest {TEST_SPEC} 2>&1 | tail -5
 \```
 Must see: {HASH}, clean tree, {N} failing. If any check fails, STOP
 and report to the orchestrator — do not attempt repairs yourself.
@@ -111,7 +111,7 @@ resolution.)
 
 ## Target Tests
 \```bash
-cd {WORKTREE_ABSOLUTE_PATH} && cargo nextest run {TEST_SPEC}
+cd {WORKTREE_ABSOLUTE_PATH} && uv run pytest {TEST_SPEC}
 \```
 
 (For Python-bindings packs, substitute:
@@ -140,8 +140,8 @@ If still failing after 3 attempts, STOP and report what you learned.
 ### 4. LINT
 \```bash
 cd {WORKTREE_ABSOLUTE_PATH}
-cargo clippy --all-targets -- -D warnings
-cargo fmt --check
+uv run ruff check --all-targets -- -D warnings
+uv run ruff format --check
 \```
 Fix any violations. Re-run to confirm clean. Scope clippy to the
 changed crates with `-p <crate>` if the workspace build is too slow.
@@ -162,7 +162,7 @@ If you do not commit, your work WILL BE LOST when the worktree is
 removed.
 If the commit is rejected by a pre-commit hook, fix the issue
 and commit again. Do NOT use --no-verify.
-Do NOT run `cargo publish`, `cargo yank`, or touch the crates.io
+Do NOT run `uv publish`, `cargo yank`, or touch the PyPI
 registry. Do NOT push the branch. Do NOT merge into main.
 Never mention internal IPs, hostnames, or network details in commit
 messages.
@@ -194,10 +194,10 @@ You run in background. Talk to the orchestrator only when necessary:
 ## Scope Constraints
 - Do NOT add features, refactor, or clean up code outside the fix.
 - Do NOT add docstrings, comments, or type annotations to unchanged code.
-- Do NOT touch Cargo.toml/Cargo.lock at the workspace root unless the
+- Do NOT touch pyproject.toml/uv.lock at the workspace root unless the
   pack explicitly requires a dependency bump.
 - {PACK-SPECIFIC CONSTRAINTS, e.g.: "Do NOT modify the WAL format" or
-  "Do NOT touch python_types.rs".}
+  "Do NOT touch python_types.py".}
 - If you discover a related issue, report it — do not fix it.
 - 3-iteration cap. If you cannot get tests green, stop and report.
 ```
@@ -227,7 +227,7 @@ git -C {WORKTREE_ABSOLUTE_PATH} show {COMMIT_HASH}
 \```
 
 IMPORTANT: Read ALL files from {WORKTREE_ABSOLUTE_PATH}/, NOT from
-/home/coreyt/projects/fathomdb/. Worktree paths follow the pattern
+/home/coreyt/projects/airlock/. Worktree paths follow the pattern
 `.claude/worktrees/agent-<hash>/` (or `.claude/worktrees/<branch>/` for
 manually created ones). Verify you are reading the correct tree
 before starting — a review of the wrong tree is worse than no review.
@@ -253,7 +253,7 @@ For each changed file:
    - Off-by-one in byte offsets, slices, or range queries
    - Resource cleanup (file handles, locks, `Arc` cycles, channel drops)
    - Thread-safety around shared engine/coordinator state
-   - Python GIL / Send+Sync boundaries if python_types.rs is touched
+   - Python GIL / Send+Sync boundaries if python_types.py is touched
 
 ## Verdict
 Return this exact structure to the orchestrator:
@@ -294,8 +294,8 @@ If a review returns NEEDS_FIXES, the orchestrator MUST verify before acting:
 | Agent wrote into main instead of worktree | Treat as dirty main. See Section 6. Re-brief template with the worktree path clearly stated. |
 | Worktree lost (no commit) | Relaunch. Should not happen if prompt template is followed. |
 | Agent blocked by permissions | **STOP. Escalate to user immediately.** Do NOT relaunch. |
-| Agent tried `cargo publish` / `git push` and got denied | Expected — the deny list did its job. Rebrief the agent to stop at commit. |
-| Disk space exhausted | Merge and remove worktrees; `cargo clean` in the largest stale target dir. |
+| Agent tried `uv publish` / `git push` and got denied | Expected — the deny list did its job. Rebrief the agent to stop at commit. |
+| Disk space exhausted | Merge and remove worktrees; `uv cache clean` in the largest stale target dir. |
 | Agent used Edit but not Bash (no commit) | The agent definition is missing the Bash tool. Fix the agent definition before relaunching. See Section 6 for salvage. |
 | `git rev-parse` / `git worktree add` failure | Dirty tracked files on main, or main is not at the expected commit. See Section 6. |
 | Multiple agents fail identically | Infrastructure issue. Diagnose once, fix, then relaunch. |
@@ -309,20 +309,20 @@ If a review returns NEEDS_FIXES, the orchestrator MUST verify before acting:
 ### Python venv broken or missing (only matters for python-bindings packs)
 
 ```bash
-cd /home/coreyt/projects/fathomdb
+cd /home/coreyt/projects/airlock
 rm -rf python/.venv
-pip install -e python/
+uv pip install -e .
 ```
 
-Do NOT build the native extension by hand with `cargo build -p` and
-copy `.so` files into `python/fathomdb/` — `pip install -e python/`
+Do NOT build the native extension by hand with `uv build -p` and
+copy `.so` files into `python/airlock/` — `uv pip install -e .`
 handles that, and bypassing it leaves a stale binary that looks correct
 but runs old code.
 
 ### Agent committed to wrong branch or directly to main
 
 ```bash
-cd /home/coreyt/projects/fathomdb
+cd /home/coreyt/projects/airlock
 git log --oneline -3        # identify bad commit
 git revert <hash>           # clean revert if pushed
 # or if not pushed:
@@ -332,8 +332,8 @@ git reset --soft HEAD~1     # undo commit, keep changes
 ### Test suite broken after agent work
 
 ```bash
-cd /home/coreyt/projects/fathomdb
-cargo nextest run --workspace 2>&1 | grep -E "FAIL|failed"
+cd /home/coreyt/projects/airlock
+uv run pytest --cov=airlock -q 2>&1 | grep -E "FAIL|failed"
 # Categorize: agent's files or pre-existing?
 # Agent's files -> launch fixer implementer
 # Pre-existing -> investigate separately
@@ -347,7 +347,7 @@ git worktree list                    # remove stale worktrees
 git worktree remove <path> --force
 git worktree prune
 # If still tight, clean the largest stale target dir:
-du -sh /home/coreyt/projects/fathomdb/.claude/worktrees/*/target 2>/dev/null
+du -sh /home/coreyt/projects/airlock/.claude/worktrees/*/target 2>/dev/null
 ```
 
 ---
@@ -362,7 +362,7 @@ will fail.
 ### Diagnosis
 
 ```bash
-cd /home/coreyt/projects/fathomdb
+cd /home/coreyt/projects/airlock
 git status --short | grep "^ M"
 ```
 
@@ -374,22 +374,22 @@ prompt (point working directory at the worktree) before relaunching.
 
 1. **Edits are useful (agent did good work):**
    ```bash
-   cd /home/coreyt/projects/fathomdb
+   cd /home/coreyt/projects/airlock
    git diff <file>                            # review
-   cargo nextest run {tests}                  # test
+   uv run pytest {tests}                  # test
    git add <specific-files>                   # stage
    git commit -m "<pack>: <description>"      # commit
    ```
 
 2. **Edits are garbage or incomplete:**
    ```bash
-   cd /home/coreyt/projects/fathomdb
+   cd /home/coreyt/projects/airlock
    git checkout -- .
    ```
 
 3. **Edits are mixed (some good, some bad):**
    ```bash
-   cd /home/coreyt/projects/fathomdb
+   cd /home/coreyt/projects/airlock
    git diff <file>          # review each file
    git checkout -- <bad-file>
    git add <good-file>
@@ -480,10 +480,10 @@ trap:
 ### Filesystem
 
 ```
-/home/coreyt/projects/fathomdb/            <- project root (main checkout)
-/home/coreyt/projects/fathomdb/target      <- cargo target dir (large)
-/home/coreyt/projects/fathomdb/python/.venv <- python venv (only if bindings work planned)
-/home/coreyt/projects/fathomdb/.claude/worktrees/ <- worktree parent directory
+/home/coreyt/projects/airlock/            <- project root (main checkout)
+/home/coreyt/projects/airlock/target      <- cargo target dir (large)
+/home/coreyt/projects/airlock/python/.venv <- python venv (only if bindings work planned)
+/home/coreyt/projects/airlock/.claude/worktrees/ <- worktree parent directory
     agent-<hash>/                                 <- harness-created (isolation: worktree)
     <branch>/                                     <- manually created
 ```
@@ -496,11 +496,11 @@ All storage is local. No external mounts needed.
    each worktree builds its own `target/` which can be 5-10 GB).
 2. Main must be clean before `git worktree add` — see runbook Section 2.
 3. Python venv lives at `python/.venv`. If broken, recreate with
-   `pip install -e python/` — never hand-build the native extension.
+   `uv pip install -e .` — never hand-build the native extension.
 4. Each worktree gets its own `target/` directory because cargo's build
    cache is per-checkout. If disk pressure is acute, serialize packs
    instead of running 3 in parallel.
-5. Never run `cargo publish`, `cargo yank`, or `cargo owner` from an
+5. Never run `uv publish`, `cargo yank`, or `cargo owner` from an
    agent. These are denied in `.claude/settings.json`; release cuts go
    through the orchestrator with explicit user approval.
 
@@ -526,7 +526,7 @@ Construct a minimal scratch test that:
 
 Run the scratch test:
 \```bash
-{TEST RUN COMMAND, e.g. `cargo test --test scratch dual_match -- --nocapture`}
+{TEST RUN COMMAND, e.g. `uv run pytest --test scratch dual_match -- --nocapture`}
 \```
 
 Observe the answer empirically. Record the observed value verbatim — do
@@ -575,8 +575,8 @@ Briefing to a fix agent:
 ```
 P8x-1 critical — cross-pack assertion contradiction on dedup tiebreak.
 
-**Step 1: Investigate.** Construct a minimal Rust experiment in scratch
-form (you can put it in `crates/fathomdb/tests/scale.rs` near the new
+**Step 1: Investigate.** Construct a minimal Python experiment in scratch
+form (you can put it in `airlock/airlock/tests/scale.py` near the new
 tests, or in a scratch test file you'll delete before commit) that:
 
 1. Opens a fresh tempdir engine
@@ -587,7 +587,7 @@ tests, or in a scratch test file you'll delete before commit) that:
 4. Runs `engine.query("DualMatch").text_search("dualmatchneedle", 10).execute()`
 5. `eprintln!`s the resulting `SearchHit { source, score, ... }` for inspection
 
-Run the test with `cargo test --test scale dual_match -- --nocapture`.
+Run the test with `uv run pytest --test scale dual_match -- --nocapture`.
 Observe which source wins in the canonical case.
 
 **Step 2: Decide.** Update all three call sites (P8a's scenarios.json,

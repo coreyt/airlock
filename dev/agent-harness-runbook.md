@@ -1,7 +1,7 @@
 # Agent Harness Runbook
 
 Operational playbook for Claude operating as an orchestrator of subagents
-performing test-driven development on fathomdb. Read this at session start.
+performing test-driven development on airlock. Read this at session start.
 
 For prompt templates, failure recovery, and infrastructure details, see
 [agent-harness-reference.md](agent-harness-reference.md).
@@ -23,7 +23,7 @@ The orchestrator coordinates — it does not implement.
 6. Protect your own context — delegate all code work to subagents.
 
 **Do NOT:**
-- Edit source or test files in `/home/coreyt/projects/fathomdb` directly
+- Edit source or test files in `/home/coreyt/projects/airlock` directly
   (delegate to an implementer in a worktree).
 - Iterate on clippy/fmt errors (delegate to a cleanup implementer).
 - Read large source files (delegate to an Explore agent).
@@ -44,24 +44,24 @@ Run `scripts/preflight.sh` before every agent launch — not just at
 session start, but after every agent completion, merge, or failure.
 
 ```bash
-cd /home/coreyt/projects/fathomdb
+cd /home/coreyt/projects/airlock
 ./scripts/preflight.sh              # standard checks
-./scripts/preflight.sh --baseline   # include cargo check baseline (slow, session start only)
+./scripts/preflight.sh --baseline   # include uv run pytest baseline (slow, session start only)
 ```
 
 The script checks: branch, HEAD, clean working tree, active worktree
-count, disk space, cargo/rustc toolchain, and optional python venv.
+count, disk space, python/uv toolchain, and optional python venv.
 Exit code 1 means a gate failed — fix it before proceeding.
 
 If a gate fails:
 - Not on `main` → switch, or ask the user.
 - Dirty tree → see reference Section 6 (Dirty State Recovery).
 - Stale worktrees → `git worktree remove <path> --force && git worktree prune`.
-- Disk <10GB → free space before launching (cargo target dirs are large;
-  `cargo clean` on the worktree you can spare).
-- Missing cargo/rustc → install toolchain, don't retry.
+- Disk <10GB → free space before launching (uv environments are large;
+  `uv cache clean` on the worktree you can spare).
+- Missing python/uv → install toolchain, don't retry.
 - Missing `python/.venv` → only matters if the pack touches Python bindings;
-  run `pip install -e python/` (do NOT `cargo build` + copy the .so by hand).
+  run `uv pip install -e .` (do NOT `uv build` + copy the .so by hand).
 
 **Subagents must only branch from a clean main.** The orchestrator is
 responsible for ensuring main is clean and at a known commit BEFORE
@@ -92,21 +92,21 @@ list is incomplete or out of sync with the subagent environment — fix
 the list and re-run the canary before any real work. This catches Bash
 permission-denied failures up front instead of during the first real
 pack, and also verifies that the deny list actually blocks destructive
-commands (including `cargo publish`, `git push`, `rm`, `curl`). The
+commands (including `uv publish`, `git push`, `rm`, `curl`). The
 canary implementer can run foreground since it's <10s.
 
 **Step 1b: Implementation canary.**
 1. Run `./scripts/preflight.sh`. Confirm main is clean.
 2. Create the worktree from the recorded base commit:
    ```bash
-   cd /home/coreyt/projects/fathomdb
+   cd /home/coreyt/projects/airlock
    git worktree add .claude/worktrees/{BRANCH} -b {BRANCH} {BASE_COMMIT}
    ```
    Note the absolute path — this is `{WORKTREE_ABSOLUTE_PATH}` for the
    prompt template.
 3. Launch 1 implementer with `run_in_background: true`,
    `isolation: "worktree"`. The agent definition MUST grant `Bash` or
-   the agent will not be able to run `cargo test`, `cargo clippy`, or
+   the agent will not be able to run `uv run pytest`, `uv run ruff check`, or
    commit.
 4. Wait for it to complete. Do not launch other agents.
 5. If it succeeds: proceed with parallel launches (up to 3 concurrent).
@@ -145,9 +145,9 @@ wasted launch. The full template with copy-paste blocks is in
 | Branch and base commit hash | Proves the worktree is fresh off a clean main |
 | File ownership (MODIFY / READ ONLY / DO NOT TOUCH) | Prevents scope creep and cross-agent conflicts |
 | Design decisions already resolved | Agent cannot infer decisions from orchestrator context |
-| Target test command | Defines the success criteria (e.g. `cargo nextest run -p fathomdb-query text_query::`) |
+| Target test command | Defines the success criteria (e.g. `uv run pytest tests/test_fast_router.py`) |
 | Approach hint (1-3 sentences) | Agents that know the direction produce better code than agents exploring |
-| READ targets with specific line ranges | "Read coordinator.rs" is too broad; "lines 1-120, Coordinator::new" is right |
+| READ targets with specific line ranges | "Read coordinator.py" is too broad; "lines 1-120, Coordinator::new" is right |
 | COMMIT block with exact commands (inside the worktree) | Agents that don't commit lose their work when the worktree is removed |
 | Communication rules | Agent only pings orchestrator for blockers, not progress |
 | Scope constraints with DO NOT lines | For narrow packs, add explicit "Do NOT" lines based on what a confused agent might try |
@@ -172,14 +172,14 @@ After each implementing agent completes:
 
 ### If tests pass and no review needed:
 ```bash
-cd /home/coreyt/projects/fathomdb
+cd /home/coreyt/projects/airlock
 
 # Verify the worktree has the commit the agent reported
 git -C {WORKTREE_ABSOLUTE_PATH} log --oneline -1     # expect agent's hash
 git -C {WORKTREE_ABSOLUTE_PATH} status --short       # expect clean
 
 # Re-run the target tests from the worktree before merging
-(cd {WORKTREE_ABSOLUTE_PATH} && cargo nextest run {TEST_SPEC} 2>&1 | tail -15)
+(cd {WORKTREE_ABSOLUTE_PATH} && uv run pytest {TEST_SPEC} 2>&1 | tail -15)
 
 # Ensure main is clean before merging
 git status --short                                   # expect clean on main
@@ -203,7 +203,7 @@ git branch -d {BRANCH}    # only after the merge landed
 
 ### After every merge:
 ```bash
-cd /home/coreyt/projects/fathomdb
+cd /home/coreyt/projects/airlock
 df -h / | tail -1                                    # check disk
 git worktree list                                    # confirm removed
 git status --short                                   # expect clean
@@ -221,7 +221,7 @@ Phases execute sequentially. Within a phase, agents run in parallel.
 | Phase N → N+1 (implementing) | All implementing agents in Phase N reported. Tests pass for packs the next phase depends on. Merged worktrees removed. |
 | Phase N → N+1 (reviews) | Reviews can still be in flight. They gate merge, not next-phase launches. |
 | Pack → Merge | Agent reports tests pass. If review ran, verdict is not NEEDS_FIXES. Main is clean. |
-| All phases → Done | Full regression (`cargo nextest run --workspace`). Document remaining failures. |
+| All phases → Done | Full regression (`uv run pytest --cov=airlock -q`). Document remaining failures. |
 
 ---
 
@@ -311,7 +311,7 @@ The orchestrator's context window is finite and precious.
 - Implementers sharing editable files without worktree isolation.
 - Any agent after a fixer that changed shared files, where the next
   agent's worktree must be created from the new main HEAD.
-- Packs that touch `Cargo.toml`/`Cargo.lock` at the workspace root —
+- Packs that touch `pyproject.toml`/`uv.lock` at the workspace root —
   lockfile conflicts are noisy to resolve, so serialize these.
 
 ---
@@ -325,7 +325,7 @@ These have all caused real failures. Do not repeat them.
 | Launch without pre-flight | Run `./scripts/preflight.sh` first |
 | Foreground implementing agents | Always `run_in_background: true` |
 | Skip commit instructions in prompt | Always include the commit block |
-| Agent definition without `Bash` tool | Add `Bash` before launching — no Bash means no cargo, clippy, or commit |
+| Agent definition without `Bash` tool | Add `Bash` before launching — no Bash means no tests, linting, or commit |
 | `git add -A` in agent prompt | List specific files |
 | Haiku for code reviews | Use sonnet (haiku: 50% false positive rate) |
 | Parallel agents sharing files (no worktree) | Worktree isolation or serial |
@@ -338,14 +338,14 @@ These have all caused real failures. Do not repeat them.
 | Prompt points agent at main checkout | Prompt must name the worktree absolute path |
 | Create worktree from dirty main | Clean main first, then `git worktree add` |
 | Agent pushes or merges its own branch | Only the orchestrator merges worktree → main |
-| Agent runs `cargo publish` | Denied by `.claude/settings.json`; if it tries, treat as scope creep |
-| Manual `cargo build` + copy `.so` for python bindings | Always `pip install -e python/` |
+| Agent runs `uv publish` | Denied by `.claude/settings.json`; if it tries, treat as scope creep |
+| Manual `uv build` + copy `.so` for python bindings | Always `uv pip install -e .` |
 | Launch N agents before validating 1 | Canary first (Section 3) |
 | Debug code in orchestrator context | Delegate to Explore agent |
 | Relaunch on permission failure | Escalate to user immediately |
 | Argue with reviewers from your mental model when a quick experiment would settle it | Tell the fix agent to run an empirical test and observe — see §13.2 |
 | Assign one reviewer per pack when two packs share an invariant | Use a joint reviewer with explicit cross-pack consistency checks — see §13.1 |
-| Run a third "for safety" review pass after passes 1-2 are clean | Trust the diminishing-returns curve and ship — see §13.3 |
+| Run a third "for safety" review pass after passes 1-2 are clean | Tpython the diminishing-returns curve and ship — see §13.3 |
 | Assume the harness's worktree base is the same as current main HEAD | Always run `git merge <main-HEAD> --ff-only` as the first step in every implementer prompt; see [reference.md §6 Worktree fast-forward](agent-harness-reference.md#worktree-fast-forward-trap) |
 | Chatty mid-run subagent updates | Subagent reports at completion or on blockers only |
 
