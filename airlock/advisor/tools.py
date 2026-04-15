@@ -139,7 +139,7 @@ def get_state_snapshot(store: StateStore) -> dict:
 def get_recent_errors(log_dir: str, days: int = 2) -> dict:
     """Load JSONL logs, filter to failures, group by model and error_type."""
     engine = getattr(airlock.datastore, "engine", None)
-    
+
     if engine is not None:
         nodes = search_logs(engine, "error")
         records = [n.properties if hasattr(n, "properties") else n for n in nodes]

@@ -177,20 +177,30 @@ def test_get_recent_errors_groups_by_model(log_dir, monkeypatch):
 def test_get_recent_errors_uses_fathomdb(monkeypatch, log_dir):
     """If airlock.datastore.engine is set, uses search_logs."""
     import airlock.datastore
-    
+
     # Mock the engine to be not None
     monkeypatch.setattr(airlock.datastore, "engine", "dummy_engine", raising=False)
-    
+
     mock_called = False
+
     def mock_search_logs(engine, query, **kwargs):
         nonlocal mock_called
         mock_called = True
         return [
-            {"model": "gpt-4o", "error_type": "RateLimitError", "airlock_client": "c1", "timestamp": "2025-01-01T10:01:00Z", "error": "boom", "success": False}
+            {
+                "model": "gpt-4o",
+                "error_type": "RateLimitError",
+                "airlock_client": "c1",
+                "timestamp": "2025-01-01T10:01:00Z",
+                "error": "boom",
+                "success": False,
+            }
         ]
-        
-    monkeypatch.setattr("airlock.advisor.tools.search_logs", mock_search_logs, raising=False)
-    
+
+    monkeypatch.setattr(
+        "airlock.advisor.tools.search_logs", mock_search_logs, raising=False
+    )
+
     result = get_recent_errors(str(log_dir), days=2)
     assert mock_called
     assert result["total_errors"] == 1
