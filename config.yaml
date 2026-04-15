@@ -190,6 +190,8 @@ litellm_settings:
   custom_provider_map:
     - provider: tavily
       custom_handler: airlock.providers.tavily_provider.tavily_handler
+    - provider: enhanced
+      custom_handler: airlock.providers.enhanced_passthrough.enhanced_handler
 
   # Callbacks — enterprise logging + fast subsystem metrics
   # NOTE: these must point at module-level *instances*, not classes.
@@ -390,14 +392,13 @@ general_settings:
   # Master key protects the /key/generate endpoint (set via env)
   master_key: os.environ/AIRLOCK_MASTER_KEY
 
-  # Run model health checks in the background on a fixed interval.
-  # Without this, GET /health fires a live completion to every model on-demand.
-  # Interval is in seconds; 3600 = hourly.
-  background_health_checks: true
+  # Keep provider health checks lazy by default.
+  # Airlock's own probes use /health/liveliness, so we do not need real
+  # provider calls during startup just to determine whether the proxy is up.
+  # Enable this only when you explicitly want periodic provider-wide checks.
+  background_health_checks: false
   health_check_interval: 3600
 
   # Where the proxy listens
   # host: 0.0.0.0    # set via CLI flag or env
   # port: 4000       # set via CLI flag or env
-
-

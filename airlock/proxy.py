@@ -16,6 +16,7 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -91,6 +92,67 @@ def _validate_master_key() -> None:
             f"WARNING: AIRLOCK_MASTER_KEY is shorter than {_MIN_KEY_LENGTH} characters. Use a stronger key in production.",
             file=sys.stderr,
         )
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _startup_model_discovery_enabled() -> bool:
+    """Provider model discovery is informational only, so keep it opt-in."""
+    return _env_flag("AIRLOCK_STARTUP_MODEL_DISCOVERY", default=False)
+
+
+def _runtime_mcp_servers_enabled() -> bool:
+    return _env_flag("AIRLOCK_ENABLE_MCP_SERVERS", default=True)
+
+
+def _background_health_checks_override() -> bool | None:
+    value = os.getenv("AIRLOCK_BACKGROUND_HEALTH_CHECKS")
+    if value is None:
+        return None
+    return _env_flag("AIRLOCK_BACKGROUND_HEALTH_CHECKS", default=False)
+
+
+def _prepare_runtime_config(config_path: str) -> tuple[str, str | None]:
+    """Apply env-driven startup overrides and return a config path for LiteLLM."""
+    with open(config_path, encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
+
+    changed = False
+
+    if not _runtime_mcp_servers_enabled() and config.get("mcp_servers"):
+        config.pop("mcp_servers", None)
+        changed = True
+        print("Configured MCP servers disabled for startup (AIRLOCK_ENABLE_MCP_SERVERS=0).")
+
+    background_override = _background_health_checks_override()
+    if background_override is not None:
+        general_settings = config.setdefault("general_settings", {})
+        if general_settings.get("background_health_checks") != background_override:
+            general_settings["background_health_checks"] = background_override
+            changed = True
+        mode = "enabled" if background_override else "disabled"
+        print(f"Background health checks {mode} by AIRLOCK_BACKGROUND_HEALTH_CHECKS.")
+
+    if not changed:
+        return config_path, None
+
+    config_dir = Path(config_path).resolve().parent
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        suffix=".yaml",
+        prefix="airlock-runtime-",
+        dir=config_dir,
+        delete=False,
+    )
+    with tmp:
+        yaml.safe_dump(config, tmp, sort_keys=False)
+    return tmp.name, tmp.name
 
 
 def _validate_config(config_path: str) -> list[str]:
@@ -241,18 +303,26 @@ def main() -> None:
     from airlock.fast.router import set_router_config
 
     set_router_config(config)
-    live_models = fetch_live_provider_models(config)
-    if live_models:
-        providers = sorted({m["id"].split("/")[0] for m in live_models})
+    if _startup_model_discovery_enabled():
+        live_models = fetch_live_provider_models(config)
+        if live_models:
+            providers = sorted({m["id"].split("/")[0] for m in live_models})
+            print(
+                f"Provider models discovered: {len(live_models)} across {', '.join(providers)}"
+            )
+    else:
         print(
-            f"Provider models discovered: {len(live_models)} across {', '.join(providers)}"
+            "Startup model discovery disabled "
+            "(set AIRLOCK_STARTUP_MODEL_DISCOVERY=1 to enable)."
         )
+
+    runtime_config_path, temp_config_path = _prepare_runtime_config(config_path)
 
     litellm_bin = str(Path(sys.executable).parent / "litellm")
     litellm_cmd = [
         litellm_bin,
         "--config",
-        config_path,
+        runtime_config_path,
         "--host",
         host,
         "--port",
@@ -274,7 +344,14 @@ def main() -> None:
         pass  # best-effort
 
     print(f"Airlock starting on {host}:{port}")
-    sys.exit(subprocess.run(litellm_cmd, check=False).returncode)
+    try:
+        sys.exit(subprocess.run(litellm_cmd, check=False).returncode)
+    finally:
+        if temp_config_path:
+            try:
+                Path(temp_config_path).unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":

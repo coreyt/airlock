@@ -25,7 +25,7 @@ class AirlockFathomLogger(CustomLogger):
             return self.engine
         import airlock.datastore
 
-        return airlock.datastore.engine
+        return airlock.datastore.get_engine()
 
     def _log_event(self, kwargs: dict, response_obj: Any, error_flag: bool) -> None:
         db_engine = self._get_engine()

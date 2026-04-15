@@ -25,11 +25,6 @@ from airlock.tui.widgets.safe_data_table import _SafeDataTable
 from airlock.tui.widgets.status_indicator import StatusIndicator
 from airlock.api.queries import get_billing_metrics
 
-try:
-    from airlock.datastore import engine as db_engine
-except ImportError:
-    db_engine = None
-
 if TYPE_CHECKING:
     from airlock.tui.proxy_manager import ProxyManager
 
@@ -116,6 +111,15 @@ def _enforce_color(mode: str) -> str:
     if mode == "shadow":
         return "yellow"
     return "dim"
+
+
+def _get_datastore_engine():
+    try:
+        import airlock.datastore
+
+        return airlock.datastore.get_engine()
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -357,7 +361,7 @@ class OverviewPane(VerticalScroll):
             return
 
         probe_host = "127.0.0.1" if self._host == "0.0.0.0" else self._host
-        url = f"http://{probe_host}:{self._port}/health"
+        url = f"http://{probe_host}:{self._port}/health/liveliness"
         master_key = os.environ.get("AIRLOCK_MASTER_KEY", "")
         req = urllib.request.Request(  # noqa: S310
             url,
@@ -758,6 +762,7 @@ class OverviewPane(VerticalScroll):
 
             status_line = self.query_one("#ov-status-line", Static)
             billing_str = "Cost: $0.00"
+            db_engine = _get_datastore_engine()
             if db_engine is not None:
                 try:
                     metrics = get_billing_metrics(db_engine)

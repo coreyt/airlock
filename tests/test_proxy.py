@@ -10,6 +10,10 @@ import pytest
 
 from airlock.proxy import (
     _find_config,
+    _background_health_checks_override,
+    _prepare_runtime_config,
+    _runtime_mcp_servers_enabled,
+    _startup_model_discovery_enabled,
     _validate_config,
     _validate_master_key,
     _register_shutdown_handlers,
@@ -153,6 +157,7 @@ class TestMain:
 
     def test_main_calls_live_discovery(self, config_file, monkeypatch):
         monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
+        monkeypatch.setenv("AIRLOCK_STARTUP_MODEL_DISCOVERY", "1")
         discovery_called = []
 
         mock_result = MagicMock(returncode=0)
@@ -167,6 +172,20 @@ class TestMain:
             main()
 
         assert len(discovery_called) == 1
+
+    def test_main_skips_live_discovery_by_default(self, config_file, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
+        monkeypatch.delenv("AIRLOCK_STARTUP_MODEL_DISCOVERY", raising=False)
+
+        mock_result = MagicMock(returncode=0)
+        with (
+            patch("airlock.proxy.subprocess.run", return_value=mock_result),
+            patch("airlock.proxy.fetch_live_provider_models") as mock_discovery,
+            pytest.raises(SystemExit),
+        ):
+            main()
+
+        mock_discovery.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -366,6 +385,91 @@ class TestObserveModeWarning:
         _warn_observe_mode()
         captured = capsys.readouterr()
         assert "observe" not in captured.err.lower()
+
+
+class TestStartupFlags:
+    def test_startup_model_discovery_default_off(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_STARTUP_MODEL_DISCOVERY", raising=False)
+        assert _startup_model_discovery_enabled() is False
+
+    def test_startup_model_discovery_env_on(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_STARTUP_MODEL_DISCOVERY", "true")
+        assert _startup_model_discovery_enabled() is True
+
+    def test_runtime_mcp_servers_enabled_default_on(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_ENABLE_MCP_SERVERS", raising=False)
+        assert _runtime_mcp_servers_enabled() is True
+
+    def test_runtime_mcp_servers_can_be_disabled(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_ENABLE_MCP_SERVERS", "0")
+        assert _runtime_mcp_servers_enabled() is False
+
+    def test_background_health_checks_override_unset(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_BACKGROUND_HEALTH_CHECKS", raising=False)
+        assert _background_health_checks_override() is None
+
+    def test_background_health_checks_override_false(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_BACKGROUND_HEALTH_CHECKS", "false")
+        assert _background_health_checks_override() is False
+
+    def test_background_health_checks_override_true(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_BACKGROUND_HEALTH_CHECKS", "true")
+        assert _background_health_checks_override() is True
+
+
+class TestRuntimeConfigPreparation:
+    def test_prepare_runtime_config_returns_original_when_no_overrides(
+        self, tmp_path, monkeypatch
+    ):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(_VALID_CONFIG)
+
+        monkeypatch.delenv("AIRLOCK_ENABLE_MCP_SERVERS", raising=False)
+        monkeypatch.delenv("AIRLOCK_BACKGROUND_HEALTH_CHECKS", raising=False)
+
+        runtime_path, temp_path = _prepare_runtime_config(str(cfg))
+        assert runtime_path == str(cfg)
+        assert temp_path is None
+
+    def test_prepare_runtime_config_can_strip_mcp_servers(
+        self, tmp_path, monkeypatch
+    ):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            _VALID_CONFIG
+            + "mcp_servers:\n  demo:\n    transport: stdio\n    command: python3\n"
+        )
+        monkeypatch.setenv("AIRLOCK_ENABLE_MCP_SERVERS", "0")
+        monkeypatch.delenv("AIRLOCK_BACKGROUND_HEALTH_CHECKS", raising=False)
+
+        runtime_path, temp_path = _prepare_runtime_config(str(cfg))
+        assert temp_path is not None
+
+        import yaml
+
+        with open(runtime_path, encoding="utf-8") as f:
+            loaded = yaml.safe_load(f) or {}
+        assert "mcp_servers" not in loaded
+
+    def test_prepare_runtime_config_can_override_health_checks(
+        self, tmp_path, monkeypatch
+    ):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            _VALID_CONFIG
+            + "general_settings:\n  background_health_checks: true\n"
+        )
+        monkeypatch.setenv("AIRLOCK_BACKGROUND_HEALTH_CHECKS", "0")
+        monkeypatch.delenv("AIRLOCK_ENABLE_MCP_SERVERS", raising=False)
+
+        runtime_path, temp_path = _prepare_runtime_config(str(cfg))
+        assert temp_path is not None
+
+        import yaml
+
+        with open(runtime_path, encoding="utf-8") as f:
+            loaded = yaml.safe_load(f) or {}
+        assert loaded["general_settings"]["background_health_checks"] is False
 
     def test_shadow_mode_no_warning(self, monkeypatch, capsys):
         monkeypatch.setenv("AIRLOCK_ENFORCE_MODE", "shadow")
