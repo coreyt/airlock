@@ -15,6 +15,14 @@ Initial explorations considered building a custom LiteLLM provider (`CustomLLM`)
 
 Actual implementation diverged. Airlock now uses `airlock/providers/enhanced_passthrough.py`, a custom provider that resolves `enhanced/*` aliases at execution time, forwards to the physical target model, marks the inner call `no_log=True`, and sets `metadata.airlock_skip_fathom_logger=True` so one logical request still produces one Airlock/Fathom log record. This note remains useful as design history, but it no longer describes the live code path.
 
+### Current Behavior Snapshot
+
+- Runtime implementation: [`airlock/providers/enhanced_passthrough.py`](/home/coreyt/projects/airlock/airlock/providers/enhanced_passthrough.py)
+- Config surface: `model_list[].litellm_params.enhanced_profile`
+- Forwarded fields: target model, injected system prompt, normalized Gemini reasoning params, provider auth (`api_key`), and transport context (`api_base`, `headers`, `client`)
+- Logging behavior: inner forwarded provider call skips Airlock Fathom logging; one logical alias request produces one `RequestLog` row
+- Verified live path: `gemini-coding` now reaches HTTP `200` against same physical target as `gemini-3.1-pro-tools`
+
 ---
 
 ## 2. Architectural Goals & Constraints

@@ -28,7 +28,14 @@ def _debug_enabled() -> bool:
 
 
 class AirlockFathomLogger(CustomLogger):
-    """LiteLLM callback that logs requests/responses to FathomDB."""
+    """LiteLLM callback that records logical Airlock requests in FathomDB.
+
+    Parameters
+    ----------
+    engine : Any, optional
+        Pre-opened Fathom engine to use instead of Airlock datastore
+        singleton. Primarily useful for tests.
+    """
 
     def __init__(self, engine: Any = None):
         super().__init__()
@@ -145,11 +152,37 @@ class AirlockFathomLogger(CustomLogger):
     def log_success_event(
         self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
     ) -> None:
+        """Log successful logical request to FathomDB.
+
+        Parameters
+        ----------
+        kwargs : dict
+            LiteLLM callback kwargs.
+        response_obj : Any
+            LiteLLM response object.
+        start_time : Any
+            Callback start timestamp.
+        end_time : Any
+            Callback end timestamp.
+        """
         self._log_event(kwargs, response_obj, error_flag=False)
 
     async def async_log_success_event(
         self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
     ) -> None:
+        """Log successful logical request from LiteLLM async callback path.
+
+        Parameters
+        ----------
+        kwargs : dict
+            LiteLLM callback kwargs.
+        response_obj : Any
+            LiteLLM response object.
+        start_time : Any
+            Callback start timestamp.
+        end_time : Any
+            Callback end timestamp.
+        """
         import asyncio
 
         await asyncio.to_thread(
@@ -159,11 +192,37 @@ class AirlockFathomLogger(CustomLogger):
     def log_failure_event(
         self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
     ) -> None:
+        """Log failed logical request to FathomDB.
+
+        Parameters
+        ----------
+        kwargs : dict
+            LiteLLM callback kwargs.
+        response_obj : Any
+            LiteLLM response object.
+        start_time : Any
+            Callback start timestamp.
+        end_time : Any
+            Callback end timestamp.
+        """
         self._log_event(kwargs, response_obj, error_flag=True)
 
     async def async_log_failure_event(
         self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
     ) -> None:
+        """Log failed logical request from LiteLLM async callback path.
+
+        Parameters
+        ----------
+        kwargs : dict
+            LiteLLM callback kwargs.
+        response_obj : Any
+            LiteLLM response object.
+        start_time : Any
+            Callback start timestamp.
+        end_time : Any
+            Callback end timestamp.
+        """
         import asyncio
 
         await asyncio.to_thread(

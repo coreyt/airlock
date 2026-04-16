@@ -5,6 +5,56 @@ All notable changes to Airlock are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Startup control flags** for low-noise local and production boot:
+  `AIRLOCK_STARTUP_MODEL_DISCOVERY`, `AIRLOCK_MCP_STARTUP_MODE`,
+  `AIRLOCK_ENABLE_FATHOMDB`, and `AIRLOCK_ENABLE_FATHOM_LOGGER`.
+- **Enhanced Gemini alias execution path** via
+  `airlock.providers.enhanced_passthrough`, allowing logical aliases
+  such as `gemini-coding` to inject prompt and parameter defaults while
+  forwarding to a physical Gemini deployment.
+
+### Changed
+
+- **Proxy runtime config rewriting** now strips
+  `general_settings.master_key` when `AIRLOCK_MASTER_KEY` is unset or
+  blank, so local and development runs do not accidentally trigger
+  LiteLLM's database-backed virtual-key auth flow.
+- **Liveness guidance** now consistently favors `GET /health/liveliness`
+  for frequent probes, while leaving `GET /health` for slower,
+  provider-touching readiness checks.
+
+### Fixed
+
+- **MCP startup behavior** now supports three explicit modes:
+  `off` removes `mcp_servers` from runtime config, `lazy` preserves MCP
+  configuration while suppressing LiteLLM's eager startup `list_tools()`
+  sweep, and `eager` preserves LiteLLM's default probing behavior.
+- **FathomDB bootstrap on fresh state dirs** now pre-creates the missing
+  `vec_nodes_active` table stub used by current Fathom write paths,
+  preventing fresh-database write noise.
+- **FathomDB request logging** now:
+  - self-registers on LiteLLM's async callback path for proxy traffic,
+  - deduplicates repeated success/failure callback attempts by
+    `litellm_call_id`,
+  - skips inner forwarded enhanced-provider calls, and
+  - uses a PID-bound, thread-safe lazy engine singleton to avoid
+    same-process `Engine.open()` races under concurrent writes.
+- **Enhanced Gemini alias forwarding** now preserves provider auth and
+  transport context (`api_key`, `api_base`, `headers`, `client`) when
+  delegating to the physical model, fixing `gemini-coding` so it reaches
+  the same successful upstream path as `gemini-3.1-pro-tools`.
+
+### Documentation
+
+- Revised README, getting-started, operations, and developer design-note
+  docs to describe low-noise startup defaults, optional FathomDB
+  logging, Fathom's single-owner process model, and the implemented
+  enhanced Gemini alias behavior.
+
 ## [0.2.0] — 2026-04-10
 
 ### Added

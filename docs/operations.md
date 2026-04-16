@@ -140,6 +140,11 @@ Current write-path guarantees:
 - The in-process engine singleton is PID-bound and thread-safe, which avoids same-process `Engine.open()` races during concurrent callback writes.
 - Forwarded inner `enhanced/*` provider calls do not emit duplicate Fathom rows.
 
+Operational constraint:
+
+- FathomDB remains single-owner at process level. Do not point multiple live processes at same `AIRLOCK_STATE_DIR/airlock.db`.
+- Airlock's safeguards cover same-process callback concurrency and inherited PID mismatches, not intentional multi-process shared-writer access.
+
 ## Logging
 
 ### JSONL Logs

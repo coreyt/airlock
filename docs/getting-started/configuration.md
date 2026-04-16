@@ -56,6 +56,7 @@ Notes:
 
 - Clients request `model: "gemini-coding"`. They never need to know the physical Gemini model name.
 - Gemini-specific `thinking` settings are normalized to the provider surface LiteLLM actually accepts.
+- Provider auth and transport context are forwarded to the physical model call, so the alias uses the same `api_key` / `api_base` wiring as the underlying deployment.
 - The forwarded inner provider call is marked `no_log=True` and skips the Airlock Fathom callback, so one logical request produces one Fathom row.
 
 ## Environment variables
@@ -100,6 +101,8 @@ AIRLOCK_ENABLE_FATHOMDB=1
 AIRLOCK_ENABLE_FATHOM_LOGGER=1
 AIRLOCK_STATE_DIR=/tmp/airlock-fathom-fresh
 ```
+
+Operational note: FathomDB is still a single-owner database. Airlock now avoids same-process engine-open races and inherited cross-process reuse, but separate processes should not open the same `airlock.db` simultaneously.
 
 Recommended debug profile:
 

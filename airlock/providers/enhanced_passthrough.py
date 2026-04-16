@@ -65,7 +65,15 @@ def _inject_or_append_system_prompt(
 
 
 class EnhancedPassthroughProvider(CustomLLM):
-    """Resolve enhanced aliases to their physical target model on execution."""
+    """Resolve logical ``enhanced/*`` aliases at provider execution time.
+
+    Notes
+    -----
+    This provider turns a logical alias such as ``enhanced/gemini-coding``
+    into a physical provider model, injects configured prompts and
+    parameter overrides, and forwards provider auth and transport context
+    to the inner LiteLLM call.
+    """
 
     def __init__(self) -> None:
         super().__init__()
@@ -178,6 +186,29 @@ class EnhancedPassthroughProvider(CustomLLM):
         timeout: Optional[Union[float, httpx.Timeout]] = None,
         client=None,
     ) -> ModelResponse:
+        """Execute synchronous completion for enhanced alias.
+
+        Parameters
+        ----------
+        model : str
+            Logical alias requested by caller.
+        messages : list
+            Chat message payload.
+        api_base : str
+            Provider base URL forwarded to physical model when present.
+        optional_params : dict
+            LiteLLM optional parameters for request.
+        api_key
+            Provider credential forwarded to physical model when present.
+        litellm_params : dict, optional
+            LiteLLM deployment metadata, including optional
+            ``enhanced_profile`` configuration.
+
+        Returns
+        -------
+        ModelResponse
+            LiteLLM response from physical target model.
+        """
         target_model, resolved_messages, resolved_params = self._resolve_request(
             model=model,
             messages=messages,
@@ -215,6 +246,29 @@ class EnhancedPassthroughProvider(CustomLLM):
         timeout: Optional[Union[float, httpx.Timeout]] = None,
         client=None,
     ) -> ModelResponse:
+        """Execute asynchronous completion for enhanced alias.
+
+        Parameters
+        ----------
+        model : str
+            Logical alias requested by caller.
+        messages : list
+            Chat message payload.
+        api_base : str
+            Provider base URL forwarded to physical model when present.
+        optional_params : dict
+            LiteLLM optional parameters for request.
+        api_key
+            Provider credential forwarded to physical model when present.
+        litellm_params : dict, optional
+            LiteLLM deployment metadata, including optional
+            ``enhanced_profile`` configuration.
+
+        Returns
+        -------
+        ModelResponse
+            LiteLLM response from physical target model.
+        """
         target_model, resolved_messages, resolved_params = self._resolve_request(
             model=model,
             messages=messages,

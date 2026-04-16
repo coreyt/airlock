@@ -97,6 +97,14 @@ uv run airlock start
 
 Airlock listens on `http://localhost:4000` by default. Change the port with `AIRLOCK_PORT` in `.env`.
 
+Recommended local startup profile:
+
+```bash
+AIRLOCK_STARTUP_MODEL_DISCOVERY=0
+AIRLOCK_MCP_STARTUP_MODE=lazy
+uv run airlock start
+```
+
 ### Test it
 
 ```bash
@@ -204,6 +212,15 @@ VLLM_API_KEY=dummy-key
 ```
 
 The model will appear in the TUI Basic Chat screen for interactive testing and can be used by any connected client via `model: "gemma-4"`.
+
+### Enhanced model aliases
+
+Airlock can expose logical aliases that inject prompt and parameter defaults while forwarding to a physical upstream model. Example: `gemini-coding` routes to Gemini tools mode through `enhanced/gemini-coding`.
+
+- Clients send `model: "gemini-coding"`.
+- Airlock injects the configured system prompt and normalizes Gemini reasoning settings.
+- Provider auth is forwarded to the physical model automatically.
+- Inner forwarded calls are marked `no_log=True`, so Airlock and Fathom log one row per logical request, not two.
 
 ### Environment variables
 

@@ -13,7 +13,14 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 
 def fathomdb_enabled() -> bool:
-    """Return whether FathomDB storage is explicitly enabled."""
+    """Return whether FathomDB storage is explicitly enabled.
+
+    Returns
+    -------
+    bool
+        ``True`` when ``AIRLOCK_ENABLE_FATHOMDB`` is set to a truthy
+        value, otherwise ``False``.
+    """
     return _env_flag("AIRLOCK_ENABLE_FATHOMDB", default=False)
 
 
@@ -41,6 +48,19 @@ def _ensure_vector_stub_table(db_path: str) -> None:
 
 
 def init_engine(db_path: str) -> Any | None:
+    """Open FathomDB engine for given database path.
+
+    Parameters
+    ----------
+    db_path : str
+        Filesystem path to target ``airlock.db`` file.
+
+    Returns
+    -------
+    Any or None
+        Open FathomDB engine when dependency is installed; otherwise
+        ``None``.
+    """
     try:
         from fathomdb import Engine
 
@@ -51,6 +71,14 @@ def init_engine(db_path: str) -> Any | None:
 
 
 def get_db_path() -> str:
+    """Return filesystem path for Airlock state database.
+
+    Returns
+    -------
+    str
+        Path to ``airlock.db`` under ``AIRLOCK_STATE_DIR``,
+        ``AIRLOCK_LOG_DIR``, or ``./logs``.
+    """
     state_dir = Path(os.getenv("AIRLOCK_STATE_DIR", os.getenv("AIRLOCK_LOG_DIR", "./logs")))
     state_dir.mkdir(parents=True, exist_ok=True)
     return str(state_dir / "airlock.db")
@@ -62,7 +90,20 @@ engine_lock = threading.Lock()
 
 
 def get_engine() -> Any | None:
-    """Lazily initialize the FathomDB engine only when explicitly enabled."""
+    """Return process-local FathomDB engine singleton.
+
+    Returns
+    -------
+    Any or None
+        Existing engine bound to current process, newly initialized
+        engine when FathomDB is enabled, or ``None`` when FathomDB is
+        disabled or current process does not own cached engine.
+
+    Notes
+    -----
+    Airlock keeps engine initialization lazy, PID-bound, and protected by
+    a lock to avoid same-process races during concurrent callback writes.
+    """
     global engine, engine_pid
     current_pid = os.getpid()
     if engine is not None:

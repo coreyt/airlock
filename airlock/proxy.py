@@ -304,6 +304,18 @@ def _warn_observe_mode() -> None:
 
 
 def main() -> None:
+    """Launch Airlock proxy entrypoint.
+
+    This function loads environment configuration, validates startup
+    inputs, applies runtime config rewrites, and then launches LiteLLM on
+    the requested host and port.
+
+    Returns
+    -------
+    None
+        This function does not return normally; it exits the process with
+        LiteLLM's exit code.
+    """
     project_root = Path(__file__).resolve().parent.parent
     _project_env = project_root / ".env"
     load_dotenv(_project_env)
