@@ -309,11 +309,7 @@ def set_router_config(config: dict | None) -> None:
         alias = entry.get("model_name")
         params = entry.get("litellm_params") or {}
         model_str = params.get("model", "")
-        if (
-            isinstance(alias, str)
-            and isinstance(model_str, str)
-            and "/" in model_str
-        ):
+        if isinstance(alias, str) and isinstance(model_str, str) and "/" in model_str:
             provider = model_str.split("/", 1)[0]
             alias_map[alias] = provider
     _alias_provider_map = alias_map

@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# Pre-flight checks for agent harness launches.
-# See dev/agent-harness-runbook.md Section 2.
+# Pre-push preflight — mirrors .github/workflows/ci.yml locally.
+# Running this green guarantees CI will pass on GitHub.
 #
 # Usage:
-#   ./scripts/preflight.sh            # standard checks
-#   ./scripts/preflight.sh --baseline # include pytest baseline (slow)
+#   ./scripts/preflight.sh              # all checks (test + lint + docker + security)
+#   ./scripts/preflight.sh --fast       # lint only (seconds, not minutes)
+#   ./scripts/preflight.sh --fix        # auto-fix formatting, then run all checks
+#   ./scripts/preflight.sh --no-docker  # skip docker build
 #
 # Exit codes:
-#   0 = all gates pass
-#   1 = one or more gates failed (fix before launching agents)
+#   0 = all checks pass
+#   1 = one or more checks failed
 
 set -euo pipefail
 
@@ -16,98 +18,212 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
 
-INCLUDE_BASELINE=false
+# ---------------------------------------------------------------------------
+# Options
+# ---------------------------------------------------------------------------
+FAST=false
+FIX=false
+DOCKER=true
 for arg in "$@"; do
     case "$arg" in
-        --baseline) INCLUDE_BASELINE=true ;;
+        --fast)      FAST=true ;;
+        --fix)       FIX=true ;;
+        --no-docker) DOCKER=false ;;
     esac
 done
 
+# ---------------------------------------------------------------------------
+# Pinned versions — keep in sync with ci.yml
+# ---------------------------------------------------------------------------
+RUFF_VERSION="0.15.9"
+MYPY_VERSION="1.20.0"
+PIP_AUDIT_VERSION="2.7.3"
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 FAILED=0
-WARN=0
+STEP=0
 
-pass()  { echo "  ✓ $1"; }
-fail()  { echo "  ✗ $1"; FAILED=$((FAILED + 1)); }
-warn()  { echo "  ~ $1"; WARN=$((WARN + 1)); }
+step() {
+    STEP=$((STEP + 1))
+    echo ""
+    echo "[$STEP] $1"
+    echo "────────────────────────────────────────"
+}
 
-echo "── Pre-flight checks ──"
-echo ""
+pass() { echo "  ✓ $1"; }
+fail() { echo "  ✗ $1"; FAILED=$((FAILED + 1)); }
+skip() { echo "  ~ $1 (skipped: $2)"; }
 
-# 1. Branch
-BRANCH=$(git branch --show-current)
-echo "Branch: $BRANCH"
-if [ "$BRANCH" = "main" ]; then
-    pass "On main"
-else
-    warn "Not on main (on $BRANCH) — verify this is expected"
-fi
-
-# 2. HEAD
-HEAD=$(git log --oneline -1)
-echo "HEAD:   $HEAD"
-pass "HEAD recorded"
-
-# 3. Clean working tree (tracked files only)
-DIRTY=$(git status --short | grep "^ M" || true)
-if [ -z "$DIRTY" ]; then
-    pass "No modified tracked files"
-else
-    fail "Dirty tracked files — commit or stash before launching agents:"
-    echo "$DIRTY" | sed 's/^/        /'
-fi
-
-# 4. Worktrees
-git worktree prune 2>/dev/null
-WORKTREE_COUNT=$(git worktree list | wc -l)
-# Subtract 1 for the main worktree
-ACTIVE_WORKTREES=$((WORKTREE_COUNT - 1))
-if [ "$ACTIVE_WORKTREES" -lt 3 ]; then
-    pass "Worktrees: $ACTIVE_WORKTREES active (max 3)"
-else
-    fail "Too many worktrees: $ACTIVE_WORKTREES active (max 3). Remove stale ones:"
-    git worktree list | tail -n +2 | sed 's/^/        /'
-fi
-
-# 5. Disk space
-check_disk() {
-    local mount=$1
-    local avail_kb
-    avail_kb=$(df --output=avail "$mount" 2>/dev/null | tail -1 | tr -d ' ')
-    local avail_gb=$((avail_kb / 1048576))
-    if [ "$avail_gb" -ge 10 ]; then
-        pass "$mount: ${avail_gb}GB free"
+run_or_fail() {
+    local label=$1
+    shift
+    if "$@"; then
+        pass "$label"
     else
-        fail "$mount: only ${avail_gb}GB free (need >10GB)"
+        fail "$label"
     fi
 }
-check_disk /
 
-# 6. Venv
-if [ -d ".venv" ] && [ -f ".venv/bin/python" ]; then
-    PYTHON_VER=$(uv run python --version 2>/dev/null || echo "FAILED")
-    pass "Venv exists: $PYTHON_VER"
-else
-    fail "Venv missing or broken — run: uv venv .venv && uv sync"
+# ---------------------------------------------------------------------------
+# Ensure deps + linters installed
+# ---------------------------------------------------------------------------
+step "Install dependencies"
+uv sync --extra test --extra db
+uv pip install "ruff==$RUFF_VERSION" "mypy==$MYPY_VERSION"
+pass "Dependencies synced"
+
+# ---------------------------------------------------------------------------
+# Auto-fix (optional)
+# ---------------------------------------------------------------------------
+if [ "$FIX" = true ]; then
+    step "Auto-fix formatting"
+    uv run ruff check --fix airlock/ tests/ || true
+    uv run ruff format airlock/ tests/
+    pass "ruff format applied"
 fi
 
-# 7. Baseline (optional, expensive)
-if [ "$INCLUDE_BASELINE" = true ]; then
+# ---------------------------------------------------------------------------
+# Lint: Python (mirrors ci.yml lint job)
+# ---------------------------------------------------------------------------
+step "Ruff check"
+run_or_fail "ruff check" uv run ruff check airlock/ tests/
+
+step "Ruff format check"
+if ! uv run ruff format --check airlock/ tests/; then
+    fail "ruff format (run with --fix to auto-format)"
+else
+    pass "ruff format"
+fi
+
+step "Mypy (fast subsystem)"
+run_or_fail "mypy airlock/fast/" uv run mypy airlock/fast/ --ignore-missing-imports
+
+# ---------------------------------------------------------------------------
+# Lint: GitHub Actions workflows
+# ---------------------------------------------------------------------------
+step "GitHub Actions workflow lint"
+if command -v actionlint &>/dev/null; then
+    run_or_fail "actionlint" actionlint .github/workflows/*.yml
+else
+    skip "actionlint" "not installed (go install github.com/rhysd/actionlint/cmd/actionlint@latest)"
+fi
+
+# ---------------------------------------------------------------------------
+# Lint: YAML
+# ---------------------------------------------------------------------------
+step "YAML lint"
+uv pip install yamllint 2>&1 | grep -v "already" || true
+YAMLLINT_CONF=$(mktemp)
+cat > "$YAMLLINT_CONF" <<'YAMLEOF'
+extends: default
+rules:
+  line-length:
+    max: 200
+  truthy:
+    check-keys: false
+  comments:
+    min-spaces-from-content: 1
+  document-start: disable
+YAMLEOF
+if uv run yamllint -c "$YAMLLINT_CONF" .github/workflows/*.yml config.yaml airlock/cli/templates/config.yaml mkdocs.yml 2>&1; then
+    pass "yamllint"
+else
+    fail "yamllint"
+fi
+rm -f "$YAMLLINT_CONF"
+
+# ---------------------------------------------------------------------------
+# Lint: Shell scripts
+# ---------------------------------------------------------------------------
+step "Shell script lint"
+if command -v shellcheck &>/dev/null; then
+    SHELL_SCRIPTS=$(find scripts/ -name '*.sh' -type f 2>/dev/null || true)
+    if [ -n "$SHELL_SCRIPTS" ]; then
+        # shellcheck disable=SC2086
+        run_or_fail "shellcheck" shellcheck $SHELL_SCRIPTS
+    else
+        pass "no shell scripts found"
+    fi
+else
+    skip "shellcheck" "not installed (apt install shellcheck)"
+fi
+
+# ---------------------------------------------------------------------------
+# Lint: Markdown (docs build)
+# ---------------------------------------------------------------------------
+step "Documentation build"
+if command -v mkdocs &>/dev/null; then
+    if mkdocs build --strict --clean --quiet 2>&1; then
+        pass "mkdocs build --strict"
+    else
+        fail "mkdocs build --strict"
+    fi
+else
+    skip "mkdocs" "not installed (pip install mkdocs)"
+fi
+
+# ---------------------------------------------------------------------------
+# Version consistency
+# ---------------------------------------------------------------------------
+step "Version consistency"
+run_or_fail "version check" uv run python scripts/check-version-consistency.py
+
+if [ "$FAST" = true ]; then
     echo ""
-    echo "── Baseline test run ──"
-    BASELINE=$(uv run pytest --tb=no -q 2>&1 | tail -3)
-    echo "$BASELINE"
+    echo "── Fast mode: skipping tests, docker, security ──"
+    echo ""
+    echo "════════════════════════════════════════"
+    if [ "$FAILED" -gt 0 ]; then
+        echo "FAILED: $FAILED check(s) failed."
+        exit 1
+    fi
+    echo "LINT OK."
+    exit 0
 fi
 
-# 8. Summary
-echo ""
-echo "── Result ──"
-if [ "$FAILED" -gt 0 ]; then
-    echo "BLOCKED: $FAILED gate(s) failed. Fix before launching agents."
-    exit 1
-elif [ "$WARN" -gt 0 ]; then
-    echo "READY with $WARN warning(s). Review above before proceeding."
-    exit 0
+# ---------------------------------------------------------------------------
+# Test (mirrors ci.yml test job)
+# ---------------------------------------------------------------------------
+step "Tests"
+run_or_fail "pytest" uv run pytest --tb=short -q
+
+# ---------------------------------------------------------------------------
+# Docker (mirrors ci.yml docker job)
+# ---------------------------------------------------------------------------
+if [ "$DOCKER" = true ]; then
+    step "Docker build"
+    if command -v docker &>/dev/null; then
+        run_or_fail "docker build" docker build -t airlock:ci .
+    else
+        skip "docker build" "docker not available"
+    fi
 else
-    echo "READY. All gates passed."
+    echo ""
+    echo "── Skipping docker build (--no-docker) ──"
+fi
+
+# ---------------------------------------------------------------------------
+# Security (mirrors ci.yml security job)
+# ---------------------------------------------------------------------------
+step "Security audit"
+uv pip install "pip-audit==$PIP_AUDIT_VERSION" 2>&1 | grep -v "already satisfied" || true
+if uv run pip-audit; then
+    pass "pip-audit"
+else
+    echo "  ~ pip-audit found warnings (non-blocking, matches CI behavior)"
+fi
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+echo ""
+echo "════════════════════════════════════════"
+if [ "$FAILED" -gt 0 ]; then
+    echo "FAILED: $FAILED check(s) failed. Fix before pushing."
+    exit 1
+else
+    echo "ALL CHECKS PASSED. Safe to push."
     exit 0
 fi

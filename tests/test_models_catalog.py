@@ -292,12 +292,15 @@ class TestCustomFetchersFromConfig:
                 }
             ],
         }
-        with patch(
-            "airlock.models_catalog._fetch_openai_models",
-            side_effect=AssertionError("built-in must not be called"),
-        ), patch(
-            "airlock.models_catalog.urllib.request.urlopen",
-            return_value=_FakeResp(payload),
+        with (
+            patch(
+                "airlock.models_catalog._fetch_openai_models",
+                side_effect=AssertionError("built-in must not be called"),
+            ),
+            patch(
+                "airlock.models_catalog.urllib.request.urlopen",
+                return_value=_FakeResp(payload),
+            ),
         ):
             result = fetch_live_provider_models(config, timeout=2.0)
         assert [m["id"] for m in result] == ["openai/gpt-5.4"]

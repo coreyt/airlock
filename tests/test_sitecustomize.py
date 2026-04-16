@@ -26,7 +26,11 @@ def test_apply_patches_for_lazy_mcp_startup_noops_when_not_lazy(monkeypatch):
 
     sitecustomize._apply_patches_for_testing(fake_manager)
 
-    assert not hasattr(fake_manager, "initialize_tool_name_to_mcp_server_name_mapping") or fake_manager.initialize_tool_name_to_mcp_server_name_mapping != sitecustomize._lazy_mcp_mapping_noop
+    assert (
+        not hasattr(fake_manager, "initialize_tool_name_to_mcp_server_name_mapping")
+        or fake_manager.initialize_tool_name_to_mcp_server_name_mapping
+        != sitecustomize._lazy_mcp_mapping_noop
+    )
 
 
 def test_apply_patches_for_lazy_mcp_startup_replaces_initializer(monkeypatch):

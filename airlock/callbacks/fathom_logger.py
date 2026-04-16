@@ -161,7 +161,11 @@ def _fathom_properties(
         mcp_arguments = (
             kwargs.get("mcp_arguments")
             or ((kwargs.get("litellm_params") or {}).get("mcp_arguments"))
-            or (((kwargs.get("litellm_params") or {}).get("metadata") or {}).get("mcp_arguments"))
+            or (
+                ((kwargs.get("litellm_params") or {}).get("metadata") or {}).get(
+                    "mcp_arguments"
+                )
+            )
         )
         properties["mcp_arguments_json"] = _json_text(mcp_arguments)
 
@@ -221,7 +225,7 @@ class AirlockFathomLogger(CustomLogger):
         end_time: Any,
         error_flag: bool,
     ) -> None:
-        metadata = ((kwargs.get("litellm_params") or {}).get("metadata") or {})
+        metadata = (kwargs.get("litellm_params") or {}).get("metadata") or {}
         if metadata.get("airlock_skip_fathom_logger"):
             if _debug_enabled():
                 logger.warning(

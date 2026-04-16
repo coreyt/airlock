@@ -79,7 +79,9 @@ def get_db_path() -> str:
         Path to ``airlock.db`` under ``AIRLOCK_STATE_DIR``,
         ``AIRLOCK_LOG_DIR``, or ``./logs``.
     """
-    state_dir = Path(os.getenv("AIRLOCK_STATE_DIR", os.getenv("AIRLOCK_LOG_DIR", "./logs")))
+    state_dir = Path(
+        os.getenv("AIRLOCK_STATE_DIR", os.getenv("AIRLOCK_LOG_DIR", "./logs"))
+    )
     state_dir.mkdir(parents=True, exist_ok=True)
     return str(state_dir / "airlock.db")
 

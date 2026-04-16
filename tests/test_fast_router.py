@@ -71,9 +71,7 @@ class TestLoadCostTiers:
         assert tiers["high"] == ["gpt-5-pro"]
 
     def test_env_overrides_config(self, monkeypatch):
-        monkeypatch.setenv(
-            "AIRLOCK_COST_TIERS", json.dumps({"low": ["env-only"]})
-        )
+        monkeypatch.setenv("AIRLOCK_COST_TIERS", json.dumps({"low": ["env-only"]}))
         set_router_config({"cost_tiers": {"low": ["config-only"]}})
         tiers = _load_cost_tiers()
         assert tiers["low"] == ["env-only"]

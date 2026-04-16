@@ -151,9 +151,13 @@ def _prepare_runtime_config(config_path: str) -> tuple[str, str | None]:
     if mcp_mode == "off" and config.get("mcp_servers"):
         config.pop("mcp_servers", None)
         changed = True
-        print("Configured MCP servers disabled for startup (AIRLOCK_MCP_STARTUP_MODE=off).")
+        print(
+            "Configured MCP servers disabled for startup (AIRLOCK_MCP_STARTUP_MODE=off)."
+        )
     elif mcp_mode == "lazy" and config.get("mcp_servers"):
-        print("Configured MCP servers enabled in lazy startup mode (startup tool discovery suppressed).")
+        print(
+            "Configured MCP servers enabled in lazy startup mode (startup tool discovery suppressed)."
+        )
 
     background_override = _background_health_checks_override()
     if background_override is not None:

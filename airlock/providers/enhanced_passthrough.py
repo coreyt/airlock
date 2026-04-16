@@ -39,7 +39,9 @@ def _normalize_enhanced_params(
 
     if thinking:
         if thinking_level is not None:
-            normalized.setdefault("reasoning_effort", str(thinking_level).strip().lower())
+            normalized.setdefault(
+                "reasoning_effort", str(thinking_level).strip().lower()
+            )
         else:
             normalized.setdefault("reasoning_effort", "medium")
 
@@ -57,7 +59,9 @@ def _inject_or_append_system_prompt(
     if first.get("role") == "system":
         original_content = first.get("content", "")
         first["content"] = (
-            f"{original_content}\n\n{system_prompt}" if original_content else system_prompt
+            f"{original_content}\n\n{system_prompt}"
+            if original_content
+            else system_prompt
         )
         return copied
 
@@ -88,8 +92,13 @@ class EnhancedPassthroughProvider(CustomLLM):
 
     def _load_profile_cache(self) -> dict[str, dict[str, Any]]:
         config_path = self._config_path()
-        cache_key = str(config_path.resolve()) if config_path.exists() else str(config_path)
-        if self._config_profile_cache is not None and self._config_profile_cache_key == cache_key:
+        cache_key = (
+            str(config_path.resolve()) if config_path.exists() else str(config_path)
+        )
+        if (
+            self._config_profile_cache is not None
+            and self._config_profile_cache_key == cache_key
+        ):
             return self._config_profile_cache
 
         cache: dict[str, dict[str, Any]] = {}
@@ -103,14 +112,20 @@ class EnhancedPassthroughProvider(CustomLLM):
                 if model_name and enhanced_profile:
                     cache[str(model_name)] = dict(enhanced_profile)
                 provider_model = litellm_params.get("model")
-                if isinstance(provider_model, str) and provider_model.startswith("enhanced/") and enhanced_profile:
+                if (
+                    isinstance(provider_model, str)
+                    and provider_model.startswith("enhanced/")
+                    and enhanced_profile
+                ):
                     cache[provider_model.split("/", 1)[1]] = dict(enhanced_profile)
 
         self._config_profile_cache = cache
         self._config_profile_cache_key = cache_key
         return cache
 
-    def _resolve_profile(self, model: str, litellm_params: dict | None) -> dict[str, Any]:
+    def _resolve_profile(
+        self, model: str, litellm_params: dict | None
+    ) -> dict[str, Any]:
         profile = dict((litellm_params or {}).get("enhanced_profile") or {})
         if profile:
             return profile

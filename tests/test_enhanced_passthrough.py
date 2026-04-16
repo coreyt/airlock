@@ -12,9 +12,14 @@ def provider() -> EnhancedPassthroughProvider:
     return EnhancedPassthroughProvider()
 
 
-def test_completion_forwards_to_target_model(provider: EnhancedPassthroughProvider) -> None:
+def test_completion_forwards_to_target_model(
+    provider: EnhancedPassthroughProvider,
+) -> None:
     response = MagicMock()
-    with patch("airlock.providers.enhanced_passthrough.litellm.completion", return_value=response) as mock_completion:
+    with patch(
+        "airlock.providers.enhanced_passthrough.litellm.completion",
+        return_value=response,
+    ) as mock_completion:
         result = provider.completion(
             model="enhanced/gemini-coding",
             messages=[{"role": "user", "content": "hi"}],
@@ -62,7 +67,10 @@ async def test_acompletion_forwards_to_target_model(
     ) as mock_acompletion:
         result = await provider.acompletion(
             model="enhanced/gemini-coding",
-            messages=[{"role": "system", "content": "orig"}, {"role": "user", "content": "hi"}],
+            messages=[
+                {"role": "system", "content": "orig"},
+                {"role": "user", "content": "hi"},
+            ],
             api_base="https://example.test/v1",
             custom_prompt_dict={},
             model_response=MagicMock(),
@@ -91,7 +99,9 @@ async def test_acompletion_forwards_to_target_model(
     assert kwargs["metadata"]["airlock_skip_fathom_logger"] is True
 
 
-def test_completion_requires_target_model(provider: EnhancedPassthroughProvider) -> None:
+def test_completion_requires_target_model(
+    provider: EnhancedPassthroughProvider,
+) -> None:
     with pytest.raises(ValueError, match="enhanced_profile.target_model"):
         provider.completion(
             model="enhanced/gemini-coding",
@@ -129,7 +139,10 @@ model_list:
     monkeypatch.setenv("AIRLOCK_CONFIG", str(config))
 
     response = MagicMock()
-    with patch("airlock.providers.enhanced_passthrough.litellm.completion", return_value=response) as mock_completion:
+    with patch(
+        "airlock.providers.enhanced_passthrough.litellm.completion",
+        return_value=response,
+    ) as mock_completion:
         result = provider.completion(
             model="gemini-coding",
             messages=[{"role": "user", "content": "hi"}],

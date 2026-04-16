@@ -535,8 +535,7 @@ class TestRuntimeConfigPreparation:
     ):
         cfg = tmp_path / "config.yaml"
         cfg.write_text(
-            _VALID_CONFIG
-            + "general_settings:\n  background_health_checks: true\n"
+            _VALID_CONFIG + "general_settings:\n  background_health_checks: true\n"
         )
         monkeypatch.setenv("AIRLOCK_BACKGROUND_HEALTH_CHECKS", "0")
         monkeypatch.delenv("AIRLOCK_ENABLE_MCP_SERVERS", raising=False)
@@ -557,8 +556,8 @@ class TestRuntimeConfigPreparation:
         cfg.write_text(
             _VALID_CONFIG
             + "litellm_settings:\n"
-            + "  success_callback: [\"airlock.callbacks.enterprise_logger.proxy_logger\"]\n"
-            + "  failure_callback: [\"airlock.callbacks.enterprise_logger.proxy_logger\"]\n"
+            + '  success_callback: ["airlock.callbacks.enterprise_logger.proxy_logger"]\n'
+            + '  failure_callback: ["airlock.callbacks.enterprise_logger.proxy_logger"]\n'
         )
         monkeypatch.setenv("AIRLOCK_ENABLE_FATHOM_LOGGER", "1")
         monkeypatch.setenv("AIRLOCK_MCP_STARTUP_MODE", "eager")
