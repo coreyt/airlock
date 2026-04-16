@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-04-15
+
 ### Added
 
 - **Startup control flags** for low-noise local and production boot:
@@ -162,5 +164,7 @@ set:
 - Client-side Claude Code hooks (session, prompt, audit).
 - Offline log analyzer (`airlock analyze`).
 
+[0.3.0]: https://github.com/coreyt/airlock/releases/tag/v0.3.0
+[0.2.0]: https://github.com/coreyt/airlock/releases/tag/v0.2.0
 [0.1.1]: https://github.com/coreyt/airlock/releases/tag/v0.1.1
 [0.1.0]: https://github.com/coreyt/airlock/releases/tag/v0.1.0

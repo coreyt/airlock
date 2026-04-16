@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 import json
 import logging
 import os
@@ -253,7 +253,7 @@ class AirlockFathomLogger(CustomLogger):
                 logger.warning(
                     "Fathom debug skip duplicate error_flag=%s model=%s call_id=%s thread=%s",
                     error_flag,
-                    model,
+                    kwargs.get("model", "unknown"),
                     call_id,
                     threading.current_thread().name,
                 )
