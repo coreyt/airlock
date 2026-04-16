@@ -1,16 +1,19 @@
 from datetime import datetime, timezone
 
 
+def get_request_logs(engine, limit: int = 1000000):
+    """Retrieve RequestLog nodes from FathomDB."""
+    try:
+        return engine.nodes("RequestLog").limit(limit).execute().nodes
+    except AttributeError:
+        if hasattr(engine, "_query_nodes"):
+            return engine._query_nodes("RequestLog", limit=limit)
+        return []
+
+
 def get_billing_metrics(engine):
     # Retrieve all request logs by not limiting to 1000
-    try:
-        nodes = engine.nodes("RequestLog").limit(1000000).execute().nodes
-    except AttributeError:
-        # Fallback if engine is mocked or behaves differently
-        if hasattr(engine, "_query_nodes"):
-            nodes = engine._query_nodes("RequestLog", limit=1000000)
-        else:
-            nodes = []
+    nodes = get_request_logs(engine, limit=1000000)
 
     now = datetime.now(timezone.utc)
     mtd_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)

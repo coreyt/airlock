@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
-from airlock.api.queries import get_billing_metrics, search_logs
+from airlock.api.queries import get_billing_metrics, get_request_logs, search_logs
 
 
 class MockNodeRow:
@@ -40,6 +40,18 @@ def test_get_billing_metrics(monkeypatch):
 
     engine.nodes.assert_called_with("RequestLog")
     engine.nodes.return_value.limit.assert_called_with(1000000)
+
+
+def test_get_request_logs_uses_nodes_query():
+    engine = MagicMock()
+    mock_nodes = [MockNodeRow("1", {"model": "gpt-4"})]
+    engine.nodes.return_value.limit.return_value.execute.return_value.nodes = mock_nodes
+
+    result = get_request_logs(engine, limit=5)
+
+    assert result == mock_nodes
+    engine.nodes.assert_called_with("RequestLog")
+    engine.nodes.return_value.limit.assert_called_with(5)
 
 
 def test_search_logs():

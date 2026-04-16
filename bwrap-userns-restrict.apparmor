@@ -1,0 +1,64 @@
+## Draft AppArmor profile for Ubuntu hosts where bubblewrap is blocked by
+## kernel.apparmor_restrict_unprivileged_userns=1.
+##
+## Install path if you want to try it system-wide:
+##   sudo cp bwrap-userns-restrict.apparmor /etc/apparmor.d/bwrap-userns-restrict
+##   sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict
+##
+## This draft is based on Ubuntu's unprivileged_userns policy plus the upstream
+## AppArmor "bwrap-userns-restrict" example. It is intentionally scoped to the
+## distro-packaged bubblewrap binary at /usr/bin/bwrap.
+
+abi <abi/4.0>,
+include <tunables/global>
+
+profile bwrap /usr/bin/bwrap flags=(attach_disconnected, mediate_deleted) {
+  ## Bubblewrap needs capabilities inside the new user/network namespace to set
+  ## up loopback and complete sandbox initialization.
+  allow capability,
+
+  ## Keep the profile broad enough for bubblewrap's setup phase while limiting
+  ## it to the specific /usr/bin/bwrap entry point.
+  allow file rwlkm /{**,},
+  allow network,
+  allow unix,
+  allow ptrace,
+  allow signal,
+  allow mqueue,
+  allow io_uring,
+  allow userns,
+  allow mount,
+  allow umount,
+  allow pivot_root,
+  allow dbus,
+
+  ## Because bubblewrap uses no_new_privs, stack children with a capability-
+  ## stripping profile so the launched command does not retain bubblewrap's
+  ## elevated namespace-local privileges.
+  allow pix /** -> &bwrap//&unpriv_bwrap,
+
+  # Site-specific additions and overrides. See local/README for details.
+  include if exists <local/bwrap-userns-restrict>
+}
+
+profile unpriv_bwrap flags=(attach_disconnected, mediate_deleted) {
+  allow file rwlkm /{**,},
+  allow network,
+  allow unix,
+  allow ptrace,
+  allow signal,
+  allow mqueue,
+  allow io_uring,
+  allow userns,
+  allow mount,
+  allow umount,
+  allow pivot_root,
+  allow dbus,
+
+  ## Child processes inside the sandbox do not keep capabilities.
+  allow pix /** -> &unpriv_bwrap,
+  audit deny capability,
+
+  # Site-specific additions and overrides. See local/README for details.
+  include if exists <local/bwrap-userns-restrict>
+}

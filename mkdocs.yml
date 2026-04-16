@@ -49,6 +49,7 @@ nav:
       - TUI Dashboard: guide/tui.md
       - CLI Reference: guide/cli.md
       - Advisor: guide/advisor.md
+      - Fathom Storage: guide/fathom-storage.md
       - Guardrails: guide/guardrails.md
       - MCP Servers: guide/mcp-servers.md
   - Operations:

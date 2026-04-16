@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from airlock.fast.state import StateStore
-from airlock.api.queries import search_logs
+from airlock.api.queries import get_request_logs
 
 logger = logging.getLogger("airlock.advisor.tools")
 
@@ -146,9 +146,13 @@ def get_recent_errors(log_dir: str, days: int = 2) -> dict:
         engine = None
 
     if engine is not None:
-        nodes = search_logs(engine, "error")
+        nodes = get_request_logs(engine, limit=1000000)
         records = [n.properties if hasattr(n, "properties") else n for n in nodes]
-        failures = [r for r in records if not r.get("success")]
+        failures = [
+            r
+            for r in records
+            if (r.get("success") is False) or bool(r.get("error_flag"))
+        ]
     else:
         records = _load_logs(log_dir, days=days)
         failures = [r for r in records if not r.get("success")]

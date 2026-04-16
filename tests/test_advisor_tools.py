@@ -175,15 +175,14 @@ def test_get_recent_errors_groups_by_model(log_dir, monkeypatch):
 
 
 def test_get_recent_errors_uses_fathomdb(monkeypatch, log_dir):
-    """If airlock.datastore.engine is set, uses search_logs."""
+    """If airlock.datastore.engine is set, uses RequestLog rows from FathomDB."""
     import airlock.datastore
 
-    # Mock the engine to be not None
-    monkeypatch.setattr(airlock.datastore, "engine", "dummy_engine", raising=False)
+    monkeypatch.setattr(airlock.datastore, "get_engine", lambda: "dummy_engine")
 
     mock_called = False
 
-    def mock_search_logs(engine, query, **kwargs):
+    def mock_get_request_logs(engine, limit=1000000):
         nonlocal mock_called
         mock_called = True
         return [
@@ -198,13 +197,40 @@ def test_get_recent_errors_uses_fathomdb(monkeypatch, log_dir):
         ]
 
     monkeypatch.setattr(
-        "airlock.advisor.tools.search_logs", mock_search_logs, raising=False
+        "airlock.advisor.tools.get_request_logs", mock_get_request_logs, raising=False
     )
 
     result = get_recent_errors(str(log_dir), days=2)
     assert mock_called
     assert result["total_errors"] == 1
     assert result["by_model"]["gpt-4o"] == 1
+
+
+def test_get_recent_errors_uses_error_flag_from_fathom(monkeypatch, log_dir):
+    import airlock.datastore
+
+    monkeypatch.setattr(airlock.datastore, "get_engine", lambda: "dummy_engine")
+
+    monkeypatch.setattr(
+        "airlock.advisor.tools.get_request_logs",
+        lambda engine, limit=1000000: [
+            {
+                "model": "gemini-coding",
+                "timestamp": "2025-01-01T10:01:00Z",
+                "error_flag": True,
+            },
+            {
+                "model": "gpt-4o",
+                "timestamp": "2025-01-01T10:02:00Z",
+                "success": True,
+            },
+        ],
+        raising=False,
+    )
+
+    result = get_recent_errors(str(log_dir), days=2)
+    assert result["total_errors"] == 1
+    assert result["by_model"]["gemini-coding"] == 1
 
 
 # ---------------------------------------------------------------------------
