@@ -115,6 +115,10 @@ class EnhancedPassthroughProvider(CustomLLM):
         messages: list,
         optional_params: dict,
         litellm_params: dict | None,
+        api_key: Any,
+        api_base: str | None,
+        headers: dict[str, Any] | None,
+        client: Any,
     ) -> tuple[str, list, dict]:
         profile = self._resolve_profile(model, litellm_params)
         target_model = profile.get("target_model")
@@ -144,6 +148,14 @@ class EnhancedPassthroughProvider(CustomLLM):
         metadata = dict(resolved_params.get("metadata") or {})
         metadata["airlock_skip_fathom_logger"] = True
         resolved_params["metadata"] = metadata
+        if api_key is not None:
+            resolved_params["api_key"] = api_key
+        if api_base:
+            resolved_params["api_base"] = api_base
+        if headers:
+            resolved_params["headers"] = headers
+        if client is not None:
+            resolved_params["client"] = client
 
         return target_model, resolved_messages, resolved_params
 
@@ -171,6 +183,10 @@ class EnhancedPassthroughProvider(CustomLLM):
             messages=messages,
             optional_params=optional_params,
             litellm_params=litellm_params,
+            api_key=api_key,
+            api_base=api_base,
+            headers=headers,
+            client=client,
         )
 
         return litellm.completion(
@@ -204,6 +220,10 @@ class EnhancedPassthroughProvider(CustomLLM):
             messages=messages,
             optional_params=optional_params,
             litellm_params=litellm_params,
+            api_key=api_key,
+            api_base=api_base,
+            headers=headers,
+            client=client,
         )
 
         return await litellm.acompletion(

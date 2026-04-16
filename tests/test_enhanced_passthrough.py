@@ -18,12 +18,12 @@ def test_completion_forwards_to_target_model(provider: EnhancedPassthroughProvid
         result = provider.completion(
             model="enhanced/gemini-coding",
             messages=[{"role": "user", "content": "hi"}],
-            api_base="",
+            api_base="https://example.test/v1",
             custom_prompt_dict={},
             model_response=MagicMock(),
             print_verbose=lambda *args, **kwargs: None,
             encoding=None,
-            api_key=None,
+            api_key="AIza-test",
             logging_obj=None,
             optional_params={"temperature": 0.1},
             litellm_params={
@@ -46,6 +46,8 @@ def test_completion_forwards_to_target_model(provider: EnhancedPassthroughProvid
     assert "thinking" not in kwargs
     assert "thinking_level" not in kwargs
     assert kwargs["no_log"] is True
+    assert kwargs["api_key"] == "AIza-test"
+    assert kwargs["api_base"] == "https://example.test/v1"
     assert kwargs["metadata"]["airlock_skip_fathom_logger"] is True
 
 
@@ -61,12 +63,12 @@ async def test_acompletion_forwards_to_target_model(
         result = await provider.acompletion(
             model="enhanced/gemini-coding",
             messages=[{"role": "system", "content": "orig"}, {"role": "user", "content": "hi"}],
-            api_base="",
+            api_base="https://example.test/v1",
             custom_prompt_dict={},
             model_response=MagicMock(),
             print_verbose=lambda *args, **kwargs: None,
             encoding=None,
-            api_key=None,
+            api_key="AIza-test",
             logging_obj=None,
             optional_params={"custom_llm_provider": "enhanced"},
             litellm_params={
@@ -83,6 +85,8 @@ async def test_acompletion_forwards_to_target_model(
     assert kwargs["model"] == "gemini/gemini-3.1-pro-preview-customtools"
     assert kwargs["messages"][0]["content"] == "orig\n\nextra"
     assert "custom_llm_provider" not in kwargs
+    assert kwargs["api_key"] == "AIza-test"
+    assert kwargs["api_base"] == "https://example.test/v1"
     assert kwargs["no_log"] is True
     assert kwargs["metadata"]["airlock_skip_fathom_logger"] is True
 
