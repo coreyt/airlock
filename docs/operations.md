@@ -11,7 +11,7 @@ Production deployment, monitoring, and maintenance for Airlock.
 docker compose up --build -d
 
 # Verify
-curl -f http://localhost:4000/health
+curl -f http://localhost:4000/health/liveliness
 ```
 
 The compose file mounts `config.yaml` read-only and persists logs to `./logs/`. Set `AIRLOCK_PORT` in `.env` to change the listen port.
@@ -29,7 +29,7 @@ kubectl apply -f deploy/k8s/ingress.yaml
 kubectl apply -f deploy/k8s/hpa.yaml
 ```
 
-The deployment runs as non-root (UID 1000), sets resource limits (250m-1 CPU, 512Mi-1Gi RAM), and includes liveness/readiness probes on `/health`.
+The deployment runs as non-root (UID 1000), sets resource limits (250m-1 CPU, 512Mi-1Gi RAM), and should use `/health/liveliness` for liveness probes. Reserve `/health` for slower readiness-style checks because it can trigger real provider work.
 
 ### Bare Metal / VM
 
@@ -62,14 +62,20 @@ Use systemd or supervisord for process management. See the systemd unit example 
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `AIRLOCK_MASTER_KEY` | Yes | — | Authentication key for all clients. Must be >=16 chars. |
+| `AIRLOCK_MASTER_KEY` | No | — | Optional proxy auth key. When unset or blank, Airlock strips the runtime `master_key` setting and accepts unauthenticated requests. |
 | `ANTHROPIC_API_KEY` | Per provider | — | Anthropic API key |
 | `OPENAI_API_KEY` | Per provider | — | OpenAI API key |
+| `GOOGLE_AISTUDIO_API_KEY` | Per provider | — | Google AI Studio API key for Gemini models |
 | `AIRLOCK_HOST` | No | `127.0.0.1` | Bind address. Set to `0.0.0.0` for Docker/Kubernetes or to expose externally. |
 | `AIRLOCK_PORT` | No | `4000` | Listen port |
 | `AIRLOCK_LOG_DIR` | No | `./logs` | JSONL log directory |
+| `AIRLOCK_STATE_DIR` | No | `./logs` | State directory for circuit-breaker state and optional FathomDB files |
 | `AIRLOCK_MAX_LOG_DAYS` | No | `30` | Days to retain log files |
 | `AIRLOCK_MAX_LOG_SIZE_MB` | No | `500` | Max size per log file before rotation |
+| `AIRLOCK_STARTUP_MODEL_DISCOVERY` | No | `0` | Opt-in provider/model discovery at startup |
+| `AIRLOCK_MCP_STARTUP_MODE` | No | `lazy` | MCP startup behavior: `off`, `lazy`, or `eager` |
+| `AIRLOCK_ENABLE_FATHOMDB` | No | `0` | Enable lazy FathomDB engine initialization |
+| `AIRLOCK_ENABLE_FATHOM_LOGGER` | No | `0` | Append the Fathom request logger at runtime without editing `config.yaml` |
 | `AIRLOCK_BLOCKED_KEYWORDS` | No | — | Comma-separated restricted phrases |
 | `AIRLOCK_PII_ENTITIES` | No | `CREDIT_CARD,US_SSN,EMAIL_ADDRESS,PHONE_NUMBER` | Presidio entity types to redact |
 | `AIRLOCK_OTEL_SERVICE_NAME` | No | `airlock` | OpenTelemetry service name |
@@ -78,7 +84,7 @@ Use systemd or supervisord for process management. See the systemd unit example 
 
 At startup, Airlock validates:
 
-1. **Master key** — warns if default, short (<16 chars), or missing
+1. **Master key** — warns if default, short (<16 chars), or missing. Missing/blank means runtime auth is removed for local/dev use.
 2. **Config schema** — warns on missing model_list, malformed guardrails, bad MCP server entries
 3. **MCP env refs** — exits if MCP servers reference unset environment variables
 
@@ -103,6 +109,36 @@ airlock post --json                   # machine-readable output
 | `GET /health/liveliness` | Lightweight liveness check | Liveness probes, frequent polling |
 
 Both return HTTP 200 when healthy. Use `/health/liveliness` for high-frequency checks (load balancer, TUI polling).
+
+## Startup Modes
+
+Airlock now keeps expensive startup work opt-in:
+
+- `AIRLOCK_STARTUP_MODEL_DISCOVERY=0` skips provider/model discovery during startup. Set `1` only when you explicitly want an informational discovery pass.
+- `AIRLOCK_MCP_STARTUP_MODE=off` removes `mcp_servers` from the runtime config.
+- `AIRLOCK_MCP_STARTUP_MODE=lazy` keeps MCP configured but suppresses LiteLLM's startup-wide `list_tools()` sweep.
+- `AIRLOCK_MCP_STARTUP_MODE=eager` keeps LiteLLM's default eager MCP probing behavior.
+
+Recommended low-noise startup profile:
+
+```bash
+AIRLOCK_STARTUP_MODEL_DISCOVERY=0
+AIRLOCK_MCP_STARTUP_MODE=lazy
+```
+
+## FathomDB
+
+FathomDB is optional and disabled by default.
+
+- Set `AIRLOCK_ENABLE_FATHOMDB=1` to enable the lazy engine path.
+- Set `AIRLOCK_ENABLE_FATHOM_LOGGER=1` to append the Fathom request logger at runtime.
+- Put fresh databases under `AIRLOCK_STATE_DIR` while debugging. Airlock treats old `logs/airlock.db` files as suspect until proven clean.
+
+Current write-path guarantees:
+
+- Airlock initializes the Fathom engine lazily.
+- The in-process engine singleton is PID-bound and thread-safe, which avoids same-process `Engine.open()` races during concurrent callback writes.
+- Forwarded inner `enhanced/*` provider calls do not emit duplicate Fathom rows.
 
 ## Logging
 

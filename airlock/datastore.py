@@ -1,6 +1,7 @@
 import os
 import sqlite3
 from pathlib import Path
+import threading
 from typing import Any
 
 
@@ -57,6 +58,7 @@ def get_db_path() -> str:
 
 engine: Any | None = None
 engine_pid: int | None = None
+engine_lock = threading.Lock()
 
 
 def get_engine() -> Any | None:
@@ -69,6 +71,11 @@ def get_engine() -> Any | None:
         return None
     if not fathomdb_enabled():
         return None
-    engine = init_engine(get_db_path())
-    engine_pid = current_pid if engine is not None else None
-    return engine
+    with engine_lock:
+        if engine is not None:
+            if engine_pid == current_pid:
+                return engine
+            return None
+        engine = init_engine(get_db_path())
+        engine_pid = current_pid if engine is not None else None
+        return engine

@@ -102,12 +102,15 @@ Airlock listens on `http://localhost:4000` by default. Change the port with `AIR
 ```bash
 curl http://localhost:4000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer sk-airlock-change-me" \
   -d '{
     "model": "claude-sonnet",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
+
+If `AIRLOCK_MASTER_KEY` is set, add `-H "Authorization: Bearer <your-master-key>"`.
+If `AIRLOCK_MASTER_KEY` is unset or blank, Airlock strips the runtime proxy
+`master_key` setting and accepts unauthenticated requests for local/dev use.
 
 Or use the TUI's **Basic Chat** screen (press `5`) to interactively test any configured model and inspect the full request/response headers and body.
 
@@ -208,14 +211,20 @@ The model will appear in the TUI Basic Chat screen for interactive testing and c
 |---|---|---|
 | `ANTHROPIC_API_KEY` | Anthropic API key | — |
 | `OPENAI_API_KEY` | OpenAI API key | — |
-| `AIRLOCK_MASTER_KEY` | Master key for admin endpoints | — |
+| `GOOGLE_AISTUDIO_API_KEY` | Google AI Studio API key for Gemini models | — |
+| `AIRLOCK_MASTER_KEY` | Optional proxy auth key. Leave unset for local/dev unauthenticated runs. | — |
 | `AIRLOCK_HOST` | Bind address (set to `0.0.0.0` to expose externally) | `127.0.0.1` |
 | `AIRLOCK_PORT` | Listen port | `4000` |
 | `AIRLOCK_LOG_DIR` | Directory for JSONL log files | `./logs` |
+| `AIRLOCK_STATE_DIR` | State directory for circuit-breaker state and optional FathomDB files | `./logs` |
 | `AIRLOCK_MAX_LOG_DAYS` | Days to retain log files before cleanup | `30` |
 | `AIRLOCK_MAX_LOG_SIZE_MB` | Max log file size before rotation | `500` |
 | `AIRLOCK_BLOCKED_KEYWORDS` | Comma-separated restricted phrases | — |
 | `AIRLOCK_PII_ENTITIES` | Presidio entity types to redact | `CREDIT_CARD,US_SSN,EMAIL_ADDRESS,PHONE_NUMBER` |
+| `AIRLOCK_STARTUP_MODEL_DISCOVERY` | Opt-in provider/model discovery at startup | `0` |
+| `AIRLOCK_MCP_STARTUP_MODE` | MCP startup mode: `off`, `lazy`, or `eager` | `lazy` |
+| `AIRLOCK_ENABLE_FATHOMDB` | Enable lazy FathomDB engine initialization | `0` |
+| `AIRLOCK_ENABLE_FATHOM_LOGGER` | Append Fathom request logging at runtime | `0` |
 
 ## Adding MCP servers
 

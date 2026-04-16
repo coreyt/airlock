@@ -1,7 +1,7 @@
 # Architecture Design Note: Enhanced Model Interceptor (Middleware)
 
 **Date:** April 11, 2026  
-**Status:** Proposed  
+**Status:** Superseded by implementation  
 **Author:** Gemini CLI Architecture Agent  
 **Context:** Airlock Proxy / Model Routing Ecosystem  
 
@@ -11,9 +11,9 @@
 
 This document outlines the architecture for introducing "enhanced" model profiles to the Airlock proxy, initially exposing a specialized `gemini-coding` model. The objective is to enable advanced model features—specifically Gemini 3.1 Pro's "thinking" capabilities and enforced system prompt controls—without disrupting standard proxy traffic.
 
-Initial explorations considered building a custom LiteLLM provider (`CustomLLM`) to act as a delegator. However, that approach was discarded because it required bespoke Python code for every new model, introduced recursive "double-logging" edge cases, and failed to provide a clean abstraction surface.
+Initial explorations considered building a custom LiteLLM provider (`CustomLLM`) to act as a delegator. This note originally rejected that approach in favor of a guardrail interceptor.
 
-Instead, Airlock will implement the **Interceptor (Middleware) Pattern**. By registering an async pre-call Guardrail, Airlock can intercept requests targeted at logical `enhanced/*` model names, dynamically mutate the request payload (injecting prompts and parameters) based on data-driven configuration rules, and rewrite the target model name in-flight. The modified request is then handed back to LiteLLM's standard routing engine. This creates a world-class, generalized surface for defining infinite "enhanced" model profiles without writing new Python code or employing hacky workarounds.
+Actual implementation diverged. Airlock now uses `airlock/providers/enhanced_passthrough.py`, a custom provider that resolves `enhanced/*` aliases at execution time, forwards to the physical target model, marks the inner call `no_log=True`, and sets `metadata.airlock_skip_fathom_logger=True` so one logical request still produces one Airlock/Fathom log record. This note remains useful as design history, but it no longer describes the live code path.
 
 ---
 

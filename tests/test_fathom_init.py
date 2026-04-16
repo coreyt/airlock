@@ -1,5 +1,6 @@
 import sqlite3
 import sys
+import threading
 from unittest.mock import patch
 
 import airlock.datastore as datastore
@@ -79,3 +80,42 @@ def test_get_engine_returns_none_for_foreign_process(monkeypatch):
         assert datastore.get_engine() is None
 
     mock_init.assert_not_called()
+
+
+def test_get_engine_initializes_once_under_concurrent_calls(monkeypatch):
+    monkeypatch.setenv("AIRLOCK_ENABLE_FATHOMDB", "1")
+    monkeypatch.setattr(datastore, "engine", None, raising=False)
+    monkeypatch.setattr(datastore, "engine_pid", None, raising=False)
+
+    call_count = 0
+    call_count_lock = threading.Lock()
+    release = threading.Event()
+    ready = threading.Barrier(4)
+    results = []
+    errors = []
+
+    def fake_init_engine(_db_path):
+        nonlocal call_count
+        with call_count_lock:
+            call_count += 1
+        release.wait(timeout=2)
+        return "engine"
+
+    def worker():
+        try:
+            ready.wait(timeout=2)
+            results.append(datastore.get_engine())
+        except Exception as exc:  # pragma: no cover - failure path
+            errors.append(exc)
+
+    with patch("airlock.datastore.init_engine", side_effect=fake_init_engine):
+        threads = [threading.Thread(target=worker) for _ in range(4)]
+        for thread in threads:
+            thread.start()
+        release.set()
+        for thread in threads:
+            thread.join(timeout=2)
+
+    assert errors == []
+    assert results == ["engine"] * 4
+    assert call_count == 1

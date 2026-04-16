@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import yaml
 
 from airlock.proxy import (
     _find_config,
@@ -212,6 +213,43 @@ class TestMasterKeyValidation:
         monkeypatch.setenv("AIRLOCK_MASTER_KEY", "sk-airlock-abcdef1234567890")
         _validate_master_key()
         assert capsys.readouterr().err == ""
+
+
+class TestPrepareRuntimeConfigMasterKey:
+    def test_strips_master_key_when_env_missing(self, tmp_path, monkeypatch):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            "model_list: []\n"
+            "general_settings:\n"
+            "  master_key: os.environ/AIRLOCK_MASTER_KEY\n"
+        )
+        monkeypatch.delenv("AIRLOCK_MASTER_KEY", raising=False)
+
+        runtime_path, temp_path = _prepare_runtime_config(str(config_file))
+
+        assert temp_path is not None
+        with open(runtime_path, encoding="utf-8") as handle:
+            runtime_config = yaml.safe_load(handle) or {}
+
+        assert "master_key" not in (runtime_config.get("general_settings") or {})
+
+    def test_keeps_master_key_when_env_present(self, tmp_path, monkeypatch):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            "model_list: []\n"
+            "general_settings:\n"
+            "  master_key: os.environ/AIRLOCK_MASTER_KEY\n"
+        )
+        monkeypatch.setenv("AIRLOCK_MASTER_KEY", "sk-airlock-abcdef1234567890")
+
+        runtime_path, _temp_path = _prepare_runtime_config(str(config_file))
+
+        with open(runtime_path, encoding="utf-8") as handle:
+            runtime_config = yaml.safe_load(handle) or {}
+
+        assert (runtime_config.get("general_settings") or {}).get("master_key") == (
+            "os.environ/AIRLOCK_MASTER_KEY"
+        )
 
 
 # ---------------------------------------------------------------------------

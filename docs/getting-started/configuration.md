@@ -37,7 +37,7 @@ The model will appear in the TUI Basic Chat screen for interactive testing and c
 
 Airlock supports "enhanced" model profiles to silently inject constraints (like forcing an LLM to retain its reasoning loops) or default parameters out-of-band. This is especially useful for agentic workflows using models like `gemini-3.1-pro-preview-customtools`.
 
-Define an `enhanced_profile` in `litellm_params`. Airlock will intercept requests to this model, inject the prompt/parameters, and seamlessly rewrite the routing target to the physical model:
+Define an `enhanced_profile` in `litellm_params`. Airlock resolves the logical alias at execution time, injects the prompt/parameters, and forwards the request to the physical target model without double-logging the inner provider call:
 
 ```yaml
 # config.yaml — add to model_list
@@ -52,19 +52,61 @@ Define an `enhanced_profile` in `litellm_params`. Airlock will intercept request
         thinking_level: "MEDIUM"
 ```
 
+Notes:
+
+- Clients request `model: "gemini-coding"`. They never need to know the physical Gemini model name.
+- Gemini-specific `thinking` settings are normalized to the provider surface LiteLLM actually accepts.
+- The forwarded inner provider call is marked `no_log=True` and skips the Airlock Fathom callback, so one logical request produces one Fathom row.
+
 ## Environment variables
 
 | Variable | Description | Default |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | Anthropic API key | -- |
 | `OPENAI_API_KEY` | OpenAI API key | -- |
-| `AIRLOCK_MASTER_KEY` | Master key for admin endpoints | -- |
+| `GOOGLE_AISTUDIO_API_KEY` | Google AI Studio API key for Gemini models | -- |
+| `AIRLOCK_MASTER_KEY` | Optional proxy auth key. Leave unset for local/dev unauthenticated runs; set it for protected deployments. | -- |
 | `AIRLOCK_HOST` | Bind address | `127.0.0.1` |
 | `AIRLOCK_PORT` | Listen port | `4000` |
 | `AIRLOCK_LOG_DIR` | Directory for JSONL log files | `./logs` |
+| `AIRLOCK_STATE_DIR` | State directory for circuit-breaker state and optional FathomDB files | `./logs` |
 | `AIRLOCK_MAX_LOG_DAYS` | Days to retain log files | `30` |
 | `AIRLOCK_MAX_LOG_SIZE_MB` | Max log file size before rotation | `500` |
 | `AIRLOCK_BLOCKED_KEYWORDS` | Comma-separated restricted phrases | -- |
 | `AIRLOCK_PII_ENTITIES` | Presidio entity types to redact | `CREDIT_CARD,US_SSN,EMAIL_ADDRESS,PHONE_NUMBER` |
 | `AIRLOCK_ENFORCE_MODE` | Guardrail mode: `observe` or `enforce` | `observe` |
 | `AIRLOCK_ADVISOR_MODEL` | Override model for the advisor | -- |
+| `AIRLOCK_STARTUP_MODEL_DISCOVERY` | Opt-in provider/model discovery on startup | `0` |
+| `AIRLOCK_MCP_STARTUP_MODE` | MCP startup mode: `off`, `lazy`, or `eager` | `lazy` |
+| `AIRLOCK_ENABLE_FATHOMDB` | Enable lazy FathomDB engine initialization | `0` |
+| `AIRLOCK_ENABLE_FATHOM_LOGGER` | Append Fathom request logging at runtime | `0` |
+
+## Startup Defaults
+
+Airlock defaults to low-noise startup:
+
+- `AIRLOCK_STARTUP_MODEL_DISCOVERY=0`
+- `AIRLOCK_MCP_STARTUP_MODE=lazy`
+- `/health/liveliness` for liveness probes and frequent polling
+
+If `AIRLOCK_MASTER_KEY` is unset or blank, Airlock strips the runtime `general_settings.master_key` entry before launching LiteLLM. That keeps local/dev runs usable without requiring LiteLLM's database-backed virtual-key flow.
+
+## Optional FathomDB Logging
+
+Enable FathomDB only when you want it:
+
+```bash
+AIRLOCK_ENABLE_FATHOMDB=1
+AIRLOCK_ENABLE_FATHOM_LOGGER=1
+AIRLOCK_STATE_DIR=/tmp/airlock-fathom-fresh
+```
+
+Recommended debug profile:
+
+```bash
+AIRLOCK_STARTUP_MODEL_DISCOVERY=0
+AIRLOCK_MCP_STARTUP_MODE=lazy
+AIRLOCK_ENABLE_FATHOMDB=1
+AIRLOCK_ENABLE_FATHOM_LOGGER=1
+AIRLOCK_STATE_DIR=/tmp/airlock-fathom-fresh
+```

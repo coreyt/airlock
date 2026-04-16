@@ -139,6 +139,14 @@ def _prepare_runtime_config(config_path: str) -> tuple[str, str | None]:
 
     changed = False
     mcp_mode = _mcp_startup_mode()
+    general_settings = config.setdefault("general_settings", {})
+
+    master_key_ref = general_settings.get("master_key")
+    if isinstance(master_key_ref, str) and master_key_ref.startswith(_ENV_REF_PREFIX):
+        master_key_env = master_key_ref[len(_ENV_REF_PREFIX) :]
+        if not os.getenv(master_key_env):
+            general_settings.pop("master_key", None)
+            changed = True
 
     if mcp_mode == "off" and config.get("mcp_servers"):
         config.pop("mcp_servers", None)
@@ -149,7 +157,6 @@ def _prepare_runtime_config(config_path: str) -> tuple[str, str | None]:
 
     background_override = _background_health_checks_override()
     if background_override is not None:
-        general_settings = config.setdefault("general_settings", {})
         if general_settings.get("background_health_checks") != background_override:
             general_settings["background_health_checks"] = background_override
             changed = True
