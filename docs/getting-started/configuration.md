@@ -33,6 +33,34 @@ VLLM_API_KEY=dummy-key
 
 The model will appear in the TUI Basic Chat screen for interactive testing and can be used by any connected client via `model: "gemma-4"`.
 
+### Multiple aliases on one vLLM endpoint
+
+It is common to register several model aliases against the same vLLM endpoint when the host swaps between models (only one is loaded at a time):
+
+```yaml
+- model_name: kimi-dev
+  litellm_params:
+    model: openai/kimi-dev-72b
+    api_base: http://192.168.1.45:8000/v1
+    api_key: os.environ/VLLM_API_KEY
+
+- model_name: qwen3-32b
+  litellm_params:
+    model: openai/qwen3-32b
+    api_base: http://192.168.1.45:8000/v1
+    api_key: os.environ/VLLM_API_KEY
+
+- model_name: qwen3.6-27b
+  litellm_params:
+    model: openai/qwen3.6-27b
+    api_base: http://192.168.1.45:8000/v1
+    api_key: os.environ/VLLM_API_KEY
+```
+
+The **Local vLLM Router** guardrail (enabled by default, see [Guardrails](../guide/guardrails.md#local-vllm-router)) intercepts requests for unloaded aliases and returns an explanatory error naming the currently loaded model, instead of letting the upstream `model not found` propagate.
+
+Set `AIRLOCK_LOCAL_VLLM_BASE_URL` to the endpoint Airlock should treat as local. Aliases pointing at other endpoints pass through untouched.
+
 ## Enhanced Models
 
 Airlock supports "enhanced" model profiles to silently inject constraints (like forcing an LLM to retain its reasoning loops) or default parameters out-of-band. This is especially useful for agentic workflows using models like `gemini-3.1-pro-preview-customtools`.
@@ -81,6 +109,10 @@ Notes:
 | `AIRLOCK_MCP_STARTUP_MODE` | MCP startup mode: `off`, `lazy`, or `eager` | `lazy` |
 | `AIRLOCK_ENABLE_FATHOMDB` | Enable lazy FathomDB engine initialization | `0` |
 | `AIRLOCK_ENABLE_FATHOM_LOGGER` | Append Fathom request logging at runtime | `0` |
+| `AIRLOCK_LOCAL_VLLM_BASE_URL` | URL of the local vLLM endpoint the router guardrail watches | `http://192.168.1.45:8000/v1` |
+| `AIRLOCK_LOCAL_VLLM_CACHE_TTL_SECONDS` | Cache TTL for the `/models` probe used by the local vLLM router | `5` |
+| `AIRLOCK_LOCAL_VLLM_SWITCH_HINT` | Optional format-string appended to the router's mismatch error (placeholders: `{requested}`, `{requested_served}`, `{loaded}`, `{loaded_aliases}`, `{base_url}`) | -- |
+| `AIRLOCK_REASONING_STRIP_MODELS` | Comma-separated aliases for which `◁think▷ … ◁/think▷` blocks are stripped from responses | `kimi-dev` |
 
 ## Startup Defaults
 

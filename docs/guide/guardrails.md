@@ -4,7 +4,7 @@ Airlock applies a chain of guardrails to every request. Guardrails can observe (
 
 ## Guardrail chain
 
-Requests pass through 9 stages in order:
+Requests pass through 11 stages in order:
 
 | Stage | Phase | Purpose |
 |-------|-------|---------|
@@ -12,10 +12,12 @@ Requests pass through 9 stages in order:
 | Keyword Guard | pre_call | Block requests containing restricted keywords |
 | Fast Guardian | pre_call | Threat assessment, circuit breaker check, priority scoring |
 | Enforcer | pre_call | Binary blocking gate based on signal scores |
+| Local vLLM Router | pre_call | Fail fast when a local-vLLM alias isn't the currently loaded model |
 | Semantic Guard | during_call | LLM-based content classification |
 | Orchestrator | during_call | Weighted evaluation of all signals |
 | MCP Tool Guard | pre_mcp_call | Tool name/argument filtering for MCP calls |
 | Response Scanner | post_call | Check response text for PII leaks |
+| Reasoning Stripper | post_call | Remove non-standard `◁think▷ … ◁/think▷` blocks for configured models |
 | PII Hydrator | post_call | Restore original PII from redaction placeholders |
 
 ## Enforcement modes
@@ -48,6 +50,58 @@ Set `AIRLOCK_BLOCKED_KEYWORDS` to a comma-separated list. Case-insensitive subst
 ```bash
 AIRLOCK_BLOCKED_KEYWORDS=project-alpha,internal-codename
 ```
+
+## Local vLLM router
+
+When several model aliases in `config.yaml` point at the same self-hosted vLLM endpoint (typical when one box swaps between several models), only one is actually loaded at a time. Without this guardrail, calling an unloaded alias surfaces the upstream `the model X does not exist` error with no hint that the box is hosting a *different* model.
+
+The `airlock-local-vllm-router` guardrail (mode: `pre_call`) intercepts these calls and returns a clear, actionable error instead.
+
+How it works:
+
+1. On first call, reads `config.yaml` and treats every `model_list` entry whose `litellm_params.api_base` matches `AIRLOCK_LOCAL_VLLM_BASE_URL` as a local vLLM alias. The expected `served-model-name` is the upstream `model` field with any `openai/` provider prefix stripped.
+2. Queries `{base_url}/models` (cached for `AIRLOCK_LOCAL_VLLM_CACHE_TTL_SECONDS`) to discover what vLLM is actually serving.
+3. If the requested alias is local and its served-name is loaded → request proceeds. If unloaded → raises with a message naming what *is* loaded and what the user needs to switch to.
+4. Cloud and non-local aliases pass through untouched.
+
+Example failure response:
+
+```
+Local model 'kimi-dev' (served as 'kimi-dev-72b') is configured but not
+currently loaded on http://192.168.1.45:8000/v1. Currently loaded:
+qwen3.6-27b. Stop the currently running local vLLM container and start
+the one that serves 'kimi-dev-72b' before retrying.
+```
+
+Environment variables:
+
+| Variable | Description | Default |
+|---|---|---|
+| `AIRLOCK_LOCAL_VLLM_BASE_URL` | Local vLLM `/v1` URL to associate aliases with | `http://192.168.1.45:8000/v1` |
+| `AIRLOCK_LOCAL_VLLM_CACHE_TTL_SECONDS` | How long to cache the `/models` response | `5` |
+| `AIRLOCK_LOCAL_VLLM_SWITCH_HINT` | Optional format string appended to the error. Placeholders: `{requested}`, `{requested_served}`, `{loaded}`, `{loaded_aliases}`, `{base_url}` | (generic message) |
+
+Use the switch hint to embed deployment-specific commands, e.g.:
+
+```bash
+AIRLOCK_LOCAL_VLLM_SWITCH_HINT='Run: docker stop <current> && /opt/vllm/start-{requested}.sh'
+```
+
+## Reasoning stripper
+
+Some local models emit inline reasoning/thinking blocks that vLLM's native `--reasoning-parser` machinery cannot strip. The reference case is **Kimi-Dev-72B**, which uses `◁think▷ … ◁/think▷` delimiters. These markers are three separate tokens in the Kimi tokenizer (`◁`, `think`, `▷`), so the built-in vLLM parsers — which match on single token IDs — cannot recognize them.
+
+The `airlock-reasoning-stripper` guardrail (mode: `post_call`) does the work at the gateway: scans the response text for the literal Unicode markers and removes the wrapped content, so downstream agents and tool/JSON parsers see only the post-thought output.
+
+- Scoped per-model via `AIRLOCK_REASONING_STRIP_MODELS` (default: `kimi-dev`). Other models pass through untouched. Matches bare aliases (`kimi-dev`) and provider-prefixed forms (`openai/kimi-dev`).
+- Handles both non-streaming and streaming response paths. Streaming uses a stateful filter with a small lookbehind buffer so markers split across chunks are still recognized.
+- Also strips an orphan trailing `◁/think▷` for the case where the model omits the opening marker.
+
+Environment variables:
+
+| Variable | Description | Default |
+|---|---|---|
+| `AIRLOCK_REASONING_STRIP_MODELS` | Comma-separated alias list this guardrail applies to | `kimi-dev` |
 
 ## Guardrail tuning
 
