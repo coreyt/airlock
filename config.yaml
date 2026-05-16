@@ -168,6 +168,34 @@ model_list:
       api_base: http://192.168.1.45:8000/v1
       api_key: os.environ/VLLM_API_KEY
 
+  # --- Local vLLM (Kimi-Dev 72B AWQ-4bit) ---
+  # Shares the same vLLM host as gemma-4 (only one local model loaded at a time).
+  # Reasoning blocks ◁think▷…◁/think▷ are stripped by the
+  # airlock-reasoning-stripper guardrail (Kimi's delimiters aren't single
+  # tokens, so vLLM's native --reasoning-parser cannot handle them).
+  - model_name: kimi-dev
+    litellm_params:
+      model: openai/kimi-dev-72b
+      api_base: http://192.168.1.45:8000/v1
+      api_key: os.environ/VLLM_API_KEY
+
+  # --- Local vLLM (Qwen3 32B AWQ) ---
+  # Official Qwen AWQ-4bit (~19 GB). Dense model, comfortable 32k context.
+  - model_name: qwen3-32b
+    litellm_params:
+      model: openai/qwen3-32b
+      api_base: http://192.168.1.45:8000/v1
+      api_key: os.environ/VLLM_API_KEY
+
+  # --- Local vLLM (Qwen3.6 27B AWQ-INT4, cyankiwi) ---
+  # Larger-than-typical AWQ (~41 GB; mixed-precision compressed-tensors).
+  # Conservative context until tuned (see start-qwen36-27b.sh).
+  - model_name: qwen3.6-27b
+    litellm_params:
+      model: openai/qwen3.6-27b
+      api_base: http://192.168.1.45:8000/v1
+      api_key: os.environ/VLLM_API_KEY
+
   # --- Internal RAG (Phase 3 — uncomment when ready) ---
   # - model_name: internal-docs
   #   litellm_params:
@@ -340,6 +368,18 @@ guardrails:
     litellm_params:
       guardrail: airlock.guardrails.response_scanner.AirlockResponseScanner
       mode: post_call
+      default_on: true
+
+  - guardrail_name: airlock-reasoning-stripper
+    litellm_params:
+      guardrail: airlock.guardrails.reasoning_stripper.AirlockReasoningStripper
+      mode: post_call          # model-scoped via AIRLOCK_REASONING_STRIP_MODELS (default: kimi-dev)
+      default_on: true
+
+  - guardrail_name: airlock-local-vllm-router
+    litellm_params:
+      guardrail: airlock.guardrails.local_vllm_router.AirlockLocalVLLMRouter
+      mode: pre_call           # fails fast when requested local alias isn't the loaded vLLM model
       default_on: true
 
   - guardrail_name: airlock-pii-hydrator
