@@ -32,7 +32,7 @@ Real-time request-path logic running on every inbound request:
 - **Threat Detector** -- scores clients 0-1 across four heuristics (volume spike, rapid-fire, payload anomaly, error probing). Blocks at >= 0.7.
 - **Circuit Breaker** -- per-model state machine (CLOSED -> OPEN after 5 failures -> HALF_OPEN after 30s -> CLOSED after 3 successes). Transparent failover to healthy models.
 - **Priority Scorer** -- boosts interactive sessions and clients with high error rates.
-- **Smart Router** -- classifies prompt complexity and routes to cost-appropriate model tier.
+- **Smart Router** -- classifies prompt complexity and routes to cost-appropriate model tier, and applies client routing directives (session affinity, cost tier, provider preference, budget awareness). See [Routing](../guide/routing.md).
 - **StateStore** -- thread-safe in-memory registry of all client, model, provider, and MCP state. Sliding 5-minute windows, capped at 1000 samples per metric.
 
 ### Slow Subsystem (`slow/`)

@@ -4,12 +4,13 @@ Airlock applies a chain of guardrails to every request. Guardrails can observe (
 
 ## Guardrail chain
 
-Requests pass through 11 stages in order:
+Requests pass through 12 stages in order:
 
 | Stage | Phase | Purpose |
 |-------|-------|---------|
 | PII Guard | pre_call | Redact credit cards, SSNs, emails, phone numbers (Presidio) |
 | Keyword Guard | pre_call | Block requests containing restricted keywords |
+| Enhanced Interceptor | pre_call | Inject prompt/parameter defaults for `enhanced/*` model aliases |
 | Fast Guardian | pre_call | Threat assessment, circuit breaker check, priority scoring |
 | Enforcer | pre_call | Binary blocking gate based on signal scores |
 | Local vLLM Router | pre_call | Fail fast when a local-vLLM alias isn't the currently loaded model |
@@ -25,6 +26,7 @@ Requests pass through 11 stages in order:
 | Mode | Behavior |
 |------|----------|
 | `observe` | Log signals only, never block (default) |
+| `shadow` | Log what *would* be blocked, but allow the request through |
 | `enforce` | Block requests that exceed thresholds |
 
 Set via `AIRLOCK_ENFORCE_MODE` environment variable. Start in `observe` mode, review logs, then promote to `enforce` when confident.

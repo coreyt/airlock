@@ -107,8 +107,9 @@ airlock post --json                   # machine-readable output
 |----------|---------|---------|
 | `GET /health` | Full health check (may call providers) | Readiness probes, monitoring |
 | `GET /health/liveliness` | Lightweight liveness check | Liveness probes, frequent polling |
+| `GET /health/circuits` | Per-model circuit-breaker state (JSON) | Diagnosing routing/circuit issues |
 
-Both return HTTP 200 when healthy. Use `/health/liveliness` for high-frequency checks (load balancer, TUI polling).
+`/health` and `/health/liveliness` return HTTP 200 when healthy. Use `/health/liveliness` for high-frequency checks (load balancer, TUI polling). The `/health/circuits` endpoint is installed by the `model_override_headers` callback (see [Callbacks](#callbacks)).
 
 ## Startup Modes
 
@@ -180,6 +181,23 @@ For production, ship logs to your SIEM:
 airlock analyze              # analyze recent logs
 airlock analyze --days 7     # last 7 days
 ```
+
+## Callbacks
+
+Airlock registers LiteLLM callbacks via `config.yaml`. The default
+`config.yaml` enables the request logger, the fast-path monitor, and the
+model-override-headers callback; the rest are opt-in extras.
+
+| Callback | Module | Role |
+|----------|--------|------|
+| Enterprise logger | `airlock.callbacks.enterprise_logger.proxy_logger` | Structured JSONL request/response logging (default) |
+| Fast monitor | `airlock.fast.monitor.proxy_monitor` | Feeds circuit breaker / threat / priority state (default) |
+| Model override headers | `airlock.callbacks.model_override_headers.proxy_model_override_headers` | Adds Airlock/Gemini response headers; installs the `/health/circuits` endpoint and enriched API docs (default) |
+| Fathom logger | `airlock.callbacks.fathom_logger.proxy_fathom_logger` | Optional FathomDB request logging (gated by `AIRLOCK_ENABLE_FATHOM_LOGGER`) |
+| Prometheus metrics | `airlock.callbacks.metrics` | Prometheus counters/histograms (`[metrics]` extra) |
+| OpenTelemetry tracing | `airlock.callbacks.tracing` | Trace export (`[tracing]` extra) |
+| S3 logger | `airlock.callbacks.s3_logger` | Ship JSONL logs to S3 (`[s3]` extra) |
+| SQL logger | `airlock.callbacks.sql_logger` | Database logging (`[sql]` extra) |
 
 ## Monitoring
 

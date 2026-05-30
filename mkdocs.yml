@@ -51,6 +51,7 @@ nav:
       - Advisor: guide/advisor.md
       - Fathom Storage: guide/fathom-storage.md
       - Guardrails: guide/guardrails.md
+      - Routing: guide/routing.md
       - MCP Servers: guide/mcp-servers.md
   - Operations:
       - Deployment: operations.md

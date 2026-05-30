@@ -52,6 +52,31 @@ Use `os.environ/VAR_NAME` to pass environment variables from Airlock's `.env` to
 
 All MCP tool calls flow through PII redaction, keyword blocking, and threat detection automatically. The MCP Tool Guard adds tool-specific allowlist/blocklist and argument sanitization. No extra configuration needed.
 
+## Bundled servers
+
+### NewsCatcher
+
+Airlock ships a NewsCatcher CatchAll MCP server
+(`airlock.mcp_servers.newscatcher_server`, stdio transport) for news
+search. It exposes two tools:
+
+- `newscatcher_search` — submit a query, poll for results (up to ~3 min), return records
+- `newscatcher_search_quick` — same, with a shorter 60-second timeout
+
+```yaml
+mcp_servers:
+  newscatcher:
+    command: uv
+    args: ["run", "python", "-m", "airlock.mcp_servers.newscatcher_server"]
+    env:
+      NEWS_CATCHER_API_KEY: os.environ/NEWS_CATCHER_API_KEY
+```
+
+Install the extra with `pip install airlock-llm[search]` and set
+`NEWS_CATCHER_API_KEY` in `.env`. For general web search exposed as a
+chat model, see the Tavily provider in
+[Configuration](../getting-started/configuration.md#search-providers).
+
 ## Management
 
 Use the TUI Config screen (key `4`) to view MCP server status and start/stop/restart managed servers.

@@ -87,6 +87,36 @@ Notes:
 - Provider auth and transport context are forwarded to the physical model call, so the alias uses the same `api_key` / `api_base` wiring as the underlying deployment.
 - The forwarded inner provider call is marked `no_log=True` and skips the Airlock Fathom callback, so one logical request produces one Fathom row.
 
+## Search providers
+
+Airlock can expose web search as a regular chat model so any connected
+client can search by sending a normal completion request.
+
+### Tavily
+
+The Tavily provider (`airlock.providers.tavily_provider`) is a LiteLLM
+custom provider. Clients send `model: "tavily-search"` with their query
+as the user message and get back a chat-style response whose content is
+formatted results (title, URL, snippet), optionally prefixed with
+Tavily's summary answer. The optional `max_results` parameter defaults
+to 5.
+
+```yaml
+# config.yaml — add to model_list
+- model_name: tavily-search
+  litellm_params:
+    model: tavily/web-search
+```
+
+```bash
+# .env
+TAVILY_API_KEY=tvly-...
+```
+
+Install the extra with `pip install airlock-llm[search]`. For news
+search via MCP, see the NewsCatcher server in
+[MCP Servers](../guide/mcp-servers.md).
+
 ## Environment variables
 
 | Variable | Description | Default |
@@ -103,7 +133,8 @@ Notes:
 | `AIRLOCK_MAX_LOG_SIZE_MB` | Max log file size before rotation | `500` |
 | `AIRLOCK_BLOCKED_KEYWORDS` | Comma-separated restricted phrases | -- |
 | `AIRLOCK_PII_ENTITIES` | Presidio entity types to redact | `CREDIT_CARD,US_SSN,EMAIL_ADDRESS,PHONE_NUMBER` |
-| `AIRLOCK_ENFORCE_MODE` | Guardrail mode: `observe` or `enforce` | `observe` |
+| `AIRLOCK_ENFORCE_MODE` | Guardrail mode: `observe`, `shadow`, or `enforce` | `observe` |
+| `AIRLOCK_CLIENT` | Client identity label propagated as the `X-Airlock-Client` header and recorded on each request for per-tool attribution | -- |
 | `AIRLOCK_ADVISOR_MODEL` | Override model for the advisor | -- |
 | `AIRLOCK_STARTUP_MODEL_DISCOVERY` | Opt-in provider/model discovery on startup | `0` |
 | `AIRLOCK_MCP_STARTUP_MODE` | MCP startup mode: `off`, `lazy`, or `eager` | `lazy` |
@@ -113,6 +144,10 @@ Notes:
 | `AIRLOCK_LOCAL_VLLM_CACHE_TTL_SECONDS` | Cache TTL for the `/models` probe used by the local vLLM router | `5` |
 | `AIRLOCK_LOCAL_VLLM_SWITCH_HINT` | Optional format-string appended to the router's mismatch error (placeholders: `{requested}`, `{requested_served}`, `{loaded}`, `{loaded_aliases}`, `{base_url}`) | -- |
 | `AIRLOCK_REASONING_STRIP_MODELS` | Comma-separated aliases for which `◁think▷ … ◁/think▷` blocks are stripped from responses | `kimi-dev` |
+| `AIRLOCK_COST_TIERS` | JSON tier→model-alias map for routing; overrides the `cost_tiers:` config block (see [Routing](../guide/routing.md)) | shipped defaults |
+| `AIRLOCK_SMART_THRESHOLDS` | JSON `[simple_max, complex_min]` complexity cutoffs for `model: smart` | `[0.30, 0.60]` |
+| `AIRLOCK_SESSION_TTL` | Seconds a routing `session_id` stays pinned to its model | `3600` |
+| `AIRLOCK_PROVIDER_BUDGETS` | JSON provider→daily-budget map for budget-aware routing swaps | per-provider defaults |
 
 ## Startup Defaults
 

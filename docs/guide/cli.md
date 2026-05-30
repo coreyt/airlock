@@ -112,3 +112,27 @@ Print shell commands to configure Claude Code to route through Airlock.
 ```bash
 eval $(airlock dogfood)
 ```
+
+### `airlock install-service`
+
+Install Airlock as a **systemd user service** so the proxy starts
+automatically and is managed by `systemctl --user`. Copies
+`deploy/airlock.service` to `~/.config/systemd/user/`, then reloads,
+enables, and starts the unit. Requires `systemctl`, and a `.env` file in
+the project root (run `airlock init` first) for API keys.
+
+```bash
+airlock install-service            # install, enable, and start
+airlock install-service --dry-run  # print the commands without executing
+```
+
+Manage the running service with:
+
+```bash
+systemctl --user status airlock
+systemctl --user restart airlock
+journalctl --user -u airlock -f
+```
+
+If systemd "linger" is disabled the service only runs while you are
+logged in. To start it at boot: `loginctl enable-linger $USER`.

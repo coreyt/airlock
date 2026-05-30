@@ -1,5 +1,12 @@
 # Airlock TUI — Design Proposal
 
+> **Status: Historical design proposal.** This document describes an
+> early multi-screen vision. The shipped TUI was consolidated to 6
+> screens (Overview, Guards, Logs, Config, Test, Advisor). Some screens
+> proposed here — notably **Threats** and **Flow** — were never built as
+> standalone screens. See [docs/guide/tui.md](../docs/guide/tui.md) for
+> the current implementation.
+
 ## 1. Intent Analysis
 
 Two personas drive the design:
