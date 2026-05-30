@@ -1,5 +1,10 @@
 # Screen 7: Flow — Real-Time Guardrail Pipeline Monitor
 
+> **Status: Not implemented / roadmap.** The standalone Flow screen
+> described here was never built. Live guardrail decisions are surfaced
+> in the shipped **Guards** screen instead — see
+> [docs/guide/tui.md](../docs/guide/tui.md).
+
 ## Purpose
 
 A "tail -f" for the guardrail pipeline. Operators watch requests stream

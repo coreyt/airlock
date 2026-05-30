@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Local vLLM router guardrail** (`airlock-local-vllm-router`, `pre_call`) —
+  for single-GPU setups that serve one model at a time behind a shared
+  vLLM endpoint. On first call it reads `config.yaml`, treats every
+  `model_list` entry whose `litellm_params.api_base` matches
+  `AIRLOCK_LOCAL_VLLM_BASE_URL` as a local alias (expected served-name =
+  the `model` field with any `openai/` prefix stripped), and probes
+  `{base_url}/models` (cached for `AIRLOCK_LOCAL_VLLM_CACHE_TTL_SECONDS`)
+  to learn what vLLM is actually serving. If a requested local alias is
+  not the loaded model, it **fails fast with an actionable message**
+  ("Currently loaded: X. Stop the running container and start the one
+  that serves Y") instead of letting an upstream 404 propagate. An
+  optional `AIRLOCK_LOCAL_VLLM_SWITCH_HINT` format string (placeholders:
+  `{requested}`, `{requested_served}`, `{loaded}`, `{loaded_aliases}`,
+  `{base_url}`) is appended to the error.
+- **Reasoning stripper guardrail** (`airlock-reasoning-stripper`,
+  `post_call`) — removes non-standard `◁think▷ … ◁/think▷` reasoning
+  blocks from responses. The reference case is **Kimi-Dev-72B**, whose
+  delimiters are three separate tokens (`◁` + `think` + `▷`), so vLLM's
+  native `--reasoning-parser` (which matches single token IDs) cannot
+  handle them. Scoped per-model via `AIRLOCK_REASONING_STRIP_MODELS`
+  (default: `kimi-dev`); matches bare and `openai/`-prefixed aliases,
+  also strips an orphan trailing `◁/think▷`, and handles both streaming
+  and non-streaming responses. Other models pass through untouched.
+- **Three local vLLM model aliases** (`kimi-dev`, `qwen3-32b`,
+  `qwen3.6-27b`) join the existing `gemma-4` entry in `config.yaml`, all
+  pointing at the same vLLM endpoint since only one model is loaded at a
+  time.
+- **Four new environment variables**: `AIRLOCK_LOCAL_VLLM_BASE_URL`,
+  `AIRLOCK_LOCAL_VLLM_CACHE_TTL_SECONDS`, `AIRLOCK_LOCAL_VLLM_SWITCH_HINT`,
+  and `AIRLOCK_REASONING_STRIP_MODELS`.
+
+### Changed
+
+- **CI hardening**: upgraded GitHub Actions to Node.js 24-compatible
+  versions, pinned `astral-sh/setup-uv` to `v8.0.0`, and rewrote
+  `preflight.sh` to mirror CI exactly.
+
+### Documentation
+
+- Documented both new guardrails in the guardrail-chain table with
+  dedicated subsections (behavior + configuration), the
+  multiple-aliases-on-one-vLLM-endpoint pattern in the configuration
+  guide, and the four new environment variables.
+
 ## [0.3.0] — 2026-04-15
 
 ### Added
