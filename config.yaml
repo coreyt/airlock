@@ -113,6 +113,32 @@ model_list:
           thinking: true
           thinking_level: "MEDIUM"
 
+  # --- Google Vertex AI (Gemini, BATCH-capable) ---
+  # Unlike the gemini/ (AI Studio) provider above, the vertex_ai provider is
+  # wired in LiteLLM for the Batch API (POST /v1/files + /v1/batches) — async,
+  # ~50% cost, ~24h turnaround. These also serve normal sync completions.
+  #
+  # REQUIRES (set in .env — see .env.example):
+  #   VERTEX_PROJECT        GCP project id
+  #   VERTEX_LOCATION       region, e.g. us-central1 (must offer the model)
+  #   VERTEX_CREDENTIALS    path to the service-account JSON key
+  #   GCS_BUCKET_NAME       GCS bucket LiteLLM stages batch input/output in
+  # NOTE: confirm the exact Vertex model id + regional availability — Vertex
+  # ids can differ from AI Studio (which uses the -preview suffix).
+  - model_name: gemini-3.1-pro-vertex
+    litellm_params:
+      model: vertex_ai/gemini-3.1-pro
+      vertex_project: os.environ/VERTEX_PROJECT
+      vertex_location: os.environ/VERTEX_LOCATION
+      vertex_credentials: os.environ/VERTEX_CREDENTIALS
+
+  - model_name: gemini-3.5-flash-vertex
+    litellm_params:
+      model: vertex_ai/gemini-3.5-flash
+      vertex_project: os.environ/VERTEX_PROJECT
+      vertex_location: os.environ/VERTEX_LOCATION
+      vertex_credentials: os.environ/VERTEX_CREDENTIALS
+
   # --- Mistral AI (large-3 / medium / small-4 / magistral / codestral) ---
   - model_name: mistral-large
     litellm_params:
