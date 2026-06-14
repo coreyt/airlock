@@ -119,10 +119,10 @@ model_list:
   # Auth: VERTEX_PROJECT + VERTEX_CREDENTIALS (service-account JSON) from .env;
   # batch staging uses GCS_BUCKET_NAME. (Needs the `vertex` extra: google-auth.)
   #
-  # Availability verified via the SA token (2026-06-14):
-  #   gemini-3.5-flash : 200 on `global` (NOT in us-central1) — sync works.
-  #   gemini-3.1-pro   : NOT_FOUND in every region tried → must be ENABLED on
-  #                      Vertex (Model Garden) before it resolves.
+  # Availability verified via the SA token (2026-06-14) — both on `global` ONLY
+  # (every 3.x id is 404 in us-central1 / us-east5):
+  #   gemini-3.5-flash        : 200
+  #   gemini-3.1-pro-preview  : 200  (GA id `gemini-3.1-pro` is 404 — use -preview)
   # NOTE: Vertex BATCH jobs generally need a REGIONAL location; `global` is fine
   # for sync but may not support BatchPredictionJob. For 3.x batch, set
   # vertex_location to a region once these models are regionally available.
@@ -133,11 +133,9 @@ model_list:
       vertex_location: global
       vertex_credentials: os.environ/VERTEX_CREDENTIALS
 
-  # Pending enablement: returns 404 NOT_FOUND until this project is granted
-  # access to Gemini 3.x Pro on Vertex (Model Garden "Enable" / allowlist).
   - model_name: gemini-3.1-pro-vertex
     litellm_params:
-      model: vertex_ai/gemini-3.1-pro
+      model: vertex_ai/gemini-3.1-pro-preview
       vertex_project: os.environ/VERTEX_PROJECT
       vertex_location: global
       vertex_credentials: os.environ/VERTEX_CREDENTIALS
