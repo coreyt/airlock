@@ -113,30 +113,33 @@ model_list:
           thinking: true
           thinking_level: "MEDIUM"
 
-  # --- Google Vertex AI (Gemini, BATCH-capable) ---
-  # Unlike the gemini/ (AI Studio) provider above, the vertex_ai provider is
-  # wired in LiteLLM for the Batch API (POST /v1/files + /v1/batches) — async,
-  # ~50% cost, ~24h turnaround. These also serve normal sync completions.
+  # --- Google Vertex AI (Gemini 3.x, BATCH-capable) ---
+  # vertex_ai is wired in LiteLLM for the Batch API (/v1/files + /v1/batches);
+  # the gemini/ (AI Studio) provider above is not. Also serves sync completions.
+  # Auth: VERTEX_PROJECT + VERTEX_CREDENTIALS (service-account JSON) from .env;
+  # batch staging uses GCS_BUCKET_NAME. (Needs the `vertex` extra: google-auth.)
   #
-  # REQUIRES (set in .env — see .env.example):
-  #   VERTEX_PROJECT        GCP project id
-  #   VERTEX_LOCATION       region, e.g. us-central1 (must offer the model)
-  #   VERTEX_CREDENTIALS    path to the service-account JSON key
-  #   GCS_BUCKET_NAME       GCS bucket LiteLLM stages batch input/output in
-  # NOTE: confirm the exact Vertex model id + regional availability — Vertex
-  # ids can differ from AI Studio (which uses the -preview suffix).
-  - model_name: gemini-3.1-pro-vertex
-    litellm_params:
-      model: vertex_ai/gemini-3.1-pro
-      vertex_project: os.environ/VERTEX_PROJECT
-      vertex_location: os.environ/VERTEX_LOCATION
-      vertex_credentials: os.environ/VERTEX_CREDENTIALS
-
+  # Availability verified via the SA token (2026-06-14):
+  #   gemini-3.5-flash : 200 on `global` (NOT in us-central1) — sync works.
+  #   gemini-3.1-pro   : NOT_FOUND in every region tried → must be ENABLED on
+  #                      Vertex (Model Garden) before it resolves.
+  # NOTE: Vertex BATCH jobs generally need a REGIONAL location; `global` is fine
+  # for sync but may not support BatchPredictionJob. For 3.x batch, set
+  # vertex_location to a region once these models are regionally available.
   - model_name: gemini-3.5-flash-vertex
     litellm_params:
       model: vertex_ai/gemini-3.5-flash
       vertex_project: os.environ/VERTEX_PROJECT
-      vertex_location: os.environ/VERTEX_LOCATION
+      vertex_location: global
+      vertex_credentials: os.environ/VERTEX_CREDENTIALS
+
+  # Pending enablement: returns 404 NOT_FOUND until this project is granted
+  # access to Gemini 3.x Pro on Vertex (Model Garden "Enable" / allowlist).
+  - model_name: gemini-3.1-pro-vertex
+    litellm_params:
+      model: vertex_ai/gemini-3.1-pro
+      vertex_project: os.environ/VERTEX_PROJECT
+      vertex_location: global
       vertex_credentials: os.environ/VERTEX_CREDENTIALS
 
   # --- Mistral AI (large-3 / medium / small-4 / magistral / codestral) ---
