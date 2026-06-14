@@ -11,11 +11,14 @@ design they both point to.
 
 ## 0. TL;DR
 
-- **Adversarial review** of the two source docs found them directionally correct
-  but with **six material holes** (Presidio-at-scale, PII-map-as-PII-at-rest,
-  non-idempotent create race, lossy Gemini response mapping, route-shadowing vs
-  SDK drop-in, logger entrypoint). One (logger) is already solved by existing
-  code; the rest must be designed in.
+- **Adversarial review** (mine + an independent red-team that verified every claim
+  against the code) found the two source docs directionally correct but with
+  **six material holes**: Presidio-at-scale, PII-map-as-PII-at-rest,
+  non-idempotent create race, lossy Gemini response mapping, route-shape vs SDK
+  drop-in, and batch logging. **All six are real work** — the red-team corrected
+  my initial "logger already solved" (the write primitive exists but is private
+  and chat-shaped; a batch record writer + `is_batch_call` tagging are NEW) and
+  hardened the route-shape one into a FastAPI first-match-wins blocker.
 - **Common vs separate: COMMON.** ~80% of the work is provider-agnostic
   (HTTP surface, OpenAI batch object, auth, JSONL parse, guard scan, PII
   lifecycle, status normalization, persistence, idempotency, caps, observability).
@@ -96,13 +99,18 @@ thin front controller that calls the LiteLLM handler for non-gateway models.
 Namespaced routes remain the **Phase-1 fallback** if front-controlling proves
 fragile.
 
-### 🟢 A6 — "Call the enterprise logger directly" — already solved
-`design-aistudio-gemini-batch.md` §6 worries the logger is a completion callback.
-Verified: `airlock/callbacks/enterprise_logger.py` exposes `_write_log(record)`
-and the `write_precall_block_record(...)` pattern — a direct, callback-independent
-record-write path. The gateway uses `_write_log` for submit/status/complete
-events. No new logging infra needed. (Downgrade this from "risk" to "use the
-existing function.")
+### 🟠 A6 — Batch logging is NEW work (corrected by the red-team pass)
+My first pass called this "already solved" — **wrong.** The independent red-team
+verified against the code: `_write_log(record)` is **private** and the only public
+writers are chat/failure-shaped (`write_precall_block_record(...)` is hard-wired
+`success=False` + `data.get("messages")`; `log_success_event` wants a LiteLLM
+`kwargs`/`response_obj`). So: the **append primitive `_write_log` is reusable**
+(it takes an arbitrary dict, with rotation/redaction/cleanup), but there is **no
+batch-shaped record builder**, and `is_batch_call` + batch `call_type` +
+TUI/monitor tagging are NEW (the considerations doc already labels them NEW).
+**Resolution:** add a small public `write_batch_record(...)` next to
+`write_precall_block_record` that builds the batch record and calls `_write_log`.
+Budget it as new work, not reuse.
 
 ### 🟢 A7 — Minor over-claims
 - "Reuses helpers verbatim": `_scrub_messages` expects a `messages` list, so the
@@ -117,7 +125,9 @@ existing function.")
 ## 2. Common vs separate — verdict: **COMMON gateway + thin adapters**
 
 Both providers are the same shape of problem: a native batch API (JSONL upload →
-create job → poll → download), 50% discount, **not wired in LiteLLM**, no
+create job → poll → download), 50% discount, **not wired in LiteLLM** (the
+red-team confirmed the wired set is `openai`/`hosted_vllm`/`azure`/`vertex_ai`/
+`bedrock` + `anthropic`-on-retrieve; neither `gemini` nor `mistral`), no
 `CustomLLM` batch extension point. The remedy in both docs is the identical
 "Airlock-owned route" (Option A). Implementing them separately duplicates every
 hard part.
@@ -258,12 +268,27 @@ returns a clear "install the X extra" error if missing.
 - **Phase 0 — spikes:** standalone scripts hitting Mistral `client.batch.jobs.*`
   and AI Studio `client.batches.*` end-to-end (`live`-marked). Confirms both SDK
   contracts + result shapes.
-- **Phase 1 — gateway core + MistralBackend** (easiest, near-identity adapter):
-  front controller on `/v1/batches`+`/v1/files`, state store, status
-  normalization, OpenAI object shaping, `_write_log`. No guards yet. Proves the
-  whole gateway with the cheapest translation.
-- **Phase 2 — AIStudioBackend:** add the OpenAI↔Gemini translation (A4, native
-  kept in `.body`). Same core, second adapter — validates the abstraction.
+- **Phase 1 — gateway core + the `BatchBackend` interface + first adapter.**
+  Front controller, state store, status normalization, OpenAI object shaping,
+  `write_batch_record`. No guards yet.
+  **Which adapter first is a genuine tension** (the red-team and my first pass
+  disagreed):
+  - *Mistral-first* (my pick): near-identity translation → fastest working
+    end-to-end batch → de-risks the gateway core independently of hard
+    translation.
+  - *Gemini-first* (red-team's pick): it's the **actual business need** (only
+    viable Gemini-3.x batch path) **and** the hardest translation, so building it
+    first proves the abstraction handles the hard case.
+  **Resolution:** the core + the adapter *interface* are built first regardless;
+  pick the first adapter by priority. Since Gemini 3.x is the reason this exists,
+  **lead with `AIStudioBackend` behind the interface**, then add `MistralBackend`
+  as the cheap second adapter that *validates* the boundary (its near-identity
+  translation is the proof the seam is right). If gateway-core risk dominates over
+  shipping Gemini, swap the order — the interface makes it cheap either way.
+- **Phase 2 — second adapter** (`MistralBackend` if Gemini led, else AI Studio):
+  same core, validates the abstraction. Note Mistral batch is **multi-endpoint**
+  (`/v1/chat/completions`, `/v1/embeddings`, `/v1/ocr`, …), so the adapter must
+  carry an `endpoint` field — AI Studio batch is generateContent-only.
 - **Phase 3 — guards:** async think-slow scan pipeline (A1), keyword reject, PII
   redact (terminal default), `batch_profile`, trust-boundary enforcement, caps.
 - **Phase 4 — hardening:** idempotency/reconciliation (A3), opt-in encrypted
@@ -282,15 +307,32 @@ job), and `live`-marked end-to-end per backend.
 
 ---
 
-## 7. Open challenges (the independent red-team pass is verifying these)
-1. Front-controlling `/v1/batches` vs LiteLLM's own handler registration order
-   (A5) — confirm a clean delegate path exists, else fall back to namespaced
-   routes for Phase 1.
-2. Async scan back-pressure: how `validating` is surfaced while a 1M-row scan
-   runs, and the failure UX when scan rejects after upload "succeeded".
-3. Whether opt-in hydration is ever worth the encrypted-PII-store cost for batch,
-   or whether terminal redaction should be the *only* supported mode.
-4. `LiteLLMNativeBackend` double-handling risk (gateway scans, then litellm
+## 7. Open challenges (independent red-team pass — incorporated)
+The red-team verified the claims against code and sharpened these:
+1. **Route shape is a real blocker, not a "later phase" (A5).** FastAPI is
+   first-match-wins and LiteLLM registers `/v1/batches` **before** Airlock's
+   import-time injection, so a late-added duplicate route **never matches**.
+   Drop-in on `/v1/batches` therefore needs **middleware (an ASGI/HTTP
+   front-controller that inspects the body and delegates) or route replacement**,
+   not handler registration. Phase-1 fallback = namespaced `/airlock/batch/...`
+   (accept the SDK-drop-in loss). Decide before Phase 1.
+2. **Async scan = real cost, off the event loop.** ~50–150 ms/row warm × up to
+   1M rows = 14–40 h single-threaded; the helpers are **synchronous**, so they
+   must run in a **process pool** (the think-slow subsystem), never in the async
+   handler. Upload becomes "accepted, scanning" — surface `validating` and define
+   the failure UX when scan rejects *after* upload returned 200.
+3. **Hydration may not be worth it for batch at all.** Terminal redaction might be
+   the *only* supported mode; opt-in hydration must justify the encrypted,
+   TTL'd, ≤48 h bulk-PII store (A2).
+4. **Result-file retention ≠ job expiry.** 48 h is the pending/running expiry; the
+   provider result file has its own retention and may expire independently —
+   staging/download must not assume the result is fetchable for the full window.
+5. **Verify `airlock_batch` placement.** Under `litellm_params` it may be
+   forwarded to the provider SDK on the *sync* path for these aliases (the
+   `enhanced_profile` precedent suggests survivable — verify, don't assume).
+6. **Webhooks need a public HTTPS callback + signature verification** — not
+   "near-free later"; defer explicitly. Polling is the MVP.
+7. `LiteLLMNativeBackend` double-handling risk (gateway scans, then litellm
    re-processes) — scope carefully in Phase 5.
 
 ---
