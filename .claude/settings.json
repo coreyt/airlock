@@ -69,5 +69,167 @@
     "wake": {
       "command": "wake-mcp"
     }
+  },
+  "hooks": {
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "export WAKE_STORE=\"$CLAUDE_PROJECT_DIR/.wake/events.db\" WAKE_OUTPUT_DIR=\"$CLAUDE_PROJECT_DIR\"; wake claude-postcompact"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "export WAKE_STORE=\"$CLAUDE_PROJECT_DIR/.wake/events.db\" WAKE_OUTPUT_DIR=\"$CLAUDE_PROJECT_DIR\"; wake bridge-send"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "export WAKE_STORE=\"$CLAUDE_PROJECT_DIR/.wake/events.db\" WAKE_OUTPUT_DIR=\"$CLAUDE_PROJECT_DIR\"; wake read-context"
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "export WAKE_STORE=\"$CLAUDE_PROJECT_DIR/.wake/events.db\" WAKE_OUTPUT_DIR=\"$CLAUDE_PROJECT_DIR\"; wake claude-posttool"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "export WAKE_STORE=\"$CLAUDE_PROJECT_DIR/.wake/events.db\" WAKE_OUTPUT_DIR=\"$CLAUDE_PROJECT_DIR\"; wake claude-precompact"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "EnterPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "export WAKE_STORE=\"$CLAUDE_PROJECT_DIR/.wake/events.db\" WAKE_OUTPUT_DIR=\"$CLAUDE_PROJECT_DIR\"; wake plan-check"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "export WAKE_STORE=\"$CLAUDE_PROJECT_DIR/.wake/events.db\" WAKE_OUTPUT_DIR=\"$CLAUDE_PROJECT_DIR\"; wake guard-check"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "export WAKE_STORE=\"$CLAUDE_PROJECT_DIR/.wake/events.db\" WAKE_OUTPUT_DIR=\"$CLAUDE_PROJECT_DIR\"; wake guard-check"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "export WAKE_STORE=\"$CLAUDE_PROJECT_DIR/.wake/events.db\" WAKE_OUTPUT_DIR=\"$CLAUDE_PROJECT_DIR\"; wake guard-check"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/git-commit-check.sh"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "export WAKE_STORE=\"$CLAUDE_PROJECT_DIR/.wake/events.db\" WAKE_OUTPUT_DIR=\"$CLAUDE_PROJECT_DIR\"; wake session-start && (wake bridge start >/dev/null 2>&1 </dev/null &) && wake render-projection && cat .wake/projection.md"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "export WAKE_STORE=\"$CLAUDE_PROJECT_DIR/.wake/events.db\" WAKE_OUTPUT_DIR=\"$CLAUDE_PROJECT_DIR\"; wake claude-stop"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "export WAKE_STORE=\"$CLAUDE_PROJECT_DIR/.wake/events.db\" WAKE_OUTPUT_DIR=\"$CLAUDE_PROJECT_DIR\"; wake bridge stop ; wake session-end && wake extract-smart-events && wake snapshot && wake render-projection && wake render-wake-dir"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-stop.sh"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "export WAKE_STORE=\"$CLAUDE_PROJECT_DIR/.wake/events.db\" WAKE_OUTPUT_DIR=\"$CLAUDE_PROJECT_DIR\"; wake reintegrate-hook"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "export WAKE_STORE=\"$CLAUDE_PROJECT_DIR/.wake/events.db\" WAKE_OUTPUT_DIR=\"$CLAUDE_PROJECT_DIR\"; wake claude-prompt-whisper"
+          }
+        ]
+      }
+    ]
   }
 }

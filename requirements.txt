@@ -1,5 +1,5 @@
 # Core proxy
-litellm[proxy]>=1.55.0,!=1.82.7,!=1.82.8
+litellm[proxy]>=1.83.4,!=1.82.7,!=1.82.8,<2
 
 # Guardrails - PII detection
 presidio-analyzer>=2.2.0
