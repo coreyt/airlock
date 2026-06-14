@@ -278,6 +278,16 @@ litellm_settings:
   request_timeout: 300
 
 # ---------------------------------------------------------------------------
+# Files settings — provider config for the Batch/Files API (/v1/files, /v1/batches)
+# ---------------------------------------------------------------------------
+# Required so /v1/files can resolve a provider for non-vertex batch. vertex_ai is
+# special-cased by LiteLLM (needs no entry; uses ADC + GCS_BUCKET_NAME). Call
+# /v1/files and /v1/batches with custom_llm_provider=openai (or vertex_ai).
+files_settings:
+  - custom_llm_provider: openai
+    api_key: os.environ/OPENAI_API_KEY
+
+# ---------------------------------------------------------------------------
 # Router settings
 # ---------------------------------------------------------------------------
 router_settings:
