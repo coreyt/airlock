@@ -138,6 +138,11 @@ class TestInferProvider:
     def test_mistral_variants(self):
         assert infer_provider("mistral-small") == "mistral"
         assert infer_provider("codestral") == "mistral"
+
+    def test_null_or_empty_model(self):
+        """Batch/file routes carry no top-level model — must not crash."""
+        assert infer_provider(None) is None
+        assert infer_provider("") is None
         assert infer_provider("magistral-medium") == "mistral"
 
     def test_unknown(self):

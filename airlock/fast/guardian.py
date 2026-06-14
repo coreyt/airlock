@@ -356,7 +356,7 @@ class AirlockFastGuardian(CustomGuardrail):
         # ---- Step 4: Priority scoring ----
         data = apply_gemini_request_semantics(
             data,
-            provider=infer_provider(data.get("model", model_name)),
+            provider=infer_provider(data.get("model") or model_name),
         )
         priority = compute_priority(client)
         metadata = data.setdefault("metadata", {})
