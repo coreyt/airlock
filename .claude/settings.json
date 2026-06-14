@@ -108,6 +108,16 @@
             "command": "export WAKE_STORE=\"$CLAUDE_PROJECT_DIR/.wake/events.db\" WAKE_OUTPUT_DIR=\"$CLAUDE_PROJECT_DIR\"; wake claude-posttool"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(uv sync*)",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/ensure-spacy-after-sync.sh"
+          }
+        ]
       }
     ],
     "PreCompact": [
