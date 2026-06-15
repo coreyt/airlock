@@ -51,7 +51,12 @@ class LogsPane(VerticalScroll):
                 allow_blank=False,
             )
             yield Select(
-                [("All Types", "all"), ("LLM", "llm"), ("MCP", "mcp")],
+                [
+                    ("All Types", "all"),
+                    ("LLM", "llm"),
+                    ("MCP", "mcp"),
+                    ("Batch", "batch"),
+                ],
                 value="all",
                 id="logs-type-filter",
                 allow_blank=False,
@@ -211,8 +216,14 @@ class LogsPane(VerticalScroll):
             filtered = [r for r in filtered if not r.get("success")]
         if type_val == "mcp":
             filtered = [r for r in filtered if r.get("call_type") == "call_mcp_tool"]
+        elif type_val == "batch":
+            filtered = [r for r in filtered if r.get("call_type") == "batch"]
         elif type_val == "llm":
-            filtered = [r for r in filtered if r.get("call_type") != "call_mcp_tool"]
+            filtered = [
+                r
+                for r in filtered
+                if r.get("call_type") not in ("call_mcp_tool", "batch")
+            ]
         if tool_val:
             filtered = [
                 r
@@ -231,9 +242,11 @@ class LogsPane(VerticalScroll):
             ts = r.get("timestamp", "")[:19]
             if r.get("call_type") == "call_mcp_tool":
                 call_type = r.get("mcp_tool_name") or "MCP"
+            elif r.get("call_type") == "batch":
+                call_type = "BATCH"
             else:
                 call_type = "LLM"
-            model = r.get("model", "-")
+            model = r.get("model") or "-"
             user = r.get("user") or "-"
             tokens = str(r.get("total_tokens", "-"))
             dur = r.get("duration_ms")

@@ -15,6 +15,7 @@ from airlock.callbacks.enterprise_logger import (
     _rotate_if_oversized,
     _serialize,
     _write_log,
+    write_batch_record,
     write_precall_block_record,
 )
 
@@ -538,6 +539,85 @@ class TestMCPLogging:
 
         assert "call_type" not in record
         assert "mcp_tool_name" not in record
+
+
+# ---------------------------------------------------------------------------
+# Batch lifecycle records
+# ---------------------------------------------------------------------------
+class TestBatchRecord:
+    def test_write_batch_record_tags_and_fields(self, monkeypatch):
+        written: list[dict] = []
+        monkeypatch.setattr(
+            "airlock.callbacks.enterprise_logger._write_log",
+            lambda record: written.append(record),
+        )
+
+        record = write_batch_record(
+            event="created",
+            batch_id="batch_123",
+            provider="openai",
+            model="gpt-4o-mini",
+            status="validating",
+            row_count=42,
+            input_file_id="file_abc",
+            job_id="job_xyz",
+            client="codex-review",
+        )
+
+        assert written and written[0] is record
+        assert record["call_type"] == "batch"
+        assert record["is_batch_call"] is True
+        assert record["event"] == "created"
+        assert record["batch_id"] == "batch_123"
+        assert record["airlock_provider"] == "openai"
+        assert record["model"] == "gpt-4o-mini"
+        assert record["status"] == "validating"
+        assert record["row_count"] == 42
+        assert record["input_file_id"] == "file_abc"
+        assert record["job_id"] == "job_xyz"
+        assert record["airlock_client"] == "codex-review"
+        assert record["success"] is True
+        assert record["error"] is None
+        assert "timestamp" in record
+
+    def test_write_batch_record_error_marks_failure(self, monkeypatch):
+        monkeypatch.setattr(
+            "airlock.callbacks.enterprise_logger._write_log",
+            lambda record: None,
+        )
+
+        record = write_batch_record(
+            event="failed",
+            batch_id="batch_err",
+            provider="vertex_ai",
+            model=None,
+            status="failed",
+            error="quota exceeded",
+        )
+
+        assert record["success"] is False
+        assert record["error"] == "quota exceeded"
+        assert record["model"] is None
+
+    def test_write_batch_record_redacts_and_rotates(self, log_dir, monkeypatch):
+        """Batch records flow through _write_log → redaction + rotation reused."""
+        monkeypatch.setenv("AIRLOCK_LOG_REDACT_FIELDS", "batch_id")
+
+        write_batch_record(
+            event="created",
+            batch_id="secret-batch",
+            provider="openai",
+            model="gpt-4o-mini",
+            status="validating",
+        )
+
+        today = datetime.date.today().isoformat()
+        log_path = log_dir / f"airlock-{today}.jsonl"
+        record = json.loads(log_path.read_text().strip())
+
+        assert record["batch_id"] == "[REDACTED]"
+        assert record["call_type"] == "batch"
+        assert record["is_batch_call"] is True
 
 
 # ---------------------------------------------------------------------------

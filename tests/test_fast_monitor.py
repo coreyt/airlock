@@ -269,6 +269,63 @@ class TestMonitorCallbacks:
         assert llm == 1
         assert mcp == 0
 
+    def test_batch_success_skips_model_stats(
+        self,
+        monitor,
+        fresh_state_store,
+        mock_start_end_times,
+    ):
+        """Batch events must not pollute model latency/health stats."""
+        start, end = mock_start_end_times
+        kwargs = {
+            "model": "gpt-4o-batch",
+            "call_type": "create_batch",
+            "litellm_params": {"metadata": {"user_api_key_alias": "dev-alice"}},
+        }
+        monitor.log_success_event(kwargs, None, start, end)
+
+        # Client-level accounting still happens (consistent with mcp handling).
+        client = fresh_state_store.get_client("user:dev-alice")
+        assert len(client.successes) == 1
+
+        # Model-level latency/health stats are NOT touched by batch.
+        model = fresh_state_store.get_model("gpt-4o-batch")
+        assert len(model.success_times) == 0
+
+    def test_batch_failure_skips_model_health(
+        self,
+        monitor,
+        fresh_state_store,
+        mock_start_end_times,
+    ):
+        """Batch failures must not feed model circuit-breaker health."""
+        start, end = mock_start_end_times
+        kwargs = {
+            "model": "gpt-4o-batch",
+            "call_type": "create_batch",
+            "exception": Exception("boom"),
+            "litellm_params": {"metadata": {"user_api_key_alias": "dev-alice"}},
+        }
+        monitor.log_failure_event(kwargs, None, start, end)
+
+        model = fresh_state_store.get_model("gpt-4o-batch")
+        assert len(model.failure_times) == 0
+        assert model.consecutive_failures == 0
+
+    def test_normal_success_still_updates_model_stats(
+        self,
+        monitor,
+        fresh_state_store,
+        mock_logger_kwargs,
+        mock_response_obj,
+        mock_start_end_times,
+    ):
+        """A non-batch event still updates model latency/health stats."""
+        start, end = mock_start_end_times
+        monitor.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
+        model = fresh_state_store.get_model("claude-sonnet")
+        assert len(model.success_times) == 1
+
     def test_rate_limit_failure_quarantines_client_provider(
         self,
         monitor,
