@@ -186,6 +186,21 @@ model_list:
       backend: mistral
       provider_model: mistral-small-latest
 
+  # Local vLLM batch via the gateway-as-executor backend
+  # (?custom_llm_provider=vllm). vLLM has no async Batch server API, so Airlock
+  # executes the scanned rows against the live /v1/chat/completions endpoint and
+  # owns the job lifecycle. api_base/api_key are read per-alias from
+  # litellm_params (api_base must end in /v1). See
+  # dev/plans/prompts/vllm-batch-executor.md.
+  - model_name: qwen36-27b-vllm-batch
+    litellm_params:
+      model: openai/qwen3.6-27b
+      api_base: http://192.168.1.45:8000/v1
+      api_key: os.environ/VLLM_API_KEY
+    airlock_batch:
+      backend: vllm
+      provider_model: qwen3.6-27b
+
   # --- Mistral AI (large-3 / medium / small-4 / magistral / codestral) ---
   - model_name: mistral-large
     litellm_params:

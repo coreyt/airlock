@@ -24,11 +24,16 @@ from urllib.parse import parse_qs
 logger = logging.getLogger("airlock.batch")
 
 # Providers handled by the Airlock gateway.
-_GATEWAY_PROVIDERS = {"aistudio", "mistral"}
+_GATEWAY_PROVIDERS = {"aistudio", "mistral", "vllm"}
 
 # Every id the gateway issues is ``file-<uuid4 hex>``; reject anything else
 # before it reaches a filesystem path (defense in depth vs. path traversal).
 _FILE_ID_RE = re.compile(r"^file-[0-9a-f]{32}$")
+
+# A caller-supplied ``Idempotency-Key`` becomes the batch ``idem``, which the
+# vLLM executor uses as a filename. Constrain it to a path-safe token (no
+# separators) so it can never escape the work dir.
+_IDEM_KEY_RE = re.compile(r"^[A-Za-z0-9._:-]{1,200}$")
 
 _BATCH_PREFIXES = ("/v1/batches", "/v1/files", "/airlock/batch")
 
@@ -252,7 +257,7 @@ async def _handle_create_batch(scope, receive, send, runtime) -> None:
             400,
             {
                 "error": {
-                    "message": f"model '{model}' is not a configured aistudio batch alias",
+                    "message": f"model '{model}' is not a configured batch gateway alias",
                     "type": "invalid_request_error",
                 }
             },
@@ -260,6 +265,21 @@ async def _handle_create_batch(scope, receive, send, runtime) -> None:
     input_file_id = body.get("input_file_id") or ""
     endpoint = body.get("endpoint") or "/v1/chat/completions"
     idem_key = _header(scope, b"idempotency-key")
+    if idem_key is not None and not _IDEM_KEY_RE.match(idem_key):
+        return await _send_json(
+            send,
+            400,
+            {
+                "error": {
+                    "message": (
+                        "Idempotency-Key must match [A-Za-z0-9._:-]{1,200} "
+                        "(no path separators)"
+                    ),
+                    "type": "invalid_request_error",
+                    "code": "invalid_idempotency_key",
+                }
+            },
+        )
 
     # Gate on the content scan (to-do #2): create only ships a READY file, and
     # only the scrubbed bytes. A rejected/failed/still-scanning file never starts
@@ -531,4 +551,29 @@ def install_batch_gateway_on_proxy_app() -> bool:
         # Post-start: add_middleware would raise — wrap the built stack instead.
         app.middleware_stack = BatchGatewayMiddleware(app.middleware_stack)
     app.state.airlock_batch_gateway_installed = True
+    _schedule_vllm_reconcile()
     return True
+
+
+def _schedule_vllm_reconcile() -> None:
+    """Best-effort: re-spawn executors for in-flight vLLM batches after a restart.
+
+    In-proxy executor tasks die with the process, so a restart must re-spawn
+    them. Runs as a background task if an event loop is already running; if
+    install happens pre-loop (no running loop) it is skipped — resume then waits
+    for the next client poll/create on that batch.
+    """
+    try:
+        from airlock.batch import runtime  # noqa: PLC0415
+        from airlock.batch.vllm import reconcile_vllm_batches  # noqa: PLC0415
+
+        import asyncio  # noqa: PLC0415
+
+        loop = asyncio.get_running_loop()
+        loop.create_task(
+            reconcile_vllm_batches(runtime.get_store()), name="vllm-reconcile"
+        )
+    except RuntimeError:
+        logger.debug("no running loop at install; vLLM reconcile deferred")
+    except Exception:  # noqa: BLE001  never break install
+        logger.debug("vLLM reconcile scheduling failed", exc_info=True)
