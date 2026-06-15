@@ -169,11 +169,13 @@ class LogsPane(VerticalScroll):
                         except json.JSONDecodeError:
                             continue
 
-        records.sort(key=lambda r: r.get("timestamp", ""), reverse=True)
+        records.sort(key=lambda r: r.get("timestamp") or "", reverse=True)
         self._records = records[:500]  # cap for UI performance
 
-        # Populate model filter options
-        models = sorted({r.get("model", "unknown") for r in self._records})
+        # Populate model filter options. Batch/file routes (/v1/batches, /v1/files)
+        # log records with no model (model is None) — coerce so sorted() doesn't
+        # hit "'<' not supported between NoneType and str".
+        models = sorted({(r.get("model") or "unknown") for r in self._records})
         options = [("All Models", "all")] + [(m, m) for m in models]
 
         def update_ui():
