@@ -186,7 +186,8 @@ curl -s "http://localhost:4000/v1/batches?custom_llm_provider=aistudio" \
 curl -s "http://localhost:4000/v1/batches/BATCH_ID?custom_llm_provider=aistudio" \
   -H "Authorization: Bearer $AIRLOCK_MASTER_KEY"
 
-# when completed, download the translated output
+# when completed, download the translated output (no provider param needed
+# here — the gateway recognizes its own output file ids)
 curl -s http://localhost:4000/v1/files/OUTPUT_FILE_ID/content \
   -H "Authorization: Bearer $AIRLOCK_MASTER_KEY"
 ```
@@ -260,6 +261,7 @@ curl -s "http://localhost:4000/v1/batches?custom_llm_provider=mistral" \
 # poll, then download the translated output
 curl -s "http://localhost:4000/v1/batches/BATCH_ID?custom_llm_provider=mistral" \
   -H "Authorization: Bearer $AIRLOCK_MASTER_KEY"
+# content GET needs no provider param (gateway recognizes its own output ids)
 curl -s http://localhost:4000/v1/files/OUTPUT_FILE_ID/content \
   -H "Authorization: Bearer $AIRLOCK_MASTER_KEY"
 ```
@@ -338,6 +340,7 @@ curl -s "http://localhost:4000/v1/batches?custom_llm_provider=vllm" \
 # poll until status == completed, then download the output
 curl -s "http://localhost:4000/v1/batches/BATCH_ID?custom_llm_provider=vllm" \
   -H "Authorization: Bearer $AIRLOCK_MASTER_KEY"
+# content GET needs no provider param (gateway recognizes its own output ids)
 curl -s http://localhost:4000/v1/files/OUTPUT_FILE_ID/content \
   -H "Authorization: Bearer $AIRLOCK_MASTER_KEY"
 ```
@@ -387,7 +390,7 @@ ahead of LiteLLM's route auth and enforces the key itself (open only if
 | `POST /v1/batches?custom_llm_provider=vllm` | Create a batch from `input_file_id` + `model` (the alias). Waits for the scan; **refuses** a rejected file. |
 | `GET /v1/batches/{batch_id}?custom_llm_provider=vllm` | Poll batch status; transparently stages results when the run completes. |
 | `POST /v1/batches/{batch_id}/cancel?custom_llm_provider=vllm` | Cancel. |
-| `GET /v1/files/{output_file_id}/content` | Download the OpenAI-shaped output JSONL. |
+| `GET /v1/files/{output_file_id}/content` | Download the OpenAI-shaped output JSONL. **No provider param needed here** — the gateway recognizes its own output file ids, so a stock OpenAI SDK `files.content()` works. (`/v1/files` upload and `/v1/batches` create/poll still need the param.) |
 
 ### Input JSONL (one request per line)
 ```json
