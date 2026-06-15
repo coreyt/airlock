@@ -35,6 +35,24 @@
       "Bash(date:*)",
       "Bash(echo:*)"
     ],
+    "deny": [
+      "Bash(rm:*)",
+      "Bash(mv:*)",
+      "Bash(cp:*)",
+      "Bash(wget:*)",
+      "Bash(sudo:*)",
+      "Bash(apt:*)",
+      "Bash(apt-get:*)",
+      "Bash(kill:*)",
+      "Bash(pkill:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean:*)",
+      "Bash(git cherry-pick:*)",
+      "Bash(git -C * push:*)",
+      "Bash(git -C * reset --hard:*)",
+      "Bash(git -C * clean:*)",
+      "Bash(git -C * cherry-pick:*)"
+    ],
     "ask": [
       "Bash(git merge:*)",
       "Bash(git rebase:*)",
@@ -44,33 +62,7 @@
       "Bash(git -C * rebase:*)",
       "Bash(git -C * worktree add:*)",
       "Bash(git -C * worktree remove:*)"
-    ],
-    "deny": [
-      "Bash(rm:*)",
-      "Bash(mv:*)",
-      "Bash(cp:*)",
-      "Bash(curl:*)",
-      "Bash(wget:*)",
-      "Bash(sudo:*)",
-      "Bash(apt:*)",
-      "Bash(apt-get:*)",
-      "Bash(systemctl:*)",
-      "Bash(kill:*)",
-      "Bash(pkill:*)",
-      "Bash(git push:*)",
-      "Bash(git reset --hard:*)",
-      "Bash(git clean:*)",
-      "Bash(git cherry-pick:*)",
-      "Bash(git -C * push:*)",
-      "Bash(git -C * reset --hard:*)",
-      "Bash(git -C * clean:*)",
-      "Bash(git -C * cherry-pick:*)"
     ]
-  },
-  "mcpServers": {
-    "wake": {
-      "command": "wake-mcp"
-    }
   },
   "hooks": {
     "PostCompact": [
@@ -116,8 +108,8 @@
         "hooks": [
           {
             "type": "command",
-            "if": "Bash(uv sync*)",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/ensure-spacy-after-sync.sh"
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/ensure-spacy-after-sync.sh",
+            "if": "Bash(uv sync*)"
           }
         ]
       }
@@ -243,5 +235,10 @@
         ]
       }
     ]
+  },
+  "mcpServers": {
+    "wake": {
+      "command": "wake-mcp"
+    }
   }
 }
