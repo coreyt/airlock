@@ -26,7 +26,6 @@ from airlock.batch.gateway import (
     load_batch_profile,
     provider_sync_params,
     stage_results,
-    to_openai_batch_object,
 )
 from airlock.batch.middleware import (
     BatchGatewayMiddleware,
@@ -329,10 +328,14 @@ class TestIdempotency:
 
     async def test_retrieving_to_staged_gate_fetches_once(self, store):
         native = [
-            {"key": "r1", "response": {"candidates": [
-                {"content": {"parts": [{"text": "a"}]}}]}},
-            {"key": "r2", "response": {"candidates": [
-                {"content": {"parts": [{"text": "b"}]}}]}},
+            {
+                "key": "r1",
+                "response": {"candidates": [{"content": {"parts": [{"text": "a"}]}}]},
+            },
+            {
+                "key": "r2",
+                "response": {"candidates": [{"content": {"parts": [{"text": "b"}]}}]},
+            },
         ]
         backend = FakeBackend(native_results=native)
         idem = await _seed_created(store, backend)
@@ -346,10 +349,14 @@ class TestIdempotency:
 
     async def test_resume_stages_only_missing_rows(self, store):
         native = [
-            {"key": "r1", "response": {"candidates": [
-                {"content": {"parts": [{"text": "a"}]}}]}},
-            {"key": "r2", "response": {"candidates": [
-                {"content": {"parts": [{"text": "b"}]}}]}},
+            {
+                "key": "r1",
+                "response": {"candidates": [{"content": {"parts": [{"text": "a"}]}}]},
+            },
+            {
+                "key": "r2",
+                "response": {"candidates": [{"content": {"parts": [{"text": "b"}]}}]},
+            },
         ]
         backend = FakeBackend(native_results=native)
         idem = await _seed_created(store, backend)
@@ -368,9 +375,7 @@ class TestIdempotency:
 # ---------------------------------------------------------------------------
 class TestExpiredResult:
     async def test_expired_result_marks_failed_without_crash(self, store):
-        backend = FakeBackend(
-            fetch_error=ResultUnavailableError("result file expired")
-        )
+        backend = FakeBackend(fetch_error=ResultUnavailableError("result file expired"))
         idem = await _seed_created(store, backend)
         obj = await stage_results(store, backend, idem)
         assert obj["status"] in {"failed", "expired"}
@@ -445,8 +450,10 @@ class TestBatchObject:
 
     async def test_get_batch_stages_on_completed(self, store):
         native = [
-            {"key": "r1", "response": {"candidates": [
-                {"content": {"parts": [{"text": "a"}]}}]}},
+            {
+                "key": "r1",
+                "response": {"candidates": [{"content": {"parts": [{"text": "a"}]}}]},
+            },
         ]
         backend = FakeBackend(native_results=native)
         created = await create_batch(
@@ -489,8 +496,10 @@ class TestAIStudioBackendLazy:
     def test_translation_works_without_sdk(self):
         backend = AIStudioBackend(api_key="x")
         out = backend.to_provider_request(
-            {"custom_id": "r1", "body": {"messages": [
-                {"role": "user", "content": "hi"}]}}
+            {
+                "custom_id": "r1",
+                "body": {"messages": [{"role": "user", "content": "hi"}]},
+            }
         )
         assert out["key"] == "r1"
 
@@ -509,7 +518,7 @@ class TestAIStudioBackendLazy:
 # Helpers
 # ---------------------------------------------------------------------------
 async def _seed_created(store, backend) -> str:
-    obj = await create_batch(
+    await create_batch(
         store,
         backend,
         input_file_id="file-1",
