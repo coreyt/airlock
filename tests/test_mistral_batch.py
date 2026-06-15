@@ -162,9 +162,7 @@ class TestTranslation:
 
     def test_backend_translation_methods_no_sdk(self):
         backend = MistralBackend(api_key="x")
-        req = backend.to_provider_request(
-            {"custom_id": "r1", "body": {"messages": []}}
-        )
+        req = backend.to_provider_request({"custom_id": "r1", "body": {"messages": []}})
         assert req["custom_id"] == "r1"
         res = backend.from_provider_result(
             {"custom_id": "r1", "response": {"body": {"choices": []}}}
@@ -305,9 +303,7 @@ class TestFetch:
 
     async def test_fetch_raises_when_download_fails(self):
         jobs = [_FakeJob("job-1", output_file="out-1")]
-        backend = _backend_with_client(
-            _FakeMistralClient(jobs=jobs, download_ok=False)
-        )
+        backend = _backend_with_client(_FakeMistralClient(jobs=jobs, download_ok=False))
         with pytest.raises(ResultUnavailableError):
             await backend.fetch("job-1")
 
@@ -333,7 +329,7 @@ class TestLazySDK:
             backend, "_import_mistral", lambda: (_ for _ in ()).throw(AssertionError)
         )
         # import succeeds path is exercised via a stub returning a client factory
-        monkeypatch.setattr(backend, "_import_mistral", lambda: (lambda **kw: object()))
+        monkeypatch.setattr(backend, "_import_mistral", lambda: lambda **kw: object())
         with pytest.raises(RuntimeError, match="MISTRAL_API_KEY"):
             await backend.upload(b"{}", "disp")
 

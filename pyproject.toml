@@ -58,9 +58,7 @@ tui = ["textual>=0.40.0"]
 search = ["tavily-python>=0.5.0", "newscatcher-catchall-sdk>=1.0.0"]
 vertex = ["google-auth>=2.0.0"]  # required by litellm vertex_ai (token minting + GCS batch staging)
 aistudio = ["google-genai>=1.0.0"]  # AI Studio Gemini batch via the Airlock Batch Gateway (lazy-imported)
-# TODO (batch gateway): Mistral (mistralai) batch adapter is design-only
-# (dev/design-unified-batch-gateway.md) — dep intentionally NOT declared until
-# that adapter is implemented.
+mistral = ["mistralai>=1.0.0"]  # Mistral batch via the Airlock Batch Gateway (lazy-imported)
 tracing = ["opentelemetry-api>=1.20.0", "opentelemetry-sdk>=1.20.0"]
 test = [
     "pytest>=8.0",

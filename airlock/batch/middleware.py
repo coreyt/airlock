@@ -5,8 +5,8 @@ registration). It acts only on the batch/file routes and discriminates on the
 ``custom_llm_provider`` **query parameter**, read from the ASGI scope's
 ``query_string`` — the request body is NEVER buffered (uploads can be ~2GB).
 
-``aistudio`` -> Airlock gateway; everything else -> ``call_next`` (the inner
-LiteLLM app) untouched.
+``aistudio``/``mistral`` -> Airlock gateway; everything else -> ``call_next``
+(the inner LiteLLM app) untouched.
 """
 
 from __future__ import annotations
@@ -22,8 +22,8 @@ from urllib.parse import parse_qs
 
 logger = logging.getLogger("airlock.batch")
 
-# Providers handled by the Airlock gateway (Mistral is deferred — Pack scope).
-_GATEWAY_PROVIDERS = {"aistudio"}
+# Providers handled by the Airlock gateway.
+_GATEWAY_PROVIDERS = {"aistudio", "mistral"}
 
 _BATCH_PREFIXES = ("/v1/batches", "/v1/files", "/airlock/batch")
 

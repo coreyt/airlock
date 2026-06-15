@@ -12,7 +12,9 @@ from pathlib import Path
 from typing import Any
 
 from airlock.batch.aistudio import AIStudioBackend
+from airlock.batch.backend import BatchBackend
 from airlock.batch.gateway import load_batch_aliases, load_batch_profile
+from airlock.batch.mistral import MistralBackend
 from airlock.batch.store import BatchStore
 
 _config_cache: dict[str, Any] | None = None
@@ -67,14 +69,23 @@ def get_batch_profile() -> dict:
     return load_batch_profile(get_config())
 
 
-def backend_for_alias(model: str) -> AIStudioBackend | None:
-    """Resolve a model alias to a configured batch backend (aistudio only)."""
+def backend_for_alias(model: str) -> BatchBackend | None:
+    """Resolve a model alias to a configured batch backend.
+
+    Dispatches on the ``airlock_batch`` marker's ``backend`` field: ``aistudio``
+    -> ``AIStudioBackend``, ``mistral`` -> ``MistralBackend``. Returns ``None``
+    for unknown / unmarked aliases.
+    """
     marker = load_batch_aliases(get_config()).get(model)
     if not marker:
         return None
-    if marker.get("backend") != "aistudio":
-        return None
-    return AIStudioBackend(provider_model=marker.get("provider_model"))
+    backend = marker.get("backend")
+    provider_model = marker.get("provider_model")
+    if backend == "aistudio":
+        return AIStudioBackend(provider_model=provider_model)
+    if backend == "mistral":
+        return MistralBackend(provider_model=provider_model)
+    return None
 
 
 # -- file store (streamed; no full in-memory buffer) --------------------
