@@ -308,10 +308,22 @@ def _header(scope: dict, name: bytes) -> str | None:
 # Install (import-time bootstrap, next to the other Airlock injectors)
 # ---------------------------------------------------------------------------
 def install_batch_gateway_on_proxy_app() -> bool:
-    """Attach ``BatchGatewayMiddleware`` to the LiteLLM proxy app at import.
+    """Attach ``BatchGatewayMiddleware`` to the LiteLLM proxy app.
 
-    Middleware can be added while ``app.middleware_stack`` is unbuilt (verified
-    A5), so this runs from ``model_override_headers`` before the server starts.
+    This runs from ``model_override_headers`` (imported as a LiteLLM callback).
+    That import can happen **either** before the app starts **or** during the
+    startup lifespan — and Starlette forbids ``add_middleware`` once the app has
+    started (``middleware_stack`` is built), raising
+    ``RuntimeError("Cannot add middleware after an application has started")``.
+    To be safe under both orderings:
+
+    - **Not started yet** (``middleware_stack is None``): use the normal
+      ``add_middleware`` path; Starlette builds the stack (with our middleware)
+      on startup.
+    - **Already started** (``middleware_stack`` built): wrap the built stack so
+      the gateway sits at the outermost ASGI layer. ``BatchGatewayMiddleware``
+      is a pure pass-through ASGI app, so wrapping is transparent for every
+      non-gateway request.
     """
     try:
         from fastapi import FastAPI  # noqa: PLC0415
@@ -324,6 +336,11 @@ def install_batch_gateway_on_proxy_app() -> bool:
         return False
     if getattr(app.state, "airlock_batch_gateway_installed", False):
         return True
-    app.add_middleware(BatchGatewayMiddleware)
+    if app.middleware_stack is None:
+        # Pre-start: the normal path; the stack is built on startup.
+        app.add_middleware(BatchGatewayMiddleware)
+    else:
+        # Post-start: add_middleware would raise — wrap the built stack instead.
+        app.middleware_stack = BatchGatewayMiddleware(app.middleware_stack)
     app.state.airlock_batch_gateway_installed = True
     return True

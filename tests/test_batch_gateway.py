@@ -885,3 +885,64 @@ async def _seed_created(store, backend) -> str:
         jsonl=b"",
     )
     return compute_idem("file-1", "m", "/v1/chat/completions", {})
+
+
+# ---------------------------------------------------------------------------
+# install_batch_gateway_on_proxy_app — timing regression (prod outage 2026-06-15)
+# ---------------------------------------------------------------------------
+class TestInstallBatchGatewayOnProxyApp:
+    """The installer must work whether the LiteLLM app has started or not.
+
+    Regression: it ran from a callback imported *during* the startup lifespan,
+    so ``app.add_middleware`` raised "Cannot add middleware after an application
+    has started" and crash-looped the proxy. The fix wraps the built ASGI stack
+    when the app has already started.
+    """
+
+    def _register_app(self, monkeypatch, app):
+        import sys
+        import types
+
+        mod = types.ModuleType("litellm.proxy.proxy_server")
+        mod.app = app
+        monkeypatch.setitem(sys.modules, "litellm.proxy.proxy_server", mod)
+
+    def test_install_before_start_uses_add_middleware(self, monkeypatch):
+        from fastapi import FastAPI
+
+        from airlock.batch.middleware import install_batch_gateway_on_proxy_app
+
+        app = FastAPI()
+        assert app.middleware_stack is None  # not started
+        self._register_app(monkeypatch, app)
+
+        assert install_batch_gateway_on_proxy_app() is True
+        assert any(m.cls is BatchGatewayMiddleware for m in app.user_middleware)
+
+    def test_install_after_start_wraps_stack_without_raising(self, monkeypatch):
+        from fastapi import FastAPI
+
+        from airlock.batch.middleware import install_batch_gateway_on_proxy_app
+
+        app = FastAPI()
+        app.middleware_stack = app.build_middleware_stack()  # simulate "started"
+        assert app.middleware_stack is not None
+        self._register_app(monkeypatch, app)
+
+        # Must NOT raise (the bug), and must wrap the built stack outermost.
+        assert install_batch_gateway_on_proxy_app() is True
+        assert isinstance(app.middleware_stack, BatchGatewayMiddleware)
+
+    def test_install_is_idempotent_after_start(self, monkeypatch):
+        from fastapi import FastAPI
+
+        from airlock.batch.middleware import install_batch_gateway_on_proxy_app
+
+        app = FastAPI()
+        app.middleware_stack = app.build_middleware_stack()
+        self._register_app(monkeypatch, app)
+
+        assert install_batch_gateway_on_proxy_app() is True
+        first = app.middleware_stack
+        assert install_batch_gateway_on_proxy_app() is True  # second call no-ops
+        assert app.middleware_stack is first  # not double-wrapped
