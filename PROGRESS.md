@@ -4,6 +4,30 @@
 
 Last updated: 2026-04-08
 
+## Planned — v0.3.2 (To-Do)
+
+Batch follow-ups carried over from the Vertex/OpenAI batch work (PR #40). Design
+references: `dev/design-unified-batch-gateway.md`, `dev/batch-guardrail-toggles-considerations.md`.
+
+1. **AI Studio Gemini 3.x + Mistral batch are not implemented** — design-only
+   (`dev/design-unified-batch-gateway.md`). Main feature follow-up. Recommended
+   build order per the design: gateway core + adapter interface first, lead with
+   the AI Studio adapter, then Mistral.
+2. **Batch bypasses Airlock guardrails** — true for the working OpenAI/Vertex
+   batch paths today. Real compliance gap until the gateway's content-scan lands.
+   Flag to anyone using batch now.
+3. **Systemic null-route fix not done** — 5 spots were patched reactively
+   (`model_alias.resolve`, `router.infer_provider`, Fast Guardian, PII post-call
+   hook, TUI logs view). The design's `is_batch_call` seam (skip model-specific
+   guard logic for batch wholesale) would prevent the next one; other
+   guardrails/callbacks may still carry latent batch-route assumptions — a
+   proactive sweep or the seam is the durable fix.
+4. **Batch observability** — `write_batch_record` + batch `call_type`/TUI tagging
+   not built (logger A6 gap); batch jobs aren't cleanly logged/tagged.
+5. **Open design decisions (§7 of the unified design doc)** to settle before
+   implementing: async-scan UX, whether to support PII hydration at all,
+   result-file retention, `airlock_batch` param-forwarding verification, webhooks.
+
 ## Completed Work
 
 ### PR #1 — Initial Release
