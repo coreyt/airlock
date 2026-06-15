@@ -226,7 +226,10 @@ class AirlockPIIGuard(CustomGuardrail):
         user_api_key_dict: Any,  # noqa: ARG002
         response: Any,
     ) -> Any:
-        mapping = data.get("metadata", {}).get("airlock_pii_map")
+        # Batch/file routes (/v1/batches, /v1/files) invoke this hook with no
+        # chat `data` (data is None / has no metadata) — nothing to hydrate.
+        metadata = (data or {}).get("metadata") if isinstance(data, dict) else None
+        mapping = metadata.get("airlock_pii_map") if isinstance(metadata, dict) else None
         if not mapping or not _hydration_enabled():
             return response
 
