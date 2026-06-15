@@ -43,6 +43,8 @@ _Last updated: 2026-06-14 · mainline: `main` @ `a45bd88`_
 | §7.3 result-file ≠ job expiry | C | ✅ |
 | §7.4 `airlock_batch` no sync-path leak | C | ✅ |
 | Mistral batch gateway | D | ✅ unit + integration + **live e2e PASSED** 2026-06-15 (`mistral-small-latest`) |
+| #2 batch content-scan (close guardrail bypass) | — | ✅ async scan + file state machine + create-gating (code-review PASS_WITH_NOTES, all notes fixed) |
+| §7.1 async-scan failure UX | — | ✅ `GET /v1/files/{id}` status + create gate (400 rejected / 409 not-ready) |
 
 ## 4. Parallelization plan
 
@@ -62,6 +64,24 @@ None — all removed after Pack A close.
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-15 — **Item 2 (batch content-scan) BUILT — guardrail-bypass gap closed.**
+  The last open release item. Batch uploads were going to the provider unscanned;
+  now every uploaded JSONL row is keyword-checked (hit ⇒ reject whole upload) and
+  PII-redacted (terminal, no map stored — A2) **asynchronously**, and the provider
+  job is created only off a clean *scrubbed* file. New: `airlock/batch/scan.py`
+  (pure, guard-injected stream pipeline), `airlock/batch/worker.py` (thread-pool
+  executor + race-free `claim_file_scan` CAS), `batch_files` state machine
+  (`FILE_UPLOADED→SCANNING→READY|REJECTED|FAILED`), create-gating + `GET
+  /v1/files/{id}` status (§7.1 async UX). The unified design assumed `airlock/slow`
+  was a think-slow worker — it is **not** (offline log analyzer), so the execution
+  machinery is new; thread-pool over process-pool is the MVP choice (executor-
+  agnostic, one-line swap). **code-reviewer PASS_WITH_NOTES**; all notes fixed:
+  scanned-READY-but-scrubbed-missing now 400s instead of shipping raw (added
+  `scan_enabled` column), `CancelledError`→FILE_FAILED (no stranded SCANNING),
+  `get_running_loop`, UTF-8 byte caps, file-id traversal guard, namespaced FILE_*
+  states. Full suite **1774→ green** + 23 new batch tests. Design:
+  `dev/design-batch-content-scan.md`. Out of scope (seams): output-side scan, PII
+  hydration, webhooks. **Not committed** — staged for HITL review.
 - 2026-06-15 — **Mistral live e2e PASSED.** After the `MISTRAL_API_KEY` was refreshed
   (the prior one 401'd on every call), restored `tests/test_mistral_batch_e2e.py` and
   ran the real round-trip via the production gateway path — `mistral-small-latest`

@@ -69,6 +69,18 @@ def get_batch_profile() -> dict:
     return load_batch_profile(get_config())
 
 
+def effective_batch_profile() -> dict:
+    """Return the active ``batch_profile.default`` sub-dict (design §4.2).
+
+    ``load_batch_profile`` returns the whole ``{default: {...}}`` block; the
+    gateway operates on the inner profile. Falls back to an empty dict so callers
+    can ``.get(...)`` safely.
+    """
+    profile = get_batch_profile()
+    default = profile.get("default") if isinstance(profile, dict) else None
+    return default if isinstance(default, dict) else {}
+
+
 def backend_for_alias(model: str) -> BatchBackend | None:
     """Resolve a model alias to a configured batch backend.
 
@@ -91,6 +103,11 @@ def backend_for_alias(model: str) -> BatchBackend | None:
 # -- file store (streamed; no full in-memory buffer) --------------------
 def upload_path(file_id: str) -> Path:
     return _data_dir() / f"{file_id}.jsonl"
+
+
+def scrubbed_path(file_id: str) -> Path:
+    """Path of the scan-scrubbed JSONL (what ``create`` ships once READY)."""
+    return _data_dir() / f"{file_id}.scrubbed.jsonl"
 
 
 def read_upload(file_id: str) -> bytes:

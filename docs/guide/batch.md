@@ -4,14 +4,18 @@ Batch lets you submit many requests as one asynchronous job for **~50% lower
 cost** (typical ~24h turnaround). Airlock exposes the OpenAI-compatible Batch API
 (`/v1/files` + `/v1/batches`) on the proxy.
 
-!!! warning "Batch bypasses Airlock guardrails today"
-    Airlock's guardrails (PII redaction, keyword, etc.) run on
-    `/v1/chat/completions`, **not** on batch jobs — the request content lives
-    inside the uploaded file, which the chat-path guards never see. This holds for
-    both the LiteLLM passthrough providers **and** the Airlock Batch Gateway: the
-    gateway's async content-scan hook is currently a **no-op stub**, so it does not
-    yet enforce guards on batch content. Pre-redact client-side, or use the guarded
-    chat path, for sensitive data.
+!!! info "Guardrails on batch content"
+    The **Airlock Batch Gateway** (`aistudio`/`mistral`) scans uploaded batch
+    content: each row is keyword-checked (a hit rejects the whole upload) and
+    PII-redacted (terminal redaction — placeholders ship to the provider, no
+    reverse map is stored) **before** the provider job is created. Scanning runs
+    asynchronously after upload, so `POST /v1/files` returns `status: pending`;
+    poll `GET /v1/files/{id}` until `processed` (or `error`), or just call
+    `POST /v1/batches` — it waits for the scan and refuses a rejected file.
+    Controlled by `batch_profile` (`scan_at_upload`, `keyword_block`,
+    `pii_redact`). The **LiteLLM passthrough** providers (OpenAI/Vertex) still
+    bypass these guards — their batch content never reaches the gateway scanner;
+    pre-redact client-side or use the guarded chat path for sensitive data there.
 
 ## Support matrix
 
@@ -280,6 +284,8 @@ behavior for parity).
 
 Remaining gateway work:
 
-- [ ] Guardrail scanning of batch content (async, off the request path) so batch
-  stops bypassing the guards — close the caveat at the top of this page. The
-  insertion point exists today as a no-op `scan_at_upload` stub in `batch_profile`.
+- [x] Guardrail scanning of batch content (async, off the request path) so batch
+  stops bypassing the guards — **done** (`scan_at_upload`; keyword reject + PII
+  terminal redaction; gated at `create`). See `dev/design-batch-content-scan.md`.
+- [ ] Output-side scanning (`output_scan_mode`) and opt-in PII hydration remain
+  future seams; webhooks stay deferred in favor of polling.
