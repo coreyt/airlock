@@ -529,5 +529,7 @@ class TestBatchCallHandling:
         result = await guardian.async_pre_call_hook(
             mock_user_api_key_dict, mock_cache, data, "completion"
         )
-        assert result["metadata"]["airlock_request"]["requested_model"] == "claude-sonnet"
+        assert (
+            result["metadata"]["airlock_request"]["requested_model"] == "claude-sonnet"
+        )
         assert "airlock_priority" in result["metadata"]
