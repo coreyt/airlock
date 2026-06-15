@@ -57,6 +57,30 @@ def _gateway_provider(query_string: bytes | str) -> str | None:
     return provider if provider in _GATEWAY_PROVIDERS else None
 
 
+def _is_gateway_owned_file_content(method: str, path: str) -> bool:
+    """True for ``GET /v1/files/{id}/content`` where ``{id}`` is a file the
+    gateway itself staged.
+
+    Lets a stock OpenAI SDK ``files.content(output_file_id)`` fetch gateway
+    output **without** the ``custom_llm_provider`` query param. The id must match
+    the gateway's issued shape (``file-<32 hex>``) AND a gateway file must exist
+    on disk for that id — so a LiteLLM-native file (never in the gateway store)
+    falls through untouched, and a traversal/garbage id is rejected before any
+    filesystem use.
+    """
+    if method != "GET":
+        return False
+    p = path.rstrip("/")
+    if not (p.startswith("/v1/files/") and p.endswith("/content")):
+        return False
+    file_id = p[len("/v1/files/") : -len("/content")]
+    if not _FILE_ID_RE.match(file_id):
+        return False
+    from airlock.batch import runtime  # noqa: PLC0415  lazy
+
+    return runtime.upload_path(file_id).exists()
+
+
 class BatchGatewayMiddleware:
     """Pure ASGI middleware (no body buffering)."""
 
@@ -74,7 +98,11 @@ class BatchGatewayMiddleware:
 
         provider = _gateway_provider(scope.get("query_string", b""))
         if provider is None:
-            # Non-gateway provider -> LiteLLM native handler, body untouched.
+            # No provider param. Still intercept a content fetch for a file the
+            # gateway staged, so a stock OpenAI SDK works without the param;
+            # everything else -> LiteLLM native handler, body untouched.
+            if _is_gateway_owned_file_content(method, path):
+                return await dispatch_batch_gateway(scope, receive, send)
             return await self.app(scope, receive, send)
 
         return await dispatch_batch_gateway(scope, receive, send)
