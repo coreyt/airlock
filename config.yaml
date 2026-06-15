@@ -163,6 +163,29 @@ model_list:
       backend: aistudio
       provider_model: gemini-3.1-pro-preview
 
+  # --- Mistral BATCH (Airlock Batch Gateway, not LiteLLM-native) ---
+  # LiteLLM does NOT wire the `mistral` provider into its Batch API, so these
+  # aliases are handled by the Airlock Batch Gateway middleware, selected via
+  # ?custom_llm_provider=mistral on /v1/files + /v1/batches. The `airlock_batch`
+  # marker is a SIBLING of litellm_params (NOT nested inside it) so it never
+  # leaks to the provider SDK on the sync path (§7.4). The sync completion still
+  # routes through litellm's native mistral/ provider unchanged.
+  - model_name: mistral-large-batch
+    litellm_params:
+      model: mistral/mistral-large-latest
+      api_key: os.environ/MISTRAL_API_KEY
+    airlock_batch:
+      backend: mistral
+      provider_model: mistral-large-latest
+
+  - model_name: mistral-small-batch
+    litellm_params:
+      model: mistral/mistral-small-latest
+      api_key: os.environ/MISTRAL_API_KEY
+    airlock_batch:
+      backend: mistral
+      provider_model: mistral-small-latest
+
   # --- Mistral AI (large-3 / medium / small-4 / magistral / codestral) ---
   - model_name: mistral-large
     litellm_params:
