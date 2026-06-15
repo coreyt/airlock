@@ -9,14 +9,13 @@ _Last updated: 2026-06-14 · mainline: `main` @ `a45bd88`_
 
 ## 1. Current pack in flight + next action
 
-- **Pack A: CLOSED** — merged `e35ab66` (codex PASS after fix-1).
-- **Pack B: CLOSED** — merged `7644bca` (codex CONCERN low/test-only → override). 147 green on main.
-- **In flight:** **Pack C fix-2** (test-only proof) in `/tmp/airlock-0.4.0-C-fix1`.
-  fix-1 (auth + streaming + CAS, `e27be4e`) CLOSED codex highs #1/#4; re-review
-  BLOCKed again on lease-fencing (slow owner past 60s lease races a reclaimer).
-  **HITL decision: accept the design §3.7 bound** (at-least-once, ≤1 duplicate,
-  auto-cancelled — which the code implements) and ADD proof tests rather than
-  chase exactly-once. fix-2 proves the bound; if a proof fails → real defect → escalate.
+- **Pack A: CLOSED** — merged `e35ab66` (codex PASS after fix-1). To-do #3.
+- **Pack B: CLOSED** — merged `7644bca` (codex CONCERN low/test-only → override). To-do #4.
+- **Pack C: CLOSED** — merged `0766c0f` + fixes `470cb78`. codex BLOCK→fix-1 (auth +
+  streaming + CAS, codex-confirmed CLOSED) → BLOCK on lease-fencing → HITL accepted
+  the design §3.7 at-least-once bound → fix-2 test-proved it. To-do #1 + §7.3/§7.4.
+- **0.4.0 batch track COMPLETE on main** (`470cb78`); 263 A/B/C tests green together.
+  Remaining: the operator live AI Studio e2e (HITL gate) + two small reserved-gaps below.
 - **Model note:** orchestrator-owned worktrees working end-to-end (baseline pick →
   worktree → spawn → codex → merge → cleanup). `isolation: worktree` removed from
   implementer.md (HITL); git ops `deny→ask` (`1f21233`).
@@ -29,7 +28,7 @@ _Last updated: 2026-06-14 · mainline: `main` @ `a45bd88`_
 |------|---------------|------------|-------|---------|
 | A | `is_batch_call` seam + guardian gating + null-route sweep | — | **CLOSED** | merge `e35ab66`; review `0.4.0-A-fix1-review-20260615T115144Z.md` |
 | B | `write_batch_record` + TUI/monitor batch tagging | A ✓ | **CLOSED** | merge `7644bca`; review `0.4.0-B-review-20260615T121038Z.md` |
-| C | batch gateway middleware + AI Studio adapter + idempotency §3.7 | A ✓ + B ✓ | MERGED+BLOCK→fix-1 | merge `0766c0f`; review `0.4.0-C-review-*` (BLOCK); fix-1 in flight |
+| C | batch gateway middleware + AI Studio adapter + idempotency §3.7 | A ✓ + B ✓ | **CLOSED** | merge `0766c0f`+`470cb78`; `0.4.0-C-closure.md` |
 
 ## 3. Acceptance scoreboard
 
@@ -37,9 +36,9 @@ _Last updated: 2026-06-14 · mainline: `main` @ `a45bd88`_
 |-------------|------|--------|
 | #3 systemic `is_batch_call` null-route fix | A | ✅ |
 | #4 batch observability | B | ✅ |
-| #1 AI Studio batch gateway | C | ⏳ |
-| §7.3 result-file ≠ job expiry | C | ⏳ |
-| §7.4 `airlock_batch` no sync-path leak | C | ⏳ |
+| #1 AI Studio batch gateway | C | ✅ (unit; live e2e = operator gate) |
+| §7.3 result-file ≠ job expiry | C | ✅ |
+| §7.4 `airlock_batch` no sync-path leak | C | ✅ |
 
 ## 4. Parallelization plan
 
@@ -59,6 +58,14 @@ None — all removed after Pack A close.
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-15 — **Pack C CLOSED; 0.4.0 batch track COMPLETE.** codex caught a real
+  unauthenticated-ingress on the new gateway (28 green tests missed it) →
+  fix-forward closed auth + streaming + immediate-CAS. 2nd BLOCK was codex applying
+  exactly-once to a design (§3.7) that deliberately targets at-least-once +
+  ≤1-duplicate-auto-cancel → HITL accepted the design bound; fix-2 test-proved it
+  holds. Merged `470cb78`; 263 A/B/C tests green together. Reserved-gaps: tighter
+  lease fencing (window-shrink only; exactly-once impossible) + Pack-B BATCH-label
+  assertion + operator live e2e.
 - 2026-06-15 — **Pack B CLOSED.** codex CONCERN (1 low, test-coverage only — BATCH
   label implemented but not asserted); impl verified correct → orchestrator
   override accepted (§7, prompt-induced low). Merged `7644bca`; 147 green on main.
