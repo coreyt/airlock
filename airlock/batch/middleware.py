@@ -11,8 +11,10 @@ LiteLLM app) untouched.
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
+import os
 import sys
 import uuid
 from typing import Any
@@ -115,6 +117,24 @@ async def _read_body(receive: Any) -> bytes:
     return b"".join(chunks)
 
 
+def _authorized(scope: dict) -> bool:
+    """Enforce the proxy master key on the batch ingress (design §3, codex #1).
+
+    The gateway dispatches *before* LiteLLM's route-level auth, so it must check
+    the master key itself. When ``AIRLOCK_MASTER_KEY`` is unset we mirror the
+    proxy's documented open behavior (``proxy.py`` ``_validate_master_key``) and
+    allow the request; when it is set we require ``Authorization: Bearer <key>``
+    and compare in constant time.
+    """
+    master = os.getenv("AIRLOCK_MASTER_KEY", "")
+    if not master:
+        return True
+    header = _header(scope, b"authorization") or ""
+    prefix = "Bearer "
+    token = header[len(prefix) :] if header.startswith(prefix) else ""
+    return hmac.compare_digest(token, master)
+
+
 async def dispatch_batch_gateway(scope: dict, receive: Any, send: Any) -> None:
     """Route a gateway request to the appropriate handler.
 
@@ -126,6 +146,22 @@ async def dispatch_batch_gateway(scope: dict, receive: Any, send: Any) -> None:
 
     method = scope.get("method", "")
     path = scope.get("path", "").rstrip("/")
+
+    if not _authorized(scope):
+        return await _send_json(
+            send,
+            401,
+            {
+                "error": {
+                    "message": (
+                        "Invalid Authorization header. Expected "
+                        "'Authorization: Bearer <AIRLOCK_MASTER_KEY>'."
+                    ),
+                    "type": "invalid_request_error",
+                    "code": "invalid_api_key",
+                }
+            },
+        )
 
     try:
         if method == "POST" and path in ("/v1/files", "/airlock/batch/files"):
@@ -194,7 +230,8 @@ async def _handle_create_batch(scope, receive, send, runtime) -> None:
     input_file_id = body.get("input_file_id") or ""
     endpoint = body.get("endpoint") or "/v1/chat/completions"
     idem_key = _header(scope, b"idempotency-key")
-    jsonl = runtime.read_upload(input_file_id)
+    # Pass the stored path so create streams it (no full-file buffer; codex #4).
+    input_path = str(runtime.upload_path(input_file_id))
     obj = await create_batch(
         runtime.get_store(),
         backend,
@@ -202,7 +239,7 @@ async def _handle_create_batch(scope, receive, send, runtime) -> None:
         model=model,
         endpoint=endpoint,
         params=body.get("metadata") or {},
-        jsonl=jsonl,
+        input_path=input_path,
         client=_header(scope, b"x-airlock-client"),
         idempotency_key=idem_key,
     )

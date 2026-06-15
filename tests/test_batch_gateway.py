@@ -663,9 +663,7 @@ class TestConcurrency:
         backend = FakeBackend(native_results=native)
         idem = await _seed_created(store, backend)
 
-        await asyncio.gather(
-            *[stage_results(store, backend, idem) for _ in range(6)]
-        )
+        await asyncio.gather(*[stage_results(store, backend, idem) for _ in range(6)])
         # Only the CREATED->RETRIEVING CAS winner fetches.
         assert backend.fetch_calls == 1
         assert store.get(idem)["status"] == "STAGED"

@@ -11,6 +11,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import tempfile
 import time
 import uuid
 
@@ -164,11 +166,17 @@ async def create_batch(
     model: str,
     endpoint: str,
     params: dict | None,
-    jsonl: bytes,
+    jsonl: bytes = b"",
+    input_path: str | None = None,
     client: str | None = None,
     idempotency_key: str | None = None,
 ) -> dict:
-    """Create (or adopt) a provider batch job idempotently (design §3.7)."""
+    """Create (or adopt) a provider batch job idempotently (design §3.7).
+
+    The input is streamed from ``input_path`` (the stored upload file) when
+    given, falling back to in-memory ``jsonl`` (used by unit tests); the whole
+    upload is never materialized as a single rejoined buffer (§3.7, codex #4).
+    """
     idem = idempotency_key or compute_idem(input_file_id, model, endpoint, params)
 
     won, row = store.claim(
@@ -185,12 +193,17 @@ async def create_batch(
         status = row["status"]
         if status in (CREATED, RETRIEVING, STAGED) or status in _TERMINAL:
             return to_openai_batch_object(row)
-        if status == CREATING and not store.lease_expired(row):
-            # In-flight: return the in-progress batch, back off (no new job).
-            return to_openai_batch_object(row)
-        # status == CREATING and lease expired -> reconcile below.
+        if status == CREATING:
+            if not store.lease_expired(row):
+                # In-flight: return the in-progress batch, back off (no new job).
+                return to_openai_batch_object(row)
+            # Expired lease: only the worker that CAS-reacquires it may
+            # reconcile + create; every other reclaimer backs off (§3.7).
+            if not store.reacquire_lease(idem):
+                return to_openai_batch_object(store.get(idem))
+        # CAS winner of the expired-lease reclaim -> reconcile below.
 
-    # We own creation (winner) OR we are reclaiming an expired CREATING lease.
+    # We own creation (winner) OR we re-acquired an expired CREATING lease.
     # Reconcile first: a crashed winner may have already created the job(s).
     existing = await backend.list_jobs(idem)
     if existing:
@@ -203,9 +216,14 @@ async def create_batch(
         _record("batch_adopted", out, status="in_progress")
         return to_openai_batch_object(out)
 
-    # No orphan exists -> translate + upload + create exactly one job.
-    provider_jsonl = _translate_input(backend, jsonl)
-    file_ref = await backend.upload(provider_jsonl, idem)
+    # No orphan exists -> stream-translate to a temp file + upload + create one.
+    provider_path = _translate_input_to_file(
+        backend, _iter_input_lines(jsonl, input_path)
+    )
+    try:
+        file_ref = await backend.upload(provider_path, idem)
+    finally:
+        _safe_unlink(provider_path)
     job_id = await backend.create(model, file_ref, idem)
     store.set_created(idem, job_id=job_id)
     out = store.get(idem)
@@ -213,20 +231,51 @@ async def create_batch(
     return to_openai_batch_object(out)
 
 
-def _translate_input(backend: BatchBackend, jsonl: bytes) -> bytes:
-    """Translate each OpenAI JSONL line to the provider shape (best-effort)."""
-    if not jsonl:
-        return jsonl
-    out_lines: list[str] = []
-    for raw in jsonl.decode("utf-8").splitlines():
-        if not raw.strip():
-            continue
-        try:
-            openai_line = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-        out_lines.append(json.dumps(backend.to_provider_request(openai_line)))
-    return ("\n".join(out_lines) + ("\n" if out_lines else "")).encode("utf-8")
+def _iter_input_lines(jsonl: bytes, input_path: str | None):
+    """Yield raw JSONL lines from the stored file (streamed) or in-memory bytes.
+
+    Reading line by line keeps memory bounded for ~2GB uploads (codex #4).
+    """
+    if input_path is not None and os.path.exists(input_path):
+        with open(input_path, "r", encoding="utf-8") as f:
+            for raw in f:
+                yield raw
+    elif jsonl:
+        for raw in jsonl.decode("utf-8").splitlines():
+            yield raw
+
+
+def _translate_input_to_file(backend: BatchBackend, lines) -> str:
+    """Stream-translate OpenAI lines to provider lines in a temp file (§3.7).
+
+    Each input line is translated and written one at a time, so peak memory is
+    a single line rather than the whole upload (codex #4). Returns the temp
+    file path; the caller is responsible for unlinking it after upload.
+    """
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".jsonl", delete=False, encoding="utf-8"
+    )
+    try:
+        with tmp:
+            for raw in lines:
+                if not raw.strip():
+                    continue
+                try:
+                    openai_line = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                tmp.write(json.dumps(backend.to_provider_request(openai_line)) + "\n")
+        return tmp.name
+    except BaseException:
+        _safe_unlink(tmp.name)
+        raise
+
+
+def _safe_unlink(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
 
 
 # ---------------------------------------------------------------------------
