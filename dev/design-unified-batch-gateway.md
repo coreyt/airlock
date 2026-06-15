@@ -13,12 +13,16 @@ design they both point to.
 
 - **Adversarial review** (mine + an independent red-team that verified every claim
   against the code) found the two source docs directionally correct but with
-  **six material holes**: Presidio-at-scale, PII-map-as-PII-at-rest,
-  non-idempotent create race, lossy Gemini response mapping, route-shape vs SDK
-  drop-in, and batch logging. **All six are real work** — the red-team corrected
-  my initial "logger already solved" (the write primitive exists but is private
-  and chat-shaped; a batch record writer + `is_batch_call` tagging are NEW) and
-  hardened the route-shape one into a FastAPI first-match-wins blocker.
+  **six material holes**: Presidio-at-scale (A1), PII-map-as-PII-at-rest (A2),
+  non-idempotent create race (A3), lossy Gemini response mapping (A4), route-shape
+  vs SDK drop-in (A5), batch logging (A6).
+- **Status after this pass:** **A5 RESOLVED** (✅ ASGI middleware — verified
+  addable to the litellm app at import, query-param discriminator, `call_next`
+  delegation; order-independent). **A3 & A4 RESOLVED** (✅ §3.7 — race-free claim,
+  duplicates bounded to ≤1 job and auto-cancelled, result staging idempotent/keyed
+  with reprocessing bounded to missing rows). A6 has a concrete fix
+  (`write_batch_record`); A1/A2 have a committed approach (async process-pool scan;
+  terminal-redaction default) with detail items still open (§7).
 - **Common vs separate: COMMON.** ~80% of the work is provider-agnostic
   (HTTP surface, OpenAI batch object, auth, JSONL parse, guard scan, PII
   lifecycle, status normalization, persistence, idempotency, caps, observability).
@@ -27,8 +31,9 @@ design they both point to.
 - **Design = an "Airlock Batch Gateway":** one injected route + one orchestration
   core + pluggable `BatchBackend` adapters (`MistralBackend`, `AIStudioBackend`,
   and later a `LiteLLMNativeBackend` so the *wired* providers also get uniform
-  guarding). Build Mistral first (OpenAI-shaped, minimal translation), then
-  AI Studio (adds the Gemini translation adapter).
+  guarding). Build the core + adapter interface first; **lead with the AI Studio
+  adapter** (the actual Gemini-3.x need + hardest translation), then add Mistral as
+  the cheap second adapter that validates the seam (see §6 for the trade-off).
 
 ---
 
@@ -65,39 +70,82 @@ tenant needs hydration, it's opt-in per `batch_profile`, the map is stored
 encrypted with TTL ≤ job expiry, and the row/byte caps bound its size. This
 flips the source docs' implicit default.
 
-### 🟠 A3 — AI Studio batch create is non-idempotent; the mitigation has a race
-`design-aistudio-gemini-batch.md` §6 leans on Airlock-persisted id-mappings +
-`display_name` to avoid double-submit, but a crash *between* `client.batches.create`
-returning and Airlock persisting the mapping orphans a paid job and a retry
-double-submits. AI Studio explicitly says create "is not idempotent."
-**Resolution:** require/accept a client **idempotency key** (or content hash of
-the input file); persist a `creating` intent record **before** calling the
-provider; on retry, match the key and reconcile via `batches.list()` /
-`batch.jobs.list()` by `display_name` before creating. Residual race is
-documented, not hidden.
+### ✅ A3 — RESOLVED: no race, double-submit detectable and bounded to ≤1 job
+Provider create is non-idempotent and exposes no idempotency key, so we cannot get
+exactly-once from the provider. We instead make the gateway's create path
+**race-free, self-detecting, and bounded** so any duplicate is at most one job and
+is auto-cancelled. Full mechanism in §3.7; in brief:
+
+- **Deterministic idempotency key** `idem = sha256(input_file_id ∥ model ∥ endpoint
+  ∥ canonical(params))` (a client `Idempotency-Key` header overrides). It is the
+  state-store primary key **and** the provider `display_name`.
+- **Write-ahead, atomic claim (no race):** `INSERT … ON CONFLICT(idem) DO NOTHING`
+  **before** calling the backend. Exactly one concurrent caller wins the row
+  (status `CREATING`, leased); losers read the row and return the in-flight
+  `batch-id` — concurrent duplicate submits cannot both create.
+- **Crash window is detectable and self-healing:** if a crash lands between
+  `backend.create()` and recording `job_id`, retry sees `CREATING` with null
+  `job_id` → **reconcile**: `backend.list()` filtered by `display_name == idem`;
+  adopt the orphan if present; only (re)create if none **and** the lease expired.
+- **Bounded + detectable:** because every job's `display_name == idem`, a duplicate
+  is a *queryable* condition (`>1 job with the same display_name`). The reconciler
+  adopts the earliest and **cancels the rest**. Worst case is **one** extra job in
+  the narrow "lease expired before the provider list showed the orphan" window —
+  detected and cancelled, never silent. The unit is one job (not per-row), so the
+  wasted work is small and `max_concurrent_jobs` caps it further.
 
 ### 🟠 A4 — Gemini response translation is lossy
 `design-aistudio-gemini-batch.md` §3.6 maps Gemini `candidates[].content.parts[]
 .text` → `choices[].message.content`. That silently drops tool calls, thinking
 blocks, finish/safety reasons, and multi-candidate output. Mistral is unaffected
 (its batch results are already OpenAI-shaped).
-**Resolution:** the OpenAI output line carries the **provider-native response
-verbatim** in `response.body`, plus a best-effort `choices` projection. Never
-lose the native payload. The translation lives entirely in the per-provider
-adapter (see §3), so Mistral's adapter is near-identity and only Gemini's does work.
+**Resolution (correctness):** the OpenAI output line carries the
+**provider-native response verbatim** in `response.body`, plus a best-effort
+`choices` projection. Never lose the native payload. Translation lives entirely in
+the per-provider adapter (see §3); Mistral's is near-identity, only Gemini's does work.
 
-### 🟠 A5 — Namespaced route vs OpenAI-SDK drop-in is an unresolved either/or
-`design-aistudio-gemini-batch.md` §3.2 recommends `/airlock/aistudio/batches` for
-MVP but admits it breaks OpenAI/LiteLLM SDK clients (which call `/v1/batches`),
-and defers the model-aliased `/v1/batches` dispatch that would be a true drop-in.
-**Resolution (this design):** the gateway **owns `/v1/batches` + `/v1/files`** and
-dispatches by resolved model alias: gateway-backed aliases (`*-aistudio`,
-`*-mistral-batch`) are handled in-process; everything else is **delegated to
-LiteLLM's native handler**. Route-ordering risk against LiteLLM's own
-registration is the real cost — mitigated by registering the Airlock handler as a
-thin front controller that calls the LiteLLM handler for non-gateway models.
-Namespaced routes remain the **Phase-1 fallback** if front-controlling proves
-fragile.
+**Resolution (no double-processing — per your ask):** result fetch → translate →
+hydrate → stage is **idempotent, keyed, and bounded** (full mechanism §3.7):
+per-row keys (`key`/`custom_id`) so staging **upserts** by `(batch_id, row_key)`;
+**deterministic** `from_provider_result` so a re-run is byte-identical and a
+per-row hash detects drift; an atomic `RETRIEVING → STAGED` status gate so only one
+worker stages a batch (a second caller sees `STAGED` and re-fetches nothing); and
+on interrupted staging, retry diffs staged-keys vs result-keys and processes
+**only the missing keys** — never the whole file again.
+
+### ✅ A5 — RESOLVED: ASGI middleware front-controller (order-independent), verified
+The red-team's first-match-wins blocker only bites the *route-registration*
+approach. The resolution is **ASGI middleware**, which runs **before routing**
+regardless of registration order or timing.
+
+**Empirically verified against the installed litellm proxy app (2026-06-14):**
+- A bare `import litellm.proxy.proxy_server` exposes **65 routes and NO
+  `/v1/batches`/`/v1/files`** — litellm registers those later, during proxy
+  startup. So route order is not even stable to reason about; middleware sidesteps
+  it entirely.
+- `app.middleware_stack` is **`None` (unbuilt)** at import, and
+  `app.add_middleware(...)` **succeeds at import** (user_middleware 5 → 6). So
+  Airlock can attach middleware from `model_override_headers` (where the existing
+  `install_*_on_proxy_app` bootstraps already run) before the server starts.
+
+**Mechanism.** A `BatchGatewayMiddleware` (added next to the existing injectors):
+1. Acts only on `POST /v1/batches` and `POST /v1/files`.
+2. Discriminates on the **`custom_llm_provider` query parameter** — read from
+   `request.url.query`, so **no request body is buffered** (critical: `/v1/files`
+   uploads can be 2 GB; buffering them in middleware would OOM). Gateway providers
+   = `{aistudio, mistral}`.
+3. Gateway provider → dispatch to the Airlock gateway handler. Otherwise
+   `await call_next(request)` → litellm's native handler runs untouched. No route
+   shadowing, no double-registration, no ordering dependency.
+
+**Drop-in boundary (stated honestly).** Clients that can set
+`?custom_llm_provider=aistudio|mistral` (raw HTTP, the litellm SDK, our own
+clients) are drop-in on `/v1/batches`+`/v1/files`. The **stock OpenAI Python SDK**
+sends no provider hint and no model on `batches.create` (the model lives in the
+file), so it cannot select a gateway backend on the standard path — those callers
+use the explicit query param or the namespaced `/airlock/batch/*` alias (kept as a
+thin convenience, same handler). This boundary is inherent to the OpenAI batch
+protocol, not a gateway shortcoming.
 
 ### 🟠 A6 — Batch logging is NEW work (corrected by the red-team pass)
 My first pass called this "already solved" — **wrong.** The independent red-team
@@ -224,6 +272,66 @@ attribution, and (only if hydration opted in) an **encrypted** PII map with
 TTL ≤ job expiry. MVP: SQLite under the Airlock data dir (the proxy already
 persists circuit-breaker/fast state to disk); the map column is encrypted at rest.
 
+### 3.7 Idempotency & exactly-once-ish processing (A3 + A4)
+
+Goal stated by the requirement: **no race conditions; any rework / data processed
+more than once must be detectable and quite small.** We cannot get true
+exactly-once (the providers' create is non-idempotent and there is no provider
+idempotency key), so the design targets **at-least-once with a race-free claim, a
+bounded duplicate window, and detection + auto-heal** at every stage.
+
+**State machine** (one row per `batch-id`, plus per-row staging rows):
+```
+files:   UPLOADED → SCANNING → READY | REJECTED
+batches: CLAIMED(idem) → CREATING → CREATED(job_id) → RETRIEVING → STAGED | FAILED
+rows:    (batch_id, row_key) → STAGED(content_sha)        # per output row
+```
+
+**Keys.** `idem = sha256(input_file_id ∥ model ∥ endpoint ∥ canonical(params))`
+(client `Idempotency-Key` header overrides). `idem` is the **state-store PK** and
+the **provider `display_name`**. Per-row key = the request `key`/`custom_id`.
+
+**1) Create — race-free claim (A3).** All store mutations go through one
+single-writer path (SQLite `BEGIN IMMEDIATE`, or an in-proc async lock keyed by
+`idem`):
+- `INSERT INTO batches(idem,…) VALUES(…) ON CONFLICT(idem) DO NOTHING`. Exactly one
+  caller inserts → that caller owns creation; every concurrent duplicate reads the
+  existing row and returns its `batch-id`. **No two callers can both create.**
+- The winner sets `CREATING` + a short **lease** (`lease_until = now + 60s`), then
+  calls `backend.create(display_name=idem)`, then atomically records `job_id` +
+  `CREATED`.
+
+**2) Crash window — detect & adopt, never blind-resubmit (A3).** If the winner
+dies between `backend.create` and recording `job_id`, the row is stuck `CREATING`.
+Any retry/another worker:
+- If lease not expired → treat as in-flight, return the `batch-id` (back off).
+- If lease expired → **reconcile before creating**: `backend.list()` filtered by
+  `display_name == idem`. If a job exists → adopt it (`job_id`, `CREATED`). Only if
+  **none** exists → create. Worst case (lease expired *and* provider listing hadn't
+  yet surfaced the orphan) is **one** duplicate job — and because its
+  `display_name == idem`, it is **detectable** (group jobs by `display_name`; count
+  > 1) and **auto-cancelled** by the reconciler (keep earliest, `cancel()` the
+  rest). Bounded to one job, never silent.
+
+**3) Result processing — idempotent & bounded (A4).**
+- `RETRIEVING → STAGED` is an atomic compare-and-set: one worker stages a batch; a
+  second observing `STAGED` re-fetches **nothing**.
+- Output rows **upsert** by `(batch_id, row_key)` with a `content_sha`. Translation
+  is **deterministic**, so a re-run is byte-identical; a differing `content_sha`
+  for an existing key is a **detected** non-determinism anomaly (logged, not
+  silently overwritten with drift).
+- Interrupted staging resumes by **diffing staged row-keys vs result row-keys** and
+  processing only the **missing** keys — reprocessing is bounded to the unstaged
+  remainder, never the whole (up to 1M-row) file, and the diff *is* the evidence of
+  what got reprocessed.
+
+**4) Detectability surface.** Duplicate jobs → `display_name` grouping; reprocessed
+rows → per-row `content_sha` + the resume diff; every transition is written via
+`write_batch_record` (A6) tagged `is_batch_call`, so an operator can audit "was
+anything done twice?" from the logs. **Net:** races eliminated at the claim/stage
+gates; the only residual duplication is ≤1 job in a narrow window, detected and
+auto-cancelled; row-level rework is bounded to missing rows and hash-detectable.
+
 ---
 
 ## 4. Guardrails (when enabled) — corrected for batch reality
@@ -307,32 +415,31 @@ job), and `live`-marked end-to-end per backend.
 
 ---
 
-## 7. Open challenges (independent red-team pass — incorporated)
-The red-team verified the claims against code and sharpened these:
-1. **Route shape is a real blocker, not a "later phase" (A5).** FastAPI is
-   first-match-wins and LiteLLM registers `/v1/batches` **before** Airlock's
-   import-time injection, so a late-added duplicate route **never matches**.
-   Drop-in on `/v1/batches` therefore needs **middleware (an ASGI/HTTP
-   front-controller that inspects the body and delegates) or route replacement**,
-   not handler registration. Phase-1 fallback = namespaced `/airlock/batch/...`
-   (accept the SDK-drop-in loss). Decide before Phase 1.
-2. **Async scan = real cost, off the event loop.** ~50–150 ms/row warm × up to
-   1M rows = 14–40 h single-threaded; the helpers are **synchronous**, so they
-   must run in a **process pool** (the think-slow subsystem), never in the async
-   handler. Upload becomes "accepted, scanning" — surface `validating` and define
-   the failure UX when scan rejects *after* upload returned 200.
-3. **Hydration may not be worth it for batch at all.** Terminal redaction might be
+## 7. Status of the holes + remaining open items
+**Resolved with evidence/spec:** A5 (✅ §1/A5 — ASGI middleware, verified
+addable at import; query-param discriminator; `call_next` delegation),
+A3 (✅ §3.7 — race-free claim, ≤1-job detectable+auto-cancelled duplicate),
+A4 (✅ §3.7 — idempotent keyed staging, deterministic, bounded to missing rows),
+A6 (✅ §1/A6 — `write_batch_record` → `_write_log`). A1/A2 have a committed
+approach (async process-pool scan; terminal-redaction default).
+
+**Still genuinely open (decide during build, not blockers to starting):**
+1. **Async scan UX (A1 detail).** ~50–150 ms/row × up to 1M = 14–40 h
+   single-threaded; runs in a process pool (think-slow), upload returns
+   "accepted, scanning" — define the failure UX when a scan rejects *after*
+   upload already returned 200.
+2. **Hydration may not be worth it for batch at all.** Terminal redaction might be
    the *only* supported mode; opt-in hydration must justify the encrypted,
    TTL'd, ≤48 h bulk-PII store (A2).
-4. **Result-file retention ≠ job expiry.** 48 h is the pending/running expiry; the
+3. **Result-file retention ≠ job expiry.** 48 h is the pending/running expiry; the
    provider result file has its own retention and may expire independently —
    staging/download must not assume the result is fetchable for the full window.
-5. **Verify `airlock_batch` placement.** Under `litellm_params` it may be
+4. **Verify `airlock_batch` placement.** Under `litellm_params` it may be
    forwarded to the provider SDK on the *sync* path for these aliases (the
    `enhanced_profile` precedent suggests survivable — verify, don't assume).
-6. **Webhooks need a public HTTPS callback + signature verification** — not
+5. **Webhooks need a public HTTPS callback + signature verification** — not
    "near-free later"; defer explicitly. Polling is the MVP.
-7. `LiteLLMNativeBackend` double-handling risk (gateway scans, then litellm
+6. `LiteLLMNativeBackend` double-handling risk (gateway scans, then litellm
    re-processes) — scope carefully in Phase 5.
 
 ---
