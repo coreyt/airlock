@@ -177,13 +177,28 @@ async def _request(method, path, query=b"", body=b"", headers=None):
     return cap
 
 
-def _wire(monkeypatch, tmp_path, fake, *, master_key=None):
+# Hermetic scan profile: exercises the async scan pipeline + file-state gating
+# without invoking Presidio/spaCy (pii_redact off). Keyword block is on but the
+# block list (AIRLOCK_BLOCKED_KEYWORDS) is empty unless a test sets it.
+_TEST_PROFILE = {
+    "scan_at_upload": True,
+    "keyword_block": True,
+    "pii_redact": False,
+    "max_rows": 50000,
+    "max_bytes": 2147483648,
+}
+
+
+def _wire(monkeypatch, tmp_path, fake, *, master_key=None, profile=None):
     """Point the runtime at a temp store/file-dir + our fake backend."""
     from airlock.batch import runtime
 
     store = BatchStore(str(tmp_path / "batch.db"))
     monkeypatch.setattr(runtime, "backend_for_alias", lambda model: fake)
     monkeypatch.setattr(runtime, "get_store", lambda: store)
+    monkeypatch.setattr(
+        runtime, "effective_batch_profile", lambda: profile or _TEST_PROFILE
+    )
     monkeypatch.setenv("AIRLOCK_STATE_DIR", str(tmp_path))
     if master_key is None:
         monkeypatch.delenv("AIRLOCK_MASTER_KEY", raising=False)
@@ -399,3 +414,167 @@ class TestGatewayHttpGuards:
         monkeypatch.delenv("AIRLOCK_MASTER_KEY", raising=False)
         r = await _request("DELETE", "/v1/batches/abc", b"custom_llm_provider=aistudio")
         assert r.status == 404
+
+
+# ---------------------------------------------------------------------------
+# Content-scan gate (to-do #2): rejection, status poll, scan-off passthrough
+# ---------------------------------------------------------------------------
+def _keyworded_jsonl(alias: str, keyword: str) -> bytes:
+    line = {
+        "custom_id": "r1",
+        "method": "POST",
+        "url": "/v1/chat/completions",
+        "body": {
+            "model": alias,
+            "messages": [{"role": "user", "content": f"please discuss {keyword}"}],
+        },
+    }
+    return json.dumps(line).encode("utf-8")
+
+
+class TestContentScanGate:
+    async def test_keyword_hit_rejects_upload_and_blocks_create(
+        self, monkeypatch, tmp_path
+    ):
+        """A blocked keyword rejects the whole upload; create then 400s and the
+        provider job is never created (the guardrail-bypass gap, closed)."""
+        fake = _make_aistudio()
+        _wire(monkeypatch, tmp_path, fake)
+        monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "projectzeus")
+        q = b"custom_llm_provider=aistudio"
+        alias = "aistudio-batch-alias"
+
+        up = await _request(
+            "POST", "/v1/files", q, _keyworded_jsonl(alias, "projectzeus")
+        )
+        file_id = up.json()["id"]
+
+        # create waits for the scan to reach a terminal state, then refuses.
+        create_body = json.dumps(
+            {
+                "input_file_id": file_id,
+                "endpoint": "/v1/chat/completions",
+                "model": alias,
+            }
+        ).encode()
+        cr = await _request("POST", "/v1/batches", q, create_body)
+        assert cr.status == 400, cr.body
+        assert cr.json()["error"]["code"] == "content_scan_rejected"
+        # The provider never saw the content: no job was created.
+        assert fake._counter == 0
+
+        # File status now reflects the post-200 rejection (async-scan UX, §7.1).
+        st = await _request("GET", f"/v1/files/{file_id}", q)
+        assert st.status == 200
+        assert st.json()["status"] == "error"
+        assert "projectzeus" in st.json()["status_details"]
+
+    async def test_clean_upload_reports_processed_then_creates(
+        self, monkeypatch, tmp_path
+    ):
+        fake = _make_aistudio()
+        _wire(monkeypatch, tmp_path, fake)
+        q = b"custom_llm_provider=aistudio"
+        alias = "aistudio-batch-alias"
+
+        up = await _request("POST", "/v1/files", q, _input_jsonl(alias))
+        assert up.json()["status"] == "pending"  # accepted, scanning
+        file_id = up.json()["id"]
+
+        # create waits for READY, then succeeds off the scrubbed file.
+        create_body = json.dumps(
+            {
+                "input_file_id": file_id,
+                "endpoint": "/v1/chat/completions",
+                "model": alias,
+            }
+        ).encode()
+        cr = await _request("POST", "/v1/batches", q, create_body)
+        assert cr.status == 200, cr.body
+
+        # Once scanned, the file status endpoint reports processed.
+        st = await _request("GET", f"/v1/files/{file_id}", q)
+        assert st.json()["status"] == "processed"
+
+    async def test_scan_disabled_is_processed_immediately(self, monkeypatch, tmp_path):
+        fake = _make_aistudio()
+        _wire(
+            monkeypatch,
+            tmp_path,
+            fake,
+            profile={"scan_at_upload": False},
+        )
+        q = b"custom_llm_provider=aistudio"
+        alias = "aistudio-batch-alias"
+
+        up = await _request("POST", "/v1/files", q, _input_jsonl(alias))
+        assert up.json()["status"] == "processed"
+        create_body = json.dumps(
+            {
+                "input_file_id": up.json()["id"],
+                "endpoint": "/v1/chat/completions",
+                "model": alias,
+            }
+        ).encode()
+        cr = await _request("POST", "/v1/batches", q, create_body)
+        assert cr.status == 200, cr.body
+
+    async def test_status_poll_unknown_file_is_404(self, monkeypatch, tmp_path):
+        _wire(monkeypatch, tmp_path, _make_aistudio())
+        r = await _request(
+            "GET", "/v1/files/file-nope", b"custom_llm_provider=aistudio"
+        )
+        assert r.status == 404
+
+    async def test_traversal_input_file_id_is_rejected(self, monkeypatch, tmp_path):
+        _wire(monkeypatch, tmp_path, _make_aistudio())
+        q = b"custom_llm_provider=aistudio"
+        body = json.dumps(
+            {
+                "input_file_id": "../../etc/passwd",
+                "endpoint": "/v1/chat/completions",
+                "model": "aistudio-batch-alias",
+            }
+        ).encode()
+        cr = await _request("POST", "/v1/batches", q, body)
+        assert cr.status == 400
+        assert cr.json()["error"]["code"] == "invalid_file_id"
+
+    async def test_scanned_ready_but_scrubbed_missing_refuses_raw(
+        self, monkeypatch, tmp_path
+    ):
+        """A scanned-clean file whose scrubbed artifact vanished must NOT fall
+        back to shipping the raw (unredacted) upload."""
+        fake = _make_aistudio()
+        store = _wire(monkeypatch, tmp_path, fake)
+        from airlock.batch import runtime
+
+        q = b"custom_llm_provider=aistudio"
+        alias = "aistudio-batch-alias"
+
+        up = await _request("POST", "/v1/files", q, _input_jsonl(alias))
+        file_id = up.json()["id"]
+        # Drive the scan to completion via a create (waits for READY)...
+        create_body = json.dumps(
+            {
+                "input_file_id": file_id,
+                "endpoint": "/v1/chat/completions",
+                "model": alias,
+            }
+        ).encode()
+        assert (await _request("POST", "/v1/batches", q, create_body)).status == 200
+
+        # ...now delete the scrubbed artifact and create a *new* batch (fresh idem).
+        runtime.scrubbed_path(file_id).unlink()
+        body2 = json.dumps(
+            {
+                "input_file_id": file_id,
+                "endpoint": "/v1/chat/completions",
+                "model": alias,
+                "metadata": {"run": "2"},
+            }
+        ).encode()
+        cr = await _request("POST", "/v1/batches", q, body2)
+        assert cr.status == 400, cr.body
+        assert cr.json()["error"]["code"] == "scrubbed_input_missing"
+        assert store.get_file(file_id)["scan_enabled"] == 1

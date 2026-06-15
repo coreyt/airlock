@@ -24,6 +24,15 @@ STAGED = "STAGED"
 FAILED = "FAILED"
 CANCELLED = "CANCELLED"
 
+# File-scan lifecycle states (design §3.7 ``files:`` row, to-do #2). Values are
+# namespaced (``FILE_*``) so they can never be confused with the batch lifecycle
+# states above even though both have a "failed" notion.
+FILE_UPLOADED = "FILE_UPLOADED"
+FILE_SCANNING = "FILE_SCANNING"
+FILE_READY = "FILE_READY"
+FILE_REJECTED = "FILE_REJECTED"
+FILE_FAILED = "FILE_FAILED"
+
 # How long a create lease is held before another worker may reconcile (§3.7).
 LEASE_SECONDS = 60.0
 
@@ -95,6 +104,21 @@ class BatchStore:
                     content_sha TEXT,
                     body TEXT,
                     PRIMARY KEY (batch_id, row_key)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS batch_files (
+                    file_id TEXT PRIMARY KEY,
+                    status TEXT,
+                    reason TEXT,
+                    row_count INTEGER,
+                    byte_count INTEGER,
+                    scan_enabled INTEGER,
+                    lease_until REAL,
+                    created_at REAL,
+                    updated_at REAL
                 )
                 """
             )
@@ -291,6 +315,116 @@ class BatchStore:
                 (status, error, time.time(), idem),
             )
             conn.commit()
+
+    # -- file scan state (design §3.7 files row, to-do #2) ---------------
+    def record_file_upload(
+        self,
+        file_id: str,
+        *,
+        byte_count: int,
+        status: str = FILE_UPLOADED,
+        scan_enabled: bool = True,
+    ) -> None:
+        """Persist a freshly uploaded file in its initial scan state.
+
+        ``status`` defaults to ``FILE_UPLOADED`` (a scan will claim it). When
+        scanning is disabled it is recorded ``FILE_READY`` directly with
+        ``scan_enabled=False`` so ``create`` knowingly proceeds with the raw
+        upload (legacy posture) — distinct from a *scanned* READY file, which
+        must always have a scrubbed artifact.
+        """
+        now = time.time()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO batch_files(
+                    file_id, status, reason, row_count, byte_count,
+                    scan_enabled, lease_until, created_at, updated_at
+                ) VALUES (?, ?, NULL, NULL, ?, ?, NULL, ?, ?)
+                ON CONFLICT(file_id) DO NOTHING
+                """,
+                (file_id, status, byte_count, 1 if scan_enabled else 0, now, now),
+            )
+            conn.commit()
+
+    def claim_file_scan(self, file_id: str) -> bool:
+        """Atomic CAS into ``SCANNING`` (design §3.7, mirrors ``reacquire_lease``).
+
+        Returns True for exactly one worker: the one that transitions the row
+        from ``UPLOADED`` (or an *expired* ``SCANNING`` lease, i.e. crash-resume)
+        into ``SCANNING``. A concurrent scheduler observing an active lease or a
+        terminal state gets False and does nothing — the scan runs once.
+        """
+        now = time.time()
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            cur = conn.execute(
+                """
+                UPDATE batch_files
+                SET status = ?, lease_until = ?, updated_at = ?
+                WHERE file_id = ?
+                  AND (status = ?
+                       OR (status = ? AND lease_until IS NOT NULL AND lease_until < ?))
+                """,
+                (
+                    FILE_SCANNING,
+                    now + LEASE_SECONDS,
+                    now,
+                    file_id,
+                    FILE_UPLOADED,
+                    FILE_SCANNING,
+                    now,
+                ),
+            )
+            won = cur.rowcount == 1
+            conn.commit()
+        finally:
+            conn.close()
+        return won
+
+    def set_file_ready(self, file_id: str, *, row_count: int | None = None) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE batch_files
+                SET status = ?, row_count = ?, lease_until = NULL, updated_at = ?
+                WHERE file_id = ?
+                """,
+                (FILE_READY, row_count, time.time(), file_id),
+            )
+            conn.commit()
+
+    def set_file_rejected(self, file_id: str, *, reason: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE batch_files
+                SET status = ?, reason = ?, lease_until = NULL, updated_at = ?
+                WHERE file_id = ?
+                """,
+                (FILE_REJECTED, reason, time.time(), file_id),
+            )
+            conn.commit()
+
+    def set_file_failed(self, file_id: str, *, error: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE batch_files
+                SET status = ?, reason = ?, lease_until = NULL, updated_at = ?
+                WHERE file_id = ?
+                """,
+                (FILE_FAILED, error, time.time(), file_id),
+            )
+            conn.commit()
+
+    def get_file(self, file_id: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM batch_files WHERE file_id = ?", (file_id,)
+            ).fetchone()
+        return dict(row) if row is not None else None
 
     # -- reads ------------------------------------------------------------
     def get(self, idem: str) -> dict | None:

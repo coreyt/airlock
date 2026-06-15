@@ -15,6 +15,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import sys
 import uuid
 from typing import Any
@@ -24,6 +25,10 @@ logger = logging.getLogger("airlock.batch")
 
 # Providers handled by the Airlock gateway.
 _GATEWAY_PROVIDERS = {"aistudio", "mistral"}
+
+# Every id the gateway issues is ``file-<uuid4 hex>``; reject anything else
+# before it reaches a filesystem path (defense in depth vs. path traversal).
+_FILE_ID_RE = re.compile(r"^file-[0-9a-f]{32}$")
 
 _BATCH_PREFIXES = ("/v1/batches", "/v1/files", "/airlock/batch")
 
@@ -178,6 +183,8 @@ async def dispatch_batch_gateway(scope: dict, receive: Any, send: Any) -> None:
             and path.endswith("/content")
         ):
             return await _handle_file_content(path, send, runtime)
+        if method == "GET" and path.startswith("/v1/files/"):
+            return await _handle_file_status(path, send, runtime)
     except Exception as exc:  # noqa: BLE001  surface as JSON, never 500-crash
         logger.exception("batch gateway dispatch failed")
         return await _send_json(
@@ -192,10 +199,33 @@ async def dispatch_batch_gateway(scope: dict, receive: Any, send: Any) -> None:
 
 
 async def _handle_file_upload(scope, receive, send, runtime) -> None:
+    from airlock.batch import worker  # noqa: PLC0415
+    from airlock.batch.store import FILE_READY  # noqa: PLC0415
+
     file_id = f"file-{uuid.uuid4().hex}"
-    size = await _stream_to_file(receive, runtime.upload_path(file_id))
-    # NOTE: scan_at_upload is a NO-OP stub in this pack (to-do #2); the file is
-    # accepted as-is. The async scan pipeline plugs in here.
+    raw_path = runtime.upload_path(file_id)
+    size = await _stream_to_file(receive, raw_path)
+
+    store = runtime.get_store()
+    profile = runtime.effective_batch_profile()
+    if profile.get("scan_at_upload", True):
+        # Accept now, scan async (design A1): the provider job is gated on READY.
+        store.record_file_upload(file_id, byte_count=size)
+        worker.schedule_scan(
+            store,
+            file_id,
+            str(raw_path),
+            str(runtime.scrubbed_path(file_id)),
+            profile,
+        )
+        status = "pending"
+    else:
+        # Scanning disabled -> legacy posture: ready immediately, ship raw upload.
+        store.record_file_upload(
+            file_id, byte_count=size, status=FILE_READY, scan_enabled=False
+        )
+        status = "processed"
+
     return await _send_json(
         send,
         200,
@@ -204,7 +234,7 @@ async def _handle_file_upload(scope, receive, send, runtime) -> None:
             "object": "file",
             "bytes": size,
             "purpose": "batch",
-            "status": "processed",
+            "status": status,
         },
     )
 
@@ -230,8 +260,14 @@ async def _handle_create_batch(scope, receive, send, runtime) -> None:
     input_file_id = body.get("input_file_id") or ""
     endpoint = body.get("endpoint") or "/v1/chat/completions"
     idem_key = _header(scope, b"idempotency-key")
-    # Pass the stored path so create streams it (no full-file buffer; codex #4).
-    input_path = str(runtime.upload_path(input_file_id))
+
+    # Gate on the content scan (to-do #2): create only ships a READY file, and
+    # only the scrubbed bytes. A rejected/failed/still-scanning file never starts
+    # a provider job — this is the async-scan failure surface (design §7.1).
+    input_path, err = await _resolve_scanned_input(runtime, input_file_id)
+    if err is not None:
+        return await _send_json(send, err[0], err[1])
+
     obj = await create_batch(
         runtime.get_store(),
         backend,
@@ -244,6 +280,111 @@ async def _handle_create_batch(scope, receive, send, runtime) -> None:
         idempotency_key=idem_key,
     )
     return await _send_json(send, 200, obj)
+
+
+async def _resolve_scanned_input(
+    runtime, input_file_id: str
+) -> tuple[str, tuple[int, dict] | None]:
+    """Resolve the input path to ship, gating on scan state (to-do #2).
+
+    Returns ``(input_path, None)`` to proceed, or ``("", (status, error_json))``
+    to short-circuit create. Files with no scan record (scanning disabled, or a
+    legacy/raw id) fall through to the raw upload — preserving prior behavior.
+    """
+    from airlock.batch import worker  # noqa: PLC0415
+    from airlock.batch.store import (  # noqa: PLC0415
+        FILE_FAILED,
+        FILE_READY,
+        FILE_REJECTED,
+    )
+
+    if not _FILE_ID_RE.match(input_file_id):
+        return "", (
+            400,
+            {
+                "error": {
+                    "message": f"invalid input_file_id: {input_file_id!r}",
+                    "type": "invalid_request_error",
+                    "code": "invalid_file_id",
+                }
+            },
+        )
+
+    store = runtime.get_store()
+    if store.get_file(input_file_id) is None:
+        return str(runtime.upload_path(input_file_id)), None
+
+    wait = float(os.getenv("AIRLOCK_BATCH_SCAN_WAIT_SECONDS", "30"))
+    row = await worker.await_file_ready(store, input_file_id, timeout=wait)
+    status = (row or {}).get("status")
+
+    if status == FILE_READY:
+        scrubbed = runtime.scrubbed_path(input_file_id)
+        if scrubbed.exists():
+            return str(scrubbed), None
+        if (row or {}).get("scan_enabled"):
+            # Scanned-clean but the scrubbed artifact is gone (external deletion /
+            # disk fault). We must NOT fall back to the raw upload — that would
+            # ship unredacted content and silently break terminal redaction (A2).
+            logger.error(
+                "batch input %s is READY but its scrubbed file is missing; "
+                "refusing to ship the raw upload",
+                input_file_id,
+            )
+            return "", (
+                400,
+                {
+                    "error": {
+                        "message": (
+                            "scanned input is no longer available; re-upload the "
+                            "file before creating the batch"
+                        ),
+                        "type": "airlock_batch_error",
+                        "code": "scrubbed_input_missing",
+                    }
+                },
+            )
+        # scan_enabled is false (scanning disabled) -> raw upload is intended.
+        return str(runtime.upload_path(input_file_id)), None
+    if status == FILE_REJECTED:
+        return "", (
+            400,
+            {
+                "error": {
+                    "message": (
+                        "input file rejected by content scan: "
+                        f"{(row or {}).get('reason') or 'blocked content'}"
+                    ),
+                    "type": "invalid_request_error",
+                    "code": "content_scan_rejected",
+                }
+            },
+        )
+    if status == FILE_FAILED:
+        return "", (
+            400,
+            {
+                "error": {
+                    "message": f"content scan failed: {(row or {}).get('reason')}",
+                    "type": "airlock_batch_error",
+                    "code": "content_scan_failed",
+                }
+            },
+        )
+    # Still SCANNING after the wait -> tell the client to retry (not an error).
+    return "", (
+        409,
+        {
+            "error": {
+                "message": (
+                    "input file is still being scanned; retry after it reports "
+                    "status 'processed' via GET /v1/files/{id}"
+                ),
+                "type": "invalid_request_error",
+                "code": "file_not_ready",
+            }
+        },
+    )
 
 
 async def _handle_get_batch(path, send, runtime) -> None:
@@ -281,8 +422,55 @@ async def _handle_cancel(path, send, runtime) -> None:
     return await _send_json(send, 200, to_openai_batch_object(store.get(row["idem"])))
 
 
+def _file_status_object(file_id: str, row: dict) -> dict:
+    """Shape a ``batch_files`` row as an OpenAI file object (status poll).
+
+    Maps the scan state machine onto OpenAI's file ``status`` enum so a client
+    can observe a rejection that happened *after* upload returned 200 (§7.1):
+    ``UPLOADED``/``SCANNING`` -> ``pending``; ``READY`` -> ``processed``;
+    ``REJECTED``/``FAILED`` -> ``error`` (with ``status_details``).
+    """
+    from airlock.batch.store import (  # noqa: PLC0415
+        FILE_FAILED,
+        FILE_READY,
+        FILE_REJECTED,
+    )
+
+    state = row.get("status")
+    if state == FILE_READY:
+        status = "processed"
+    elif state in (FILE_REJECTED, FILE_FAILED):
+        status = "error"
+    else:
+        status = "pending"
+    obj = {
+        "id": file_id,
+        "object": "file",
+        "bytes": row.get("byte_count") or 0,
+        "purpose": "batch",
+        "status": status,
+    }
+    if status == "error" and row.get("reason"):
+        obj["status_details"] = row["reason"]
+    return obj
+
+
+async def _handle_file_status(path, send, runtime) -> None:
+    file_id = path[len("/v1/files/") :]
+    row = runtime.get_store().get_file(file_id)
+    if row is None:
+        return await _send_json(
+            send, 404, {"error": {"message": "file not found", "type": "not_found"}}
+        )
+    return await _send_json(send, 200, _file_status_object(file_id, row))
+
+
 async def _handle_file_content(path, send, runtime) -> None:
     file_id = path[len("/v1/files/") :].rsplit("/content", 1)[0]
+    if not _FILE_ID_RE.match(file_id):
+        return await _send_json(
+            send, 404, {"error": {"message": "file not found", "type": "not_found"}}
+        )
     data = runtime.read_upload(file_id)
     await send(
         {
