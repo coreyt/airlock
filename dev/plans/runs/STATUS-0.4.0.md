@@ -11,8 +11,9 @@ _Last updated: 2026-06-14 · mainline: `main` @ `a45bd88`_
 
 - **Pack A: CLOSED** — merged to main `e35ab66` (codex PASS after fix-1). 77 tests
   green on main; worktrees removed, branches deleted.
-- **In flight:** next is **Pack B** (batch observability), to be cut from current
-  main `e35ab66` (now contains A's `is_batch_call`).
+- **In flight:** **Pack B** (batch observability) — implementer running in
+  orchestrator-owned worktree `/tmp/airlock-0.4.0-B` (branch `0.4.0-B` from
+  `5a1b564`, which contains A's `is_batch_call` — dependency visibility confirmed).
 - **Model note:** orchestrator-owned worktrees working end-to-end (baseline pick →
   worktree → spawn → codex → merge → cleanup). `isolation: worktree` removed from
   implementer.md (HITL); git ops `deny→ask` (`1f21233`).
