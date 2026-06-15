@@ -11,8 +11,9 @@ _Last updated: 2026-06-14 · mainline: `main` @ `a45bd88`_
 
 - **Pack A: CLOSED** — merged `e35ab66` (codex PASS after fix-1).
 - **Pack B: CLOSED** — merged `7644bca` (codex CONCERN low/test-only → override). 147 green on main.
-- **In flight:** next is **Pack C** (batch gateway + AI Studio adapter), cut from
-  current main (contains A + B).
+- **In flight:** **Pack C** (batch gateway + AI Studio adapter) — implementer
+  running in `/tmp/airlock-0.4.0-C` (branch `0.4.0-C` from `a4671a7`; contains A + B).
+  Large pack; no-network unit tests are the acceptance, live e2e is the operator gate.
 - **Model note:** orchestrator-owned worktrees working end-to-end (baseline pick →
   worktree → spawn → codex → merge → cleanup). `isolation: worktree` removed from
   implementer.md (HITL); git ops `deny→ask` (`1f21233`).
