@@ -237,6 +237,29 @@ class TestIsBatchCall:
     def test_purpose_non_batch(self):
         assert is_batch_call({"purpose": "fine-tune"}) is False
 
+    def test_acompletion_with_input_file_id_marker(self):
+        # call_type is authoritative: a non-batch call_type carrying an
+        # input_file_id marker must NOT be classified as batch.
+        assert is_batch_call({"input_file_id": "file-abc"}, "acompletion") is False
+
+    def test_completion_with_input_file_id_marker(self):
+        assert is_batch_call({"input_file_id": "file-abc"}, "completion") is False
+
+    def test_acompletion_with_purpose_batch_marker(self):
+        assert is_batch_call({"purpose": "batch"}, "acompletion") is False
+
+    def test_empty_call_type_completion_payload_wins(self):
+        # Empty call_type falls back to markers, but a completion-shaped
+        # payload wins even when a batch marker is also present.
+        assert (
+            is_batch_call({"messages": [], "input_file_id": "file-abc"}) is False
+        )
+
+    def test_empty_call_type_input_file_id_no_completion_markers(self):
+        # Preserve detection on unknown/empty call_type when there is no
+        # completion payload.
+        assert is_batch_call({"input_file_id": "file-abc"}) is True
+
 
 # ---------------------------------------------------------------------------
 # extract_text() dispatch
