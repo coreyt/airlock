@@ -15,6 +15,7 @@ No network; safe to run in CI.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -526,6 +527,24 @@ class TestContentScanGate:
         )
         assert r.status == 404
 
+    async def test_traversal_idempotency_key_is_rejected(self, monkeypatch, tmp_path):
+        """A caller-supplied Idempotency-Key becomes the vLLM executor's filename;
+        a path-separator value must be refused at ingress (400), never reaching a
+        filesystem path."""
+        _wire(monkeypatch, tmp_path, _make_aistudio())
+        q = b"custom_llm_provider=aistudio"
+        body = json.dumps(
+            {
+                "input_file_id": "file-" + "a" * 32,
+                "endpoint": "/v1/chat/completions",
+                "model": "aistudio-batch-alias",
+            }
+        ).encode()
+        hdr = [(b"idempotency-key", b"../../etc/cron.d/evil")]
+        cr = await _request("POST", "/v1/batches", q, body, hdr)
+        assert cr.status == 400
+        assert cr.json()["error"]["code"] == "invalid_idempotency_key"
+
     async def test_traversal_input_file_id_is_rejected(self, monkeypatch, tmp_path):
         _wire(monkeypatch, tmp_path, _make_aistudio())
         q = b"custom_llm_provider=aistudio"
@@ -539,6 +558,70 @@ class TestContentScanGate:
         cr = await _request("POST", "/v1/batches", q, body)
         assert cr.status == 400
         assert cr.json()["error"]["code"] == "invalid_file_id"
+
+    async def test_vllm_executor_full_lifecycle_through_asgi(
+        self, monkeypatch, tmp_path
+    ):
+        """The gateway-as-executor vLLM backend: upload -> scan -> create (spawns
+        the executor) -> poll-until-complete -> stage -> content, through the real
+        ASGI middleware, with the vLLM HTTP call injected (no network)."""
+        from airlock.batch.vllm import VLLMBackend
+
+        async def fake_send_chat(body):
+            return {
+                "id": "cmpl-x",
+                "object": "chat.completion",
+                "choices": [
+                    {"index": 0, "message": {"role": "assistant", "content": "PONG"}}
+                ],
+            }
+
+        backend = VLLMBackend(
+            provider_model="qwen3.6-27b",
+            api_base="http://vllm.local/v1",
+            work_dir=str(tmp_path),
+            send_chat=fake_send_chat,
+        )
+        _wire(monkeypatch, tmp_path, backend)
+        q = b"custom_llm_provider=vllm"
+        alias = "qwen36-27b-vllm-batch"
+
+        up = await _request("POST", "/v1/files", q, _input_jsonl(alias))
+        file_id = up.json()["id"]
+        create_body = json.dumps(
+            {
+                "input_file_id": file_id,
+                "endpoint": "/v1/chat/completions",
+                "model": alias,
+            }
+        ).encode()
+        cr = await _request("POST", "/v1/batches", q, create_body)
+        assert cr.status == 200, cr.body
+        batch_id = cr.json()["id"]
+
+        # Executor runs async -> poll until completed.
+        obj = None
+        for _ in range(200):
+            gb = await _request("GET", f"/v1/batches/{batch_id}", q)
+            obj = gb.json()
+            if obj.get("status") == "completed":
+                break
+            await asyncio.sleep(0.01)
+        assert obj["status"] == "completed", obj
+        assert obj["request_counts"]["total"] == 2
+        out_id = obj["output_file_id"]
+
+        ct = await _request("GET", f"/v1/files/{out_id}/content", q)
+        by_id = {
+            json.loads(line)["custom_id"]: json.loads(line)
+            for line in ct.body.decode().splitlines()
+            if line.strip()
+        }
+        assert set(by_id) == {"r1", "r2"}
+        for cid in ("r1", "r2"):
+            assert by_id[cid]["error"] is None
+            content = by_id[cid]["response"]["body"]["choices"][0]["message"]["content"]
+            assert content == "PONG"
 
     async def test_scanned_ready_but_scrubbed_missing_refuses_raw(
         self, monkeypatch, tmp_path

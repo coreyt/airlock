@@ -81,14 +81,31 @@ def effective_batch_profile() -> dict:
     return default if isinstance(default, dict) else {}
 
 
+def _model_entry(config: dict, model: str) -> dict | None:
+    """Return the full ``model_list`` entry for an alias (incl. litellm_params)."""
+    for entry in (config or {}).get("model_list", []) or []:
+        if isinstance(entry, dict) and entry.get("model_name") == model:
+            return entry
+    return None
+
+
+def _resolve_env_ref(value):
+    """Resolve litellm's ``os.environ/NAME`` reference syntax to its value."""
+    if isinstance(value, str) and value.startswith("os.environ/"):
+        return os.getenv(value[len("os.environ/") :])
+    return value
+
+
 def backend_for_alias(model: str) -> BatchBackend | None:
     """Resolve a model alias to a configured batch backend.
 
     Dispatches on the ``airlock_batch`` marker's ``backend`` field: ``aistudio``
-    -> ``AIStudioBackend``, ``mistral`` -> ``MistralBackend``. Returns ``None``
-    for unknown / unmarked aliases.
+    -> ``AIStudioBackend``, ``mistral`` -> ``MistralBackend``, ``vllm`` ->
+    ``VLLMBackend`` (gateway-as-executor; per-alias ``api_base``/``api_key`` from
+    ``litellm_params``). Returns ``None`` for unknown / unmarked aliases.
     """
-    marker = load_batch_aliases(get_config()).get(model)
+    config = get_config()
+    marker = load_batch_aliases(config).get(model)
     if not marker:
         return None
     backend = marker.get("backend")
@@ -97,6 +114,16 @@ def backend_for_alias(model: str) -> BatchBackend | None:
         return AIStudioBackend(provider_model=provider_model)
     if backend == "mistral":
         return MistralBackend(provider_model=provider_model)
+    if backend == "vllm":
+        from airlock.batch.vllm import VLLMBackend  # noqa: PLC0415
+
+        lp = (_model_entry(config, model) or {}).get("litellm_params") or {}
+        return VLLMBackend(
+            provider_model=provider_model,
+            api_base=_resolve_env_ref(lp.get("api_base")),
+            api_key=_resolve_env_ref(lp.get("api_key")),
+            work_dir=str(_data_dir()),
+        )
     return None
 
 

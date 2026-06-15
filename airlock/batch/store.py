@@ -440,3 +440,19 @@ class BatchStore:
                 "SELECT * FROM batches WHERE batch_id = ?", (batch_id,)
             ).fetchone()
         return dict(row) if row is not None else None
+
+    def list_resumable_batches(self, backend: str) -> list[dict]:
+        """Non-terminal batches for a backend (CREATED/RETRIEVING).
+
+        Used by the vLLM executor's startup reconciler: an in-proxy execution
+        task dies on restart, so these rows must have their executor re-spawned.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM batches
+                WHERE backend = ? AND status IN (?, ?)
+                """,
+                (backend, CREATED, RETRIEVING),
+            ).fetchall()
+        return [dict(r) for r in rows]
