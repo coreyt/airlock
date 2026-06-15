@@ -26,7 +26,7 @@ cost** (typical ~24h turnaround). Airlock exposes the OpenAI-compatible Batch AP
 | **Anthropic / Azure / Bedrock** | ✅ Wired in LiteLLM | Not configured here by default |
 | **Google AI Studio (Gemini)** | ✅ **Working (via Airlock Batch Gateway)** | LiteLLM doesn't wire the `gemini/` provider for batch, so Airlock's own gateway handles it. Needs the `aistudio` extra + an `airlock_batch` alias — see [AI Studio (Gemini) batch](#ai-studio-gemini-batch-via-the-airlock-batch-gateway) below |
 | **Mistral** | ✅ **Working (via Airlock Batch Gateway)** | Same gateway/adapter as AI Studio; integration-tested **and live-verified**. Needs the `mistral` extra (pinned `<2`) + an `airlock_batch` alias — see [Mistral batch](#mistral-batch-via-the-airlock-batch-gateway) below |
-| **Local vLLM** | ✅ **Working (via Airlock Batch Gateway, executor mode)** | vLLM has **no** async Batch server API, so Airlock *executes* the batch against the live `/v1/chat/completions` endpoint and owns the lifecycle/status. No extra needed (HTTP only) + an `airlock_batch` alias — see [Local vLLM batch](#local-vllm-batch-via-the-airlock-batch-gateway) below |
+| **Local vLLM** | ✅ **Working (via Airlock Batch Gateway, executor mode)** | Integration-tested **and live-verified** (`qwen3.6-27b`). vLLM has **no** async Batch server API, so Airlock *executes* the batch against the live `/v1/chat/completions` endpoint and owns the lifecycle/status. No extra needed (HTTP only) + an `airlock_batch` alias — see [Local vLLM batch](#local-vllm-batch-via-the-airlock-batch-gateway) below |
 
 ---
 
@@ -351,8 +351,17 @@ batch. Tune concurrency against your single-GPU host with
 
 !!! note "Single-GPU operational note"
     The host loads one model at a time; a large batch saturates it for the run's
-    duration. Don't swap the loaded model mid-batch. Live e2e against a real vLLM
-    host is a separate, opt-in gate.
+    duration. Don't swap the loaded model mid-batch.
+
+!!! note "Live e2e is opt-in"
+    `tests/test_vllm_batch_e2e.py` runs the real round-trip only when
+    `AIRLOCK_LIVE_VLLM_E2E=1` and a vLLM host is reachable at
+    `AIRLOCK_VLLM_E2E_API_BASE` (default the lab host) serving
+    `AIRLOCK_VLLM_E2E_MODEL` (default `qwen3.6-27b`). No proxy restart or SDK
+    needed — it drives the gateway functions against a real `VLLMBackend`. The
+    unit + integration suites need none of that. Verified live against
+    `qwen3.6-27b` on 2026-06-15 (both rows round-tripped; wall-clock depends on
+    your host/GPU).
 
 ---
 
