@@ -116,13 +116,20 @@ _BATCH_CALL_TYPES = frozenset(
 def is_batch_call(data: dict, call_type: str = "") -> bool:
     """Return True if this request is a batch/file route.
 
-    Mirrors ``is_mcp_call``: True when ``call_type`` is one of the LiteLLM
-    batch/file call_types, or when batch markers are present in ``data``
-    (``input_file_id`` present, or ``purpose == "batch"``). The data markers
-    are matched in addition to the call_type set for defense in depth.
+    ``call_type`` is authoritative: when it is non-empty, the result is solely
+    ``call_type in _BATCH_CALL_TYPES`` and caller-controlled data markers are
+    ignored (a normal ``completion``/``acompletion`` carrying ``input_file_id``
+    or ``purpose == "batch"`` is NOT a batch call, so it cannot bypass the
+    guardrails). The data markers are only a fallback consulted when
+    ``call_type`` is empty/unset, and even then a completion-shaped payload
+    wins: if ``data`` carries any of ``messages``/``prompt``/``input`` it is
+    treated as a completion (False); otherwise ``input_file_id`` present, or
+    ``purpose == "batch"``, marks it as batch.
     """
-    if call_type in _BATCH_CALL_TYPES:
-        return True
+    if call_type:
+        return call_type in _BATCH_CALL_TYPES
+    if "messages" in data or "prompt" in data or "input" in data:
+        return False
     if "input_file_id" in data:
         return True
     return data.get("purpose") == "batch"

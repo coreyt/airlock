@@ -251,9 +251,7 @@ class TestIsBatchCall:
     def test_empty_call_type_completion_payload_wins(self):
         # Empty call_type falls back to markers, but a completion-shaped
         # payload wins even when a batch marker is also present.
-        assert (
-            is_batch_call({"messages": [], "input_file_id": "file-abc"}) is False
-        )
+        assert is_batch_call({"messages": [], "input_file_id": "file-abc"}) is False
 
     def test_empty_call_type_input_file_id_no_completion_markers(self):
         # Preserve detection on unknown/empty call_type when there is no
