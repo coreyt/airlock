@@ -3,7 +3,6 @@ name: implementer
 description: Implements code changes following TDD. Edits source and test files, runs tests, commits work. Always operates in a worktree.
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: inherit
-isolation: worktree
 background: true
 permissionMode: acceptEdits
 color: blue
