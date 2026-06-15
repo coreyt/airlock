@@ -21,7 +21,7 @@ cost** (typical ~24h turnaround). Airlock exposes the OpenAI-compatible Batch AP
 | **Vertex AI (Gemini)** | ✅ **Working (regional models)** | See [Vertex AI Batch](vertex-batch.md). Batch needs a **regional** model; Gemini 3.x is `global`-only and **cannot batch** |
 | **Anthropic / Azure / Bedrock** | ✅ Wired in LiteLLM | Not configured here by default |
 | **Google AI Studio (Gemini)** | ✅ **Working (via Airlock Batch Gateway)** | LiteLLM doesn't wire the `gemini/` provider for batch, so Airlock's own gateway handles it. Needs the `aistudio` extra + an `airlock_batch` alias — see [AI Studio (Gemini) batch](#ai-studio-gemini-batch-via-the-airlock-batch-gateway) below |
-| **Mistral** | 🚧 **In progress** | Native batch API exists but the Mistral adapter is design-only (`dev/design-unified-batch-gateway.md`); the dependency is intentionally not declared yet |
+| **Mistral** | ✅ **Working (via Airlock Batch Gateway)** | LiteLLM doesn't wire the `mistral` provider for batch, so Airlock's gateway handles it (50% batch discount). Needs the `mistral` extra + an `airlock_batch` alias — see [Mistral batch](#mistral-batch-via-the-airlock-batch-gateway) below |
 
 ---
 
@@ -191,17 +191,94 @@ native Gemini response preserved verbatim in `response.body` alongside the proje
 `choices`. The gateway is idempotent on `(input_file_id, model, endpoint, params)`
 and bounds duplicate provider jobs to ≤1.
 
-## In progress — Mistral
+## Mistral batch — via the Airlock Batch Gateway
 
-!!! note "TODO — not yet available through Airlock"
-    **Mistral** has a native batch API with the 50% discount, but its adapter is
-    **design-only** (`dev/design-unified-batch-gateway.md`) and the `mistralai`
-    dependency is intentionally not declared until the adapter lands. The gateway
-    plumbing (`?custom_llm_provider=mistral`) is reserved but not wired.
+Same gateway, second adapter. LiteLLM doesn't wire the `mistral` provider for
+`/v1/batches`, so a request carrying `?custom_llm_provider=mistral` is intercepted
+by the gateway and run against Mistral's native batch API
+(`mistralai` `client.batch.jobs.*`) at the **50% batch discount**. Mistral's batch
+input is already OpenAI-shaped and Mistral chat is OpenAI-compatible, so the
+translation is near-passthrough. The no-network path is covered by
+`tests/test_mistral_batch.py` + `tests/test_batch_gateway_integration.py`; a live
+round-trip is covered by `tests/test_mistral_batch_e2e.py` (opt-in — see below).
 
-    Remaining gateway work tracked for all providers:
+### 1. Install the extra + set the key
+The `mistralai` SDK is lazy-imported, so it ships only with the `mistral` extra
+(pinned `<2`: 2.x moved the top-level client import; the adapter targets the v1
+`client.batch.jobs` API):
 
-    - [ ] Mistral adapter (`mistralai`): `client.batch.jobs.*`, near-identity
-      JSONL mapping, `MISTRAL_API_KEY`.
-    - [ ] Guardrail scanning of batch content (async, off the request path) so
-      batch stops bypassing the guards — close the caveat at the top of this page.
+```bash
+pip install 'airlock-llm[mistral]'      # or: uv sync --extra mistral
+```
+```bash
+# .env
+MISTRAL_API_KEY=...
+```
+
+### 2. Declare an `airlock_batch` alias in `config.yaml`
+Same shape as AI Studio — the `airlock_batch` marker is a **sibling** of
+`litellm_params` (so it never leaks to the provider on the sync path), with
+`backend: mistral`:
+
+```yaml
+model_list:
+  - model_name: mistral-large-batch
+    litellm_params:
+      model: mistral/mistral-large-latest
+      api_key: os.environ/MISTRAL_API_KEY
+    airlock_batch:
+      backend: mistral
+      provider_model: mistral-large-latest
+```
+
+(`mistral-small-batch` ships too.) Restart the proxy so it reloads `config.yaml`.
+
+### 3. Build a JSONL, upload, create, poll
+Use the **Airlock alias** (`mistral-large-batch`) as the `model` and pass
+`custom_llm_provider=mistral` on each call:
+
+```json
+{"custom_id":"r1","method":"POST","url":"/v1/chat/completions","body":{"model":"mistral-large-batch","messages":[{"role":"user","content":"Reply with one word: PONG"}],"max_tokens":32}}
+```
+
+```bash
+# upload the input file
+curl -s "http://localhost:4000/v1/files?custom_llm_provider=mistral" \
+  -H "Authorization: Bearer $AIRLOCK_MASTER_KEY" \
+  -F purpose=batch -F file=@requests.jsonl
+
+# create the batch
+curl -s "http://localhost:4000/v1/batches?custom_llm_provider=mistral" \
+  -H "Authorization: Bearer $AIRLOCK_MASTER_KEY" -H "Content-Type: application/json" \
+  -d '{"input_file_id":"file-...","endpoint":"/v1/chat/completions","completion_window":"24h","model":"mistral-large-batch"}'
+
+# poll, then download the translated output
+curl -s "http://localhost:4000/v1/batches/BATCH_ID?custom_llm_provider=mistral" \
+  -H "Authorization: Bearer $AIRLOCK_MASTER_KEY"
+curl -s http://localhost:4000/v1/files/OUTPUT_FILE_ID/content \
+  -H "Authorization: Bearer $AIRLOCK_MASTER_KEY"
+```
+
+As with AI Studio, output lines are **OpenAI-shaped** with the native Mistral
+response preserved verbatim in `response.body`, and the gateway is idempotent on
+`(input_file_id, model, endpoint, params)`, bounding duplicate provider jobs to ≤1.
+
+!!! note "Live e2e is opt-in"
+    `tests/test_mistral_batch_e2e.py` runs the real round-trip only when
+    `AIRLOCK_LIVE_MISTRAL_E2E=1`, `MISTRAL_API_KEY` is set, and the `mistral`
+    extra is installed (it's billable). The unit + integration suites need none of
+    that.
+
+## Gateway auth & remaining work
+
+Every gateway request (`?custom_llm_provider=aistudio|mistral` on `/v1/files` and
+`/v1/batches`) is authenticated with the **`AIRLOCK_MASTER_KEY`** before any
+upload/create/cancel/retrieve — the gateway runs ahead of LiteLLM's route-level
+auth, so it enforces the master key itself (it mirrors the proxy's open-when-unset
+behavior for parity).
+
+Remaining gateway work:
+
+- [ ] Guardrail scanning of batch content (async, off the request path) so batch
+  stops bypassing the guards — close the caveat at the top of this page. The
+  insertion point exists today as a no-op `scan_at_upload` stub in `batch_profile`.

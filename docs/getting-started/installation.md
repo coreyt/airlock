@@ -28,14 +28,15 @@ git clone https://github.com/coreyt/airlock && cd airlock
 
 Everything in the standard setup, plus optional extras, install verification, and a
 test suite run. The uv path (`uv sync --all-extras`) installs **all** extras
-(`db`, `s3`, `sql`, `metrics`, `tui`, `search`, `vertex`, `aistudio`, `tracing`,
-`test`, `docs`); pass `--pip` to use pip instead of uv.
+(`db`, `s3`, `sql`, `metrics`, `tui`, `search`, `vertex`, `aistudio`, `mistral`,
+`tracing`, `test`, `docs`); pass `--pip` to use pip instead of uv.
 
 !!! note "Batch provider extras"
-    AI Studio (Gemini) batch needs the **`aistudio`** extra and Vertex AI batch
-    needs the **`vertex`** extra. The uv dev setup includes both;
-    install on their own with `pip install 'airlock-llm[aistudio]'` /
-    `'airlock-llm[vertex]'` (or `uv sync --extra aistudio`).
+    AI Studio (Gemini) batch needs the **`aistudio`** extra, Mistral batch needs
+    the **`mistral`** extra, and Vertex AI batch needs the **`vertex`** extra. The
+    uv dev setup includes all three; install on their own with
+    `pip install 'airlock-llm[aistudio]'` / `'airlock-llm[mistral]'` /
+    `'airlock-llm[vertex]'` (or `uv sync --extra mistral`).
 
 ## Docker
 

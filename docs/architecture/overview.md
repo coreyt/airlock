@@ -56,6 +56,17 @@ Pluggable event handlers for every request:
 - **S3 Logger** -- batched export to S3
 - **SQL Logger** -- SQLAlchemy-based persistence
 
+### Batch Gateway (`batch/`)
+
+An ASGI front-controller for providers LiteLLM doesn't wire for `/v1/batches`. It
+intercepts `/v1/files` + `/v1/batches` carrying `?custom_llm_provider=aistudio|mistral`
+(everything else falls through to LiteLLM untouched), enforces the master key,
+translates OpenAI ↔ provider, and runs the job against the provider's native batch
+API via a thin `BatchBackend` adapter (`AIStudioBackend`, `MistralBackend`). The
+core (idempotency state store, status normalization, result staging, observability
+via `write_batch_record`) is provider-agnostic; only the adapter differs. See
+[Batch Processing](../guide/batch.md).
+
 ### TUI (`tui/`)
 
 Textual-based terminal dashboard with 6 screens. See [TUI Dashboard](../guide/tui.md).

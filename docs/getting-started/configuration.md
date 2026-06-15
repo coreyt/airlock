@@ -139,13 +139,34 @@ Needs the `aistudio` extra (`pip install 'airlock-llm[aistudio]'`) and
 [Batch Processing → AI Studio (Gemini) batch](../guide/batch.md#ai-studio-gemini-batch-via-the-airlock-batch-gateway).
 Batch files are staged under `AIRLOCK_STATE_DIR` (falls back to `AIRLOCK_LOG_DIR`).
 
+## Mistral batch aliases
+
+Same gateway, `backend: mistral`. Opt in a `model_list` entry the same way:
+
+```yaml
+model_list:
+  - model_name: mistral-large-batch
+    litellm_params:
+      model: mistral/mistral-large-latest
+      api_key: os.environ/MISTRAL_API_KEY
+    airlock_batch:
+      backend: mistral             # selects the Airlock Batch Gateway
+      provider_model: mistral-large-latest
+```
+
+Needs the `mistral` extra (`pip install 'airlock-llm[mistral]'`, pinned `<2`) and
+`MISTRAL_API_KEY`. `mistral-large-batch` + `mistral-small-batch` ship by default.
+Full recipe in
+[Batch Processing → Mistral batch](../guide/batch.md#mistral-batch-via-the-airlock-batch-gateway).
+
 ## Environment variables
 
 | Variable | Description | Default |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | Anthropic API key | -- |
 | `OPENAI_API_KEY` | OpenAI API key | -- |
-| `GOOGLE_AISTUDIO_API_KEY` | Google AI Studio API key for Gemini models | -- |
+| `GOOGLE_AISTUDIO_API_KEY` | Google AI Studio API key for Gemini models (+ AI Studio batch gateway) | -- |
+| `MISTRAL_API_KEY` | Mistral API key for Mistral models (+ Mistral batch gateway) | -- |
 | `AIRLOCK_MASTER_KEY` | Optional proxy auth key. Leave unset for local/dev unauthenticated runs; set it for protected deployments. | -- |
 | `AIRLOCK_HOST` | Bind address | `127.0.0.1` |
 | `AIRLOCK_PORT` | Listen port | `4000` |
