@@ -21,6 +21,7 @@ from typing import Any
 
 from airlock.client_identity import extract_airlock_client_from_kwargs
 from airlock.gemini_interface import classify_gemini_response
+from airlock.guardrails.extract import is_batch_call
 from litellm.exceptions import APIError, RateLimitError
 from litellm.integrations.custom_logger import CustomLogger
 
@@ -99,8 +100,14 @@ class AirlockFastMonitor(CustomLogger):
             else 0.0
         )
 
+        # Batch/file jobs run async and out-of-band; their latency must not
+        # pollute interactive model latency/health/percentile stats. Client-level
+        # accounting still happens (consistent with how mcp is handled below).
+        is_batch = is_batch_call(kwargs, kwargs.get("call_type", ""))
+
         store.get_client(client_id).record_success(now, duration_ms)
-        store.get_model(model_name).record_success(now, duration_ms)
+        if not is_batch:
+            store.get_model(model_name).record_success(now, duration_ms)
 
         # Track spend per provider for budget-aware routing
         cost = kwargs.get("response_cost", 0.0)
@@ -172,9 +179,12 @@ class AirlockFastMonitor(CustomLogger):
         # breaker or provider-quarantine state — those track model/provider
         # health, not client configuration errors.
         is_provider_call = exception is not None
+        # Batch/file jobs must not feed model circuit-breaker health (mirrors
+        # the success-path exclusion above).
+        is_batch = is_batch_call(kwargs, kwargs.get("call_type", ""))
 
         store.get_client(client_id).record_error(now, error_type)
-        if is_provider_call:
+        if is_provider_call and not is_batch:
             store.get_model(model_name).record_failure(now)
         provider = _infer_provider(model_name)
         if provider:

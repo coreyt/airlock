@@ -265,6 +265,57 @@ def write_precall_block_record(
     return record
 
 
+def write_batch_record(
+    *,
+    event: str,
+    batch_id: str,
+    provider: str,
+    model: str | None,
+    status: str,
+    row_count: int | None = None,
+    input_file_id: str | None = None,
+    job_id: str | None = None,
+    client: str | None = None,
+    error: str | None = None,
+) -> dict[str, Any]:
+    """Write a structured log record for a batch/file job lifecycle event.
+
+    Batch jobs run outside the LiteLLM success/failure callback path, so this
+    public writer is how the batch routes emit observability records.  The
+    record is tagged ``call_type="batch"`` and ``is_batch_call=True`` so the
+    TUI and analyzers can distinguish it from interactive traffic, then routed
+    through ``_write_log`` to reuse rotation + redaction.
+    """
+    now = datetime.datetime.now(datetime.timezone.utc)
+    record = {
+        "timestamp": now.isoformat(),
+        "success": error is None,
+        "call_type": "batch",
+        "is_batch_call": True,
+        "event": event,
+        "batch_id": batch_id,
+        "airlock_provider": provider,
+        "model": model,
+        "status": status,
+        "row_count": row_count,
+        "input_file_id": input_file_id,
+        "job_id": job_id,
+        "airlock_client": client,
+        "error": error,
+    }
+    _write_log(record)
+    logger.info(
+        "batch_record event=%s batch_id=%s provider=%s status=%s client=%s error=%s",
+        event,
+        batch_id,
+        provider,
+        status,
+        client,
+        error,
+    )
+    return record
+
+
 class AirlockLogger(CustomLogger):
     """LiteLLM callback that logs requests/responses to structured JSON files.
 
