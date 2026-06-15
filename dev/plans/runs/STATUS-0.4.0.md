@@ -11,10 +11,12 @@ _Last updated: 2026-06-14 · mainline: `main` @ `a45bd88`_
 
 - **Pack A: CLOSED** — merged `e35ab66` (codex PASS after fix-1).
 - **Pack B: CLOSED** — merged `7644bca` (codex CONCERN low/test-only → override). 147 green on main.
-- **In flight:** **Pack C fix-1** (fix-forward) — codex BLOCKed merged C with 3
-  high + 2 medium (auth bypass on the new ingress; two §3.7 races; 2GB re-buffer;
-  test gaps). Implementer running in `/tmp/airlock-0.4.0-C-fix1` (branch from main).
-  C's GREEN is on main (`0766c0f`, unreleased); fix lands forward → re-review → done.
+- **In flight:** **Pack C fix-2** (test-only proof) in `/tmp/airlock-0.4.0-C-fix1`.
+  fix-1 (auth + streaming + CAS, `e27be4e`) CLOSED codex highs #1/#4; re-review
+  BLOCKed again on lease-fencing (slow owner past 60s lease races a reclaimer).
+  **HITL decision: accept the design §3.7 bound** (at-least-once, ≤1 duplicate,
+  auto-cancelled — which the code implements) and ADD proof tests rather than
+  chase exactly-once. fix-2 proves the bound; if a proof fails → real defect → escalate.
 - **Model note:** orchestrator-owned worktrees working end-to-end (baseline pick →
   worktree → spawn → codex → merge → cleanup). `isolation: worktree` removed from
   implementer.md (HITL); git ops `deny→ask` (`1f21233`).
