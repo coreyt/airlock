@@ -9,29 +9,30 @@ _Last updated: 2026-06-14 · mainline: `main` @ `a45bd88`_
 
 ## 1. Current pack in flight + next action
 
-- **Pack A: CLOSED** — merged to main `e35ab66` (codex PASS after fix-1). 77 tests
-  green on main; worktrees removed, branches deleted.
-- **In flight:** **Pack B** (batch observability) — implementer running in
-  orchestrator-owned worktree `/tmp/airlock-0.4.0-B` (branch `0.4.0-B` from
-  `5a1b564`, which contains A's `is_batch_call` — dependency visibility confirmed).
+- **Pack A: CLOSED** — merged `e35ab66` (codex PASS after fix-1).
+- **Pack B: CLOSED** — merged `7644bca` (codex CONCERN low/test-only → override). 147 green on main.
+- **In flight:** next is **Pack C** (batch gateway + AI Studio adapter), cut from
+  current main (contains A + B).
 - **Model note:** orchestrator-owned worktrees working end-to-end (baseline pick →
   worktree → spawn → codex → merge → cleanup). `isolation: worktree` removed from
   implementer.md (HITL); git ops `deny→ask` (`1f21233`).
+- **Follow-up (small, non-blocking):** add an assertion that a batch record renders
+  the `BATCH` label in TUI `_populate_table` (codex B finding #1).
 
 ## 2. Pack scoreboard
 
 | Pack | Goal (1 line) | Depends on | State | Witness |
 |------|---------------|------------|-------|---------|
 | A | `is_batch_call` seam + guardian gating + null-route sweep | — | **CLOSED** | merge `e35ab66`; review `0.4.0-A-fix1-review-20260615T115144Z.md` |
-| B | `write_batch_record` + TUI/monitor batch tagging | A ✓ | NOT_STARTED | — |
-| C | batch gateway middleware + AI Studio adapter + idempotency §3.7 | A ✓ + B | NOT_STARTED | — |
+| B | `write_batch_record` + TUI/monitor batch tagging | A ✓ | **CLOSED** | merge `7644bca`; review `0.4.0-B-review-20260615T121038Z.md` |
+| C | batch gateway middleware + AI Studio adapter + idempotency §3.7 | A ✓ + B ✓ | NOT_STARTED | — |
 
 ## 3. Acceptance scoreboard
 
 | Requirement | Pack | Status |
 |-------------|------|--------|
 | #3 systemic `is_batch_call` null-route fix | A | ✅ |
-| #4 batch observability | B | ⏳ |
+| #4 batch observability | B | ✅ |
 | #1 AI Studio batch gateway | C | ⏳ |
 | §7.3 result-file ≠ job expiry | C | ⏳ |
 | §7.4 `airlock_batch` no sync-path leak | C | ⏳ |
@@ -54,6 +55,11 @@ None — all removed after Pack A close.
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-15 — **Pack B CLOSED.** codex CONCERN (1 low, test-coverage only — BATCH
+  label implemented but not asserted); impl verified correct → orchestrator
+  override accepted (§7, prompt-induced low). Merged `7644bca`; 147 green on main.
+  Small follow-up logged (assert the label). Dependency visibility confirmed: B's
+  worktree (cut from post-A main) had `is_batch_call`.
 - 2026-06-15 — **Pack A CLOSED.** fix-1 codex re-review = PASS (no findings);
   bypass closed, security property pinned by tests. Merged `e35ab66`; 77 green on
   main; worktrees/branches cleaned. End-to-end proof of the orchestrator-owned
