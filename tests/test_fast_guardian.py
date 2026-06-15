@@ -451,3 +451,83 @@ class TestMCPCallHandling:
             await guardian.async_pre_call_hook(
                 mock_user_api_key_dict, mock_cache, data, "call_mcp_tool"
             )
+
+
+# ---------------------------------------------------------------------------
+# Batch / file call handling
+# ---------------------------------------------------------------------------
+class TestBatchCallHandling:
+    @pytest.fixture
+    def guardian(self):
+        return AirlockFastGuardian()
+
+    async def test_batch_skips_routing_and_circuit_breaker(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        """Batch calls skip routing/circuit breaker but still get priority."""
+        # Break claude-sonnet so a pinned completion would 429.
+        now = time.time()
+        model = fresh_state_store.get_model("claude-sonnet")
+        for _ in range(5):
+            model.record_failure(now)
+
+        data = {
+            "input_file_id": "file-abc",
+            "model": "claude-sonnet",
+        }
+        # Circuit breaker is skipped → no RateLimitError despite broken model.
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "acreate_batch"
+        )
+        assert "airlock_priority" in result.get("metadata", {})
+        assert "airlock_failover" not in result.get("metadata", {})
+
+    async def test_batch_no_model_no_crash(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        """Batch route with no/None model must not crash."""
+        data = {"input_file_id": "file-abc"}
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "acreate_batch"
+        )
+        assert result["metadata"]["airlock_request"]["requested_model"] == "unknown"
+        assert "airlock_priority" in result.get("metadata", {})
+
+    async def test_batch_call_type_no_model_no_crash(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        """File-create route (no model field) must not crash."""
+        data = {"model": None, "purpose": "batch"}
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "acreate_file"
+        )
+        assert result["metadata"]["airlock_request"]["requested_model"] == "unknown"
+        assert "airlock_priority" in result.get("metadata", {})
+
+    async def test_batch_threat_still_applies(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        """Batch calls still get threat-checked (backoff applies)."""
+        client_id = _extract_client_id(mock_user_api_key_dict)
+        client = fresh_state_store.get_client(client_id)
+        client.backoff_until = time.time() + 60  # force backoff
+
+        data = {"input_file_id": "file-abc"}
+        with pytest.raises(ValueError, match="Too many requests"):
+            await guardian.async_pre_call_hook(
+                mock_user_api_key_dict, mock_cache, data, "acreate_batch"
+            )
+
+    async def test_normal_completion_still_routes(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        """A normal completion is unaffected by the batch gate."""
+        data = {
+            "messages": [{"role": "user", "content": "Hello"}],
+            "model": "claude-sonnet",
+        }
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        assert result["metadata"]["airlock_request"]["requested_model"] == "claude-sonnet"
+        assert "airlock_priority" in result["metadata"]

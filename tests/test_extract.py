@@ -6,6 +6,7 @@ from airlock.guardrails.extract import (
     extract_text,
     extract_text_from_mcp,
     extract_text_from_messages,
+    is_batch_call,
     is_mcp_call,
 )
 
@@ -194,6 +195,47 @@ class TestIsMCPCall:
 
     def test_empty_data(self):
         assert is_mcp_call({}) is False
+
+
+# ---------------------------------------------------------------------------
+# is_batch_call()
+# ---------------------------------------------------------------------------
+class TestIsBatchCall:
+    def test_acreate_batch_call_type(self):
+        assert is_batch_call({}, "acreate_batch") is True
+
+    def test_create_batch_call_type(self):
+        assert is_batch_call({}, "create_batch") is True
+
+    def test_aretrieve_batch_call_type(self):
+        assert is_batch_call({}, "aretrieve_batch") is True
+
+    def test_acreate_file_call_type(self):
+        assert is_batch_call({}, "acreate_file") is True
+
+    def test_create_file_call_type(self):
+        assert is_batch_call({}, "create_file") is True
+
+    def test_afile_content_call_type(self):
+        assert is_batch_call({}, "afile_content") is True
+
+    def test_input_file_id_in_data(self):
+        assert is_batch_call({"input_file_id": "file-abc"}) is True
+
+    def test_purpose_batch_in_data(self):
+        assert is_batch_call({"purpose": "batch"}) is True
+
+    def test_regular_completion(self):
+        assert is_batch_call({"messages": []}, "completion") is False
+
+    def test_mcp_call(self):
+        assert is_batch_call({"mcp_tool_name": "search"}, "call_mcp_tool") is False
+
+    def test_empty_data(self):
+        assert is_batch_call({}) is False
+
+    def test_purpose_non_batch(self):
+        assert is_batch_call({"purpose": "fine-tune"}) is False
 
 
 # ---------------------------------------------------------------------------
