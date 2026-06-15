@@ -383,6 +383,9 @@ def infer_provider(model_name: str) -> str | None:
     provider from the entry's ``litellm_params.model`` prefix. Otherwise
     fall back to the static family-prefix heuristic below.
     """
+    # Batch/file routes carry no top-level model — nothing to infer.
+    if not isinstance(model_name, str) or not model_name:
+        return None
     cached = _alias_provider_map.get(model_name)
     if cached:
         return cached

@@ -164,7 +164,7 @@ class AirlockFastGuardian(CustomGuardrail):
         now = time.time()
         client_id = _request_client_id(data, user_api_key_dict)
         client = store.get_client(client_id)
-        requested_model = data.get("model", "unknown")
+        requested_model = data.get("model") or "unknown"
         model_name = requested_model
         mcp = is_mcp_call(data, call_type)
         pinned_model = _is_client_pinned(requested_model, data)
@@ -356,7 +356,7 @@ class AirlockFastGuardian(CustomGuardrail):
         # ---- Step 4: Priority scoring ----
         data = apply_gemini_request_semantics(
             data,
-            provider=infer_provider(data.get("model", model_name)),
+            provider=infer_provider(data.get("model") or model_name),
         )
         priority = compute_priority(client)
         metadata = data.setdefault("metadata", {})

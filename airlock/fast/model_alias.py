@@ -293,6 +293,11 @@ class ModelAliasTable:
         if not self._loaded:
             self.load_from_config()
 
+        # Batch/file routes (/v1/batches, /v1/files) carry no top-level model —
+        # nothing to resolve, and model_name may be None/non-str. Bail safely.
+        if not isinstance(model_name, str) or not model_name:
+            return None
+
         lower = model_name.lower()
 
         # Fast path: exact match (covers alias, bare provider model, version-stripped)

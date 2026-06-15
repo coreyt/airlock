@@ -113,6 +113,33 @@ model_list:
           thinking: true
           thinking_level: "MEDIUM"
 
+  # --- Google Vertex AI (Gemini 3.x, BATCH-capable) ---
+  # vertex_ai is wired in LiteLLM for the Batch API (/v1/files + /v1/batches);
+  # the gemini/ (AI Studio) provider above is not. Also serves sync completions.
+  # Auth: VERTEX_PROJECT + VERTEX_CREDENTIALS (service-account JSON) from .env;
+  # batch staging uses GCS_BUCKET_NAME. (Needs the `vertex` extra: google-auth.)
+  #
+  # Availability verified via the SA token (2026-06-14) — both on `global` ONLY
+  # (every 3.x id is 404 in us-central1 / us-east5):
+  #   gemini-3.5-flash        : 200
+  #   gemini-3.1-pro-preview  : 200  (GA id `gemini-3.1-pro` is 404 — use -preview)
+  # NOTE: Vertex BATCH jobs generally need a REGIONAL location; `global` is fine
+  # for sync but may not support BatchPredictionJob. For 3.x batch, set
+  # vertex_location to a region once these models are regionally available.
+  - model_name: gemini-3.5-flash-vertex
+    litellm_params:
+      model: vertex_ai/gemini-3.5-flash
+      vertex_project: os.environ/VERTEX_PROJECT
+      vertex_location: global
+      vertex_credentials: os.environ/VERTEX_CREDENTIALS
+
+  - model_name: gemini-3.1-pro-vertex
+    litellm_params:
+      model: vertex_ai/gemini-3.1-pro-preview
+      vertex_project: os.environ/VERTEX_PROJECT
+      vertex_location: global
+      vertex_credentials: os.environ/VERTEX_CREDENTIALS
+
   # --- Mistral AI (large-3 / medium / small-4 / magistral / codestral) ---
   - model_name: mistral-large
     litellm_params:
@@ -249,6 +276,16 @@ litellm_settings:
 
   # Request timeout (seconds)
   request_timeout: 300
+
+# ---------------------------------------------------------------------------
+# Files settings — provider config for the Batch/Files API (/v1/files, /v1/batches)
+# ---------------------------------------------------------------------------
+# Required so /v1/files can resolve a provider for non-vertex batch. vertex_ai is
+# special-cased by LiteLLM (needs no entry; uses ADC + GCS_BUCKET_NAME). Call
+# /v1/files and /v1/batches with custom_llm_provider=openai (or vertex_ai).
+files_settings:
+  - custom_llm_provider: openai
+    api_key: os.environ/OPENAI_API_KEY
 
 # ---------------------------------------------------------------------------
 # Router settings

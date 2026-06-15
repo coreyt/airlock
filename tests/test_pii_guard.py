@@ -285,6 +285,20 @@ class TestAsyncPreCallHook:
         assert result["messages"] == []
 
 
+class TestAsyncPostCallHookNullData:
+    """Batch/file routes (/v1/batches, /v1/files) invoke the post-call hook with
+    no chat `data` — it must not crash hydrating a None/odd payload."""
+
+    async def test_post_call_null_or_odd_data_no_crash(self, mock_user_api_key_dict):
+        guard = AirlockPIIGuard()
+        response = {"id": "batch-1"}
+        for data in (None, {}, {"metadata": None}, {"metadata": {}}):
+            result = await guard.async_post_call_success_hook(
+                data, mock_user_api_key_dict, response
+            )
+            assert result is response
+
+
 # ---------------------------------------------------------------------------
 # MCP tool call PII tests
 # ---------------------------------------------------------------------------

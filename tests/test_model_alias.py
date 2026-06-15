@@ -371,6 +371,14 @@ class TestModelAliasTable:
         # Should return None or an alias, but not crash
         assert result is None or isinstance(result, str)
 
+    def test_none_resolve(self, table):
+        """None model (batch/file routes carry no top-level model) must not crash."""
+        assert table.resolve(None) is None
+
+    def test_non_str_resolve(self, table):
+        """Non-string model must not crash (defensive)."""
+        assert table.resolve(123) is None
+
     def test_provider_prefixed_query(self, table):
         """Query with provider/ prefix should still resolve."""
         result = table.resolve("anthropic/claude-sonnet-4-20250514")
