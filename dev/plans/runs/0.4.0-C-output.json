@@ -1,0 +1,65 @@
+{
+  "pack": "0.4.0-C",
+  "baseline_sha": "a4671a7561ccc686c7b163560e273bf67085b684",
+  "branch": "0.4.0-C",
+  "head_sha": "c4c8b45d4216956d087c3276823cb7c44a394764",
+  "commits": [
+    "dea9ca4b1408b850e4cc74779b2468e2372a749e: test(batch): RED — pin batch gateway, AIStudio translation, idempotency (§3.7)",
+    "c4c8b45d4216956d087c3276823cb7c44a394764: feat(batch): Airlock Batch Gateway + AI Studio adapter (Pack 0.4.0-C)"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "dea9ca4b1408b850e4cc74779b2468e2372a749e",
+    "test_files": ["tests/test_batch_gateway.py"]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_batch_gateway.py::TestMiddlewareDiscrimination",
+      "tests/test_batch_gateway.py::TestTranslation",
+      "tests/test_batch_gateway.py::TestStatusMapping",
+      "tests/test_batch_gateway.py::TestIdempotency",
+      "tests/test_batch_gateway.py::TestExpiredResult",
+      "tests/test_batch_gateway.py::TestSyncMarkerLeak",
+      "tests/test_batch_gateway.py::TestBatchObject",
+      "tests/test_batch_gateway.py::TestConfigYaml",
+      "tests/test_batch_gateway.py::TestAIStudioBackendLazy"
+    ],
+    "passed": 28,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/batch/__init__.py",
+    "airlock/batch/backend.py",
+    "airlock/batch/store.py",
+    "airlock/batch/aistudio.py",
+    "airlock/batch/gateway.py",
+    "airlock/batch/runtime.py",
+    "airlock/batch/middleware.py",
+    "airlock/callbacks/model_override_headers.py",
+    "config.yaml",
+    "pyproject.toml",
+    "uv.lock",
+    "tests/test_batch_gateway.py"
+  ],
+  "blockers_encountered": [
+    {
+      "id": "main-worktree-preexisting-changes",
+      "description": "MAIN working dir (/home/coreyt/projects/airlock) shows 'M .claude/agents/implementer.md' and '?? dev/update-docs.md'. The stray-edit tripwire flagged these.",
+      "resolution": "Not mine — every Edit/Write/Bash I ran targeted absolute paths under /tmp/airlock-0.4.0-C only. These are pre-existing orchestrator scaffolding, not my stray edits, so I left MAIN untouched as required (did NOT revert orchestrator files)."
+    },
+    {
+      "id": "fathom-init-test-env",
+      "description": "tests/test_fathom_init.py::test_init_engine_with_fathomdb fails in my env because the optional 'fathomdb' (db extra) is not installed (I synced only --extra test).",
+      "resolution": "Pre-existing environment/dependency condition unrelated to this pack — not a regression from my changes. All other suite tests pass (1687 passed)."
+    }
+  ],
+  "additional_changes_made_in_scope": [
+    "§3.7 interpretation: folded the doc's CLAIMED state into CREATING at claim time (the winner sets CREATING + a 60s lease atomically in one INSERT..ON CONFLICT DO NOTHING). Reconcile-before-create runs for both the fresh winner and an expired-lease reclaimer, so a crashed-winner orphan is adopted (earliest) and any extras with the same display_name are auto-cancelled (bounded to <=1 duplicate).",
+    "§3.7 interpretation: begin_retrieving is a CAS that transitions CREATED->RETRIEVING (proceed), allows re-entry while RETRIEVING (resume — the per-row staged-keys diff bounds reprocessing to missing rows), and returns False when already STAGED (second caller re-fetches nothing).",
+    "§3.5 status mapping: implemented the Gemini JOB_STATE_* -> OpenAI batch status table explicitly (the doc TOC names §3.5 but the body leaves the exact table to implementation); unknown/in-flight states default to in_progress.",
+    "Added airlock/batch/runtime.py (config cache, on-disk streamed file store, backend registry) to keep the gateway core free of disk/config IO and fully unit-testable; it is used only by the live HTTP dispatch path.",
+    "uv.lock updated as the consequence of adding the aistudio optional extra to pyproject.toml."
+  ],
+  "agent_verify_result": "pass (tests/test_batch_gateway.py: 28 passed; ruff check + format clean on scoped files; -k 'batch or gateway or aistudio' 57 passed / 2 skipped; full suite 1687 passed, 1 pre-existing fathomdb-extra env failure)",
+  "next_step_for_orchestrator": "Pack 0.4.0-C on branch 0.4.0-C at c4c8b45d4216956d087c3276823cb7c44a394764; review, verify, merge. Deferred seams (firm): Mistral adapter, async think-slow content-scanning (scan_at_upload is a declared NO-OP stub), webhooks, PII hydration, LiteLLMNativeBackend. Live e2e against AI Studio is a separate operator gate (needs GOOGLE_AISTUDIO_API_KEY + the aistudio extra)."
+}
