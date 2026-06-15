@@ -335,6 +335,56 @@ airlock/advisor/
 
 ---
 
+### 3.5 Batch Gateway (`airlock/batch/`)
+
+An Airlock-owned front controller for asynchronous batch jobs against providers
+LiteLLM does not wire for the Batch API. It is installed as ASGI middleware ahead
+of LiteLLM's routes: a request carrying `?custom_llm_provider=aistudio` on
+`/v1/files` or `/v1/batches` is handled by the gateway; everything else falls
+through to LiteLLM untouched.
+
+```
+airlock/batch/
+├── middleware.py   # ASGI front controller; auth + route dispatch (/v1/files, /v1/batches)
+├── gateway.py      # core: idempotent create/reconcile, poll, stage (no disk/SDK IO)
+├── runtime.py      # config/alias resolution, file store, backend registry
+├── store.py        # SQLite state store (claim/lease/stage; CAS idempotency §3.7)
+├── backend.py      # BatchBackend protocol + NormalizedStatus
+└── aistudio.py     # AI Studio (Gemini) adapter; lazy google-genai; OpenAI↔Gemini translation
+```
+
+**Key design decisions:**
+
+- **Self-enforced auth:** the gateway dispatches *before* LiteLLM's route-level
+  auth, so it checks `AIRLOCK_MASTER_KEY` itself (mirrors `proxy.py`'s open-when-unset
+  behavior).
+- **Idempotency (§3.7):** create is keyed on `(input_file_id, model, endpoint,
+  params)` via a `BEGIN IMMEDIATE` CAS claim; an expired-lease reclaim reconciles
+  against the provider (`list_jobs`) and cancels duplicates — an at-least-once bound
+  with ≤1 surviving job, not exactly-once.
+- **Streamed, bounded memory:** uploads stream to disk and translate line-by-line, so
+  a ~2GB input is never rejoined in memory.
+- **Marker isolation (§7.4):** the `airlock_batch` config marker is a sibling of
+  `litellm_params`, stripped from the sync-path provider call so it never leaks to the
+  SDK.
+- **Lazy provider SDK:** `google-genai` is imported inside the adapter, so the proxy
+  boots without the `aistudio` extra; a missing extra yields a clear error, not a boot
+  failure.
+
+**Surfaces:** `POST /v1/files`, `POST /v1/batches`, `GET /v1/batches/{id}`,
+`POST /v1/batches/{id}/cancel`, `GET /v1/files/{id}/content` — all with
+`?custom_llm_provider=aistudio`. Opt-in per alias via `airlock_batch:
+{backend: aistudio, provider_model: …}`.
+
+**Caveat:** batch-content guardrail scanning is a no-op stub today, so batch bypasses
+the guards (the async scan hook plugs into `_handle_file_upload`).
+
+**Design documents:** `dev/design-unified-batch-gateway.md`,
+`dev/design-aistudio-gemini-batch.md`. **Live e2e gate:**
+`dev/aistudio-batch-e2e-test-plan.md`.
+
+---
+
 ## 4. Configuration Architecture
 
 Airlock uses a layered configuration approach:

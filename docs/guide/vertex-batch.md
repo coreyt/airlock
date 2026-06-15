@@ -4,9 +4,10 @@ Airlock can route Gemini through Google **Vertex AI** in addition to the
 Google **AI Studio** (`gemini/`) provider used by the default `gemini-*`
 aliases. The reason to bother is **batch**: LiteLLM wires the Batch API
 (`POST /v1/files` + `POST /v1/batches`) for the `vertex_ai` provider but **not**
-for the AI Studio `gemini/` provider, so AI Studio Gemini models cannot batch
-through the proxy. Vertex batch is asynchronous, ~50% cheaper, and runs up to
-~24h.
+for the AI Studio `gemini/` provider. (Airlock now batches AI Studio Gemini through
+its own [Batch Gateway](batch.md#ai-studio-gemini-batch-via-the-airlock-batch-gateway);
+this guide covers the **Vertex** path, which uses LiteLLM's native batch with
+GCS staging.) Vertex batch is asynchronous, ~50% cheaper, and runs up to ~24h.
 
 The deployments are defined in `config.yaml` as `gemini-3.5-flash-vertex` and
 `gemini-3.1-pro-vertex` (provider `vertex_ai/…`). This guide covers the GCP

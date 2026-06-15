@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Airlock Batch Gateway + AI Studio (Gemini) batch adapter** — an
+  Airlock-owned front controller on `/v1/files` + `/v1/batches` that
+  intercepts requests carrying `?custom_llm_provider=aistudio` (everything
+  else falls through to LiteLLM untouched) and runs them against Google's
+  native Gemini batch API, which LiteLLM does not wire for the AI Studio
+  `gemini/` provider. It translates OpenAI↔Gemini in both directions,
+  maps `JOB_STATE_*` to OpenAI batch statuses, and returns OpenAI-shaped
+  output with the native Gemini body preserved verbatim. The create path is
+  **idempotent** on `(input_file_id, model, endpoint, params)` and bounds
+  duplicate provider jobs to ≤1 under lease expiry (at-least-once with
+  auto-cancel of duplicates). Aliases opt in via a `airlock_batch:
+  {backend: aistudio, provider_model: …}` marker — a **sibling** of
+  `litellm_params` so it never leaks to the provider SDK on the sync path.
+  The gateway enforces `AIRLOCK_MASTER_KEY` on its own ingress (it dispatches
+  before LiteLLM's route auth). Verified end-to-end against the live Gemini
+  batch endpoint (`tests/test_aistudio_batch_e2e.py`, opt-in live gate). The
+  Mistral adapter remains design-only. Batch-content guardrail scanning is a
+  no-op stub for now, so batch still bypasses the guards.
+- **`aistudio` optional extra** — pulls `google-genai` (lazy-imported), so
+  the proxy boots without it. Install with `uv sync --extra aistudio` (or
+  `make sync` for all extras).
 - **Local vLLM router guardrail** (`airlock-local-vllm-router`, `pre_call`) —
   for single-GPU setups that serve one model at a time behind a shared
   vLLM endpoint. On first call it reads `config.yaml`, treats every
@@ -98,8 +119,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/v1/batches`) and a **Vertex AI Batch** guide
   (`docs/guide/vertex-batch.md`) covering GCP setup; both added to the
   mkdocs nav. Both carry the standing caveat that batch bypasses Airlock's
-  guardrails. AI Studio (Gemini 3.x) and Mistral batch are documented as
-  in-progress, pending the unified batch gateway.
+  guardrails. The Batch guide now documents the **working AI Studio (Gemini)**
+  recipe through the Airlock Batch Gateway (extra, `airlock_batch` alias,
+  upload/create/poll with `custom_llm_provider=aistudio`); Mistral batch
+  remains documented as in-progress.
 
 ## [0.3.0] — 2026-04-15
 

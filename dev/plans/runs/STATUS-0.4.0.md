@@ -60,6 +60,13 @@ None — all removed after Pack A close.
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-15 — **Docs-sync gap (flagged, not fixed):** `scripts/setup-dev.sh` `--pip`
+  path installs `.[test,metrics,tracing,search,s3,sql]` — missing `aistudio`,
+  `vertex`, `tui`, `db`. So a `--pip` dev setup cannot run AI Studio/Vertex batch.
+  The `uv` path (`uv sync --all-extras`) is fine. Surfaced during the update-docs
+  reconciliation; `docs/getting-started/installation.md` now documents the real
+  extras + per-provider batch extras. Script fix left to an owner (docs pass does
+  not touch code).
 - 2026-06-15 — **Live AI Studio e2e gate PASSED** (`tests/test_aistudio_batch_e2e.py`,
   opt-in `AIRLOCK_LIVE_AISTUDIO_E2E=1`, plan in `dev/aistudio-batch-e2e-test-plan.md`).
   Real round-trip vs Google's Gemini batch endpoint via the production `gateway`

@@ -1,6 +1,6 @@
 <!--
   DOCS EPOCH MARKER — update this line at the END of every successful run.
-  Docs current as of: 88f5839  (2026-06-15)  [main — initial epoch stamp; established when dev/update-docs.md was adapted from the FathomDB prompt. Not yet verified against a tree; the first real run sets a verified SHA.]
+  Docs current as of: 8a2c332  (2026-06-15)  [main — first verified run: reconciled the 0.4.0 Airlock Batch Gateway + AI Studio (Gemini) adapter into user docs (batch guide AI Studio recipe, config/install extras, CHANGELOG, architecture §3.5, vertex-batch cross-link). Flagged setup-dev.sh --pip extras gap on the status board.]
   (SHA of the commit whose tree the documentation was last verified against.)
 -->
 

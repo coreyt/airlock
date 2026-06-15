@@ -5,11 +5,13 @@ cost** (typical ~24h turnaround). Airlock exposes the OpenAI-compatible Batch AP
 (`/v1/files` + `/v1/batches`) on the proxy.
 
 !!! warning "Batch bypasses Airlock guardrails today"
-    Batch is a LiteLLM passthrough. Airlock's guardrails (PII redaction, keyword,
-    etc.) run on `/v1/chat/completions`, **not** on batch jobs — the request
-    content lives inside the uploaded file, which the chat-path guards never see.
-    Pre-redact client-side, or use the guarded chat path, for sensitive data.
-    (A guarded batch gateway is in design — see *In progress* below.)
+    Airlock's guardrails (PII redaction, keyword, etc.) run on
+    `/v1/chat/completions`, **not** on batch jobs — the request content lives
+    inside the uploaded file, which the chat-path guards never see. This holds for
+    both the LiteLLM passthrough providers **and** the Airlock Batch Gateway: the
+    gateway's async content-scan hook is currently a **no-op stub**, so it does not
+    yet enforce guards on batch content. Pre-redact client-side, or use the guarded
+    chat path, for sensitive data.
 
 ## Support matrix
 
@@ -18,8 +20,8 @@ cost** (typical ~24h turnaround). Airlock exposes the OpenAI-compatible Batch AP
 | **OpenAI** (`gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini/nano`, …) | ✅ **Working** | Needs `files_settings` (below) + a proxy restart |
 | **Vertex AI (Gemini)** | ✅ **Working (regional models)** | See [Vertex AI Batch](vertex-batch.md). Batch needs a **regional** model; Gemini 3.x is `global`-only and **cannot batch** |
 | **Anthropic / Azure / Bedrock** | ✅ Wired in LiteLLM | Not configured here by default |
-| **Google AI Studio (Gemini 3.x)** | 🚧 **In progress** | LiteLLM doesn't wire the `gemini/` provider for batch — needs the Airlock batch gateway |
-| **Mistral** | 🚧 **In progress** | Same: not wired in LiteLLM — needs the batch gateway |
+| **Google AI Studio (Gemini)** | ✅ **Working (via Airlock Batch Gateway)** | LiteLLM doesn't wire the `gemini/` provider for batch, so Airlock's own gateway handles it. Needs the `aistudio` extra + an `airlock_batch` alias — see [AI Studio (Gemini) batch](#ai-studio-gemini-batch-via-the-airlock-batch-gateway) below |
+| **Mistral** | 🚧 **In progress** | Native batch API exists but the Mistral adapter is design-only (`dev/design-unified-batch-gateway.md`); the dependency is intentionally not declared yet |
 
 ---
 
@@ -108,25 +110,98 @@ service account, GCS bucket, IAM — in **[Vertex AI Batch](vertex-batch.md)**.
 
 ---
 
-## In progress — AI Studio (Gemini 3.x) and Mistral
+## AI Studio (Gemini) batch — via the Airlock Batch Gateway
+
+LiteLLM doesn't wire the AI Studio `gemini/` provider for `/v1/batches`, so Airlock
+ships its **own** gateway for it. A request carrying `?custom_llm_provider=aistudio`
+on `/v1/files` or `/v1/batches` is intercepted by the gateway middleware (everything
+else falls through to LiteLLM untouched), translated OpenAI↔Gemini, and run against
+Google's native Gemini batch API (`google-genai` `client.batches.*`). Verified
+end-to-end against the live endpoint by `tests/test_aistudio_batch_e2e.py` (see
+`dev/aistudio-batch-e2e-test-plan.md`).
+
+### 1. Install the extra + set the key
+The `google-genai` SDK is lazy-imported, so it ships only with the `aistudio` extra:
+
+```bash
+pip install 'airlock-llm[aistudio]'     # or: uv sync --extra aistudio
+```
+```bash
+# .env
+GOOGLE_AISTUDIO_API_KEY=AIza...
+```
+
+### 2. Declare an `airlock_batch` alias in `config.yaml`
+The `airlock_batch` marker is a **sibling** of `litellm_params` (not nested inside
+it, so it never leaks to the provider SDK on the sync path). `backend: aistudio`
+selects the gateway; `provider_model` is the Gemini model the job runs:
+
+```yaml
+model_list:
+  - model_name: gemini-3.5-flash-aistudio
+    litellm_params:
+      model: gemini/gemini-3.5-flash
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+    airlock_batch:
+      backend: aistudio
+      provider_model: gemini-3.5-flash
+```
+
+Restart the proxy so it reloads `config.yaml`.
+
+!!! tip "Thinking models need a generous `max_tokens`"
+    Gemini 3.x flash/pro spend output tokens on internal reasoning. A tiny
+    `max_tokens` can finish a row with `finish_reason: length` and **empty**
+    content (the thinking budget starved the answer). Size `max_tokens` to cover
+    thinking **and** the answer.
+
+### 3. Build a JSONL, upload, create, poll
+Unlike the OpenAI recipe, use the **Airlock alias** (`gemini-3.5-flash-aistudio`) as
+the `model` — the gateway resolves it to the configured `provider_model`. Pass
+`custom_llm_provider=aistudio` on each call:
+
+```json
+{"custom_id":"r1","method":"POST","url":"/v1/chat/completions","body":{"model":"gemini-3.5-flash-aistudio","messages":[{"role":"user","content":"Reply with one word: PONG"}],"max_tokens":512}}
+```
+
+```bash
+# upload the input file
+curl -s "http://localhost:4000/v1/files?custom_llm_provider=aistudio" \
+  -H "Authorization: Bearer $AIRLOCK_MASTER_KEY" \
+  -F purpose=batch -F file=@requests.jsonl
+# -> {"id":"file-...", ...}
+
+# create the batch
+curl -s "http://localhost:4000/v1/batches?custom_llm_provider=aistudio" \
+  -H "Authorization: Bearer $AIRLOCK_MASTER_KEY" -H "Content-Type: application/json" \
+  -d '{"input_file_id":"file-...","endpoint":"/v1/chat/completions","completion_window":"24h","model":"gemini-3.5-flash-aistudio"}'
+# -> {"id":"batch-...","status":"validating", ...}
+
+# poll
+curl -s "http://localhost:4000/v1/batches/BATCH_ID?custom_llm_provider=aistudio" \
+  -H "Authorization: Bearer $AIRLOCK_MASTER_KEY"
+
+# when completed, download the translated output
+curl -s http://localhost:4000/v1/files/OUTPUT_FILE_ID/content \
+  -H "Authorization: Bearer $AIRLOCK_MASTER_KEY"
+```
+
+Output lines come back **OpenAI-shaped** (`choices[].message.content`), with the
+native Gemini response preserved verbatim in `response.body` alongside the projected
+`choices`. The gateway is idempotent on `(input_file_id, model, endpoint, params)`
+and bounds duplicate provider jobs to ≤1.
+
+## In progress — Mistral
 
 !!! note "TODO — not yet available through Airlock"
-    **Google AI Studio (Gemini 3.x)** and **Mistral** both have native batch APIs
-    with the 50% discount, but **LiteLLM does not wire either provider** for
-    `/v1/batches`, so they are **not usable through the proxy today**. The unified
-    design to add them (an Airlock-owned batch gateway with per-provider adapters
-    and guardrail scanning of batch content) is specified in
-    `dev/design-unified-batch-gateway.md`.
+    **Mistral** has a native batch API with the 50% discount, but its adapter is
+    **design-only** (`dev/design-unified-batch-gateway.md`) and the `mistralai`
+    dependency is intentionally not declared until the adapter lands. The gateway
+    plumbing (`?custom_llm_provider=mistral`) is reserved but not wired.
 
-    **To do, before this guide can document them as working:**
+    Remaining gateway work tracked for all providers:
 
-    - [ ] Build the Airlock Batch Gateway (middleware front-controller on
-      `/v1/files` + `/v1/batches`, dispatching `custom_llm_provider=aistudio|mistral`).
-    - [ ] AI Studio adapter (`google-genai`): Gemini 3.x via `client.batches.*`,
-      OpenAI↔Gemini request/response translation, `GOOGLE_AISTUDIO_API_KEY`.
     - [ ] Mistral adapter (`mistralai`): `client.batch.jobs.*`, near-identity
       JSONL mapping, `MISTRAL_API_KEY`.
     - [ ] Guardrail scanning of batch content (async, off the request path) so
       batch stops bypassing the guards — close the caveat at the top of this page.
-    - [ ] Replace this section with the working `aistudio` / `mistral` recipes and
-      move those rows in the support matrix from 🚧 to ✅.

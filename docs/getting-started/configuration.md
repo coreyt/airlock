@@ -117,6 +117,28 @@ Install the extra with `pip install airlock-llm[search]`. For news
 search via MCP, see the NewsCatcher server in
 [MCP Servers](../guide/mcp-servers.md).
 
+## AI Studio (Gemini) batch aliases
+
+To batch Gemini jobs through the Airlock Batch Gateway, a `model_list` entry opts
+in with an `airlock_batch` marker that is a **sibling** of `litellm_params` (so it
+never leaks to the provider SDK on the sync path):
+
+```yaml
+model_list:
+  - model_name: gemini-3.5-flash-aistudio
+    litellm_params:
+      model: gemini/gemini-3.5-flash
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+    airlock_batch:
+      backend: aistudio          # selects the Airlock Batch Gateway
+      provider_model: gemini-3.5-flash
+```
+
+Needs the `aistudio` extra (`pip install 'airlock-llm[aistudio]'`) and
+`GOOGLE_AISTUDIO_API_KEY`. Full upload/create/poll recipe in
+[Batch Processing → AI Studio (Gemini) batch](../guide/batch.md#ai-studio-gemini-batch-via-the-airlock-batch-gateway).
+Batch files are staged under `AIRLOCK_STATE_DIR` (falls back to `AIRLOCK_LOG_DIR`).
+
 ## Environment variables
 
 | Variable | Description | Default |
