@@ -164,6 +164,34 @@ class BatchStore:
         lease = row.get("lease_until")
         return lease is None or float(lease) < time.time()
 
+    def reacquire_lease(self, idem: str) -> bool:
+        """CAS-reacquire an expired ``CREATING`` lease (design §3.7).
+
+        Atomically extend the lease *only* if the row is still ``CREATING`` with
+        an expired lease, inside ``BEGIN IMMEDIATE`` (single-writer). Returns
+        True for the one worker that wins the re-acquisition; every other
+        concurrent reclaimer gets False and must back off (adopt the row) so no
+        two reclaimers can both reconcile + create — bounding duplicates to the
+        ≤1-job invariant.
+        """
+        now = time.time()
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            cur = conn.execute(
+                """
+                UPDATE batches
+                SET lease_until = ?, updated_at = ?
+                WHERE idem = ? AND status = ? AND lease_until < ?
+                """,
+                (now + LEASE_SECONDS, now, idem, CREATING, now),
+            )
+            won = cur.rowcount == 1
+            conn.commit()
+        finally:
+            conn.close()
+        return won
+
     def set_created(self, idem: str, *, job_id: str) -> None:
         with self._connect() as conn:
             conn.execute(
@@ -178,35 +206,34 @@ class BatchStore:
 
     # -- result staging (§3.6 + §3.7) ------------------------------------
     def begin_retrieving(self, idem: str) -> bool:
-        """Atomic ``CREATED -> RETRIEVING`` gate.
+        """Atomic compare-and-set gate into ``RETRIEVING`` (design §3.7).
 
-        Returns True if staging should proceed (we transitioned the row, or it
-        was already RETRIEVING — a resumable interrupted stage). Returns False
-        if the batch is already STAGED (a second caller re-fetches nothing).
+        Returns True for *exactly one* worker — the one that wins the CAS into
+        RETRIEVING. That is either a fresh ``CREATED -> RETRIEVING`` transition,
+        or a crash-resume that re-acquires an *expired* RETRIEVING lease. A
+        concurrent caller observing an active RETRIEVING lease (another fetcher
+        is in flight) or a ``STAGED`` row returns False and re-fetches nothing.
+        Per-row staging stays idempotent so a reclaimed resume only processes
+        the missing rows.
         """
+        now = time.time()
         conn = self._connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute(
-                "SELECT status FROM batches WHERE idem = ?", (idem,)
-            ).fetchone()
-            if row is None:
-                conn.commit()
-                return False
-            status = row["status"]
-            if status == STAGED:
-                conn.commit()
-                return False
-            if status == CREATED:
-                conn.execute(
-                    "UPDATE batches SET status = ?, updated_at = ? WHERE idem = ?",
-                    (RETRIEVING, time.time(), idem),
-                )
+            cur = conn.execute(
+                """
+                UPDATE batches
+                SET status = ?, lease_until = ?, updated_at = ?
+                WHERE idem = ?
+                  AND (status = ? OR (status = ? AND lease_until < ?))
+                """,
+                (RETRIEVING, now + LEASE_SECONDS, now, idem, CREATED, RETRIEVING, now),
+            )
+            won = cur.rowcount == 1
             conn.commit()
-            # CREATED -> RETRIEVING (proceed) or already RETRIEVING (resume).
-            return status in (CREATED, RETRIEVING)
         finally:
             conn.close()
+        return won
 
     def staged_keys(self, batch_id: str) -> dict[str, str]:
         """Return ``{row_key: content_sha}`` already staged for a batch."""

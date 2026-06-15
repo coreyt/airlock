@@ -53,8 +53,11 @@ class BatchBackend(Protocol):
         """
         ...
 
-    async def upload(self, jsonl: bytes, display_name: str) -> str:
-        """Upload the (already translated) JSONL; return a provider file ref."""
+    async def upload(self, src: str, display_name: str) -> str:
+        """Upload the (already translated) JSONL file; return a provider file ref.
+
+        ``src`` is a path to the translated JSONL on disk; implementations stream
+        it rather than buffering the whole upload in memory (design §3.7)."""
         ...
 
     async def create(self, model: str, file_ref: str, display_name: str) -> str:

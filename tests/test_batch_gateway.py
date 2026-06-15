@@ -7,7 +7,9 @@ surface is exercised through an in-memory ``FakeBackend`` implementing the
 
 from __future__ import annotations
 
+import asyncio
 import os
+import time
 
 import pytest
 import yaml
@@ -29,10 +31,12 @@ from airlock.batch.gateway import (
 )
 from airlock.batch.middleware import (
     BatchGatewayMiddleware,
+    _authorized,
     _gateway_provider,
     _is_batch_request,
+    dispatch_batch_gateway,
 )
-from airlock.batch.store import BatchStore, compute_idem
+from airlock.batch.store import RETRIEVING, BatchStore, compute_idem
 
 
 # ---------------------------------------------------------------------------
@@ -58,8 +62,15 @@ class FakeBackend:
     def from_provider_result(self, native_line: dict) -> dict:
         return gemini_result_to_openai(native_line)
 
-    async def upload(self, jsonl: bytes, display_name: str) -> str:
-        self.uploads.append((jsonl, display_name))
+    async def upload(self, src, display_name: str) -> str:
+        # The real backend streams from a file path; accept either a path or
+        # raw bytes so the in-memory fake stays faithful to the streamed path.
+        if isinstance(src, (bytes, bytearray)):
+            data = bytes(src)
+        else:
+            with open(src, "rb") as f:
+                data = f.read()
+        self.uploads.append((data, display_name))
         return f"file-ref-{display_name}"
 
     async def create(self, model: str, file_ref: str, display_name: str) -> str:
@@ -361,9 +372,11 @@ class TestIdempotency:
         backend = FakeBackend(native_results=native)
         idem = await _seed_created(store, backend)
         row = store.get(idem)
-        # Pretend an interrupted staging already wrote r1.
+        # Pretend an interrupted staging already wrote r1, then crashed: the
+        # RETRIEVING lease is expired so a resumer may CAS-reclaim the gate.
         store.begin_retrieving(idem)
         store.stage_row(row["batch_id"], "r1", "sha-r1", {"custom_id": "r1"})
+        store.expire_lease(idem)
 
         await stage_results(store, backend, idem)
         keys = store.staged_keys(row["batch_id"])
@@ -403,6 +416,31 @@ class TestSyncMarkerLeak:
         params = provider_sync_params(entry)
         assert "airlock_batch" not in params
         assert params["model"] == "gemini/gemini-3.1-pro-preview"
+
+    def test_marker_absent_from_forwarded_provider_call(self):
+        # End-to-end-ish: the marker must never reach the actual provider call
+        # invocation on the SYNC path (codex #5).
+        entry = {
+            "model_name": "gemini-3.1-pro-aistudio",
+            "litellm_params": {
+                "model": "gemini/gemini-3.1-pro-preview",
+                "api_key": "os.environ/GOOGLE_AISTUDIO_API_KEY",
+            },
+            "airlock_batch": {
+                "backend": "aistudio",
+                "provider_model": "gemini-3.1-pro-preview",
+            },
+        }
+        forwarded = provider_sync_params(entry)
+        captured: dict = {}
+
+        def fake_completion(**kwargs):
+            captured.update(kwargs)
+            return {"ok": True}
+
+        fake_completion(**forwarded)
+        assert "airlock_batch" not in captured
+        assert captured["model"] == "gemini/gemini-3.1-pro-preview"
 
     def test_load_batch_aliases(self):
         config = {
@@ -515,8 +553,327 @@ class TestAIStudioBackendLazy:
 
 
 # ---------------------------------------------------------------------------
+# (g) Gateway auth (codex #1) — master key enforced before any handling
+# ---------------------------------------------------------------------------
+def _auth_scope(authorization: str | None):
+    headers = []
+    if authorization is not None:
+        headers.append((b"authorization", authorization.encode("latin-1")))
+    return {"headers": headers}
+
+
+async def _noop_receive():
+    return {"type": "http.request", "body": b"", "more_body": False}
+
+
+class TestGatewayAuth:
+    def test_authorized_allows_when_key_unset(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_MASTER_KEY", raising=False)
+        # Parity with the proxy: unset key -> open (allow).
+        assert _authorized(_auth_scope(None)) is True
+        assert _authorized(_auth_scope("Bearer anything")) is True
+
+    def test_authorized_requires_correct_bearer_when_key_set(self, monkeypatch):
+        key = "x" * 24
+        monkeypatch.setenv("AIRLOCK_MASTER_KEY", key)
+        assert _authorized(_auth_scope(None)) is False
+        assert _authorized(_auth_scope("Bearer wrong-key")) is False
+        assert _authorized(_auth_scope(key)) is False  # missing "Bearer "
+        assert _authorized(_auth_scope(f"Bearer {key}")) is True
+
+    async def test_dispatch_rejects_missing_auth_with_401(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_MASTER_KEY", "y" * 24)
+        sent: list[dict] = []
+
+        async def send(message):
+            sent.append(message)
+
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/v1/files",
+            "query_string": b"custom_llm_provider=aistudio",
+            "headers": [],
+        }
+        await dispatch_batch_gateway(scope, _noop_receive, send)
+        start = next(m for m in sent if m["type"] == "http.response.start")
+        assert start["status"] == 401
+
+    async def test_dispatch_rejects_wrong_auth_with_401(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_MASTER_KEY", "y" * 24)
+        sent: list[dict] = []
+
+        async def send(message):
+            sent.append(message)
+
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/v1/batches",
+            "query_string": b"custom_llm_provider=aistudio",
+            "headers": [(b"authorization", b"Bearer nope")],
+        }
+        await dispatch_batch_gateway(scope, _noop_receive, send)
+        start = next(m for m in sent if m["type"] == "http.response.start")
+        assert start["status"] == 401
+
+
+# ---------------------------------------------------------------------------
+# (h) Concurrency (codex #2 + #3) — CAS gates: <=1 job, exactly one fetcher
+# ---------------------------------------------------------------------------
+class TestConcurrency:
+    async def test_concurrent_expired_lease_reclaim_yields_one_job(self, store):
+        backend = FakeBackend()
+        idem = compute_idem("file-1", "m", "/v1/chat/completions", {})
+        # A crashed winner left the row CREATING with an expired lease and no
+        # provider-side orphan job yet.
+        store.claim(
+            idem,
+            batch_id="batch-x",
+            input_file_id="file-1",
+            model="m",
+            endpoint="/v1/chat/completions",
+            backend="aistudio",
+        )
+        store.expire_lease(idem)
+
+        await asyncio.gather(
+            *[
+                create_batch(
+                    store,
+                    backend,
+                    input_file_id="file-1",
+                    model="m",
+                    endpoint="/v1/chat/completions",
+                    params={},
+                    jsonl=b"",
+                )
+                for _ in range(6)
+            ]
+        )
+        # Only the CAS winner of the expired lease may create -> <=1 job.
+        assert len(backend.creates) == 1
+
+    async def test_concurrent_begin_retrieving_one_fetcher(self, store):
+        native = [
+            {
+                "key": "r1",
+                "response": {"candidates": [{"content": {"parts": [{"text": "a"}]}}]},
+            },
+        ]
+        backend = FakeBackend(native_results=native)
+        idem = await _seed_created(store, backend)
+
+        await asyncio.gather(*[stage_results(store, backend, idem) for _ in range(6)])
+        # Only the CREATED->RETRIEVING CAS winner fetches.
+        assert backend.fetch_calls == 1
+        assert store.get(idem)["status"] == "STAGED"
+
+
+# ---------------------------------------------------------------------------
+# (i) Create path streams the upload from disk (codex #4) — bounded memory
+# ---------------------------------------------------------------------------
+class TestStreamingCreate:
+    async def test_create_streams_input_path_to_provider(self, store, tmp_path):
+        src = tmp_path / "input.jsonl"
+        lines = [
+            '{"custom_id":"r1","body":{"messages":[{"role":"user","content":"a"}]}}',
+            '{"custom_id":"r2","body":{"messages":[{"role":"user","content":"b"}]}}',
+        ]
+        src.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        backend = FakeBackend()
+
+        await create_batch(
+            store,
+            backend,
+            input_file_id="file-1",
+            model="m",
+            endpoint="/v1/chat/completions",
+            params={},
+            input_path=str(src),
+        )
+        assert len(backend.uploads) == 1
+        uploaded, _disp = backend.uploads[0]
+        translated = [
+            line for line in uploaded.decode("utf-8").splitlines() if line.strip()
+        ]
+        # One translated provider line per input line.
+        assert len(translated) == 2
+
+
+# ---------------------------------------------------------------------------
+# (j) §3.7 bound under lease expiry — at-least-once, duplicate <=1, auto-cancel
+#
+# These tests PROVE (characterize) the EXISTING §3.7 invariant: a slow owner
+# whose 60s lease expires can race a reclaimer into AT MOST ONE duplicate
+# provider job, which the reconciler detects (display_name==idem grouping) and
+# auto-cancels, leaving exactly one surviving job; and that repeated/slow result
+# fetches stage each row exactly once (idempotent, no duplicate output). They
+# assert behavior the mechanism already provides — no production change. If any
+# assertion fails, the design bound does NOT hold and that is a real defect.
+# ---------------------------------------------------------------------------
+class TestLeaseExpiryDuplicateBound:
+    async def test_expired_lease_duplicate_create_bounded_to_one_and_cancelled(
+        self, store, monkeypatch
+    ):
+        events = _capture_batch_events(monkeypatch)
+
+        backend = FakeBackend()
+        idem = compute_idem("file-1", "m", "/v1/chat/completions", {})
+        # A slow/dead original owner: row stuck CREATING with an EXPIRED lease.
+        store.claim(
+            idem,
+            batch_id="batch-x",
+            input_file_id="file-1",
+            model="m",
+            endpoint="/v1/chat/completions",
+            backend="aistudio",
+        )
+        store.expire_lease(idem)
+        # Worst case (§3.7): the slow owner already created its orphan AND a
+        # racing reclaimer created a second job before the provider listing
+        # surfaced the first -> two jobs share display_name==idem.
+        backend._jobs_by_display[idem] = ["job-slow", "job-dup"]
+
+        obj = await create_batch(
+            store,
+            backend,
+            input_file_id="file-1",
+            model="m",
+            endpoint="/v1/chat/completions",
+            params={},
+            jsonl=b"",
+        )
+
+        # CAS-reacquired the expired lease + reconciled via list_jobs(idem):
+        # adopt earliest, create nothing new.
+        row = store.get(idem)
+        assert row["job_id"] == "job-slow"
+        assert backend.creates == []
+        # Bounded to <=1 duplicate, auto-cancelled -> exactly one surviving job.
+        assert _surviving_jobs(backend, idem) == ["job-slow"]
+        assert backend.cancels == ["job-dup"]
+        # The auto-cancel is recorded for the operator audit surface (§3.7 #4).
+        assert any(e["event"] == "batch_duplicate_cancelled" for e in events)
+        assert obj["id"] == "batch-x"
+
+    async def test_expired_lease_no_orphan_creates_exactly_one(self, store):
+        backend = FakeBackend()
+        idem = compute_idem("file-1", "m", "/v1/chat/completions", {})
+        # Slow/dead owner left CREATING + expired lease, but the provider has no
+        # orphan job yet (listing had not surfaced one / it was never created).
+        store.claim(
+            idem,
+            batch_id="batch-x",
+            input_file_id="file-1",
+            model="m",
+            endpoint="/v1/chat/completions",
+            backend="aistudio",
+        )
+        store.expire_lease(idem)
+
+        await create_batch(
+            store,
+            backend,
+            input_file_id="file-1",
+            model="m",
+            endpoint="/v1/chat/completions",
+            params={},
+            jsonl=b"",
+        )
+
+        # No orphan to adopt -> the reclaimer creates exactly one, none cancelled.
+        assert len(backend.creates) == 1
+        assert backend.cancels == []
+        assert len(_surviving_jobs(backend, idem)) == 1
+
+
+class TestSlowFetchIdempotentRestage:
+    async def test_repeated_fetch_under_expired_retrieving_lease_is_idempotent(
+        self, store
+    ):
+        native = [
+            {
+                "key": "r1",
+                "response": {"candidates": [{"content": {"parts": [{"text": "a"}]}}]},
+            },
+            {
+                "key": "r2",
+                "response": {"candidates": [{"content": {"parts": [{"text": "b"}]}}]},
+            },
+        ]
+        backend = FakeBackend(native_results=native)
+        idem = await _seed_created(store, backend)
+        batch_id = store.get(idem)["batch_id"]
+
+        # Pass 1: full fetch + stage.
+        obj1 = await stage_results(store, backend, idem)
+        assert obj1["status"] == "completed"
+        assert backend.fetch_calls == 1
+        first = store.staged_keys(batch_id)
+        assert set(first) == {"r1", "r2"}
+
+        # A slow/duplicate second pass: the gate believes the first fetcher died,
+        # so an EXPIRED RETRIEVING lease lets a second pass re-fetch the same
+        # result. Per-row staging must stay idempotent (§3.7 #3).
+        _force_expired_retrieving(store, idem)
+        obj2 = await stage_results(store, backend, idem)
+        assert obj2["status"] == "completed"
+        # The second pass really did re-fetch (it was allowed to proceed)...
+        assert backend.fetch_calls == 2
+
+        # ...yet each (batch_id, row_key) is staged exactly once, sha stable.
+        second = store.staged_keys(batch_id)
+        assert set(second) == {"r1", "r2"}
+        assert second == first  # content_sha unchanged -> no drift, no churn
+        # No duplicate output rows: exactly one body per row_key after re-stage.
+        bodies = store.staged_bodies(batch_id)
+        assert len(bodies) == 2
+        assert sorted(b["custom_id"] for b in bodies) == ["r1", "r2"]
+        assert store.get(idem)["row_count"] == 2
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+def _surviving_jobs(backend, idem: str) -> list[str]:
+    """Provider jobs for ``idem`` that were NOT cancelled (the survivors)."""
+    return [
+        job
+        for job in backend._jobs_by_display.get(idem, [])
+        if job not in backend.cancels
+    ]
+
+
+def _capture_batch_events(monkeypatch) -> list[dict]:
+    """Capture ``write_batch_record`` calls emitted by the gateway."""
+    events: list[dict] = []
+
+    def fake_write(**kwargs):
+        events.append(kwargs)
+        return kwargs
+
+    monkeypatch.setattr(
+        "airlock.callbacks.enterprise_logger.write_batch_record", fake_write
+    )
+    return events
+
+
+def _force_expired_retrieving(store, idem: str) -> None:
+    """Force a batch back into RETRIEVING with an expired lease (test-only).
+
+    Simulates a fetcher that the gate believes has died, so the next
+    ``begin_retrieving`` CAS re-acquires the expired RETRIEVING lease and a
+    second staging pass is allowed to proceed over the same result.
+    """
+    with store._connect() as conn:
+        conn.execute(
+            "UPDATE batches SET status = ?, lease_until = ? WHERE idem = ?",
+            (RETRIEVING, time.time() - 1.0, idem),
+        )
+        conn.commit()
+
+
 async def _seed_created(store, backend) -> str:
     await create_batch(
         store,

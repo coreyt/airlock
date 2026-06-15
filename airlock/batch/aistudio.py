@@ -219,12 +219,12 @@ class AIStudioBackend:
         return self._client_obj
 
     # provider ops (network; lazy) --------------------------------------
-    async def upload(self, jsonl: bytes, display_name: str) -> str:
+    async def upload(self, src: str, display_name: str) -> str:
         client = self._client()
-        import io  # noqa: PLC0415
-
+        # ``src`` is a file path; the SDK streams it from disk so a ~2GB upload
+        # is never rejoined in memory (codex #4).
         uploaded = client.files.upload(
-            file=io.BytesIO(jsonl),
+            file=src,
             config={"display_name": display_name, "mime_type": "application/jsonl"},
         )
         return getattr(uploaded, "name", str(uploaded))
