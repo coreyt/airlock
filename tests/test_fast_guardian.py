@@ -330,6 +330,85 @@ class TestGuardianPreCallHook:
 
 
 # ---------------------------------------------------------------------------
+# Null-route handling (batch/file routes with no top-level model)
+# ---------------------------------------------------------------------------
+class TestGuardianNullRouteCoercion:
+    """Batch/file routes (/v1/batches, /v1/files) have no top-level model.
+
+    The guardian must coerce requested_model = data.get("model") or "unknown"
+    and not crash when processing these routes.
+    """
+
+    @pytest.fixture
+    def guardian(self):
+        return AirlockFastGuardian()
+
+    async def test_missing_model_field_coerced_to_unknown(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        """Batch route with no 'model' field should coerce to 'unknown'."""
+        data = {
+            "messages": [{"role": "user", "content": "placeholder"}],
+            # NO 'model' field — typical of /v1/batches payloads
+        }
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        # Should not crash and should record the request with "unknown" model
+        assert result["metadata"]["airlock_request"]["requested_model"] == "unknown"
+        assert result["metadata"]["airlock_priority"]["score"] is not None
+
+    async def test_none_model_coerced_to_unknown(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        """Batch route with model=None should coerce to 'unknown'."""
+        data = {
+            "messages": [{"role": "user", "content": "placeholder"}],
+            "model": None,
+        }
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        # Should not crash and should record the request with "unknown" model
+        assert result["metadata"]["airlock_request"]["requested_model"] == "unknown"
+        assert result["metadata"]["airlock_priority"]["score"] is not None
+
+    async def test_empty_string_model_coerced_to_unknown(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        """Batch route with model="" should coerce to 'unknown'."""
+        data = {
+            "messages": [{"role": "user", "content": "placeholder"}],
+            "model": "",
+        }
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        # Should not crash and should record the request with "unknown" model
+        assert result["metadata"]["airlock_request"]["requested_model"] == "unknown"
+        assert result["metadata"]["airlock_priority"]["score"] is not None
+
+    async def test_no_model_no_crash_full_flow(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        """Full flow: guardian should not crash with model-less data."""
+        # This simulates a /v1/files or /v1/batches request
+        data = {
+            "file": "batch-input.jsonl",
+            # No 'model' field at all
+        }
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        # Verify all critical metadata is present and valid
+        assert "airlock_priority" in result.get("metadata", {})
+        assert "airlock_request" in result.get("metadata", {})
+        assert result["metadata"]["airlock_request"]["requested_model"] == "unknown"
+        # Should continue without crashing
+        assert result is not None
+
+
+# ---------------------------------------------------------------------------
 # MCP call handling
 # ---------------------------------------------------------------------------
 class TestMCPCallHandling:

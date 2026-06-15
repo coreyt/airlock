@@ -36,6 +36,7 @@ Airlock sits between your developers and LLM providers, giving you visibility an
 | **Budget control** | Per-user/per-team spend limits via LiteLLM virtual keys |
 | **Multi-tool support** | Works with Cursor, Claude Code, GitHub Copilot, and any OpenAI-compatible client |
 | **Self-hosted models** | Route to local vLLM, Ollama, or any OpenAI-compatible endpoint alongside cloud providers |
+| **Batch processing** | OpenAI-compatible Batch API (`/v1/files` + `/v1/batches`) for ~50% cheaper async jobs — OpenAI and Vertex AI Gemini (regional) work through the proxy today |
 | **Interactive testing** | Built-in Basic Chat screen to test LLM connectivity and inspect full request/response cycles |
 | **AI advisor** | Ask an LLM about operational data — diagnose errors, tune guardrails, get config recommendations (local models preferred) |
 
@@ -70,8 +71,8 @@ git clone https://github.com/coreyt/airlock && cd airlock
 ```
 
 Everything in the standard setup, plus all optional extras (test, metrics,
-tracing, search, s3, sql), install verification, and a test suite run. Pass
-`--pip` to use pip instead of uv.
+tracing, search, s3, sql, vertex), install verification, and a test suite
+run. Pass `--pip` to use pip instead of uv.
 
 ### Add your API keys
 

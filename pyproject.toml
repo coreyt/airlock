@@ -57,6 +57,9 @@ metrics = ["prometheus-client>=0.20.0"]
 tui = ["textual>=0.40.0"]
 search = ["tavily-python>=0.5.0", "newscatcher-catchall-sdk>=1.0.0"]
 vertex = ["google-auth>=2.0.0"]  # required by litellm vertex_ai (token minting + GCS batch staging)
+# TODO (batch gateway): AI Studio Gemini (google-genai) + Mistral (mistralai) batch
+# support is design-only (dev/design-unified-batch-gateway.md) — deps intentionally
+# NOT declared until those adapters are implemented.
 tracing = ["opentelemetry-api>=1.20.0", "opentelemetry-sdk>=1.20.0"]
 test = [
     "pytest>=8.0",

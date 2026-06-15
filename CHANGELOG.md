@@ -39,12 +39,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Four new environment variables**: `AIRLOCK_LOCAL_VLLM_BASE_URL`,
   `AIRLOCK_LOCAL_VLLM_CACHE_TTL_SECONDS`, `AIRLOCK_LOCAL_VLLM_SWITCH_HINT`,
   and `AIRLOCK_REASONING_STRIP_MODELS`.
+- **Vertex AI Gemini deployments** (`gemini-3.5-flash-vertex`,
+  `gemini-3.1-pro-vertex`, provider `vertex_ai/…`) in `config.yaml`, in
+  addition to the AI Studio `gemini/` aliases. The reason to add them is
+  **batch**: LiteLLM wires the Batch API (`/v1/files` + `/v1/batches`) for
+  `vertex_ai` but not for the AI Studio `gemini/` provider. They read
+  `VERTEX_PROJECT` / `VERTEX_CREDENTIALS` from the environment, pin
+  `vertex_location: global`, and stage batch files in `GCS_BUCKET_NAME`.
+- **Vertex AI Gemini batch (regional models)** — asynchronous, ~50%
+  cheaper, ~24h turnaround through the proxy's `vertex_ai` Batch API.
+  Batch requires a **regional** location; Gemini 3.x currently resolves
+  only on the Vertex `global` endpoint and so cannot batch yet. Full GCP
+  setup (service account, GCS bucket, IAM) is documented in the new Vertex
+  AI Batch guide.
+- **OpenAI batch through the proxy** via a `files_settings` block in
+  `config.yaml`. `/v1/files` requires a provider entry for non-`vertex_ai`
+  batch; without it the proxy returned `500 "files_settings is not set"`.
+  With it, the OpenAI Batch API (`/v1/files` + `/v1/batches` with
+  `custom_llm_provider=openai`) works end-to-end through Airlock
+  (verified: file upload, batch create, and in-progress status).
+- **`vertex` optional extra** — pulls `google-auth`, which LiteLLM's
+  `vertex_ai` provider needs for token minting and GCS access but
+  `litellm[proxy]` does not install. Install with `uv sync --extra vertex`
+  (or `make sync` for all extras).
 
 ### Changed
 
 - **CI hardening**: upgraded GitHub Actions to Node.js 24-compatible
   versions, pinned `astral-sh/setup-uv` to `v8.0.0`, and rewrote
   `preflight.sh` to mirror CI exactly.
+- **`secrets/` is now gitignored** — Vertex AI batch needs a GCP
+  service-account JSON key on the host (`VERTEX_CREDENTIALS`); keep it out
+  of version control.
+
+### Fixed
+
+- **Fast subsystem and PII hook null-safety on batch/file routes** —
+  `/v1/batches` and `/v1/files` carry no top-level `model` (the model
+  lives inside the uploaded JSONL), which crashed several chat-shaped code
+  paths and returned `500` on batch create:
+  - `ModelAliasTable.resolve(None)` crashed on `.lower()`; the Fast
+    Guardian now coerces a null requested model to `unknown`, and
+    `resolve()` / `infer_provider()` bail safely on non-string/empty
+    input.
+  - the PII guard's `async_post_call_success_hook` is invoked with
+    `data=None` on these routes; it now guards `data`/`metadata` being
+    `None` instead of dereferencing them.
+  - regression tests added for each.
 
 ### Documentation
 
@@ -52,6 +93,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dedicated subsections (behavior + configuration), the
   multiple-aliases-on-one-vLLM-endpoint pattern in the configuration
   guide, and the four new environment variables.
+- Added a **Batch Processing** guide (`docs/guide/batch.md`) covering the
+  working OpenAI recipe (`files_settings` + restart, `/v1/files` +
+  `/v1/batches`) and a **Vertex AI Batch** guide
+  (`docs/guide/vertex-batch.md`) covering GCP setup; both added to the
+  mkdocs nav. Both carry the standing caveat that batch bypasses Airlock's
+  guardrails. AI Studio (Gemini 3.x) and Mistral batch are documented as
+  in-progress, pending the unified batch gateway.
 
 ## [0.3.0] — 2026-04-15
 
