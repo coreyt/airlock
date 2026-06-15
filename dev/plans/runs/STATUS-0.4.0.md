@@ -9,12 +9,14 @@ _Last updated: 2026-06-14 · mainline: `main` @ `a45bd88`_
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** Pack A — implemented + codex-reviewed = **BLOCK** (confirmed).
-  Fix-1 required (close the caller-controlled batch-marker bypass).
-- **Blocked on HITL:** fix-1 + merge can't proceed until the worktree-ownership +
-  git-permission model is resolved (orchestrator can't merge / re-spawn into the
-  existing worktree; deny list + Agent-native isolation + stale base).
-- **Next action:** HITL decision → apply harness change → fix-1 → re-review → merge.
+- **In flight:** Pack A **fix-1** — delegated implementer running in
+  orchestrator-owned worktree `/tmp/airlock-0.4.0-A-fix1` (branch `0.4.0-A-fix1`
+  from `930419b`), closing the caller-controlled batch-marker bypass + negative tests.
+- **Resolved:** the worktree-ownership model. `isolation: worktree` removed from
+  implementer.md (HITL) + git ops `deny→ask` (commit `1f21233`) → orchestrator now
+  picks the baseline, creates the worktree, and merges. Model works end-to-end.
+- **Next action:** await fix-1 → gate from git → re-run codex → on PASS merge
+  `0.4.0-A-fix1` to main, clean both worktrees, close Pack A → spawn Pack B.
 
 ## 2. Pack scoreboard
 
