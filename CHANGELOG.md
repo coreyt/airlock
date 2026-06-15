@@ -24,12 +24,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `litellm_params` so it never leaks to the provider SDK on the sync path.
   The gateway enforces `AIRLOCK_MASTER_KEY` on its own ingress (it dispatches
   before LiteLLM's route auth). Verified end-to-end against the live Gemini
-  batch endpoint (`tests/test_aistudio_batch_e2e.py`, opt-in live gate). The
-  Mistral adapter remains design-only. Batch-content guardrail scanning is a
-  no-op stub for now, so batch still bypasses the guards.
-- **`aistudio` optional extra** — pulls `google-genai` (lazy-imported), so
-  the proxy boots without it. Install with `uv sync --extra aistudio` (or
-  `make sync` for all extras).
+  batch endpoint (`tests/test_aistudio_batch_e2e.py`, opt-in live gate).
+  Batch-content guardrail scanning is a no-op stub for now, so batch still
+  bypasses the guards.
+- **Mistral batch adapter** — second gateway backend
+  (`?custom_llm_provider=mistral`), opting in via `airlock_batch:
+  {backend: mistral, provider_model: …}`. Translation is near-passthrough
+  (Mistral batch input is OpenAI-shaped and Mistral chat is OpenAI-compatible);
+  it reuses the gateway's idempotency/reconcile core, keying provider jobs by
+  metadata `display_name` so reconcile-by-idem works. Verified end-to-end
+  against the live Mistral batch API (`tests/test_mistral_batch_e2e.py`,
+  opt-in live gate). Ships `mistral-large-batch` + `mistral-small-batch`
+  aliases.
+- **`aistudio` + `mistral` optional extras** — pull `google-genai` /
+  `mistralai` (both lazy-imported), so the proxy boots without them. Install
+  with `uv sync --extra aistudio` / `--extra mistral` (or `make sync` for all
+  extras). The `mistral` extra is pinned `<2`: `mistralai` 2.x restructured the
+  package (the top-level `from mistralai import Mistral` moved to
+  `mistralai.client.sdk`) and the adapter targets the v1 `client.batch.jobs` API.
 - **Local vLLM router guardrail** (`airlock-local-vllm-router`, `pre_call`) —
   for single-GPU setups that serve one model at a time behind a shared
   vLLM endpoint. On first call it reads `config.yaml`, treats every
@@ -120,9 +132,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`docs/guide/vertex-batch.md`) covering GCP setup; both added to the
   mkdocs nav. Both carry the standing caveat that batch bypasses Airlock's
   guardrails. The Batch guide now documents the **working AI Studio (Gemini)**
-  recipe through the Airlock Batch Gateway (extra, `airlock_batch` alias,
-  upload/create/poll with `custom_llm_provider=aistudio`); Mistral batch
-  remains documented as in-progress.
+  and **Mistral** recipes through the Airlock Batch Gateway (extra,
+  `airlock_batch` alias, upload/create/poll with
+  `custom_llm_provider=aistudio|mistral`), both live-verified end-to-end.
 
 ## [0.3.0] — 2026-04-15
 

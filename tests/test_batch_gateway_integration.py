@@ -8,8 +8,7 @@ translation functions but returns canned provider results instead of calling out
 
 This complements:
   - ``test_batch_gateway.py`` — unit-level gateway/translation/idempotency.
-  - ``test_aistudio_batch_e2e.py`` — live e2e (AI Studio; Mistral has no live gate
-    yet — its live round-trip is unverified pending valid credentials).
+  - ``test_aistudio_batch_e2e.py`` / ``test_mistral_batch_e2e.py`` — live e2e.
 
 No network; safe to run in CI.
 """

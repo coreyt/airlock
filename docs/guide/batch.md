@@ -21,7 +21,7 @@ cost** (typical ~24h turnaround). Airlock exposes the OpenAI-compatible Batch AP
 | **Vertex AI (Gemini)** | ✅ **Working (regional models)** | See [Vertex AI Batch](vertex-batch.md). Batch needs a **regional** model; Gemini 3.x is `global`-only and **cannot batch** |
 | **Anthropic / Azure / Bedrock** | ✅ Wired in LiteLLM | Not configured here by default |
 | **Google AI Studio (Gemini)** | ✅ **Working (via Airlock Batch Gateway)** | LiteLLM doesn't wire the `gemini/` provider for batch, so Airlock's own gateway handles it. Needs the `aistudio` extra + an `airlock_batch` alias — see [AI Studio (Gemini) batch](#ai-studio-gemini-batch-via-the-airlock-batch-gateway) below |
-| **Mistral** | ✅ Gateway wired · ⚠️ live unverified | Same gateway/adapter as AI Studio, **integration-tested**; the live round-trip is **unverified** (no valid `MISTRAL_API_KEY` — returns 401). Needs the `mistral` extra (pinned `<2`) + an `airlock_batch` alias — see [Mistral batch](#mistral-batch-via-the-airlock-batch-gateway) below |
+| **Mistral** | ✅ **Working (via Airlock Batch Gateway)** | Same gateway/adapter as AI Studio; integration-tested **and live-verified**. Needs the `mistral` extra (pinned `<2`) + an `airlock_batch` alias — see [Mistral batch](#mistral-batch-via-the-airlock-batch-gateway) below |
 
 ---
 
@@ -199,9 +199,8 @@ by the gateway and run against Mistral's native batch API
 (`mistralai` `client.batch.jobs.*`) at the **50% batch discount**. Mistral's batch
 input is already OpenAI-shaped and Mistral chat is OpenAI-compatible, so the
 translation is near-passthrough. The no-network path is covered by
-`tests/test_mistral_batch.py` + `tests/test_batch_gateway_integration.py`. Unlike
-AI Studio, the Mistral path has **no live e2e gate yet** — the live round-trip is
-unverified (see the note at the end of this section).
+`tests/test_mistral_batch.py` + `tests/test_batch_gateway_integration.py`; a live
+round-trip is covered by `tests/test_mistral_batch_e2e.py` (opt-in — see below).
 
 ### 1. Install the extra + set the key
 The `mistralai` SDK is lazy-imported, so it ships only with the `mistral` extra
@@ -264,13 +263,12 @@ As with AI Studio, output lines are **OpenAI-shaped** with the native Mistral
 response preserved verbatim in `response.body`, and the gateway is idempotent on
 `(input_file_id, model, endpoint, params)`, bounding duplicate provider jobs to ≤1.
 
-!!! warning "Mistral live round-trip not yet verified"
-    The Mistral adapter is covered by unit + integration tests (no network), and the
-    full HTTP lifecycle is exercised against a faithful fake provider in
-    `tests/test_batch_gateway_integration.py`. A **live** round-trip against
-    Mistral's batch API has **not** been verified — the available `MISTRAL_API_KEY`
-    is rejected with `401 Unauthorized`. Supply a valid key with batch access to
-    exercise it end-to-end (and to re-add a live gate like AI Studio's).
+!!! note "Live e2e is opt-in"
+    `tests/test_mistral_batch_e2e.py` runs the real round-trip only when
+    `AIRLOCK_LIVE_MISTRAL_E2E=1`, `MISTRAL_API_KEY` is set, and the `mistral`
+    extra is installed (it's billable). The unit + integration suites need none of
+    that. Verified live against Mistral's batch API on 2026-06-15
+    (`mistral-small-latest`, completed ~60s).
 
 ## Gateway auth & remaining work
 

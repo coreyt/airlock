@@ -42,7 +42,7 @@ _Last updated: 2026-06-14 · mainline: `main` @ `a45bd88`_
 | #1 AI Studio batch gateway | C | ✅ (unit + **live e2e PASSED** 2026-06-15 @ `e738858`) |
 | §7.3 result-file ≠ job expiry | C | ✅ |
 | §7.4 `airlock_batch` no sync-path leak | C | ✅ |
-| Mistral batch gateway | D | ⚠️ unit + **integration** ✅; **live unverified** (MISTRAL_API_KEY → 401) |
+| Mistral batch gateway | D | ✅ unit + integration + **live e2e PASSED** 2026-06-15 (`mistral-small-latest`) |
 
 ## 4. Parallelization plan
 
@@ -62,6 +62,11 @@ None — all removed after Pack A close.
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-15 — **Mistral live e2e PASSED.** After the `MISTRAL_API_KEY` was refreshed
+  (the prior one 401'd on every call), restored `tests/test_mistral_batch_e2e.py` and
+  ran the real round-trip via the production gateway path — `mistral-small-latest`
+  completed ~60s, both rows staged + translated correctly. **Both** gateway providers
+  (AI Studio + Mistral) are now live-verified end-to-end; docs un-qualified accordingly.
 - 2026-06-15 — **Batch integration tests + e2e sweep.** Added
   `tests/test_batch_gateway_integration.py` (12 tests): full HTTP lifecycle through
   the real ASGI middleware (upload→create→poll→stage→content), multipart upload,
