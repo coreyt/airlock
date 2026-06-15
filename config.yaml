@@ -140,6 +140,29 @@ model_list:
       vertex_location: global
       vertex_credentials: os.environ/VERTEX_CREDENTIALS
 
+  # --- AI Studio Gemini BATCH (Airlock Batch Gateway, not LiteLLM-native) ---
+  # The `gemini/` (AI Studio) provider is NOT wired in LiteLLM's Batch API, so
+  # these aliases are handled by the Airlock Batch Gateway middleware, selected
+  # via ?custom_llm_provider=aistudio on /v1/files + /v1/batches.
+  # The `airlock_batch` marker is a SIBLING of litellm_params (NOT nested inside
+  # it) so it never leaks to the provider SDK on the sync path (§7.4). The sync
+  # completion still routes through litellm's native gemini/ provider unchanged.
+  - model_name: gemini-3.5-flash-aistudio
+    litellm_params:
+      model: gemini/gemini-3.5-flash
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+    airlock_batch:
+      backend: aistudio
+      provider_model: gemini-3.5-flash
+
+  - model_name: gemini-3.1-pro-aistudio
+    litellm_params:
+      model: gemini/gemini-3.1-pro-preview
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+    airlock_batch:
+      backend: aistudio
+      provider_model: gemini-3.1-pro-preview
+
   # --- Mistral AI (large-3 / medium / small-4 / magistral / codestral) ---
   - model_name: mistral-large
     litellm_params:
@@ -366,6 +389,26 @@ cost_tiers:
     - mistral-large
     - magistral-medium
     - gemini-3.1-pro
+
+# ---------------------------------------------------------------------------
+# Batch profile — Airlock Batch Gateway posture (design §3.3 / §4.2)
+# ---------------------------------------------------------------------------
+# One place to declare the batch posture, distinct from the interactive chat
+# default. The batch path ignores caller-supplied guardrail/metadata disables
+# (operator/config-controlled trust boundary). NOTE: `scan_at_upload` is a
+# NO-OP stub in this release — the insertion point for the async think-slow
+# scan pipeline (to-do #2); the field is present so the posture is declared,
+# but no upload scanning is performed yet.
+batch_profile:
+  default:
+    scan_at_upload: true        # NO-OP stub (to-do #2) — declared, not enforced
+    keyword_block: true
+    pii_redact: true
+    pii_hydrate_output: false   # terminal redaction only (A2); no PII reverse-map
+    output_scan_mode: observe
+    max_rows: 50000
+    max_bytes: 2147483648
+    max_concurrent_jobs: 5
 
 # ---------------------------------------------------------------------------
 # Guardrails

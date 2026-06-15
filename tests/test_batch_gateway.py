@@ -1,0 +1,530 @@
+"""Tests for the Airlock Batch Gateway + AI Studio adapter (Pack 0.4.0-C).
+
+All no-network: the real ``google-genai`` SDK is never imported. The provider
+surface is exercised through an in-memory ``FakeBackend`` implementing the
+``BatchBackend`` protocol.
+"""
+
+from __future__ import annotations
+
+import os
+
+import pytest
+import yaml
+
+from airlock.batch.aistudio import (
+    AIStudioBackend,
+    gemini_result_to_openai,
+    normalize_aistudio_status,
+    openai_line_to_gemini,
+)
+from airlock.batch.backend import NormalizedStatus, ResultUnavailableError
+from airlock.batch.gateway import (
+    create_batch,
+    get_batch,
+    load_batch_aliases,
+    load_batch_profile,
+    provider_sync_params,
+    stage_results,
+)
+from airlock.batch.middleware import (
+    BatchGatewayMiddleware,
+    _gateway_provider,
+    _is_batch_request,
+)
+from airlock.batch.store import BatchStore, compute_idem
+
+
+# ---------------------------------------------------------------------------
+# Fake backend (in-memory; no network)
+# ---------------------------------------------------------------------------
+class FakeBackend:
+    name = "aistudio"
+
+    def __init__(self, native_results=None, fetch_error=None):
+        self.uploads: list[tuple[bytes, str]] = []
+        self.creates: list[tuple[str, str, str]] = []
+        self.cancels: list[str] = []
+        self.fetch_calls = 0
+        self._poll_status = "JOB_STATE_SUCCEEDED"
+        self._native_results = native_results or []
+        self._fetch_error = fetch_error
+        self._jobs_by_display: dict[str, list[str]] = {}
+        self._counter = 0
+
+    def to_provider_request(self, openai_line: dict) -> dict:
+        return openai_line_to_gemini(openai_line)
+
+    def from_provider_result(self, native_line: dict) -> dict:
+        return gemini_result_to_openai(native_line)
+
+    async def upload(self, jsonl: bytes, display_name: str) -> str:
+        self.uploads.append((jsonl, display_name))
+        return f"file-ref-{display_name}"
+
+    async def create(self, model: str, file_ref: str, display_name: str) -> str:
+        self.creates.append((model, file_ref, display_name))
+        self._counter += 1
+        job_id = f"job-{self._counter}"
+        self._jobs_by_display.setdefault(display_name, []).append(job_id)
+        return job_id
+
+    async def poll(self, job_id: str) -> NormalizedStatus:
+        return NormalizedStatus(
+            status=normalize_aistudio_status(self._poll_status),
+            raw=self._poll_status,
+        )
+
+    async def fetch(self, job_id: str):
+        self.fetch_calls += 1
+        if self._fetch_error is not None:
+            raise self._fetch_error
+        return list(self._native_results)
+
+    async def cancel(self, job_id: str) -> None:
+        self.cancels.append(job_id)
+
+    async def list_jobs(self, display_name: str) -> list[str]:
+        return list(self._jobs_by_display.get(display_name, []))
+
+
+@pytest.fixture
+def store(tmp_path):
+    return BatchStore(str(tmp_path / "batch.db"))
+
+
+# ---------------------------------------------------------------------------
+# (a) Middleware discrimination — query string only, body never buffered
+# ---------------------------------------------------------------------------
+class _RecordingApp:
+    def __init__(self):
+        self.called = False
+        self.scope = None
+
+    async def __call__(self, scope, receive, send):
+        self.called = True
+        self.scope = scope
+
+
+def _scope(method="POST", path="/v1/batches", query=b""):
+    return {
+        "type": "http",
+        "method": method,
+        "path": path,
+        "query_string": query,
+    }
+
+
+async def _noop_send(_message):
+    return None
+
+
+class TestMiddlewareDiscrimination:
+    async def test_is_batch_request_matches_files_and_batches(self):
+        assert _is_batch_request("POST", "/v1/batches")
+        assert _is_batch_request("POST", "/v1/files")
+        assert _is_batch_request("GET", "/v1/batches/batch-1")
+        assert _is_batch_request("POST", "/v1/batches/batch-1/cancel")
+        assert _is_batch_request("GET", "/v1/files/file-1/content")
+        assert not _is_batch_request("POST", "/v1/chat/completions")
+
+    def test_gateway_provider_reads_query(self):
+        assert _gateway_provider(b"custom_llm_provider=aistudio") == "aistudio"
+        assert _gateway_provider(b"custom_llm_provider=openai") is None
+        assert _gateway_provider(b"") is None
+
+    async def test_non_aistudio_falls_through_without_buffering(self):
+        app = _RecordingApp()
+        mw = BatchGatewayMiddleware(app)
+        received = []
+
+        async def receive():
+            received.append(1)
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        await mw(
+            _scope(query=b"custom_llm_provider=openai"),
+            receive,
+            _noop_send,
+        )
+        assert app.called is True
+        # The middleware must not drain the request body itself.
+        assert received == []
+
+    async def test_chat_path_falls_through(self):
+        app = _RecordingApp()
+        mw = BatchGatewayMiddleware(app)
+        await mw(_scope(path="/v1/chat/completions"), None, _noop_send)
+        assert app.called is True
+
+    async def test_aistudio_routes_to_gateway(self, monkeypatch):
+        app = _RecordingApp()
+        mw = BatchGatewayMiddleware(app)
+        dispatched = {}
+
+        async def fake_dispatch(scope, receive, send):
+            dispatched["yes"] = True
+
+        monkeypatch.setattr(
+            "airlock.batch.middleware.dispatch_batch_gateway", fake_dispatch
+        )
+        await mw(
+            _scope(query=b"custom_llm_provider=aistudio"),
+            None,
+            _noop_send,
+        )
+        assert dispatched.get("yes") is True
+        assert app.called is False
+
+
+# ---------------------------------------------------------------------------
+# (b) OpenAI <-> Gemini translation; native body preserved (A4)
+# ---------------------------------------------------------------------------
+class TestTranslation:
+    def test_openai_line_to_gemini_request(self):
+        line = {
+            "custom_id": "req-1",
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "body": {
+                "model": "gemini-3.1-pro-preview",
+                "messages": [
+                    {"role": "system", "content": "be terse"},
+                    {"role": "user", "content": "hello"},
+                ],
+                "temperature": 0.2,
+                "max_tokens": 64,
+            },
+        }
+        out = openai_line_to_gemini(line)
+        assert out["key"] == "req-1"
+        req = out["request"]
+        assert req["contents"][0]["role"] == "user"
+        assert req["contents"][0]["parts"][0]["text"] == "hello"
+        assert req["system_instruction"]["parts"][0]["text"] == "be terse"
+        assert req["generationConfig"]["temperature"] == 0.2
+        assert req["generationConfig"]["maxOutputTokens"] == 64
+
+    def test_gemini_result_preserves_native_body(self):
+        native = {
+            "key": "req-1",
+            "response": {
+                "candidates": [
+                    {
+                        "content": {"parts": [{"text": "hi there"}], "role": "model"},
+                        "finishReason": "STOP",
+                    }
+                ],
+                "usageMetadata": {"totalTokenCount": 7},
+            },
+        }
+        out = gemini_result_to_openai(native)
+        assert out["custom_id"] == "req-1"
+        body = out["response"]["body"]
+        # native preserved verbatim
+        assert body["candidates"] == native["response"]["candidates"]
+        assert body["usageMetadata"] == native["response"]["usageMetadata"]
+        # best-effort OpenAI projection added alongside
+        assert body["choices"][0]["message"]["content"] == "hi there"
+        assert out["error"] is None
+
+    def test_gemini_result_error_line(self):
+        native = {"key": "req-2", "error": {"code": 500, "message": "boom"}}
+        out = gemini_result_to_openai(native)
+        assert out["custom_id"] == "req-2"
+        assert out["response"] is None
+        assert out["error"]["message"] == "boom"
+
+
+# ---------------------------------------------------------------------------
+# (d) Status mapping (§3.5)
+# ---------------------------------------------------------------------------
+class TestStatusMapping:
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("JOB_STATE_PENDING", "validating"),
+            ("JOB_STATE_RUNNING", "in_progress"),
+            ("JOB_STATE_SUCCEEDED", "completed"),
+            ("JOB_STATE_FAILED", "failed"),
+            ("JOB_STATE_CANCELLED", "cancelled"),
+            ("JOB_STATE_EXPIRED", "expired"),
+        ],
+    )
+    def test_normalize_aistudio_status(self, raw, expected):
+        assert normalize_aistudio_status(raw) == expected
+
+    def test_unknown_status_defaults_to_in_progress(self):
+        assert normalize_aistudio_status("JOB_STATE_WAT") == "in_progress"
+
+
+# ---------------------------------------------------------------------------
+# (c) Idempotency (§3.7)
+# ---------------------------------------------------------------------------
+class TestIdempotency:
+    def test_compute_idem_is_deterministic(self):
+        a = compute_idem("file-1", "m", "/v1/chat/completions", {"x": 1})
+        b = compute_idem("file-1", "m", "/v1/chat/completions", {"x": 1})
+        c = compute_idem("file-2", "m", "/v1/chat/completions", {"x": 1})
+        assert a == b
+        assert a != c
+
+    async def test_duplicate_create_yields_one_job(self, store):
+        backend = FakeBackend()
+        jsonl = b'{"custom_id":"r1","body":{"messages":[]}}\n'
+        obj1 = await create_batch(
+            store,
+            backend,
+            input_file_id="file-1",
+            model="gemini-3.1-pro-preview",
+            endpoint="/v1/chat/completions",
+            params={},
+            jsonl=jsonl,
+        )
+        obj2 = await create_batch(
+            store,
+            backend,
+            input_file_id="file-1",
+            model="gemini-3.1-pro-preview",
+            endpoint="/v1/chat/completions",
+            params={},
+            jsonl=jsonl,
+        )
+        assert obj1["id"] == obj2["id"]
+        # exactly one provider job created
+        assert len(backend.creates) == 1
+
+    async def test_reconcile_adopts_earliest_and_cancels_duplicates(self, store):
+        backend = FakeBackend()
+        idem = compute_idem("file-1", "m", "/v1/chat/completions", {})
+        # Simulate a crash window: row stuck CREATING with an expired lease,
+        # and the provider already has two orphaned jobs for this display_name.
+        store.claim(
+            idem,
+            batch_id="batch-x",
+            input_file_id="file-1",
+            model="m",
+            endpoint="/v1/chat/completions",
+            backend="aistudio",
+        )
+        store.expire_lease(idem)
+        backend._jobs_by_display[idem] = ["job-a", "job-b"]
+
+        obj = await create_batch(
+            store,
+            backend,
+            input_file_id="file-1",
+            model="m",
+            endpoint="/v1/chat/completions",
+            params={},
+            jsonl=b"",
+        )
+        # adopted earliest, cancelled the rest, created nothing new
+        row = store.get(idem)
+        assert row["job_id"] == "job-a"
+        assert backend.cancels == ["job-b"]
+        assert len(backend.creates) == 0
+        assert obj["id"] == "batch-x"
+
+    async def test_retrieving_to_staged_gate_fetches_once(self, store):
+        native = [
+            {
+                "key": "r1",
+                "response": {"candidates": [{"content": {"parts": [{"text": "a"}]}}]},
+            },
+            {
+                "key": "r2",
+                "response": {"candidates": [{"content": {"parts": [{"text": "b"}]}}]},
+            },
+        ]
+        backend = FakeBackend(native_results=native)
+        idem = await _seed_created(store, backend)
+
+        obj1 = await stage_results(store, backend, idem)
+        obj2 = await stage_results(store, backend, idem)
+        assert obj1["status"] == "completed"
+        assert obj2["status"] == "completed"
+        # second staging re-fetches nothing
+        assert backend.fetch_calls == 1
+
+    async def test_resume_stages_only_missing_rows(self, store):
+        native = [
+            {
+                "key": "r1",
+                "response": {"candidates": [{"content": {"parts": [{"text": "a"}]}}]},
+            },
+            {
+                "key": "r2",
+                "response": {"candidates": [{"content": {"parts": [{"text": "b"}]}}]},
+            },
+        ]
+        backend = FakeBackend(native_results=native)
+        idem = await _seed_created(store, backend)
+        row = store.get(idem)
+        # Pretend an interrupted staging already wrote r1.
+        store.begin_retrieving(idem)
+        store.stage_row(row["batch_id"], "r1", "sha-r1", {"custom_id": "r1"})
+
+        await stage_results(store, backend, idem)
+        keys = store.staged_keys(row["batch_id"])
+        assert set(keys) == {"r1", "r2"}
+
+
+# ---------------------------------------------------------------------------
+# (f) §7.3 — missing/expired result file handled gracefully
+# ---------------------------------------------------------------------------
+class TestExpiredResult:
+    async def test_expired_result_marks_failed_without_crash(self, store):
+        backend = FakeBackend(fetch_error=ResultUnavailableError("result file expired"))
+        idem = await _seed_created(store, backend)
+        obj = await stage_results(store, backend, idem)
+        assert obj["status"] in {"failed", "expired"}
+        assert obj["errors"] is not None
+        row = store.get(idem)
+        assert row["status"] == "FAILED"
+
+
+# ---------------------------------------------------------------------------
+# (e) §7.4 — airlock_batch marker does not leak to provider on sync path
+# ---------------------------------------------------------------------------
+class TestSyncMarkerLeak:
+    def test_provider_sync_params_strip_marker(self):
+        entry = {
+            "model_name": "gemini-3.1-pro-aistudio",
+            "litellm_params": {
+                "model": "gemini/gemini-3.1-pro-preview",
+                "api_key": "os.environ/GOOGLE_AISTUDIO_API_KEY",
+            },
+            "airlock_batch": {
+                "backend": "aistudio",
+                "provider_model": "gemini-3.1-pro-preview",
+            },
+        }
+        params = provider_sync_params(entry)
+        assert "airlock_batch" not in params
+        assert params["model"] == "gemini/gemini-3.1-pro-preview"
+
+    def test_load_batch_aliases(self):
+        config = {
+            "model_list": [
+                {
+                    "model_name": "gemini-3.1-pro-aistudio",
+                    "litellm_params": {"model": "gemini/gemini-3.1-pro-preview"},
+                    "airlock_batch": {
+                        "backend": "aistudio",
+                        "provider_model": "gemini-3.1-pro-preview",
+                    },
+                },
+                {
+                    "model_name": "plain",
+                    "litellm_params": {"model": "openai/gpt-4o"},
+                },
+            ]
+        }
+        aliases = load_batch_aliases(config)
+        assert "gemini-3.1-pro-aistudio" in aliases
+        assert aliases["gemini-3.1-pro-aistudio"]["backend"] == "aistudio"
+        assert "plain" not in aliases
+
+
+# ---------------------------------------------------------------------------
+# OpenAI batch object shaping
+# ---------------------------------------------------------------------------
+class TestBatchObject:
+    async def test_to_openai_batch_object_shape(self, store):
+        backend = FakeBackend()
+        obj = await create_batch(
+            store,
+            backend,
+            input_file_id="file-1",
+            model="gemini-3.1-pro-preview",
+            endpoint="/v1/chat/completions",
+            params={},
+            jsonl=b"",
+        )
+        assert obj["object"] == "batch"
+        assert obj["id"].startswith("batch-")
+        assert obj["input_file_id"] == "file-1"
+        assert obj["endpoint"] == "/v1/chat/completions"
+        assert obj["status"] == "in_progress"
+
+    async def test_get_batch_stages_on_completed(self, store):
+        native = [
+            {
+                "key": "r1",
+                "response": {"candidates": [{"content": {"parts": [{"text": "a"}]}}]},
+            },
+        ]
+        backend = FakeBackend(native_results=native)
+        created = await create_batch(
+            store,
+            backend,
+            input_file_id="file-1",
+            model="m",
+            endpoint="/v1/chat/completions",
+            params={},
+            jsonl=b"",
+        )
+        obj = await get_batch(store, backend, created["id"])
+        assert obj["status"] == "completed"
+        assert obj["output_file_id"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Config: aliases + batch_profile present in config.yaml
+# ---------------------------------------------------------------------------
+class TestConfigYaml:
+    def test_config_has_aistudio_aliases_and_profile(self):
+        cfg_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "config.yaml"
+        )
+        with open(cfg_path) as f:
+            cfg = yaml.safe_load(f)
+        aliases = load_batch_aliases(cfg)
+        assert "gemini-3.5-flash-aistudio" in aliases
+        assert "gemini-3.1-pro-aistudio" in aliases
+        profile = load_batch_profile(cfg)
+        assert "default" in profile
+        # scan_at_upload field is present (it is a NO-OP stub in this pack)
+        assert "scan_at_upload" in profile["default"]
+
+
+# ---------------------------------------------------------------------------
+# AIStudioBackend lazy import (no network)
+# ---------------------------------------------------------------------------
+class TestAIStudioBackendLazy:
+    def test_translation_works_without_sdk(self):
+        backend = AIStudioBackend(api_key="x")
+        out = backend.to_provider_request(
+            {
+                "custom_id": "r1",
+                "body": {"messages": [{"role": "user", "content": "hi"}]},
+            }
+        )
+        assert out["key"] == "r1"
+
+    async def test_missing_sdk_raises_clear_error(self, monkeypatch):
+        backend = AIStudioBackend(api_key="x")
+
+        def _boom():
+            raise ImportError("no genai")
+
+        monkeypatch.setattr(backend, "_import_genai", _boom)
+        with pytest.raises(RuntimeError, match="aistudio"):
+            await backend.upload(b"{}", "disp")
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+async def _seed_created(store, backend) -> str:
+    await create_batch(
+        store,
+        backend,
+        input_file_id="file-1",
+        model="m",
+        endpoint="/v1/chat/completions",
+        params={},
+        jsonl=b"",
+    )
+    return compute_idem("file-1", "m", "/v1/chat/completions", {})
