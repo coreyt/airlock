@@ -42,6 +42,7 @@ _Last updated: 2026-06-14 · mainline: `main` @ `a45bd88`_
 | #1 AI Studio batch gateway | C | ✅ (unit + **live e2e PASSED** 2026-06-15 @ `e738858`) |
 | §7.3 result-file ≠ job expiry | C | ✅ |
 | §7.4 `airlock_batch` no sync-path leak | C | ✅ |
+| Mistral batch gateway | D | ⚠️ unit + **integration** ✅; **live unverified** (MISTRAL_API_KEY → 401) |
 
 ## 4. Parallelization plan
 
@@ -61,6 +62,20 @@ None — all removed after Pack A close.
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-15 — **Batch integration tests + e2e sweep.** Added
+  `tests/test_batch_gateway_integration.py` (12 tests): full HTTP lifecycle through
+  the real ASGI middleware (upload→create→poll→stage→content), multipart upload,
+  cancel, auth/400/404 — parametrized over **both** providers. AI Studio live e2e
+  re-PASSED. Two real bugs surfaced by the sweep:
+  (1) **`mistral` extra was broken** — pinned `mistralai>=1.0.0` floated to `2.4.9`,
+  which restructured the package (no top-level `from mistralai import Mistral`;
+  class moved to `mistralai.client.sdk`). Adapter is v1-shaped → capped extra
+  `>=1.0.0,<2` (resolves `1.12.4`, import works). Real packaging fix.
+  (2) **Mistral live e2e blocked** — the configured `MISTRAL_API_KEY` returns
+  `401 Unauthorized` on **every** call (even `models.list`), i.e. invalid/expired,
+  not a batch-entitlement issue. **HITL: dropped the Mistral live e2e test**
+  (`test_mistral_batch_e2e.py` removed); Mistral stays integration-verified, live
+  gate deferred until a valid key exists. Docs updated to not overclaim Mistral.
 - 2026-06-15 — **Pack D (Mistral adapter) CLOSED.** codex PASS, no findings (it
   cross-checked live Mistral docs). Thin adapter on the existing gateway:
   `MistralBackend` + `backend_for_alias` dispatch + `_GATEWAY_PROVIDERS` += mistral

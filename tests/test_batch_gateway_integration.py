@@ -8,7 +8,8 @@ translation functions but returns canned provider results instead of calling out
 
 This complements:
   - ``test_batch_gateway.py`` — unit-level gateway/translation/idempotency.
-  - ``test_aistudio_batch_e2e.py`` / ``test_mistral_batch_e2e.py`` — live e2e.
+  - ``test_aistudio_batch_e2e.py`` — live e2e (AI Studio; Mistral has no live gate
+    yet — its live round-trip is unverified pending valid credentials).
 
 No network; safe to run in CI.
 """
@@ -291,19 +292,23 @@ class TestFullLifecycleThroughASGI:
             b'Content-Disposition: form-data; name="file"; filename="r.jsonl"\r\n'
             b"Content-Type: application/octet-stream\r\n\r\n"
             + payload
-            + b"\r\n--" + boundary + b"--\r\n"
+            + b"\r\n--"
+            + boundary
+            + b"--\r\n"
         )
         up = await _request("POST", "/v1/files", q, multipart)
         file_id = up.json()["id"]
 
         create_body = json.dumps(
-            {"input_file_id": file_id, "endpoint": "/v1/chat/completions", "model": alias}
+            {
+                "input_file_id": file_id,
+                "endpoint": "/v1/chat/completions",
+                "model": alias,
+            }
         ).encode()
         cr = await _request("POST", "/v1/batches", q, create_body)
         assert cr.status == 200, cr.body
-        gb = await _request(
-            "GET", f"/v1/batches/{cr.json()['id']}", q
-        )
+        gb = await _request("GET", f"/v1/batches/{cr.json()['id']}", q)
         # The two JSONL rows survive; multipart boundary lines are skipped.
         assert gb.json()["request_counts"]["total"] == 2
 
@@ -323,7 +328,11 @@ class TestCancelThroughASGI:
 
         up = await _request("POST", "/v1/files", q, _input_jsonl(alias))
         create_body = json.dumps(
-            {"input_file_id": up.json()["id"], "endpoint": "/v1/chat/completions", "model": alias}
+            {
+                "input_file_id": up.json()["id"],
+                "endpoint": "/v1/chat/completions",
+                "model": alias,
+            }
         ).encode()
         cr = await _request("POST", "/v1/batches", q, create_body)
         batch_id = cr.json()["id"]
@@ -363,11 +372,17 @@ class TestGatewayHttpGuards:
 
         # backend_for_alias returns None for an unconfigured model.
         monkeypatch.setattr(runtime, "backend_for_alias", lambda model: None)
-        monkeypatch.setattr(runtime, "get_store", lambda: BatchStore(str(tmp_path / "b.db")))
+        monkeypatch.setattr(
+            runtime, "get_store", lambda: BatchStore(str(tmp_path / "b.db"))
+        )
         monkeypatch.setenv("AIRLOCK_STATE_DIR", str(tmp_path))
         monkeypatch.delenv("AIRLOCK_MASTER_KEY", raising=False)
         body = json.dumps(
-            {"input_file_id": "file-x", "endpoint": "/v1/chat/completions", "model": "nope"}
+            {
+                "input_file_id": "file-x",
+                "endpoint": "/v1/chat/completions",
+                "model": "nope",
+            }
         ).encode()
         r = await _request("POST", "/v1/batches", b"custom_llm_provider=aistudio", body)
         assert r.status == 400
@@ -376,8 +391,12 @@ class TestGatewayHttpGuards:
     async def test_unknown_route_is_404(self, monkeypatch, tmp_path):
         from airlock.batch import runtime
 
-        monkeypatch.setattr(runtime, "backend_for_alias", lambda model: _make_aistudio())
-        monkeypatch.setattr(runtime, "get_store", lambda: BatchStore(str(tmp_path / "b.db")))
+        monkeypatch.setattr(
+            runtime, "backend_for_alias", lambda model: _make_aistudio()
+        )
+        monkeypatch.setattr(
+            runtime, "get_store", lambda: BatchStore(str(tmp_path / "b.db"))
+        )
         monkeypatch.delenv("AIRLOCK_MASTER_KEY", raising=False)
         r = await _request("DELETE", "/v1/batches/abc", b"custom_llm_provider=aistudio")
         assert r.status == 404
