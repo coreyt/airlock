@@ -7,6 +7,7 @@ surface is exercised through an in-memory ``FakeBackend`` implementing the
 
 from __future__ import annotations
 
+import asyncio
 import os
 
 import pytest
@@ -29,8 +30,10 @@ from airlock.batch.gateway import (
 )
 from airlock.batch.middleware import (
     BatchGatewayMiddleware,
+    _authorized,
     _gateway_provider,
     _is_batch_request,
+    dispatch_batch_gateway,
 )
 from airlock.batch.store import BatchStore, compute_idem
 
@@ -58,8 +61,15 @@ class FakeBackend:
     def from_provider_result(self, native_line: dict) -> dict:
         return gemini_result_to_openai(native_line)
 
-    async def upload(self, jsonl: bytes, display_name: str) -> str:
-        self.uploads.append((jsonl, display_name))
+    async def upload(self, src, display_name: str) -> str:
+        # The real backend streams from a file path; accept either a path or
+        # raw bytes so the in-memory fake stays faithful to the streamed path.
+        if isinstance(src, (bytes, bytearray)):
+            data = bytes(src)
+        else:
+            with open(src, "rb") as f:
+                data = f.read()
+        self.uploads.append((data, display_name))
         return f"file-ref-{display_name}"
 
     async def create(self, model: str, file_ref: str, display_name: str) -> str:
@@ -361,9 +371,11 @@ class TestIdempotency:
         backend = FakeBackend(native_results=native)
         idem = await _seed_created(store, backend)
         row = store.get(idem)
-        # Pretend an interrupted staging already wrote r1.
+        # Pretend an interrupted staging already wrote r1, then crashed: the
+        # RETRIEVING lease is expired so a resumer may CAS-reclaim the gate.
         store.begin_retrieving(idem)
         store.stage_row(row["batch_id"], "r1", "sha-r1", {"custom_id": "r1"})
+        store.expire_lease(idem)
 
         await stage_results(store, backend, idem)
         keys = store.staged_keys(row["batch_id"])
@@ -403,6 +415,31 @@ class TestSyncMarkerLeak:
         params = provider_sync_params(entry)
         assert "airlock_batch" not in params
         assert params["model"] == "gemini/gemini-3.1-pro-preview"
+
+    def test_marker_absent_from_forwarded_provider_call(self):
+        # End-to-end-ish: the marker must never reach the actual provider call
+        # invocation on the SYNC path (codex #5).
+        entry = {
+            "model_name": "gemini-3.1-pro-aistudio",
+            "litellm_params": {
+                "model": "gemini/gemini-3.1-pro-preview",
+                "api_key": "os.environ/GOOGLE_AISTUDIO_API_KEY",
+            },
+            "airlock_batch": {
+                "backend": "aistudio",
+                "provider_model": "gemini-3.1-pro-preview",
+            },
+        }
+        forwarded = provider_sync_params(entry)
+        captured: dict = {}
+
+        def fake_completion(**kwargs):
+            captured.update(kwargs)
+            return {"ok": True}
+
+        fake_completion(**forwarded)
+        assert "airlock_batch" not in captured
+        assert captured["model"] == "gemini/gemini-3.1-pro-preview"
 
     def test_load_batch_aliases(self):
         config = {
@@ -512,6 +549,157 @@ class TestAIStudioBackendLazy:
         monkeypatch.setattr(backend, "_import_genai", _boom)
         with pytest.raises(RuntimeError, match="aistudio"):
             await backend.upload(b"{}", "disp")
+
+
+# ---------------------------------------------------------------------------
+# (g) Gateway auth (codex #1) — master key enforced before any handling
+# ---------------------------------------------------------------------------
+def _auth_scope(authorization: str | None):
+    headers = []
+    if authorization is not None:
+        headers.append((b"authorization", authorization.encode("latin-1")))
+    return {"headers": headers}
+
+
+async def _noop_receive():
+    return {"type": "http.request", "body": b"", "more_body": False}
+
+
+class TestGatewayAuth:
+    def test_authorized_allows_when_key_unset(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_MASTER_KEY", raising=False)
+        # Parity with the proxy: unset key -> open (allow).
+        assert _authorized(_auth_scope(None)) is True
+        assert _authorized(_auth_scope("Bearer anything")) is True
+
+    def test_authorized_requires_correct_bearer_when_key_set(self, monkeypatch):
+        key = "x" * 24
+        monkeypatch.setenv("AIRLOCK_MASTER_KEY", key)
+        assert _authorized(_auth_scope(None)) is False
+        assert _authorized(_auth_scope("Bearer wrong-key")) is False
+        assert _authorized(_auth_scope(key)) is False  # missing "Bearer "
+        assert _authorized(_auth_scope(f"Bearer {key}")) is True
+
+    async def test_dispatch_rejects_missing_auth_with_401(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_MASTER_KEY", "y" * 24)
+        sent: list[dict] = []
+
+        async def send(message):
+            sent.append(message)
+
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/v1/files",
+            "query_string": b"custom_llm_provider=aistudio",
+            "headers": [],
+        }
+        await dispatch_batch_gateway(scope, _noop_receive, send)
+        start = next(m for m in sent if m["type"] == "http.response.start")
+        assert start["status"] == 401
+
+    async def test_dispatch_rejects_wrong_auth_with_401(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_MASTER_KEY", "y" * 24)
+        sent: list[dict] = []
+
+        async def send(message):
+            sent.append(message)
+
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/v1/batches",
+            "query_string": b"custom_llm_provider=aistudio",
+            "headers": [(b"authorization", b"Bearer nope")],
+        }
+        await dispatch_batch_gateway(scope, _noop_receive, send)
+        start = next(m for m in sent if m["type"] == "http.response.start")
+        assert start["status"] == 401
+
+
+# ---------------------------------------------------------------------------
+# (h) Concurrency (codex #2 + #3) — CAS gates: <=1 job, exactly one fetcher
+# ---------------------------------------------------------------------------
+class TestConcurrency:
+    async def test_concurrent_expired_lease_reclaim_yields_one_job(self, store):
+        backend = FakeBackend()
+        idem = compute_idem("file-1", "m", "/v1/chat/completions", {})
+        # A crashed winner left the row CREATING with an expired lease and no
+        # provider-side orphan job yet.
+        store.claim(
+            idem,
+            batch_id="batch-x",
+            input_file_id="file-1",
+            model="m",
+            endpoint="/v1/chat/completions",
+            backend="aistudio",
+        )
+        store.expire_lease(idem)
+
+        await asyncio.gather(
+            *[
+                create_batch(
+                    store,
+                    backend,
+                    input_file_id="file-1",
+                    model="m",
+                    endpoint="/v1/chat/completions",
+                    params={},
+                    jsonl=b"",
+                )
+                for _ in range(6)
+            ]
+        )
+        # Only the CAS winner of the expired lease may create -> <=1 job.
+        assert len(backend.creates) == 1
+
+    async def test_concurrent_begin_retrieving_one_fetcher(self, store):
+        native = [
+            {
+                "key": "r1",
+                "response": {"candidates": [{"content": {"parts": [{"text": "a"}]}}]},
+            },
+        ]
+        backend = FakeBackend(native_results=native)
+        idem = await _seed_created(store, backend)
+
+        await asyncio.gather(
+            *[stage_results(store, backend, idem) for _ in range(6)]
+        )
+        # Only the CREATED->RETRIEVING CAS winner fetches.
+        assert backend.fetch_calls == 1
+        assert store.get(idem)["status"] == "STAGED"
+
+
+# ---------------------------------------------------------------------------
+# (i) Create path streams the upload from disk (codex #4) — bounded memory
+# ---------------------------------------------------------------------------
+class TestStreamingCreate:
+    async def test_create_streams_input_path_to_provider(self, store, tmp_path):
+        src = tmp_path / "input.jsonl"
+        lines = [
+            '{"custom_id":"r1","body":{"messages":[{"role":"user","content":"a"}]}}',
+            '{"custom_id":"r2","body":{"messages":[{"role":"user","content":"b"}]}}',
+        ]
+        src.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        backend = FakeBackend()
+
+        await create_batch(
+            store,
+            backend,
+            input_file_id="file-1",
+            model="m",
+            endpoint="/v1/chat/completions",
+            params={},
+            input_path=str(src),
+        )
+        assert len(backend.uploads) == 1
+        uploaded, _disp = backend.uploads[0]
+        translated = [
+            line for line in uploaded.decode("utf-8").splitlines() if line.strip()
+        ]
+        # One translated provider line per input line.
+        assert len(translated) == 2
 
 
 # ---------------------------------------------------------------------------
