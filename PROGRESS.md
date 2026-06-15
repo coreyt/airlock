@@ -1,5 +1,9 @@
 # Airlock — Project Progress
 
+> **Narrative changelog of what landed.** Live state for in-flight orchestrated
+> work lives on the board (`dev/plans/runs/STATUS-<release>.md`), not here — see
+> `dev/plans/README.md`. Do not duplicate live pack state into this file.
+
 ## Status: End-to-End Trial Ready + MCP Gateway
 
 Last updated: 2026-04-08

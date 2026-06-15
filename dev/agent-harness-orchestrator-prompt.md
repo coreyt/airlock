@@ -86,12 +86,15 @@ For each item in WORK ITEMS:
    - Files changed match the ownership list — no scope creep
    If anything is off, diagnose per reference §4 before acting.
 
-7. **Review (optional).** Launch a code-reviewer subagent if the pack
-   touched production code with weak test coverage (guardrails,
-   rewrite engine, enforcer, circuit breaker, S3 paths). Reviewers
-   read from the worktree, not main. Reviews gate merge, not the
-   next launch. NEEDS_FIXES from a reviewer → verify the flagged
-   lines yourself before delegating a fixer.
+7. **Review.** Run the codex reviewer (reference.md §3.1, PRIMARY) when the
+   pack touched production code with weak test coverage (guardrails,
+   rewrite engine, enforcer, circuit breaker, PII/S3/batch paths), and
+   promote the verdict to dev/plans/runs/<pack>-review-<ts>.md. If codex
+   is unavailable (auth/quota/offline), fall back to the Claude
+   code-reviewer subagent and note the fallback on the board. Reviewers
+   read from the worktree, not main. Reviews gate merge, not the next
+   launch. A BLOCK/NEEDS_FIXES finding → verify the flagged lines
+   yourself before delegating a fixer.
 
 8. **Merge worktree → main** per runbook §5:
    - Ensure main is clean

@@ -38,6 +38,66 @@ agent launch.
 
 ---
 
+## 1.5 State Spine — derive position from disk, not memory
+
+The per-pack flow (pre-flight → worktree → implement → review → merge → close)
+is a state machine. Keep it honest by deriving position from on-disk
+**witnesses**, not from chat or the STATUS board. **Witnesses win over STATUS on
+any conflict.** A pack's current state is the furthest state whose witness exists
+and verifies:
+
+| State | Witness (what proves it on disk) |
+|-------|----------------------------------|
+| `WORKTREE_CREATED` | `git worktree list` shows the worktree + branch at the chosen baseline |
+| `IMPLEMENTING` | *(sole transient state — agent active; no durable witness)* |
+| `IMPLEMENTED` | `dev/plans/runs/<pack>-output.json` present **and** branch head past baseline |
+| `REVIEWED` | `dev/plans/runs/<pack>-review-<ts>.md` exists with a `## Verdict:` line |
+| `MERGED` | equivalent commit on `main` (`git log --grep` / merge sha) |
+| `CLOSED` | plan/STATUS has the pack's `CLOSED` block + promoted verdict |
+| `CLEANED` | `git worktree list` no longer shows the worktree |
+
+Four invariants:
+1. **Derived position.** State = furthest state whose witness exists and verifies.
+2. **Artifact-gated transitions, never belief-gated.** Advance only when the
+   prior witness is present. Never merge before `output.json` exists; never spawn
+   a fixer before the implementer's completion **and** its commits exist.
+3. **No undefined transition.** A state with no satisfiable next step — expected
+   witness missing (failed implementer), a BLOCK a fixer can't clear, fixes past
+   a small bound — **halts to HITL** rather than improvising.
+4. **Idempotent re-entry.** On resume, re-derive from witnesses and continue at
+   the first incomplete transition; a transition whose witness already exists is
+   a verified no-op.
+
+If `output.json` is absent on completion, or the REPORT reports a blocker, the
+pack is FAILED (no witness) — triage (fixer or abandon), never merge.
+
+### Cold-start resume (new session or post-`/compact`)
+
+Anything that must survive a compaction lives on disk (see
+`dev/plans/README.md`), so resume is deterministic. Codified read order:
+
+1. `AGENTS.md` — invariants.
+2. `MEMORY.md` — feedback/project memories (auto-loaded).
+3. `dev/plans/<release>-plan.md` — pack ladder + "Immediate Next Pack".
+4. `dev/PROGRESS.md` top entry — newest-on-top session log.
+5. `dev/plans/runs/STATUS-<release>.md` §1+§2 — live board (current pack, next action).
+6. `dev/plans/prompts/<pack-id>.md` — the pack itself.
+
+Then **re-derive** each in-flight pack's state from its witnesses (table above)
+before acting — do not trust the board until git confirms it.
+
+### The STATUS board
+
+For any release with more than ~3 packs, create
+`dev/plans/runs/STATUS-<release>.md` from `dev/plans/runs/STATUS-TEMPLATE.md`. It
+is the single source of truth for live state: current pack, per-pack scoreboard,
+outstanding worktrees, open HITL questions, recent decisions, next action.
+**Update it one docs commit per transition; implementer/reviewer agents never
+edit it.** `dev/PROGRESS.md` stays a narrative changelog of what landed — do not
+duplicate live pack state into it.
+
+---
+
 ## 2. Pre-Flight
 
 Run `scripts/preflight.sh` before every agent launch — not just at
@@ -136,8 +196,10 @@ After a successful canary:
 ## 4. Briefing Implementers
 
 Every implementer prompt MUST include all of these. Missing any risks a
-wasted launch. The full template with copy-paste blocks is in
-[reference Section 2](agent-harness-reference.md#2-implementing-agent-prompt-template).
+wasted launch. Generate each pack prompt from the version-neutral
+[`dev/plans/prompts/SLICE-TEMPLATE.md`](plans/prompts/SLICE-TEMPLATE.md) (fill its
+`{{PLACEHOLDER}}`s + run its authoring checklist); the inline copy-paste blocks
+are also in [reference Section 2](agent-harness-reference.md#2-implementing-agent-prompt-template).
 
 | Required section | Why |
 |---|---|
@@ -501,6 +563,10 @@ work that has higher impact (e.g., dispatching the next planned phase).
 
 | Topic | Location |
 |---|---|
+| State spine + cold-start resume + STATUS board | [runbook §1.5](#15-state-spine--derive-position-from-disk-not-memory) |
+| On-disk layout (plans/runs/prompts) | [dev/plans/README.md](plans/README.md) |
+| Pack prompt template (fill-in) | [dev/plans/prompts/SLICE-TEMPLATE.md](plans/prompts/SLICE-TEMPLATE.md) |
+| codex reviewer (primary) + verdict promotion | [reference.md §3.1](agent-harness-reference.md#31-codex-reviewer-primary) |
 | Prompt templates (implementing, review) | [reference.md Sections 2-3](agent-harness-reference.md#2-implementing-agent-prompt-template) |
 | Agent type properties (including required tools) | [reference.md Section 1](agent-harness-reference.md#1-agent-types) |
 | Failure handling (full table) | [reference.md Section 4](agent-harness-reference.md#4-failure-handling) |

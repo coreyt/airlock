@@ -204,11 +204,91 @@ You run in background. Talk to the orchestrator only when necessary:
 
 ---
 
-## 3. Review Agent Prompt Template
+## 3. Review
 
-Use reviews only when the implementing agent edited production code
-in areas with weak test coverage (WAL, lock manager, query compile,
-coordinator, python bindings, external content paths).
+Use reviews when the implementing agent edited production code in areas with weak
+test coverage (guardrails, rewrite engine, enforcer, circuit breaker, PII paths,
+S3/external content, batch gateway). Skip when the pack only edits test files or
+coverage is comprehensive.
+
+**The reviewer is an independent, different-model check — codex is primary.**
+Self-marking by the same model family is weak; an adversarial second model
+catches more. The orchestrator runs codex against the implementer's worktree,
+reads the verdict from the log, and **promotes it to disk** (codex's read-only
+sandbox cannot write the verdict file).
+
+### 3.1 codex reviewer (PRIMARY)
+
+```bash
+PACK={{PACK_ID}}
+RTS=$(date -u +%Y%m%dT%H%M%SZ)
+WT={{WORKTREE_ABSOLUTE_PATH}}          # implementer's worktree, post-commit
+REV_LOG=/home/coreyt/projects/airlock/dev/plans/runs/${PACK}-review-${RTS}.log
+
+PROMPT=$(cat <<'EOF'
+You are reviewing airlock Pack {{PACK_ID}}.
+
+Branch: {{BRANCH}}, HEAD {{HEAD_SHA}}. Baseline: {{BASE_COMMIT}}.
+
+Required reading:
+- dev/plans/prompts/{{PACK_ID}}.md (the spec)
+- dev/plans/runs/{{PACK_ID}}-output.json (closure artifact)
+- Commits {{BASE_COMMIT}}..{{HEAD_SHA}} in chronological order
+- {{slice-specific design notes}}
+
+Check: bugs the tests don't catch; scope creep beyond the pack; security
+(prompt injection, PII leakage in logs, unvalidated input at LLM boundaries,
+guardrail/enforcer bypass); None/empty handling on new paths; resource cleanup
+(connections, file handles, S3 clients); thread-safety around shared
+guardian/monitor state.
+
+Verdict format:
+- `## Verdict: PASS|CONCERN|BLOCK` markdown header
+- Findings as `### N. [high|medium|low] short title`, then `Refs:` (file:line),
+  then a 2-4 line explanation.
+- "What passed on inspection" wrap.
+
+Sandbox is read-only; do not attempt to write the verdict file — the orchestrator
+promotes it.
+EOF
+)
+
+printf '%s\n' "$PROMPT" \
+  | codex exec \
+      --model gpt-5.5 \
+      -c model_reasoning_effort=high \
+      --sandbox read-only \
+      --cd "$WT" \
+      - \
+  > "$REV_LOG" 2>&1
+```
+
+Invocation rules:
+- **Model**: `gpt-5.5` (the configured default; bump as the account's model
+  changes). Always set `-c model_reasoning_effort=high` — codex defaults lower.
+- **Sandbox**: `--sandbox read-only` — the reviewer MUST NOT modify the worktree
+  (drift corrupts the diff under review).
+- **Working dir**: `--cd "$WT"` (codex's wd flag) so it reads the implementer's tree.
+- **Stdin**: `printf '%s\n' "$PROMPT" | codex exec ... -`. Do NOT `echo "$PROMPT"`
+  — it loses escaping on multiline bodies.
+- **Read the real verdict/exit from `$REV_LOG`**, not a wrapper echo.
+
+**Verdict promotion** (codex can't write): read `$REV_LOG`, locate the verdict
+block (usually the last ~100 lines), and write it to canonical path
+`dev/plans/runs/{{PACK_ID}}-review-${RTS}.md` with a header naming the reviewer,
+target branch/HEAD, baseline, the review-log path, and an
+`## Orchestrator triage` section recording your KEEP / FIX / OVERRIDE call.
+Map codex's verdict to the merge gate: **PASS → merge; CONCERN → fix or
+orchestrator-override with rationale (never override BLOCK); BLOCK → fixer pack,
+re-review.** A BLOCK a fixer can't clear, or fixes past a small bound, halts to
+HITL rather than looping.
+
+### 3.2 Claude code-reviewer (FALLBACK)
+
+Use the `code-reviewer` subagent **only when codex is unavailable** —
+unauthenticated, rate-limited/out of tokens, or offline. Note the fallback on
+the STATUS board. Model: `sonnet` (not haiku — ~50% false-positive rate).
+Prompt template:
 
 ```markdown
 You are a review agent. READ-ONLY — do NOT edit any files.
