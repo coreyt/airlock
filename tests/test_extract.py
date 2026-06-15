@@ -6,6 +6,7 @@ from airlock.guardrails.extract import (
     extract_text,
     extract_text_from_mcp,
     extract_text_from_messages,
+    is_batch_call,
     is_mcp_call,
 )
 
@@ -194,6 +195,68 @@ class TestIsMCPCall:
 
     def test_empty_data(self):
         assert is_mcp_call({}) is False
+
+
+# ---------------------------------------------------------------------------
+# is_batch_call()
+# ---------------------------------------------------------------------------
+class TestIsBatchCall:
+    def test_acreate_batch_call_type(self):
+        assert is_batch_call({}, "acreate_batch") is True
+
+    def test_create_batch_call_type(self):
+        assert is_batch_call({}, "create_batch") is True
+
+    def test_aretrieve_batch_call_type(self):
+        assert is_batch_call({}, "aretrieve_batch") is True
+
+    def test_acreate_file_call_type(self):
+        assert is_batch_call({}, "acreate_file") is True
+
+    def test_create_file_call_type(self):
+        assert is_batch_call({}, "create_file") is True
+
+    def test_afile_content_call_type(self):
+        assert is_batch_call({}, "afile_content") is True
+
+    def test_input_file_id_in_data(self):
+        assert is_batch_call({"input_file_id": "file-abc"}) is True
+
+    def test_purpose_batch_in_data(self):
+        assert is_batch_call({"purpose": "batch"}) is True
+
+    def test_regular_completion(self):
+        assert is_batch_call({"messages": []}, "completion") is False
+
+    def test_mcp_call(self):
+        assert is_batch_call({"mcp_tool_name": "search"}, "call_mcp_tool") is False
+
+    def test_empty_data(self):
+        assert is_batch_call({}) is False
+
+    def test_purpose_non_batch(self):
+        assert is_batch_call({"purpose": "fine-tune"}) is False
+
+    def test_acompletion_with_input_file_id_marker(self):
+        # call_type is authoritative: a non-batch call_type carrying an
+        # input_file_id marker must NOT be classified as batch.
+        assert is_batch_call({"input_file_id": "file-abc"}, "acompletion") is False
+
+    def test_completion_with_input_file_id_marker(self):
+        assert is_batch_call({"input_file_id": "file-abc"}, "completion") is False
+
+    def test_acompletion_with_purpose_batch_marker(self):
+        assert is_batch_call({"purpose": "batch"}, "acompletion") is False
+
+    def test_empty_call_type_completion_payload_wins(self):
+        # Empty call_type falls back to markers, but a completion-shaped
+        # payload wins even when a batch marker is also present.
+        assert is_batch_call({"messages": [], "input_file_id": "file-abc"}) is False
+
+    def test_empty_call_type_input_file_id_no_completion_markers(self):
+        # Preserve detection on unknown/empty call_type when there is no
+        # completion payload.
+        assert is_batch_call({"input_file_id": "file-abc"}) is True
 
 
 # ---------------------------------------------------------------------------

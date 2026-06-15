@@ -89,6 +89,52 @@ def is_mcp_call(data: dict, call_type: str = "") -> bool:
     return "mcp_tool_name" in data
 
 
+# LiteLLM call_types for batch/file routes. These carry no top-level model and
+# no messages, so model-specific guardrail logic must be skipped for them.
+_BATCH_CALL_TYPES = frozenset(
+    {
+        "create_batch",
+        "acreate_batch",
+        "retrieve_batch",
+        "aretrieve_batch",
+        "cancel_batch",
+        "acancel_batch",
+        "create_file",
+        "acreate_file",
+        "file_content",
+        "afile_content",
+        "file_retrieve",
+        "afile_retrieve",
+        "file_delete",
+        "afile_delete",
+        "file_list",
+        "afile_list",
+    }
+)
+
+
+def is_batch_call(data: dict, call_type: str = "") -> bool:
+    """Return True if this request is a batch/file route.
+
+    ``call_type`` is authoritative: when it is non-empty, the result is solely
+    ``call_type in _BATCH_CALL_TYPES`` and caller-controlled data markers are
+    ignored (a normal ``completion``/``acompletion`` carrying ``input_file_id``
+    or ``purpose == "batch"`` is NOT a batch call, so it cannot bypass the
+    guardrails). The data markers are only a fallback consulted when
+    ``call_type`` is empty/unset, and even then a completion-shaped payload
+    wins: if ``data`` carries any of ``messages``/``prompt``/``input`` it is
+    treated as a completion (False); otherwise ``input_file_id`` present, or
+    ``purpose == "batch"``, marks it as batch.
+    """
+    if call_type:
+        return call_type in _BATCH_CALL_TYPES
+    if "messages" in data or "prompt" in data or "input" in data:
+        return False
+    if "input_file_id" in data:
+        return True
+    return data.get("purpose") == "batch"
+
+
 def extract_text(data: dict, call_type: str = "") -> str:
     """Dispatch: MCP if call_type == 'call_mcp_tool' or 'mcp_tool_name' in data,
     else LLM messages."""

@@ -34,7 +34,7 @@ from litellm.types.guardrails import GuardrailEventHooks
 from airlock.callbacks.enterprise_logger import write_precall_block_record
 from airlock.client_identity import extract_airlock_client_from_headers
 from airlock.gemini_interface import apply_gemini_request_semantics
-from airlock.guardrails.extract import extract_text, is_mcp_call
+from airlock.guardrails.extract import extract_text, is_batch_call, is_mcp_call
 
 from .circuit_breaker import check_model_with_filters
 from .model_alias import alias_table
@@ -167,8 +167,9 @@ class AirlockFastGuardian(CustomGuardrail):
         requested_model = data.get("model") or "unknown"
         model_name = requested_model
         mcp = is_mcp_call(data, call_type)
+        batch = is_batch_call(data, call_type)
         pinned_model = _is_client_pinned(requested_model, data)
-        if pinned_model and not mcp:
+        if pinned_model and not mcp and not batch:
             _lock_pinned_request(data)
 
         # Record the inbound request
@@ -195,8 +196,9 @@ class AirlockFastGuardian(CustomGuardrail):
                 f"Please retry after {int(threat.backoff_seconds)} seconds."
             )
 
-        # Routing and circuit breaker are model-specific — skip for MCP calls
-        if not mcp:
+        # Routing and circuit breaker are model-specific — skip for MCP and
+        # batch/file calls (the latter carry no top-level model).
+        if not mcp and not batch:
             # ---- Step 2.5a: Model alias resolution ----
             resolved = alias_table.resolve(model_name)
             if resolved and resolved != model_name:
