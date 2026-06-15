@@ -35,6 +35,16 @@
       "Bash(date:*)",
       "Bash(echo:*)"
     ],
+    "ask": [
+      "Bash(git merge:*)",
+      "Bash(git rebase:*)",
+      "Bash(git worktree add:*)",
+      "Bash(git worktree remove:*)",
+      "Bash(git -C * merge:*)",
+      "Bash(git -C * rebase:*)",
+      "Bash(git -C * worktree add:*)",
+      "Bash(git -C * worktree remove:*)"
+    ],
     "deny": [
       "Bash(rm:*)",
       "Bash(mv:*)",
@@ -50,19 +60,11 @@
       "Bash(git push:*)",
       "Bash(git reset --hard:*)",
       "Bash(git clean:*)",
-      "Bash(git worktree add:*)",
-      "Bash(git worktree remove:*)",
-      "Bash(git merge:*)",
-      "Bash(git rebase:*)",
       "Bash(git cherry-pick:*)",
       "Bash(git -C * push:*)",
       "Bash(git -C * reset --hard:*)",
       "Bash(git -C * clean:*)",
-      "Bash(git -C * merge:*)",
-      "Bash(git -C * rebase:*)",
-      "Bash(git -C * cherry-pick:*)",
-      "Bash(git -C * worktree add:*)",
-      "Bash(git -C * worktree remove:*)"
+      "Bash(git -C * cherry-pick:*)"
     ]
   },
   "mcpServers": {
