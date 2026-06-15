@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 
 import pytest
 import yaml
@@ -35,7 +36,7 @@ from airlock.batch.middleware import (
     _is_batch_request,
     dispatch_batch_gateway,
 )
-from airlock.batch.store import BatchStore, compute_idem
+from airlock.batch.store import RETRIEVING, BatchStore, compute_idem
 
 
 # ---------------------------------------------------------------------------
@@ -701,8 +702,178 @@ class TestStreamingCreate:
 
 
 # ---------------------------------------------------------------------------
+# (j) §3.7 bound under lease expiry — at-least-once, duplicate <=1, auto-cancel
+#
+# These tests PROVE (characterize) the EXISTING §3.7 invariant: a slow owner
+# whose 60s lease expires can race a reclaimer into AT MOST ONE duplicate
+# provider job, which the reconciler detects (display_name==idem grouping) and
+# auto-cancels, leaving exactly one surviving job; and that repeated/slow result
+# fetches stage each row exactly once (idempotent, no duplicate output). They
+# assert behavior the mechanism already provides — no production change. If any
+# assertion fails, the design bound does NOT hold and that is a real defect.
+# ---------------------------------------------------------------------------
+class TestLeaseExpiryDuplicateBound:
+    async def test_expired_lease_duplicate_create_bounded_to_one_and_cancelled(
+        self, store, monkeypatch
+    ):
+        events = _capture_batch_events(monkeypatch)
+
+        backend = FakeBackend()
+        idem = compute_idem("file-1", "m", "/v1/chat/completions", {})
+        # A slow/dead original owner: row stuck CREATING with an EXPIRED lease.
+        store.claim(
+            idem,
+            batch_id="batch-x",
+            input_file_id="file-1",
+            model="m",
+            endpoint="/v1/chat/completions",
+            backend="aistudio",
+        )
+        store.expire_lease(idem)
+        # Worst case (§3.7): the slow owner already created its orphan AND a
+        # racing reclaimer created a second job before the provider listing
+        # surfaced the first -> two jobs share display_name==idem.
+        backend._jobs_by_display[idem] = ["job-slow", "job-dup"]
+
+        obj = await create_batch(
+            store,
+            backend,
+            input_file_id="file-1",
+            model="m",
+            endpoint="/v1/chat/completions",
+            params={},
+            jsonl=b"",
+        )
+
+        # CAS-reacquired the expired lease + reconciled via list_jobs(idem):
+        # adopt earliest, create nothing new.
+        row = store.get(idem)
+        assert row["job_id"] == "job-slow"
+        assert backend.creates == []
+        # Bounded to <=1 duplicate, auto-cancelled -> exactly one surviving job.
+        assert _surviving_jobs(backend, idem) == ["job-slow"]
+        assert backend.cancels == ["job-dup"]
+        # The auto-cancel is recorded for the operator audit surface (§3.7 #4).
+        assert any(e["event"] == "batch_duplicate_cancelled" for e in events)
+        assert obj["id"] == "batch-x"
+
+    async def test_expired_lease_no_orphan_creates_exactly_one(self, store):
+        backend = FakeBackend()
+        idem = compute_idem("file-1", "m", "/v1/chat/completions", {})
+        # Slow/dead owner left CREATING + expired lease, but the provider has no
+        # orphan job yet (listing had not surfaced one / it was never created).
+        store.claim(
+            idem,
+            batch_id="batch-x",
+            input_file_id="file-1",
+            model="m",
+            endpoint="/v1/chat/completions",
+            backend="aistudio",
+        )
+        store.expire_lease(idem)
+
+        await create_batch(
+            store,
+            backend,
+            input_file_id="file-1",
+            model="m",
+            endpoint="/v1/chat/completions",
+            params={},
+            jsonl=b"",
+        )
+
+        # No orphan to adopt -> the reclaimer creates exactly one, none cancelled.
+        assert len(backend.creates) == 1
+        assert backend.cancels == []
+        assert len(_surviving_jobs(backend, idem)) == 1
+
+
+class TestSlowFetchIdempotentRestage:
+    async def test_repeated_fetch_under_expired_retrieving_lease_is_idempotent(
+        self, store
+    ):
+        native = [
+            {
+                "key": "r1",
+                "response": {"candidates": [{"content": {"parts": [{"text": "a"}]}}]},
+            },
+            {
+                "key": "r2",
+                "response": {"candidates": [{"content": {"parts": [{"text": "b"}]}}]},
+            },
+        ]
+        backend = FakeBackend(native_results=native)
+        idem = await _seed_created(store, backend)
+        batch_id = store.get(idem)["batch_id"]
+
+        # Pass 1: full fetch + stage.
+        obj1 = await stage_results(store, backend, idem)
+        assert obj1["status"] == "completed"
+        assert backend.fetch_calls == 1
+        first = store.staged_keys(batch_id)
+        assert set(first) == {"r1", "r2"}
+
+        # A slow/duplicate second pass: the gate believes the first fetcher died,
+        # so an EXPIRED RETRIEVING lease lets a second pass re-fetch the same
+        # result. Per-row staging must stay idempotent (§3.7 #3).
+        _force_expired_retrieving(store, idem)
+        obj2 = await stage_results(store, backend, idem)
+        assert obj2["status"] == "completed"
+        # The second pass really did re-fetch (it was allowed to proceed)...
+        assert backend.fetch_calls == 2
+
+        # ...yet each (batch_id, row_key) is staged exactly once, sha stable.
+        second = store.staged_keys(batch_id)
+        assert set(second) == {"r1", "r2"}
+        assert second == first  # content_sha unchanged -> no drift, no churn
+        # No duplicate output rows: exactly one body per row_key after re-stage.
+        bodies = store.staged_bodies(batch_id)
+        assert len(bodies) == 2
+        assert sorted(b["custom_id"] for b in bodies) == ["r1", "r2"]
+        assert store.get(idem)["row_count"] == 2
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+def _surviving_jobs(backend, idem: str) -> list[str]:
+    """Provider jobs for ``idem`` that were NOT cancelled (the survivors)."""
+    return [
+        job
+        for job in backend._jobs_by_display.get(idem, [])
+        if job not in backend.cancels
+    ]
+
+
+def _capture_batch_events(monkeypatch) -> list[dict]:
+    """Capture ``write_batch_record`` calls emitted by the gateway."""
+    events: list[dict] = []
+
+    def fake_write(**kwargs):
+        events.append(kwargs)
+        return kwargs
+
+    monkeypatch.setattr(
+        "airlock.callbacks.enterprise_logger.write_batch_record", fake_write
+    )
+    return events
+
+
+def _force_expired_retrieving(store, idem: str) -> None:
+    """Force a batch back into RETRIEVING with an expired lease (test-only).
+
+    Simulates a fetcher that the gate believes has died, so the next
+    ``begin_retrieving`` CAS re-acquires the expired RETRIEVING lease and a
+    second staging pass is allowed to proceed over the same result.
+    """
+    with store._connect() as conn:
+        conn.execute(
+            "UPDATE batches SET status = ?, lease_until = ? WHERE idem = ?",
+            (RETRIEVING, time.time() - 1.0, idem),
+        )
+        conn.commit()
+
+
 async def _seed_created(store, backend) -> str:
     await create_batch(
         store,
