@@ -31,6 +31,7 @@ _Last updated: 2026-06-14 · mainline: `main` @ `a45bd88`_
 | A | `is_batch_call` seam + guardian gating + null-route sweep | — | **CLOSED** | merge `e35ab66`; review `0.4.0-A-fix1-review-20260615T115144Z.md` |
 | B | `write_batch_record` + TUI/monitor batch tagging | A ✓ | **CLOSED** | merge `7644bca`; review `0.4.0-B-review-20260615T121038Z.md` |
 | C | batch gateway middleware + AI Studio adapter + idempotency §3.7 | A ✓ + B ✓ | **CLOSED** | merge `0766c0f`+`470cb78`; `0.4.0-C-closure.md` |
+| D | Mistral batch adapter (thin: MistralBackend + alias dispatch + extra) | C ✓ | IMPLEMENTING | worktree `/tmp/airlock-0.4.0-D` (branch from `23b4b88`) |
 
 ## 3. Acceptance scoreboard
 
@@ -60,6 +61,12 @@ None — all removed after Pack A close.
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-15 — **Pack D (Mistral adapter) spawned** (HITL request). Thin adapter
+  mirroring AIStudioBackend: `MistralBackend` + `backend_for_alias` dispatch +
+  `_GATEWAY_PROVIDERS` + config aliases + `mistral` extra. Mistral input is
+  OpenAI-shaped so translation is near-passthrough; jobs keyed by `metadata`
+  (no native display_name) so `list_jobs` filters metadata for §3.7 reconcile.
+  Worktree cut from `23b4b88`. Live Mistral e2e = future operator gate.
 - 2026-06-15 — **Docs-sync gap (flagged, not fixed):** `scripts/setup-dev.sh` `--pip`
   path installs `.[test,metrics,tracing,search,s3,sql]` — missing `aistudio`,
   `vertex`, `tui`, `db`. So a `--pip` dev setup cannot run AI Studio/Vertex batch.
