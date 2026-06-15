@@ -52,6 +52,7 @@ nav:
       - Fathom Storage: guide/fathom-storage.md
       - Guardrails: guide/guardrails.md
       - Routing: guide/routing.md
+      - Batch Processing: guide/batch.md
       - Vertex AI Batch: guide/vertex-batch.md
       - MCP Servers: guide/mcp-servers.md
   - Operations:
