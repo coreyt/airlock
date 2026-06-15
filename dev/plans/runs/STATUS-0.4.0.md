@@ -15,7 +15,9 @@ _Last updated: 2026-06-14 · mainline: `main` @ `a45bd88`_
   streaming + CAS, codex-confirmed CLOSED) → BLOCK on lease-fencing → HITL accepted
   the design §3.7 at-least-once bound → fix-2 test-proved it. To-do #1 + §7.3/§7.4.
 - **0.4.0 batch track COMPLETE on main** (`470cb78`); 263 A/B/C tests green together.
-  Remaining: the operator live AI Studio e2e (HITL gate) + two small reserved-gaps below.
+  **Operator live AI Studio e2e: PASSED** 2026-06-15 @ `e738858` (model `gemini-3.5-flash`,
+  job completed ~40s, both rows round-tripped) — `tests/test_aistudio_batch_e2e.py`.
+  Remaining: two small reserved-gaps below (TUI BATCH-label assertion + lease fencing).
 - **Model note:** orchestrator-owned worktrees working end-to-end (baseline pick →
   worktree → spawn → codex → merge → cleanup). `isolation: worktree` removed from
   implementer.md (HITL); git ops `deny→ask` (`1f21233`).
@@ -36,7 +38,7 @@ _Last updated: 2026-06-14 · mainline: `main` @ `a45bd88`_
 |-------------|------|--------|
 | #3 systemic `is_batch_call` null-route fix | A | ✅ |
 | #4 batch observability | B | ✅ |
-| #1 AI Studio batch gateway | C | ✅ (unit; live e2e = operator gate) |
+| #1 AI Studio batch gateway | C | ✅ (unit + **live e2e PASSED** 2026-06-15 @ `e738858`) |
 | §7.3 result-file ≠ job expiry | C | ✅ |
 | §7.4 `airlock_batch` no sync-path leak | C | ✅ |
 
@@ -58,6 +60,14 @@ None — all removed after Pack A close.
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-15 — **Live AI Studio e2e gate PASSED** (`tests/test_aistudio_batch_e2e.py`,
+  opt-in `AIRLOCK_LIVE_AISTUDIO_E2E=1`, plan in `dev/aistudio-batch-e2e-test-plan.md`).
+  Real round-trip vs Google's Gemini batch endpoint via the production `gateway`
+  path (create→upload→create job→poll→fetch→stage) — completed ~40s, both rows
+  translated correctly. First run surfaced a real nuance (not a bug): `gemini-3.5-flash`
+  is a thinking model, so `max_tokens=16` finished `MAX_TOKENS` with empty content;
+  raising to 512 yields clean `finish_reason=stop`. AI Studio batch path is now
+  **verified working end-to-end**, not just unit-mocked.
 - 2026-06-15 — **Pack C CLOSED; 0.4.0 batch track COMPLETE.** codex caught a real
   unauthenticated-ingress on the new gateway (28 green tests missed it) →
   fix-forward closed auth + streaming + immediate-CAS. 2nd BLOCK was codex applying

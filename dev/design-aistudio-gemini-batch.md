@@ -294,6 +294,15 @@ On `GET /v1/batches/{id}` once `SUCCEEDED`:
 5. Stage the rewritten JSONL as a new file id; expose it as `output_file_id`
    and serve it from `GET /v1/files/{id}/content`.
 
+> **Verified note (live e2e, 2026-06-15 @ `e738858`).** The end-to-end round-trip
+> against the live Gemini batch endpoint passes (`tests/test_aistudio_batch_e2e.py`).
+> **Thinking-model caveat:** Gemini 3.x flash/pro spend output tokens on internal
+> reasoning, so a small `max_tokens` can finish a row with `finishReason: MAX_TOKENS`
+> and an **empty** `candidates[].content` (no `parts`). The adapter maps this
+> correctly (`MAX_TOKENS → finish_reason "length"`, empty `content`); it is a *caller
+> budget* issue, not an adapter bug. Callers wanting visible text must size
+> `max_tokens` to cover thinking + answer.
+
 ---
 
 ## 4. Guardrail integration ("when enabled")
