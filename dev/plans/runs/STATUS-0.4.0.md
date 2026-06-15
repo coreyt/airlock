@@ -51,6 +51,15 @@ this release. C touches config + middleware; serialize anything touching
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-14 — **Pack A spawned** (background implementer, worktree isolation)
+  from base `a45bd88`. Canary — B/C blocked until A completes + merges.
+- 2026-06-14 — **Preflight baseline** at `a45bd88`: git tree clean, deps synced,
+  **1631 tests pass**, mypy/yamllint/mkdocs/version green. 3 PRE-EXISTING gate
+  failures unrelated to batch work and to Pack A's files: `ruff check`
+  (`tests/test_reasoning_stripper.py` F401), `ruff format`
+  (`local_vllm_router.py`, `pii_guard.py`, `reasoning_stripper.py` + 2 tests),
+  and the Dockerfile spacy-download step (needs network). Noted in Pack A's
+  prompt so the pack isn't blamed; not launch-blocking.
 - 2026-06-14 — Re-planned the monolithic 0.4.0 hand-off into 3 harness packs
   (A→B→C); live network e2e moved to an operator/HITL gate after C (agent can't
   restart the proxy / no network in unit tests).
