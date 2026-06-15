@@ -283,6 +283,64 @@ async def test_logs_mcp_filtering(tmp_path: Path) -> None:
             assert logs_pane._filtered[0].get("call_type") == "call_mcp_tool"
 
 
+async def test_logs_batch_filtering(tmp_path: Path) -> None:
+    """Batch type filter isolates batch records; LLM view excludes them."""
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    today = datetime.now(timezone.utc).date().isoformat()
+    log_file = log_dir / f"airlock-{today}.jsonl"
+    records = [
+        {
+            "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+            "success": True,
+            "model": "claude-sonnet",
+            "user": "alice",
+            "total_tokens": 100,
+            "duration_ms": 1200,
+        },
+        {
+            "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+            "success": True,
+            "model": None,
+            "user": "alice",
+            "call_type": "batch",
+            "is_batch_call": True,
+            "batch_id": "batch_123",
+        },
+    ]
+    log_file.write_text("\n".join(json.dumps(r) for r in records) + "\n")
+
+    with mock.patch.dict(os.environ, {"AIRLOCK_LOG_DIR": str(log_dir)}):
+        app = AirlockApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.press("3")
+            await pilot.pause()
+
+            from textual.widgets import Select
+
+            from airlock.tui.screens.logs import LogsPane
+
+            logs_pane = app.query_one(LogsPane)
+            logs_pane._records = records
+
+            # Batch filter → only the batch-tagged record remains.
+            app.query_one("#logs-type-filter", Select).value = "batch"
+            logs_pane._apply_filters()
+            assert len(logs_pane._filtered) == 1
+            assert logs_pane._filtered[0].get("call_type") == "batch"
+
+            # LLM view excludes batch records.
+            app.query_one("#logs-type-filter", Select).value = "llm"
+            logs_pane._apply_filters()
+            assert len(logs_pane._filtered) == 1
+            assert logs_pane._filtered[0].get("call_type") != "batch"
+
+            # Rendering stays null-safe on model=None and labels batch rows.
+            app.query_one("#logs-type-filter", Select).value = "all"
+            logs_pane._apply_filters()
+            logs_pane._populate_table()
+
+
 # -------------------------------------------------------------------
 # Config screen (merged Settings + MCP)
 # -------------------------------------------------------------------
