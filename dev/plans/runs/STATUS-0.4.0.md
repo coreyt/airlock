@@ -9,28 +9,27 @@ _Last updated: 2026-06-14 · mainline: `main` @ `a45bd88`_
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** Pack A **fix-1** — delegated implementer running in
-  orchestrator-owned worktree `/tmp/airlock-0.4.0-A-fix1` (branch `0.4.0-A-fix1`
-  from `930419b`), closing the caller-controlled batch-marker bypass + negative tests.
-- **Resolved:** the worktree-ownership model. `isolation: worktree` removed from
-  implementer.md (HITL) + git ops `deny→ask` (commit `1f21233`) → orchestrator now
-  picks the baseline, creates the worktree, and merges. Model works end-to-end.
-- **Next action:** await fix-1 → gate from git → re-run codex → on PASS merge
-  `0.4.0-A-fix1` to main, clean both worktrees, close Pack A → spawn Pack B.
+- **Pack A: CLOSED** — merged to main `e35ab66` (codex PASS after fix-1). 77 tests
+  green on main; worktrees removed, branches deleted.
+- **In flight:** next is **Pack B** (batch observability), to be cut from current
+  main `e35ab66` (now contains A's `is_batch_call`).
+- **Model note:** orchestrator-owned worktrees working end-to-end (baseline pick →
+  worktree → spawn → codex → merge → cleanup). `isolation: worktree` removed from
+  implementer.md (HITL); git ops `deny→ask` (`1f21233`).
 
 ## 2. Pack scoreboard
 
 | Pack | Goal (1 line) | Depends on | State | Witness |
 |------|---------------|------------|-------|---------|
-| A | `is_batch_call` seam + guardian gating + null-route sweep | — | REVIEWED (BLOCK) | `0.4.0-A-output.json`; `0.4.0-A-review-20260615T032242Z.md` |
-| B | `write_batch_record` + TUI/monitor batch tagging | A | NOT_STARTED | — |
-| C | batch gateway middleware + AI Studio adapter + idempotency §3.7 | A + B | NOT_STARTED | — |
+| A | `is_batch_call` seam + guardian gating + null-route sweep | — | **CLOSED** | merge `e35ab66`; review `0.4.0-A-fix1-review-20260615T115144Z.md` |
+| B | `write_batch_record` + TUI/monitor batch tagging | A ✓ | NOT_STARTED | — |
+| C | batch gateway middleware + AI Studio adapter + idempotency §3.7 | A ✓ + B | NOT_STARTED | — |
 
 ## 3. Acceptance scoreboard
 
 | Requirement | Pack | Status |
 |-------------|------|--------|
-| #3 systemic `is_batch_call` null-route fix | A | ⏳ |
+| #3 systemic `is_batch_call` null-route fix | A | ✅ |
 | #4 batch observability | B | ⏳ |
 | #1 AI Studio batch gateway | C | ⏳ |
 | §7.3 result-file ≠ job expiry | C | ⏳ |
@@ -44,9 +43,7 @@ this release. C touches config + middleware; serialize anything touching
 
 ## 5. Outstanding worktrees
 
-| Worktree path | Branch | Pack | State |
-|---------------|--------|------|-------|
-| (harness-created, reported by agent) | (auto) | A | IMPLEMENTING |
+None — all removed after Pack A close.
 
 ## 6. Open HITL questions
 
@@ -56,6 +53,15 @@ this release. C touches config + middleware; serialize anything touching
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-15 — **Pack A CLOSED.** fix-1 codex re-review = PASS (no findings);
+  bypass closed, security property pinned by tests. Merged `e35ab66`; 77 green on
+  main; worktrees/branches cleaned. End-to-end proof of the orchestrator-owned
+  worktree loop (baseline→worktree→spawn→codex→merge→cleanup).
+- 2026-06-15 — **Worktree-ownership model fixed.** Root cause of the earlier
+  deadlock: imported fathomdb's "orchestrator owns baseline+merge" doctrine onto
+  airlock's Agent-native isolation (harness owns worktree at a stale base, agent
+  can't merge) = split-ownership state machine. Removed `isolation: worktree`
+  (HITL) + git ops deny→ask → single owner restored.
 - 2026-06-15 — **Pack A codex review = BLOCK** (confirmed by orchestrator code
   read). `is_batch_call` classified batch on caller-controlled `input_file_id`/
   `purpose=batch` regardless of `call_type` → guardrail bypass. Fix-1: make
