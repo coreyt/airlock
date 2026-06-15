@@ -9,15 +9,18 @@ _Last updated: 2026-06-14 · mainline: `main` @ `a45bd88`_
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** Pack A (`0.4.0-A-is-batch-call-seam`) — **canary**, spawned background.
-- **Next action:** await Pack A completion → gate from git (`output.json` +
-  commit) → codex review → merge → then spawn Pack B.
+- **In flight:** Pack A — implemented + codex-reviewed = **BLOCK** (confirmed).
+  Fix-1 required (close the caller-controlled batch-marker bypass).
+- **Blocked on HITL:** fix-1 + merge can't proceed until the worktree-ownership +
+  git-permission model is resolved (orchestrator can't merge / re-spawn into the
+  existing worktree; deny list + Agent-native isolation + stale base).
+- **Next action:** HITL decision → apply harness change → fix-1 → re-review → merge.
 
 ## 2. Pack scoreboard
 
 | Pack | Goal (1 line) | Depends on | State | Witness |
 |------|---------------|------------|-------|---------|
-| A | `is_batch_call` seam + guardian gating + null-route sweep | — | IMPLEMENTING | (awaiting `dev/plans/runs/0.4.0-A-output.json`) |
+| A | `is_batch_call` seam + guardian gating + null-route sweep | — | REVIEWED (BLOCK) | `0.4.0-A-output.json`; `0.4.0-A-review-20260615T032242Z.md` |
 | B | `write_batch_record` + TUI/monitor batch tagging | A | NOT_STARTED | — |
 | C | batch gateway middleware + AI Studio adapter + idempotency §3.7 | A + B | NOT_STARTED | — |
 
@@ -51,6 +54,16 @@ this release. C touches config + middleware; serialize anything touching
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-15 — **Pack A codex review = BLOCK** (confirmed by orchestrator code
+  read). `is_batch_call` classified batch on caller-controlled `input_file_id`/
+  `purpose=batch` regardless of `call_type` → guardrail bypass. Fix-1: make
+  `call_type` authoritative; data markers only when `call_type` empty + payload
+  isn't a completion; add negative tests. Caused by the prompt's "also match data
+  markers, defense in depth" instruction — prompt defect, corrected for fix-1.
+- 2026-06-15 — **Harness blocker surfaced:** `git merge`/`rebase`/`worktree
+  add|remove`/`reset --hard` are session-wide `deny`; Agent-native isolation
+  creates worktrees at a stale cached base (`90ee9c4`) agents can't advance.
+  Blocks orchestrator merge, fix-1-in-same-worktree, and dependent packs. → HITL.
 - 2026-06-14 — **Pack A spawned** (background implementer, worktree isolation)
   from base `a45bd88`. Canary — B/C blocked until A completes + merges.
 - 2026-06-14 — **Preflight baseline** at `a45bd88`: git tree clean, deps synced,
