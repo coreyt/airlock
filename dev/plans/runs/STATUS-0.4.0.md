@@ -11,9 +11,10 @@ _Last updated: 2026-06-14 · mainline: `main` @ `a45bd88`_
 
 - **Pack A: CLOSED** — merged `e35ab66` (codex PASS after fix-1).
 - **Pack B: CLOSED** — merged `7644bca` (codex CONCERN low/test-only → override). 147 green on main.
-- **In flight:** **Pack C** (batch gateway + AI Studio adapter) — implementer
-  running in `/tmp/airlock-0.4.0-C` (branch `0.4.0-C` from `a4671a7`; contains A + B).
-  Large pack; no-network unit tests are the acceptance, live e2e is the operator gate.
+- **In flight:** **Pack C fix-1** (fix-forward) — codex BLOCKed merged C with 3
+  high + 2 medium (auth bypass on the new ingress; two §3.7 races; 2GB re-buffer;
+  test gaps). Implementer running in `/tmp/airlock-0.4.0-C-fix1` (branch from main).
+  C's GREEN is on main (`0766c0f`, unreleased); fix lands forward → re-review → done.
 - **Model note:** orchestrator-owned worktrees working end-to-end (baseline pick →
   worktree → spawn → codex → merge → cleanup). `isolation: worktree` removed from
   implementer.md (HITL); git ops `deny→ask` (`1f21233`).
@@ -26,7 +27,7 @@ _Last updated: 2026-06-14 · mainline: `main` @ `a45bd88`_
 |------|---------------|------------|-------|---------|
 | A | `is_batch_call` seam + guardian gating + null-route sweep | — | **CLOSED** | merge `e35ab66`; review `0.4.0-A-fix1-review-20260615T115144Z.md` |
 | B | `write_batch_record` + TUI/monitor batch tagging | A ✓ | **CLOSED** | merge `7644bca`; review `0.4.0-B-review-20260615T121038Z.md` |
-| C | batch gateway middleware + AI Studio adapter + idempotency §3.7 | A ✓ + B ✓ | NOT_STARTED | — |
+| C | batch gateway middleware + AI Studio adapter + idempotency §3.7 | A ✓ + B ✓ | MERGED+BLOCK→fix-1 | merge `0766c0f`; review `0.4.0-C-review-*` (BLOCK); fix-1 in flight |
 
 ## 3. Acceptance scoreboard
 
