@@ -433,15 +433,14 @@ cost_tiers:
 # ---------------------------------------------------------------------------
 # One place to declare the batch posture, distinct from the interactive chat
 # default. The batch path ignores caller-supplied guardrail/metadata disables
-# (operator/config-controlled trust boundary). NOTE: `scan_at_upload` is a
-# NO-OP stub in this release — the insertion point for the async think-slow
-# scan pipeline (to-do #2); the field is present so the posture is declared,
-# but no upload scanning is performed yet.
+# (operator/config-controlled trust boundary). `scan_at_upload` runs the async
+# content scan at upload (keyword reject + PII redaction), gated at batch
+# create — see dev/design-batch-content-scan.md.
 batch_profile:
   default:
-    scan_at_upload: true        # NO-OP stub (to-do #2) — declared, not enforced
+    scan_at_upload: true        # async upload scan: keyword reject + PII redaction, gated at create
     keyword_block: true
-    pii_redact: true
+    pii_redact: false           # TEMP: off for the LME synthetic/public real run; RE-ENABLE (true) after — see dev/notes/handoff-fathom-vllm-batch-throughput.md
     pii_hydrate_output: false   # terminal redaction only (A2); no PII reverse-map
     output_scan_mode: observe
     max_rows: 50000
