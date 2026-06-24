@@ -429,6 +429,18 @@ cost_tiers:
     - gemini-3.1-pro
 
 # ---------------------------------------------------------------------------
+# Transparency — mutation ledger + served-backend attribution (0.5.0)
+# ---------------------------------------------------------------------------
+# All additive and backward-compatible — absent → body and behavior unchanged
+# (CC-T7). Defaults shown; this block is read by airlock/transparency.py.
+transparency:
+  mutation_headers: compact          # off | compact | full
+  served_headers: true               # X-Airlock-Served-By / -Region
+  explain_body_optin_header: X-Airlock-Explain   # request header that adds body envelope
+  attribute_accounting_to_served: true           # key spend/quarantine off the served provider
+  mutation_header_budget_bytes: 256
+
+# ---------------------------------------------------------------------------
 # Circuit breaker — provider-protection tuning (A1 + E)
 # ---------------------------------------------------------------------------
 # Optional. Omit this block entirely to keep the historical one-strike / 300 s

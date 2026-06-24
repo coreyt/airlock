@@ -1,0 +1,56 @@
+{
+  "pack": "0.5.0-OBS-core",
+  "baseline_sha": "96744f2",
+  "branch": "obs-core",
+  "head_sha": "76aa1910d224ba3b74a580d668a494d0b0743861",
+  "commits": [
+    "9de9c12: docs(transparency): OBS-core PLAN memo — module contracts + test plan",
+    "1f5a122: test(transparency): OBS-core RED — ledger/served/header/drop_params/config specs",
+    "76aa191: feat(transparency): OBS-core — airlock/transparency.py ledger + served-backend attribution module"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "1f5a1225ea830abed80177e2d1ada7d36678ded8",
+    "test_files": [
+      "tests/test_transparency_ledger.py",
+      "tests/test_served_attribution.py",
+      "tests/test_header_safety.py",
+      "tests/test_drop_params_detection.py",
+      "tests/test_transparency_config.py"
+    ]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_transparency_ledger.py",
+      "tests/test_served_attribution.py",
+      "tests/test_header_safety.py",
+      "tests/test_drop_params_detection.py",
+      "tests/test_transparency_config.py"
+    ],
+    "passed": 40,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/transparency.py",
+    "config.yaml",
+    "tests/test_transparency_ledger.py",
+    "tests/test_served_attribution.py",
+    "tests/test_header_safety.py",
+    "tests/test_drop_params_detection.py",
+    "tests/test_transparency_config.py",
+    "dev/notes/0.5.0-OBS-core-design.md"
+  ],
+  "blockers_encountered": [
+    {
+      "id": "drop-params-none-not-raise",
+      "description": "litellm.get_supported_openai_params returns None (does not raise) for an unknown model/provider in the pinned litellm; the spec's literal `set(... or [])` would then flag every droppable param instead of returning [].",
+      "resolution": "RESOLVED — detect_dropped_params treats a None lookup result as 'support undeterminable → return []', matching the spec's best-effort intent and test_unknown_model_provider_returns_empty_no_raise."
+    }
+  ],
+  "additional_changes_made_in_scope": [
+    "Anchors re-verified at base 96744f2 (router.py:332 _load_cost_tiers, :378 infer_provider; state.py:35-50 BreakerPolicy, :86 configure_breaker) — no drift; loader/dataclass styles mirrored as specified.",
+    "config.yaml transparency: block placed as a top-level sibling between cost_tiers and the circuit-breaker comment block."
+  ],
+  "agent_verify_result": "pass (40 passed in 1.79s; ruff check + format --check clean on all scoped files)",
+  "next_step_for_orchestrator": "Pack 0.5.0-OBS-core on branch obs-core at 76aa1910d224ba3b74a580d668a494d0b0743861; review, verify, merge. Zero call-sites changed — OBS-served owns wiring configure_transparency into proxy startup."
+}
