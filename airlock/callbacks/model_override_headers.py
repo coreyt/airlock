@@ -16,6 +16,11 @@ from airlock.gemini_interface import (
     classify_gemini_response,
     is_gemini_provider,
 )
+from airlock.transparency import (
+    attribute_served_backend,
+    get_transparency_config,
+    served_headers,
+)
 
 
 class AirlockModelOverrideHeaders(CustomLogger):
@@ -29,7 +34,7 @@ class AirlockModelOverrideHeaders(CustomLogger):
         request_headers: dict[str, str] | None = None,
     ) -> dict[str, str] | None:
         metadata = (data or {}).get("metadata") or {}
-        response_headers = metadata.get("airlock_response_headers") or {}
+        response_headers = dict(metadata.get("airlock_response_headers") or {})
         if not response_headers and is_gemini_provider(
             (data or {}).get("model"),
             (metadata.get("airlock_request") or {}).get("provider"),
@@ -43,6 +48,30 @@ class AirlockModelOverrideHeaders(CustomLogger):
                     request_meta,
                     response_meta,
                 )
+
+        # Served-backend attribution (OBS-served). Read the backend that actually
+        # served the request from the response (never guessed from the model name);
+        # no cost_fallback — response_cost is finalized later in the log hook.
+        served = attribute_served_backend(response)
+        if (
+            served is not None
+            and served.provider is not None
+            and isinstance(data, dict)
+        ):
+            served_meta = data.get("metadata")
+            if not isinstance(served_meta, dict):
+                served_meta = {}
+                data["metadata"] = served_meta
+            served_meta["airlock_served"] = {
+                "provider": served.provider,
+                "api_base_host": served.api_base_host,
+                "region": served.region,
+                "model_id": served.model_id,
+                "backend_kind": served.backend_kind,
+            }
+        if get_transparency_config().served_headers:
+            response_headers.update(served_headers(served))
+
         if not response_headers:
             return None
 
