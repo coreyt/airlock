@@ -19,14 +19,10 @@ _Last updated: 2026-06-23 · mainline: `main` · **RELEASE COMPLETE — all 10 p
   `/health`→`/health/liveliness`; CC-10/CC-11 satellite-doc consistency). R5
   (`…-r5.md`) = **PASS, no BLOCK/no CONCERN**. (Note: round-5 first attempt hung on
   a codex stdin-block; relaunched with `</dev/null` — use that for all codex runs.)
-- **Phase E (implementation): UNBLOCKED — awaiting operator go-ahead.** Launch
-  `0.5.0-RES-breaker` (prompt pre-drafted) ∥ `0.5.0-RES-tls`; fill the runtime
-  `{{WORKTREE_PATH}}/{{BRANCH}}/{{BASE_COMMIT}}` at spawn.
-- **Phase E (implementation): BLOCKED on Phase D PASS + operator go-ahead.** First
-  packs: `0.5.0-RES-breaker` (locks `state.py` shape) ∥ `0.5.0-RES-tls` (canary).
-  **`0.5.0-RES-breaker` prompt PRE-DRAFTED** at `dev/plans/prompts/0.5.0-RES-breaker.md`
-  (design fields filled; runtime `{{WORKTREE_PATH}}/{{BRANCH}}/{{BASE_COMMIT}}` left
-  for spawn). Ready to launch the instant Phase D PASSes.
+- **Phase E (implementation): ✅ COMPLETE.** All 10 packs implemented on branch
+  `feat/0.5.0-resilience-admin` (32 commits), each TDD'd + code-reviewed (4 fix-1s
+  for codex/agent BLOCKs incl. a CRITICAL ADM-skip injection bypass). Full suite
+  1965 passed. Docs written. **Ready for human review / merge to main.**
 
 ## 2. Pack scoreboard
 
@@ -40,13 +36,10 @@ _Last updated: 2026-06-23 · mainline: `main` · **RELEASE COMPLETE — all 10 p
 | ADM-state | CC-8 clear/arm mutators + admin_action ingest | breaker, observ | **CLOSED** (PASS_WITH_NOTES + fix-1) | `8c14e58`+`f59a429`; cascade R12, CC-6 floor, CC-9 ingest; mode-validate + ts-replay fixes |
 | ADM-http | PDP + perimeter middleware + `/airlock/admin/*` | ADM-state, ADM-jwt, errors | **CLOSED** (security PASS_WITH_NOTES + fix-1) | `a7399f8`+`915a09d`; **no auth bypass found**; fix-1: fail-closed loopback, 64KB body cap, never-raises guard |
 | RES-routing | `_suppress_fallbacks` + budget warn | breaker, errors, observ | **CLOSED** (fix-1 **PASS**) | `a2c7f11`+`7d3d831`; R1 BLOCK (CC-3 budget defaults) → fix-1 PASS; **✅ resilience workstream 100% CLOSED, all reviewed** |
-| ADM-state | CC-8 mutators + `admin_action` + ingest | breaker, observ | **PLANNED** | — |
-| ADM-jwt | HS256 mint/verify + `admin mint-token` | — | **PLANNED** | — |
-| ADM-http | PDP + perimeter middleware + `/airlock/admin/*` | ADM-state, ADM-jwt, errors | **PLANNED** | — |
 | ADM-tui | clear-quarantine keybindings → loopback client | ADM-http | **CLOSED** (CONCERN + fix-1) | `94f7701`+`9883160`; `c` keybinding + loopback client; R10 host-gate fix |
-| ADM-skip | guardrail-skip resolver + `X-Airlock-Capability` | ADM-http, ADM-jwt | **MERGED + fix-1 (re-review running)** | `f5626f2`+`a5f452b`; review BLOCK = **CRITICAL metadata-injection auth bypass** → fix-1 (never trust client metadata; recompute+verify); CC-11/CC-10 |
+| ADM-skip | guardrail-skip resolver + `X-Airlock-Capability` | ADM-http, ADM-jwt | **CLOSED** (security BLOCK→fix-1 **PASS**) | `f5626f2`+`a5f452b`+`e1a339a`; review found a CRITICAL metadata-injection bypass → fixed (recompute+verify, never trust client metadata); re-review PASS |
 
-**All 10 packs implemented; full suite 1959 passed, 0 failures.** Docs written
+**All 10 packs implemented; full suite 1965 passed, 0 failures.** Docs written
 (3 new guides + 7 updates). The ADM-skip review caught a critical injection
 bypass (a client could grant itself guardrail skips with no token) — fixed.
 
@@ -57,7 +50,7 @@ bypass (a client could grant itself guardrail skips with no token) — fixed.
 | UN-10 operator quarantine clear | ADM-state + ADM-http (+ ADM-tui) | ✅ |
 | UN-11 capability auth (loopback + JWT) | ADM-jwt + ADM-http | ✅ |
 | UN-12 native TLS | RES-tls | ✅ |
-| UN-13 per-request guardrail skip | ADM-skip | ✅ |
+| UN-13 per-request guardrail skip | ADM-skip | guardrail-skip resolver + `X-Airlock-Capability` | ADM-http, ADM-jwt | **CLOSED** (security BLOCK→fix-1 **PASS**) | `f5626f2`+`a5f452b`+`e1a339a`; review found a CRITICAL metadata-injection bypass → fixed (recompute+verify, never trust client metadata); re-review PASS |
 | UN-14 no self-inflicted quarantine storms | RES-breaker | ✅ |
 | UN-15 per-client breaker tuning | RES-breaker | ✅ |
 | UN-16 correct client backoff signaling | RES-errors | ✅ |
