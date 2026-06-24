@@ -38,13 +38,15 @@ _Last updated: 2026-06-23 · mainline: `main` · **design gate PASSED; ready for
 | RES-observ | capture `x-ratelimit-*` + `record_type` + TUI headroom | breaker | **CLOSED** (PASS + fix-1) | `5f12aea`+`dff4ea5`; code-reviewer PASS; remaining=0/wiring tests added; log-enrichment/TUI/passthrough deferred to polish |
 | ADM-jwt | HS256 mint/verify + `admin mint-token` | — | **CLOSED** (PASS_WITH_NOTES + fix-1) | `7dde6f9`+`2f24288`; require-jti, max-TTL cap, scope filter added |
 | ADM-state | CC-8 clear/arm mutators + admin_action ingest | breaker, observ | **CLOSED** (PASS_WITH_NOTES + fix-1) | `8c14e58`+`f59a429`; cascade R12, CC-6 floor, CC-9 ingest; mode-validate + ts-replay fixes |
-| ADM-http | PDP + perimeter middleware + `/airlock/admin/*` | ADM-state, ADM-jwt, errors | **MERGED (security review running)** | `a7399f8`; loopback+JWT PDP, fail-closed CC-12, mount-before-gateway, never-raises; known fix-1: drop "" from LOOPBACK_HOSTS |
+| ADM-http | PDP + perimeter middleware + `/airlock/admin/*` | ADM-state, ADM-jwt, errors | **CLOSED** (security PASS_WITH_NOTES + fix-1) | `a7399f8`+`915a09d`; **no auth bypass found**; fix-1: fail-closed loopback, 64KB body cap, never-raises guard |
 | RES-routing | `_suppress_fallbacks` + budget warn | breaker, errors, observ | **CLOSED** (fix-1 **PASS**) | `a2c7f11`+`7d3d831`; R1 BLOCK (CC-3 budget defaults) → fix-1 PASS; **✅ resilience workstream 100% CLOSED, all reviewed** |
 | ADM-state | CC-8 mutators + `admin_action` + ingest | breaker, observ | **PLANNED** | — |
 | ADM-jwt | HS256 mint/verify + `admin mint-token` | — | **PLANNED** | — |
 | ADM-http | PDP + perimeter middleware + `/airlock/admin/*` | ADM-state, ADM-jwt, errors | **PLANNED** | — |
-| ADM-tui | clear-quarantine keybindings → loopback client | ADM-http | **PLANNED** | — |
-| ADM-skip | guardrail-skip resolver + `X-Airlock-Capability` | ADM-http, ADM-jwt | **PLANNED** | — |
+| ADM-tui | clear-quarantine keybindings → loopback client | ADM-http | **CLOSED** (CONCERN + fix-1) | `94f7701`+`9883160`; `c` keybinding + loopback client; R10 host-gate fix |
+| ADM-skip | guardrail-skip resolver + `X-Airlock-Capability` | ADM-http, ADM-jwt | **MERGED (security review running)** | `f5626f2`; CC-11 key-derived binding, CC-10 content-only/PII-never, off by default |
+
+**Full suite: 1959 passed, 0 failures — all 10 packs implemented & green together.**
 
 ## 3. Acceptance scoreboard (UN → pack)
 
