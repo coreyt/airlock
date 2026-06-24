@@ -53,11 +53,16 @@ class AirlockModelOverrideHeaders(CustomLogger):
         # served the request from the response (never guessed from the model name);
         # no cost_fallback — response_cost is finalized later in the log hook.
         served = attribute_served_backend(response)
-        if served is not None and served.provider is not None:
-            metadata = (
-                data.setdefault("metadata", {}) if isinstance(data, dict) else metadata
-            )
-            metadata["airlock_served"] = {
+        if (
+            served is not None
+            and served.provider is not None
+            and isinstance(data, dict)
+        ):
+            served_meta = data.get("metadata")
+            if not isinstance(served_meta, dict):
+                served_meta = {}
+                data["metadata"] = served_meta
+            served_meta["airlock_served"] = {
                 "provider": served.provider,
                 "api_base_host": served.api_base_host,
                 "region": served.region,
