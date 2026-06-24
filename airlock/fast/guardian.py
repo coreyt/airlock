@@ -430,16 +430,12 @@ class AirlockFastGuardian(CustomGuardrail):
                     )
 
         # ---- Step 4: Priority scoring ----
-        data = apply_gemini_request_semantics(
-            data,
-            provider=infer_provider(data.get("model") or model_name),
-        )
+        target_provider = infer_provider(data.get("model") or model_name)
+        data = apply_gemini_request_semantics(data, provider=target_provider)
         # Translate an off-intent / provider-invalid reasoning_effort (e.g. "none"
         # for OpenAI) to the target provider's floor BEFORE litellm's drop_params
         # silently strips it and the model falls back to its default reasoning.
-        normalize_reasoning_effort(
-            data, infer_provider(data.get("model") or model_name)
-        )
+        normalize_reasoning_effort(data, target_provider)
         priority = compute_priority(client)
         metadata = data.setdefault("metadata", {})
         metadata["airlock_priority"] = {
