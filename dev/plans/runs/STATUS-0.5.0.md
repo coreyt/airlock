@@ -32,9 +32,9 @@ _Last updated: 2026-06-23 · mainline: `main` · **design gate PASSED; ready for
 
 | Pack | Goal (1 line) | Depends on | State | Witness |
 |------|---------------|------------|-------|---------|
-| RES-tls | TLS env → litellm ssl flags (`proxy.py`) | — | **PLANNED** | — |
-| RES-breaker | threshold breaker + per-client policy + `cleared_at`/`_half_open_probe` + no-re-arm | — | **PLANNED** | — |
-| RES-errors | `AirlockProviderBlocked` + handler + `Retry-After` | breaker | **PLANNED** | — |
+| RES-tls | TLS env → litellm ssl flags (`proxy.py`) | — | **CLOSED** | commit `1567b54`; review `0.5.0-RES-tls-review-*` (PASS, flags confirmed vs litellm 1.89.0) |
+| RES-breaker | threshold breaker + per-client policy + `cleared_at`/`_half_open_probe` + no-re-arm | — | **MERGED + fix-1 (re-review running)** | `41ab9d3` + fix-1 `2c48517`; review R1 BLOCK→fixed (provider half-open, escalation floors, config precedence, monitor label) |
+| RES-errors | `AirlockProviderBlocked` + handler + `Retry-After` | breaker | **MERGED + fix-1 (re-review running)** | `cf452d6` + fix-1 `f7569c2`; review R1 BLOCK→fixed (reason sanitizer at boundary) |
 | RES-observ | capture `x-ratelimit-*` + `record_type` + TUI headroom | breaker | **PLANNED** | — |
 | RES-routing | `_suppress_fallbacks` + budget warn | breaker, errors, observ | **PLANNED** | — |
 | ADM-state | CC-8 mutators + `admin_action` + ingest | breaker, observ | **PLANNED** | — |
@@ -72,10 +72,20 @@ None — pre-implementation.
 
 | # | Question | Options + recommendation | Blocking? |
 |---|----------|--------------------------|-----------|
-| — | none yet | | |
+| H1 | Does an `AirlockProviderBlocked` raised in the guardian pre-call hook reach the FastAPI exception handler (RES-errors)? | Operator integration test against the live litellm proxy: quarantine a client → expect 429 + `Retry-After` + `X-Airlock-*`. Unit tests cover the handler/error in isolation. | Not blocking pack merges; blocks the **B acceptance** sign-off |
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-24 — **Phase E underway (3 of 10 packs).** RES-tls CLOSED (codex PASS).
+  RES-breaker + RES-errors merged with a fix-1 each after codex BLOCK (real
+  findings, all fixed), re-reviews running. Two operational learnings: (a) `codex
+  exec` blocks on stdin — always run with `</dev/null`; (b) codex's read-only
+  sandbox cannot run `git` (bwrap loopback), so per-pack reviews must point codex
+  at the FILES, not `git show`. RES-errors CONCERN decisions: handler stays
+  subclass-only (provider-429 shaping deferred to RES-observ/C, which supplies the
+  reset headers); the pre-call-hook→FastAPI exception-handler seam needs operator
+  **integration verification** (cannot be unit-proved without the live litellm app)
+  — tracked as a §6 HITL item.
 - 2026-06-23 — **Design-review round 1: codex BLOCK → resolved.** codex `gpt-5.5`
   caught 3 real design gaps before any code: (1) clearing `/providers/{p}` left the
   per-client victim quarantined (pinned check is client→provider first,
