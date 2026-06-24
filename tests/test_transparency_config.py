@@ -76,6 +76,26 @@ def test_bool_coercion() -> None:
     assert cfg.served_headers is False
 
 
+def test_string_false_coercion() -> None:
+    """Quoted YAML 'false' must not become True via bool('false')."""
+    cfg = load_transparency_config({"transparency": {"served_headers": "false"}})
+    assert cfg.served_headers is False
+
+
+def test_string_true_coercion() -> None:
+    """Quoted YAML 'on' must become True."""
+    cfg = load_transparency_config({"transparency": {"served_headers": "on"}})
+    assert cfg.served_headers is True
+
+
+def test_string_false_attribute_accounting() -> None:
+    """attribute_accounting_to_served also uses sane coercion."""
+    cfg = load_transparency_config(
+        {"transparency": {"attribute_accounting_to_served": "0"}}
+    )
+    assert cfg.attribute_accounting_to_served is False
+
+
 def test_full_value_accepted() -> None:
     cfg = load_transparency_config({"transparency": {"mutation_headers": "full"}})
     assert cfg.mutation_headers == "full"

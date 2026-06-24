@@ -94,3 +94,16 @@ def test_byte_bound_truncates_with_more_suffix() -> None:
     kept_tokens = [t for t in kept.split(";") if t]
     assert kept_tokens + ["x"] * dropped  # sanity
     assert len(kept_tokens) + dropped == len(ledger)
+
+
+def test_tiny_budget_always_within_bound() -> None:
+    """When budget is so small even the suffix overflows, return '' (never over-budget)."""
+    ledger = [_m(field=f"system{i}", op="inject", after="x" * 10) for i in range(5)]
+    for budget in (1, 3, 8):
+        result = mutations_header(ledger, budget_bytes=budget)
+        assert len(result.encode("utf-8")) <= budget, (
+            f"budget={budget}: result {result!r} encoded length "
+            f"{len(result.encode('utf-8'))} exceeds budget"
+        )
+    # degenerate case: budget=1 must return empty string
+    assert mutations_header(ledger, budget_bytes=1) == ""
