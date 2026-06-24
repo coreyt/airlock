@@ -27,11 +27,12 @@ import logging
 import time
 from typing import Any
 
-from litellm import DualCache, RateLimitError
+from litellm import DualCache
 from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
 from airlock.callbacks.enterprise_logger import write_precall_block_record
+from airlock.proxy_errors import AirlockProviderBlocked
 from airlock.client_identity import extract_airlock_client_from_headers
 from airlock.gemini_interface import apply_gemini_request_semantics
 from airlock.guardrails.extract import extract_text, is_batch_call, is_mcp_call
@@ -109,6 +110,7 @@ def _raise_provider_protection(
     model_name: str,
     reason: str,
     cooldown_seconds: float,
+    scope: str = "provider",
 ) -> None:
     message = (
         f"Airlock temporarily blocked client {client_id} from provider {provider} "
@@ -121,10 +123,16 @@ def _raise_provider_protection(
         error_type="RateLimitError",
         failure_category="provider",
     )
-    raise RateLimitError(
+    # Typed subclass (workstream B): a FastAPI handler shapes this into a 429 with
+    # Retry-After + X-Airlock-* headers. Still a RateLimitError for existing paths.
+    raise AirlockProviderBlocked(
         message=message,
         llm_provider=provider,
         model=model_name,
+        cooldown_seconds=cooldown_seconds,
+        scope=scope,
+        reason=reason,
+        client_id=client_id,
     )
 
 
@@ -250,6 +258,7 @@ class AirlockFastGuardian(CustomGuardrail):
                             model_name,
                             client_provider.last_reason or "provider_rate_limited",
                             cooldown,
+                            scope="client_provider",
                         )
                     if provider_state.is_quarantined(now):
                         cooldown = provider_state.cooldown_remaining(now)
@@ -280,6 +289,7 @@ class AirlockFastGuardian(CustomGuardrail):
                             model_name,
                             provider_state.last_reason or "provider_rate_limited",
                             cooldown,
+                            scope="provider",
                         )
             else:
                 data = apply_routing(data)
@@ -328,6 +338,7 @@ class AirlockFastGuardian(CustomGuardrail):
                         model_name,
                         failover.reason,
                         store.get_provider(provider).cooldown_remaining(now) or 30.0,
+                        scope="model",
                     )
                 elif failover.failover_model:
                     logger.info(
