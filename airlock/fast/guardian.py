@@ -34,6 +34,7 @@ from litellm.types.guardrails import GuardrailEventHooks
 
 from airlock.callbacks.enterprise_logger import write_precall_block_record
 from airlock.proxy_errors import AirlockProviderBlocked, sanitize_reason
+from airlock.reasoning_effort import normalize_reasoning_effort
 from airlock.client_identity import extract_airlock_client_from_headers
 from airlock.gemini_interface import apply_gemini_request_semantics
 from airlock.guardrails.extract import extract_text, is_batch_call, is_mcp_call
@@ -432,6 +433,12 @@ class AirlockFastGuardian(CustomGuardrail):
         data = apply_gemini_request_semantics(
             data,
             provider=infer_provider(data.get("model") or model_name),
+        )
+        # Translate an off-intent / provider-invalid reasoning_effort (e.g. "none"
+        # for OpenAI) to the target provider's floor BEFORE litellm's drop_params
+        # silently strips it and the model falls back to its default reasoning.
+        normalize_reasoning_effort(
+            data, infer_provider(data.get("model") or model_name)
         )
         priority = compute_priority(client)
         metadata = data.setdefault("metadata", {})

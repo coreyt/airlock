@@ -98,6 +98,21 @@ class TestGuardianPreCallHook:
         assert "airlock_priority" in result["metadata"]
         assert "score" in result["metadata"]["airlock_priority"]
 
+    async def test_reasoning_effort_none_normalized_in_hook(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        # Wiring check: the pre-call hook normalizes an off-intent reasoning_effort
+        # before litellm's drop_params would silently strip it. anthropic -> dropped.
+        data = {
+            "messages": [{"role": "user", "content": "hi"}],
+            "model": "claude-sonnet",
+            "reasoning_effort": "none",
+        }
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        assert "reasoning_effort" not in result  # anthropic: off-intent -> no thinking
+
     async def test_client_in_backoff_rejected(
         self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
     ):

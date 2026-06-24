@@ -198,6 +198,24 @@ Full recipe in
 | `AIRLOCK_FALLBACK_MAX_PROMPT_TOKENS` | Prompt-token size above which fallbacks are suppressed (fail fast instead of fanning out a large payload) | `60000` |
 | `AIRLOCK_JWT_SECRET` | Secret for signing/verifying admin & capability tokens. Falls back to an HMAC derivation from `AIRLOCK_MASTER_KEY` when unset. | -- |
 | `AIRLOCK_JWT_SECRET_PREV` | Previous JWT secret, accepted for verification during a rolling secret rotation | -- |
+| `AIRLOCK_NORMALIZE_REASONING_EFFORT` | Translate an off-intent / provider-invalid `reasoning_effort` (e.g. `"none"`) to the target provider's floor before `drop_params` strips it (OpenAI→`minimal`, Gemini→`disable`, Anthropic→dropped). Set `0` to disable. | `1` |
+
+### `reasoning_effort` normalization
+
+litellm's `drop_params: true` silently strips a `reasoning_effort` value the
+target provider's schema rejects — so a client sending `reasoning_effort: "none"`
+to an OpenAI model gets it **dropped**, and the model falls back to its *default*
+(often high) reasoning, the opposite of the intent. Airlock normalizes off-intent
+values (`none`, `off`, `disable`, …) in the pre-call hook **before** that strip:
+
+| Target provider | `"none"` becomes |
+|---|---|
+| OpenAI / Azure | `minimal` (the floor — reasoning models have no true "off") |
+| Gemini | `disable` (thinking budget 0) |
+| Anthropic | the param is dropped (no extended thinking) |
+
+Valid values pass through unchanged; unknown providers/values are left for
+`drop_params`. Disable the whole behavior with `AIRLOCK_NORMALIZE_REASONING_EFFORT=0`.
 
 ## Resilience & admin settings
 
