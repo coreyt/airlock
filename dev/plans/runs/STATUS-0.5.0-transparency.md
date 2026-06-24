@@ -6,7 +6,7 @@
 > (runbook §1.5) and trust the witnesses over this file. Parent board:
 > `STATUS-0.5.0.md` (resilience+admin, all CLOSED).
 
-_Last updated: 2026-06-24 · branch: `feat/0.5.0-resilience-admin` · **PHASE E IN PROGRESS — OBS-core CLOSED (merged `b997de0`); launching OBS-served ∥ OBS-ledger from that HEAD.**_
+_Last updated: 2026-06-24 · branch: `feat/0.5.0-resilience-admin` · **PHASE E IN PROGRESS — OBS-core + OBS-served CLOSED (2/7). ◆ OBS-served HITL smoke-test pending operator. OBS-ledger implementing.**_
 
 ## 1. Current state + next action
 
@@ -34,19 +34,39 @@ _Last updated: 2026-06-24 · branch: `feat/0.5.0-resilience-admin` · **PHASE E 
     `dev/plans/runs/0.5.0-OBS-core-review-20260624T220523Z.md`. Implementation commits
     `76aa191` (impl) + `29b81f2` (fix); worktree removed.
 
-**Next action:** launch **OBS-served ∥ OBS-ledger** (both depend only on OBS-core),
-each in its own worktree cut from `b997de0`. Anchors re-verified against branch HEAD
-(model_override_headers hook `:24-54` returns `dict|None`, reads `data["metadata"]`;
-proxy startup wiring after `proxy.py:394`; ~18 mutation sites confirmed, note
-`enhanced_passthrough.py` moved to `airlock/providers/` and is provider-side w/o
-metadata in scope; drop_params resolution at `guardian.py:291`/`:433`).
+  - **OBS-served: ✅ CLOSED.** Merged `55b9690` (`--no-ff`). `X-Airlock-Served-By`/
+    `-Region` from `attribute_served_backend` (streaming-correct, CC-T3/CC-T6),
+    default-on + config-gated, omitted when provider unknown; `configure_transparency`
+    wired at proxy startup; 14 tests. **Review:** codex was infra-unavailable this run
+    (`bwrap: loopback` sandbox failure under concurrent load) → **fell back to the
+    `code-reviewer` subagent (sonnet)** per reference §3.2, which caught a **critical
+    null-metadata stash crash** (`data.setdefault("metadata", {})` → `None` when client
+    sends `"metadata": null`) → **fixed** (`f6f0fae`, isinstance guard + 2 regression
+    tests) + re-verified. Verdict: `0.5.0-OBS-served-review-20260624T223530Z.md`.
+    **◆ HITL pending** — see Blocked.
+
+**Next action:** finish OBS-ledger (implementing); review (retry codex now that load is
+dropping) + merge. Then OBS-headers / OBS-log / OBS-accounting / OBS-metrics-tui.
+**Open ◆ HITL:** operator smoke-tests the served headers (below).
+
+## ◆ Blocked / pending operator (HITL)
+
+- **OBS-served smoke-test (does not block further pack work; blocks release sign-off).**
+  The new `X-Airlock-Served-By`/`X-Airlock-Served-Region` headers are now live on the
+  branch. Operator: with a running proxy, call (a) a native-alias model and (b) a
+  gateway-alias model — e.g. `gemini`/AI-Studio vs `vertex_ai`, plus one Bedrock-routed
+  model — and confirm the headers report the **real** served backend (provider + region),
+  not the requested alias. Folded into the 0.5.0 release sign-off.
+- **Deferred nit (OBS-served review):** CRLF-strip served header values in
+  `transparency.py:served_headers` (operator-sourced, low risk) — fold into OBS-headers
+  or a small OBS-core touch.
 
 ## 2. Pack scoreboard
 
 | Pack | Goal (1 line) | Depends on | State | Witness |
 |------|---------------|------------|-------|---------|
 | OBS-core | `airlock/transparency.py` dataclasses + `record_mutation`/`attribute_served_backend`/header serializers + `transparency.*` config | — | **✅ CLOSED** (merged `b997de0`) | `0.5.0-OBS-core-output.json`; review `…220523Z.md` |
-| OBS-served | post-call attribution + flush in `model_override_headers.py`; `X-Airlock-Served-By`/`-Region`; streaming | OBS-core ✅ | **IMPLEMENTING** (worktree `obs-served` @ 827d126) | prompt `0.5.0-OBS-served.md` |
+| OBS-served | post-call attribution + flush in `model_override_headers.py`; `X-Airlock-Served-By`/`-Region`; streaming | OBS-core ✅ | **✅ CLOSED** (merged `55b9690`) ◆ HITL pending | review `…223530Z.md` (codex infra-fail → sonnet fallback → fixed) |
 | OBS-ledger | retrofit every mutation site → `record_mutation` | OBS-core ✅ | **IMPLEMENTING** (worktree `obs-ledger` @ 827d126) | prompt `0.5.0-OBS-ledger.md` |
 | OBS-headers | ledger → `X-Airlock-Mutations` (bounded) + `X-Airlock-Explain` body envelope | OBS-core, OBS-served, OBS-ledger | **PENDING** | — |
 | OBS-log | `_build_record`: `mutations`/`served`/`attribution` | OBS-core, OBS-served, OBS-ledger | **PENDING** | — |
@@ -60,7 +80,7 @@ All packs PENDING — design complete, implementation not started.
 | Requirement | Pack(s) | Status |
 |-------------|---------|--------|
 | UN-19 transparent request mutations | OBS-ledger + OBS-headers + OBS-log (+ OBS-metrics-tui) | ◻ pending |
-| UN-20 truthful serving-backend attribution | OBS-served + OBS-accounting + OBS-log | ◻ pending |
+| UN-20 truthful serving-backend attribution | OBS-served ✅ + OBS-accounting + OBS-log | ◧ partial (served headers shipped; log + accounting pending) |
 
 ## 4. Parallelization plan
 
@@ -74,10 +94,8 @@ rebase carefully to avoid conflicts on `model_override_headers.py` and
 
 ## 5. Outstanding worktrees
 
-- `.claude/worktrees/obs-served` (branch `obs-served`, base `827d126`) — IMPLEMENTING.
 - `.claude/worktrees/obs-ledger` (branch `obs-ledger`, base `827d126`) — IMPLEMENTING.
-  Disjoint file sets (callbacks/proxy vs the mutation sites) → safe in parallel; merge
-  sequentially. Remove each after its merge.
+  (obs-served worktree removed after merge `55b9690`.)
 
 ## 6. Resolved design questions (were open; closed in Phase B)
 
@@ -89,6 +107,13 @@ rebase carefully to avoid conflicts on `model_override_headers.py` and
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-24 — **OBS-served CLOSED (pack 2/7).** Served-backend headers shipped
+  default-on. **Reviewer-fallback exercised:** codex hit a `bwrap` sandbox/network
+  failure under concurrent load and could not inspect → used the `code-reviewer`
+  subagent (sonnet, reference §3.2), which caught a real critical bug (null-metadata
+  `setdefault` crash on the hot path) the 12 tests missed → fixed + 2 regression tests.
+  Lesson: run codex review when worktree/agent load is low; the Claude fallback is a
+  genuine safety net, not a rubber stamp. Merged `55b9690`. ◆ HITL smoke-test pending.
 - 2026-06-24 — **OBS-core CLOSED (pack 1/7).** Pure `airlock/transparency.py` shipped
   TDD (RED tests-only first), zero call-sites changed. codex CONCERN → fixed the
   `mutations_header` byte-bound (omit when even `…+N more` overflows; invariant: result
