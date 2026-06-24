@@ -381,6 +381,7 @@ def main() -> None:
     from airlock.fast.router import set_router_config
     from airlock.fast.state import configure_breaker
     from airlock.guardrails.overrides import configure_guardrail_overrides
+    from airlock.transparency import configure_transparency
 
     set_router_config(config)
     # Load per-client circuit-breaker policy + explicit budget caps once at
@@ -392,6 +393,8 @@ def main() -> None:
     configure_admin(config, host=host, tls_enabled=bool(_ssl_cli_args()))
     # Per-request guardrail-skip policy (off by default).
     configure_guardrail_overrides(config)
+    # Response-transparency policy (served-by/region headers; default-on, opt-out).
+    configure_transparency(config)
     if _startup_model_discovery_enabled():
         live_models = fetch_live_provider_models(config)
         if live_models:

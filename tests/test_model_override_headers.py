@@ -93,9 +93,10 @@ class TestServedHeaders:
 
         assert result["X-Airlock-Served-By"] == "bedrock"
         assert result["X-Airlock-Served-Region"] == "us-east-1"
-        assert response._hidden_params["additional_headers"][
-            "X-Airlock-Served-By"
-        ] == "bedrock"
+        assert (
+            response._hidden_params["additional_headers"]["X-Airlock-Served-By"]
+            == "bedrock"
+        )
 
     async def test_vertex_ai_served_by_and_region(self):
         hook = AirlockModelOverrideHeaders()
@@ -117,9 +118,7 @@ class TestServedHeaders:
 
     async def test_anthropic_served_by_no_region(self):
         hook = AirlockModelOverrideHeaders()
-        response = SimpleNamespace(
-            _hidden_params={"custom_llm_provider": "anthropic"}
-        )
+        response = SimpleNamespace(_hidden_params={"custom_llm_provider": "anthropic"})
 
         result = await hook.async_post_call_response_headers_hook(
             data={"metadata": {}},
@@ -132,9 +131,7 @@ class TestServedHeaders:
 
     async def test_openai_served_by_no_region(self):
         hook = AirlockModelOverrideHeaders()
-        response = SimpleNamespace(
-            _hidden_params={"custom_llm_provider": "openai"}
-        )
+        response = SimpleNamespace(_hidden_params={"custom_llm_provider": "openai"})
 
         result = await hook.async_post_call_response_headers_hook(
             data={"metadata": {}},
@@ -220,9 +217,7 @@ class TestServedHeaders:
 
     async def test_served_headers_additive_to_override_header(self):
         hook = AirlockModelOverrideHeaders()
-        response = SimpleNamespace(
-            _hidden_params={"custom_llm_provider": "anthropic"}
-        )
+        response = SimpleNamespace(_hidden_params={"custom_llm_provider": "anthropic"})
         data = {
             "metadata": {
                 "airlock_response_headers": {
