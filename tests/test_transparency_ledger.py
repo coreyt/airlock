@@ -35,16 +35,30 @@ def test_record_mutation_appends_one_record() -> None:
 def test_records_preserve_call_order_single_ledger() -> None:
     meta: dict = {}
     record_mutation(
-        meta, field="model", op="rewrite", before="a", after="b",
-        stage="pre_call", source="router",
+        meta,
+        field="model",
+        op="rewrite",
+        before="a",
+        after="b",
+        stage="pre_call",
+        source="router",
     )
     record_mutation(
-        meta, field="fallbacks", op="suppress", before=["x"], after=None,
-        stage="pre_call", source="guardian",
+        meta,
+        field="fallbacks",
+        op="suppress",
+        before=["x"],
+        after=None,
+        stage="pre_call",
+        source="guardian",
     )
     record_redaction(
-        meta, field="messages", count=3, category="pii",
-        stage="pre_call", source="pii_guard",
+        meta,
+        field="messages",
+        count=3,
+        category="pii",
+        stage="pre_call",
+        source="pii_guard",
     )
     ledger = meta["airlock_mutations"]
     assert [m.field for m in ledger] == ["model", "fallbacks", "messages"]
@@ -77,8 +91,12 @@ def test_record_redaction_is_value_free_and_secret_absent() -> None:
     secret = "hunter2-super-secret-token"
     meta: dict = {}
     record_redaction(
-        meta, field="messages", count=2, category="pii",
-        stage="pre_call", source="pii_guard",
+        meta,
+        field="messages",
+        count=2,
+        category="pii",
+        stage="pre_call",
+        source="pii_guard",
     )
     m = meta["airlock_mutations"][0]
     assert m.op == "redact"

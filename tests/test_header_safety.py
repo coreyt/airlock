@@ -6,9 +6,7 @@ from airlock.transparency import Mutation, mutations_header, record_redaction
 
 
 def _m(**kw) -> Mutation:
-    base = dict(
-        before=None, after=None, stage="pre_call", source="t", reason=None
-    )
+    base = dict(before=None, after=None, stage="pre_call", source="t", reason=None)
     base.update(kw)
     return Mutation(**base)
 
@@ -56,17 +54,19 @@ def test_rewrite_on_non_allowlisted_field_hides_content() -> None:
 
 
 def test_drop_on_non_allowlisted_field() -> None:
-    out = mutations_header(
-        [_m(field="temperature", op="drop", before=0.7, after=None)]
-    )
+    out = mutations_header([_m(field="temperature", op="drop", before=0.7, after=None)])
     assert out == "temperature=drop"
 
 
 def test_redact_renders_count_no_value() -> None:
     meta: dict = {}
     record_redaction(
-        meta, field="messages", count=3, category="pii",
-        stage="pre_call", source="pii_guard",
+        meta,
+        field="messages",
+        count=3,
+        category="pii",
+        stage="pre_call",
+        source="pii_guard",
     )
     out = mutations_header(meta["airlock_mutations"])
     assert out == "messages=redacted(3)"
@@ -83,9 +83,7 @@ def test_joins_with_semicolon() -> None:
 
 
 def test_byte_bound_truncates_with_more_suffix() -> None:
-    ledger = [
-        _m(field=f"system{i}", op="inject", after="x" * 50) for i in range(20)
-    ]
+    ledger = [_m(field=f"system{i}", op="inject", after="x" * 50) for i in range(20)]
     out = mutations_header(ledger, budget_bytes=60)
     assert len(out.encode("utf-8")) <= 60
     assert "…+" in out and "more" in out

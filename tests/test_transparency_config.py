@@ -37,7 +37,12 @@ def test_empty_dict_all_defaults() -> None:
 
 def test_partial_override_only_given_keys() -> None:
     cfg = load_transparency_config(
-        {"transparency": {"mutation_headers": "off", "mutation_header_budget_bytes": 512}}
+        {
+            "transparency": {
+                "mutation_headers": "off",
+                "mutation_header_budget_bytes": 512,
+            }
+        }
     )
     assert cfg.mutation_headers == "off"
     assert cfg.mutation_header_budget_bytes == 512
