@@ -1,0 +1,35 @@
+{
+  "pack": "0.5.0-OBS-core-fix",
+  "branch": "obs-core",
+  "head_sha": "29b81f2",
+  "commits": [
+    "39ba4b6: test(transparency): RED — tiny-budget byte-bound + string-bool config coercion tests",
+    "29b81f2: fix(transparency): OBS-core review — byte-bound omit on tiny budget; sane string-bool config coercion"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "39ba4b6",
+    "test_files": [
+      "tests/test_header_safety.py",
+      "tests/test_transparency_config.py"
+    ]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_header_safety.py::test_tiny_budget_always_within_bound",
+      "tests/test_transparency_config.py::test_string_false_coercion",
+      "tests/test_transparency_config.py::test_string_true_coercion",
+      "tests/test_transparency_config.py::test_string_false_attribute_accounting"
+    ],
+    "passed": 44,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/transparency.py",
+    "tests/test_header_safety.py",
+    "tests/test_transparency_config.py"
+  ],
+  "blockers_encountered": [],
+  "summary": "Fix 1: mutations_header now returns '' instead of over-budget '…+N more' suffix when even the suffix exceeds budget_bytes, honoring the invariant that result.encode('utf-8') <= budget_bytes always. Fix 2: _coerce_bool helper added; treats 'false','0','off','no','' as False and 'true','1','on','yes' as True for string values, applied to served_headers and attribute_accounting_to_served in load_transparency_config.",
+  "next_step_for_orchestrator": "Pack 0.5.0-OBS-core-fix on branch obs-core at 29b81f2; review, verify, merge"
+}
