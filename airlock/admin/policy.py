@@ -17,7 +17,9 @@ import hmac
 import os
 from dataclasses import dataclass
 
-LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost", ""}
+# Deliberately excludes "" — a missing/stripped client address is NOT loopback
+# (fail closed; e.g. a Unix-socket reverse proxy forwarding remote traffic).
+LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
 
 @dataclass

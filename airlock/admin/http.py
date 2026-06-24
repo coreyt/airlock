@@ -170,21 +170,30 @@ def handle_admin_request(
 
     try:
         result = handler([], parsed, d.actor)
+        # Mutating ops return an admin_action record → audit + replicate.
+        if isinstance(result, dict) and result.get("record_type") == "admin_action":
+            write_admin_action_record(result)
     except ValueError as exc:
         return 400, {"error": str(exc)}, {}
-
-    # Mutating ops return an admin_action record → audit + replicate.
-    if isinstance(result, dict) and result.get("record_type") == "admin_action":
-        write_admin_action_record(result)
+    except Exception:  # noqa: BLE001 — the perimeter must never raise (CC-10)
+        return 500, {"error": "internal error"}, {}
     return 200, result, {}
 
 
 # --- ASGI plumbing ----------------------------------------------------------
-async def _read_body(receive) -> bytes:
+# Admin bodies are tiny JSON; cap the pre-auth read so an unauthenticated caller
+# can't exhaust memory by streaming a large body to an admin endpoint.
+_MAX_ADMIN_BODY = 64 * 1024
+
+
+async def _read_body(receive, max_bytes: int = _MAX_ADMIN_BODY) -> bytes | None:
+    """Read the request body, or return None if it exceeds ``max_bytes``."""
     body = b""
     while True:
         msg = await receive()
         body += msg.get("body", b"")
+        if len(body) > max_bytes:
+            return None
         if not msg.get("more_body", False):
             break
     return body
@@ -229,8 +238,17 @@ class AdminMiddleware:
         principal = Principal(loopback=loopback, bearer=bearer, actor=actor)
 
         method = scope.get("method", "GET")
-        body = await _read_body(receive) if method in ("POST", "PUT") else b""
-        status, payload, extra = handle_admin_request(method, path, body, principal)
+        if method in ("POST", "PUT"):
+            body = await _read_body(receive)
+            if body is None:
+                await _send_json(send, 413, {"error": "request body too large"}, {})
+                return
+        else:
+            body = b""
+        try:
+            status, payload, extra = handle_admin_request(method, path, body, principal)
+        except Exception:  # noqa: BLE001 — defense in depth; never 500 from a raise
+            status, payload, extra = 500, {"error": "internal error"}, {}
         await _send_json(send, status, payload, extra)
 
 

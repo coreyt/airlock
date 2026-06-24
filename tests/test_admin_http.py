@@ -249,3 +249,56 @@ class TestMiddleware:
         sent = self._run(scope)
         start = next(m for m in sent if m["type"] == "http.response.start")
         assert start["status"] == 401
+
+
+class TestAdmHttpFix1:
+    """From the ADM-http PASS_WITH_NOTES security review."""
+
+    def test_empty_master_key_not_matched(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_MASTER_KEY", "")
+        # empty bearer -> no auth -> 401
+        assert decide(Principal(bearer=""), "admin:clear_quarantine").status == 401
+        # non-empty junk bearer -> not master, not a valid JWT -> 403
+        assert decide(Principal(bearer="x"), "admin:clear_quarantine").status == 403
+
+    def test_missing_client_is_not_loopback(self, fresh_state_store):
+        # scope without a client address must NOT be treated as operator.
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/airlock/admin/providers",
+            "client": None,
+            "headers": [],
+        }
+        sent = TestMiddleware()._run(scope)
+        start = next(m for m in sent if m["type"] == "http.response.start")
+        assert start["status"] == 401  # fail closed
+
+    def test_oversized_body_413(self, fresh_state_store):
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/airlock/admin/providers/openai/clear-quarantine",
+            "client": ("127.0.0.1", 5000),
+            "headers": [],
+        }
+        sent = TestMiddleware()._run(scope, body=b"x" * (70 * 1024))
+        start = next(m for m in sent if m["type"] == "http.response.start")
+        assert start["status"] == 413
+
+    def test_handler_exception_becomes_500(self, fresh_state_store, monkeypatch):
+        import airlock.admin.http as http_mod
+
+        def _boom(*a, **k):
+            raise RuntimeError("kaboom")
+
+        monkeypatch.setattr(
+            http_mod._state.store, "clear_provider_quarantine", _boom
+        )
+        s, body, _ = handle_admin_request(
+            "POST",
+            "/airlock/admin/providers/openai/clear-quarantine",
+            b"{}",
+            Principal(loopback=True, actor="op"),
+        )
+        assert s == 500 and "error" in body
