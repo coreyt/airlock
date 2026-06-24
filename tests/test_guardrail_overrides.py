@@ -8,7 +8,6 @@ from airlock.admin.tokens import mint_token
 from airlock.guardrails import overrides
 from airlock.guardrails.overrides import (
     configure_guardrail_overrides,
-    effective_mode,
     resolve_guardrail_decision,
 )
 
@@ -90,22 +89,13 @@ class TestResolver:
         d = resolve_guardrail_decision(data, _user_key())
         assert d == {"keyword": "observe"}
 
-    def test_decision_cached(self):
+    def test_decision_stamped(self):
         configure_guardrail_overrides({"guardrail_overrides": {"allow_capability_skip": True}})
         tok = mint_token(AUTH_ID, ["guardrail:skip:keyword"], 60)
         data = _data_with_token(tok)
         resolve_guardrail_decision(data, _user_key())
         assert data["metadata"]["airlock_guardrail_decision"] == {"keyword": "observe"}
 
-
-class TestEffectiveMode:
-    def test_defaults_enforce(self):
-        assert effective_mode({"metadata": {}}, "keyword") == "enforce"
-
-    def test_reads_decision(self):
-        data = {"metadata": {"airlock_guardrail_decision": {"keyword": "observe"}}}
-        assert effective_mode(data, "keyword") == "observe"
-        assert effective_mode(data, "pii_redact") == "enforce"
 
 
 class TestKeywordGuardHonorsDecision:

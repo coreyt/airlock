@@ -157,11 +157,7 @@ def resolve_guardrail_decision(data: dict, user_api_key_dict: Any) -> dict[str, 
     return decision
 
 
-def effective_mode(data: dict, guardrail: str) -> str:
-    """Effective mode for a guardrail this request: enforce | observe | off.
-
-    Reads the stamped decision; defaults to ``enforce`` when none was resolved.
-    """
-    metadata = data.get("metadata") or {}
-    decision = metadata.get(_DECISION_KEY) or {}
-    return decision.get(guardrail, "enforce")
+# NOTE: there is intentionally no read-only "effective_mode" accessor. Content
+# guards MUST call resolve_guardrail_decision (which re-verifies the token) rather
+# than reading the stamped metadata value — reading the stamp would re-introduce
+# the injection bypass, since data["metadata"] is client-controllable.
