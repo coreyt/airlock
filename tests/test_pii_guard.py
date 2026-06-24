@@ -1271,3 +1271,71 @@ class TestPiiEnabledFlag:
             mock_user_api_key_dict, mock_cache, data, "completion"
         )
         assert "alice@corp.com" not in str(result["messages"])
+
+
+# ---------------------------------------------------------------------------
+# OBS-ledger — value-free redaction records (CC-T2)
+# ---------------------------------------------------------------------------
+class TestRedactionLedger:
+    @pytest.fixture(autouse=True)
+    def _require_presidio(self, presidio_available, reset_presidio_singletons):
+        if not presidio_available:
+            pytest.skip("Presidio not available")
+
+    async def test_message_scrub_records_value_free_redaction(
+        self, mock_cache, mock_user_api_key_dict
+    ):
+        guard = AirlockPIIGuard()
+        secret = "alice@corp.com"
+        data = {
+            "messages": [{"role": "user", "content": f"Contact {secret}"}],
+            "model": "claude-sonnet",
+        }
+        result = await guard.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        muts = result["metadata"]["airlock_mutations"]
+        red = [m for m in muts if m.field == "messages" and m.op == "redact"]
+        assert len(red) == 1
+        assert red[0].category == "pii"
+        assert red[0].count >= 1
+        assert red[0].before is None and red[0].after is None
+        assert red[0].source == "pii_guard"
+        assert red[0].stage == "pre_call"
+        # CC-T2: the scrubbed secret never appears anywhere in the ledger
+        assert secret not in repr(muts)
+        # CC-T1 back-compat
+        assert "airlock_pii_map" in result["metadata"]
+
+    async def test_no_pii_records_nothing(self, mock_cache, mock_user_api_key_dict):
+        guard = AirlockPIIGuard()
+        data = {
+            "messages": [{"role": "user", "content": "just plain harmless text"}],
+            "model": "claude-sonnet",
+        }
+        result = await guard.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        muts = result.get("metadata", {}).get("airlock_mutations", [])
+        assert [m for m in muts if m.op == "redact"] == []
+
+    async def test_mcp_scrub_records_value_free_redaction(
+        self, mock_cache, mock_user_api_key_dict
+    ):
+        guard = AirlockPIIGuard()
+        secret = "user@example.com"
+        data = {
+            "mcp_tool_name": "search",
+            "mcp_arguments": {"query": f"records for {secret}", "limit": "10"},
+        }
+        result = await guard.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "call_mcp_tool"
+        )
+        muts = result["metadata"]["airlock_mutations"]
+        red = [m for m in muts if m.field == "mcp_arguments" and m.op == "redact"]
+        assert len(red) == 1
+        assert red[0].source == "pii_guard.mcp"
+        assert red[0].category == "pii"
+        assert red[0].count >= 1
+        assert red[0].before is None and red[0].after is None
+        assert secret not in repr(muts)

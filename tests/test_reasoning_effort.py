@@ -92,3 +92,57 @@ class TestMisc:
     def test_returns_data_for_chaining(self):
         data = {"reasoning_effort": "none"}
         assert normalize_reasoning_effort(data, "openai") is data
+
+
+def _ledger(data):
+    return data.get("metadata", {}).get("airlock_mutations", [])
+
+
+class TestLedger:
+    """OBS-ledger: normalize_reasoning_effort records into airlock_mutations."""
+
+    def test_openai_off_intent_records_set_minimal(self):
+        data = {"reasoning_effort": "none"}
+        normalize_reasoning_effort(data, "openai")
+        muts = _ledger(data)
+        assert len(muts) == 1
+        m = muts[0]
+        assert m.field == "reasoning_effort"
+        assert m.op == "set"
+        assert m.before == "none"
+        assert m.after == "minimal"
+        assert m.stage == "pre_call"
+        assert m.source == "reasoning_effort.normalize"
+
+    def test_gemini_off_intent_records_set_disable(self):
+        data = {"reasoning_effort": "off"}
+        normalize_reasoning_effort(data, "gemini")
+        muts = _ledger(data)
+        assert len(muts) == 1
+        assert muts[0].op == "set"
+        assert muts[0].before == "off"
+        assert muts[0].after == "disable"
+
+    def test_anthropic_off_intent_records_drop(self):
+        data = {"reasoning_effort": "none"}
+        normalize_reasoning_effort(data, "anthropic")
+        muts = _ledger(data)
+        assert len(muts) == 1
+        assert muts[0].op == "drop"
+        assert muts[0].before == "none"
+        assert muts[0].after is None
+
+    def test_valid_value_records_nothing(self):
+        data = {"reasoning_effort": "high"}
+        normalize_reasoning_effort(data, "openai")
+        assert _ledger(data) == []
+
+    def test_absent_records_nothing(self):
+        data = {"model": "gpt-5.4"}
+        normalize_reasoning_effort(data, "openai")
+        assert _ledger(data) == []
+
+    def test_unknown_provider_records_nothing(self):
+        data = {"reasoning_effort": "none"}
+        normalize_reasoning_effort(data, "mistral")
+        assert _ledger(data) == []

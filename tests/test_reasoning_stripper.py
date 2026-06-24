@@ -184,3 +184,64 @@ class TestTargetConfig:
         assert g._is_target({"model": "model-a"})
         assert g._is_target({"model": "openai/model-b"})
         assert not g._is_target({"model": "kimi-dev"})
+
+
+def _ledger(data):
+    return data.get("metadata", {}).get("airlock_mutations", [])
+
+
+class TestStripperLedger:
+    @pytest.mark.asyncio
+    async def test_non_stream_strip_records_rewrite(self, stripper):
+        data = {"model": "kimi-dev"}
+        resp = _msg_response(f"{START}thinking{END}\nthe answer")
+        await stripper.async_post_call_success_hook(data, _FakeKey(), resp)
+        muts = [m for m in _ledger(data) if m.field == "messages"]
+        assert len(muts) == 1
+        assert muts[0].op == "rewrite"
+        assert muts[0].stage == "post_call"
+        assert muts[0].source == "reasoning_stripper"
+        assert muts[0].before is None and muts[0].after is None
+
+    @pytest.mark.asyncio
+    async def test_non_stream_no_strip_no_record(self, stripper):
+        data = {"model": "kimi-dev"}
+        resp = _msg_response("plain answer, no markers here")
+        await stripper.async_post_call_success_hook(data, _FakeKey(), resp)
+        assert _ledger(data) == []
+
+    @pytest.mark.asyncio
+    async def test_stream_strip_records_once(self, stripper):
+        request_data = {"model": "kimi-dev"}
+
+        async def gen():
+            for c in [f"{START}hidden ", f"thoughts{END}\n", "visible answer"]:
+                yield _delta_chunk(c)
+
+        async for _chunk in stripper.async_post_call_streaming_iterator_hook(
+            _FakeKey(), gen(), request_data
+        ):
+            pass
+        muts = [
+            m
+            for m in _ledger(request_data)
+            if m.source == "reasoning_stripper.stream"
+        ]
+        assert len(muts) == 1
+        assert muts[0].op == "rewrite"
+        assert muts[0].field == "messages"
+        assert muts[0].stage == "post_call"
+
+    @pytest.mark.asyncio
+    async def test_stream_no_strip_no_record(self, stripper):
+        request_data = {"model": "kimi-dev"}
+
+        async def gen():
+            for c in ["plain ", "visible ", "answer"]:
+                yield _delta_chunk(c)
+
+        async for _chunk in stripper.async_post_call_streaming_iterator_hook(
+            _FakeKey(), gen(), request_data
+        ):
+            pass
+        assert _ledger(request_data) == []
