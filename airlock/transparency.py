@@ -248,8 +248,8 @@ def mutations_header(ledger: list[Mutation], budget_bytes: int = 256) -> str:
             candidate = ";".join(tokens[:k]) + ";" + suffix
         if len(candidate.encode("utf-8")) <= budget_bytes:
             return candidate
-    # Even the bare suffix overflows the budget — return it best-effort.
-    return f"…+{n} more"
+    # Even the bare suffix overflows the budget — omit entirely (invariant: always <= budget).
+    return ""
 
 
 def served_headers(s: ServedBackend | None) -> dict[str, str]:
@@ -265,6 +265,23 @@ def served_headers(s: ServedBackend | None) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 # Config loader (mirrors _load_cost_tiers / configure_breaker style)
 # ---------------------------------------------------------------------------
+_FALSY_STRINGS = {"false", "0", "off", "no", ""}
+_TRUTHY_STRINGS = {"true", "1", "on", "yes"}
+
+
+def _coerce_bool(value: object) -> bool:
+    """Coerce a config value to bool, treating falsy strings sanely."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in _FALSY_STRINGS:
+            return False
+        if v in _TRUTHY_STRINGS:
+            return True
+    return bool(value)
+
+
 _DEFAULTS = {
     "mutation_headers": "compact",  # off | compact | full
     "served_headers": True,
@@ -321,9 +338,9 @@ def load_transparency_config(config: dict | None) -> TransparencyConfig:
 
     return TransparencyConfig(
         mutation_headers=mode,
-        served_headers=bool(served),
+        served_headers=_coerce_bool(served),
         explain_body_optin_header=str(explain),
-        attribute_accounting_to_served=bool(accounting),
+        attribute_accounting_to_served=_coerce_bool(accounting),
         mutation_header_budget_bytes=budget,
     )
 
