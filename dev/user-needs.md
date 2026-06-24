@@ -526,3 +526,100 @@ hit a silent spend cliff.
    `X-Airlock-Model-Override`.
 4. The daily provider budget cap is observable and warns at ≥80% before the
    cliff. Defaults preserve today's behavior except the new warning (CC-3).
+
+---
+
+## UN-19: Transparent Request Mutations
+
+**As a** developer (or operator) sending a request through Airlock,
+**I need** Airlock to tell me every way it changed my request before it reached
+the provider — which field, from what to what, and why,
+**so that** observability is a *benefit* of routing through Airlock rather than a
+black box I have to reverse-engineer, and so a surprising response (silently
+lowered reasoning effort, a dropped parameter, a swapped model, a suppressed
+fallback, an injected system prompt) is explainable from the response alone.
+
+> Traces to `dev/notes/design-mutation-and-provider-transparency.md`.
+> Motivated by the audit in that note: ~30 mutation sites across 7 categories,
+> most silent to the client today (see the inventory table). The bar is "more
+> observable than plain LiteLLM or any thin wrapper."
+
+### Stakeholders
+
+- Developers (debugging unexpected model behavior)
+- Operators (auditing what the gateway does to traffic)
+- Compliance (proving what left the building, e.g. PII redaction occurred)
+
+### Acceptance Criteria
+
+1. Every request-altering mutation is recorded in one canonical, ordered ledger
+   (`metadata["airlock_mutations"]`): field, op (`set`/`drop`/`clamp`/`rewrite`/
+   `inject`/`redact`/`suppress`), before→after, stage (`pre_call`/`during_call`/
+   `post_call`), source component, and reason. The previously-silent mutations
+   (reasoning-effort normalization, `drop_params`, alias resolution, fallback
+   suppression, system-prompt injection, reasoning-strip) are all included.
+2. The ledger is surfaced on **every** response by default: a compact
+   `X-Airlock-Mutations` header naming the changed fields, the full ledger in the
+   JSONL request record (`mutations: [...]`), and per-type counters in metrics/TUI.
+3. Surfacing never leaks content: redaction mutations record the field and a
+   **count/category**, never the redacted value (enforced at construction); and the
+   header serializer surfaces an after-value only for an allowlist of scalar/enum
+   fields (model, reasoning_effort, fallbacks, num_retries) — injected system
+   prompts and rewritten message bodies render as `field=<op>` with no content. The
+   header is size-bounded and degrades to a `…+N more` summary with full detail in
+   the log.
+4. A non-streaming response whose request opted in (`X-Airlock-Explain: 1`)
+   additionally receives a structured `airlock.mutations` block in the response body
+   envelope (non-breaking, additive). For streaming responses the envelope is
+   omitted (the data is in the headers + the JSONL log), since SSE headers are
+   already flushed and the chunk schema cannot carry a trailing envelope.
+5. Transparency is observe-only: it changes no request behavior and is governed by
+   `transparency.*` config that is backward compatible (config-free deploys behave
+   as before, plus the new default-on headers/logs).
+
+---
+
+## UN-20: Truthful Serving-Backend Attribution
+
+**As an** operator running models that are reachable through more than one
+backend (Anthropic native vs AWS Bedrock vs GCP Vertex; OpenAI native vs Azure;
+Google via Vertex AI vs AI Studio),
+**I need** Airlock to report which backend *actually* served each request — not a
+guess derived from the model name,
+**so that** spend, rate-limit, and quarantine accounting are attributed to the
+real provider, and so failovers or router deployment choices between backends are
+visible rather than hidden.
+
+> Traces to `dev/notes/design-mutation-and-provider-transparency.md`.
+> Root cause: `airlock_provider` is computed by `infer_provider(model_name)`
+> pre-call (`guardian.py:451`, `monitor.py:197`), while the ground truth already
+> exists post-call in `response._hidden_params` (`custom_llm_provider`,
+> `api_base`, `region_name`, `model_id`, `response_cost`) and is currently ignored.
+
+### Stakeholders
+
+- Operators (correct provider health/quarantine attribution)
+- Finance (spend debited to the backend that actually billed)
+- Developers (knowing whether they hit Vertex or AI Studio)
+
+### Acceptance Criteria
+
+1. After every successful call, Airlock extracts a truthful served-backend record
+   from `response._hidden_params`: `provider` (`custom_llm_provider`),
+   `api_base` host, `region`, served `model_id`, and `response_cost`. This is
+   stored distinctly from the pre-call inferred provider, so the record carries
+   both *requested/inferred* and *served* attribution.
+2. Native vs gateway backends are distinguished for the same logical model:
+   `anthropic` vs `bedrock` vs `vertex_ai`; `openai` vs `azure`; and the Google
+   ambiguity (`vertex_ai` vs `gemini`/AI Studio) is resolved via provider + the
+   `api_base` host (`*-aiplatform.googleapis.com` vs `generativelanguage.googleapis.com`).
+3. The served backend is surfaced by default via response headers
+   (`X-Airlock-Served-By`, and where applicable `X-Airlock-Served-Region`) and in
+   the JSONL record and TUI.
+4. Spend and provider rate-limit/quarantine state are keyed off the **served**
+   provider wherever it diverges from the inferred one (e.g. a same-provider
+   failover or a router deployment swap), closing the mis-attribution gap.
+5. `infer_provider()` remains the basis for *pre-call* policy/routing decisions
+   (it is a prediction) but is no longer treated as the authoritative record of
+   what served the request. Where served truth is unavailable (errors before a
+   response), the record is explicitly marked as inferred-only.

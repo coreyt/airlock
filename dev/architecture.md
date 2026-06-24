@@ -445,6 +445,69 @@ victim of UN-10), `POST /airlock/admin/providers/{p}/quarantine` (loopback-only)
 **Design documents:** `dev/notes/design-admin-api-capability-auth.md`,
 `dev/notes/design-resilience-and-admin-overview.md`.
 
+### 3.7 Transparency Layer (`airlock/transparency.py`)
+
+Makes observability a first-class benefit: every request mutation and the real
+serving backend are recorded and surfaced by default, rather than inferred or
+hidden. Two cooperating mechanisms, both riding the existing metadata bus.
+
+**Mutation ledger.** A single ordered list `metadata["airlock_mutations"]` (the
+canonical view; the legacy `airlock_routing`/`airlock_alias`/`airlock_pii_map`/…
+keys remain for back-compat). Each mutating site appends one `Mutation` record via
+`record_mutation()` — `{field, op (set/drop/clamp/rewrite/inject/redact/suppress),
+before, after, stage (pre_call/during_call/post_call), source, reason}`. Redaction
+records are **value-free**: `{field, op:redact, count, category}`, never the matched
+text.
+
+**Served-backend attribution.** `attribute_served_backend(response)` reads the
+truth from `response._hidden_params` (LiteLLM 1.89.0): `custom_llm_provider`,
+`api_base`, `region_name`, `model_id`/`litellm_model_name`, `response_cost` →
+a `ServedBackend`. This replaces inference-from-model-name as the *record of what
+served*; `infer_provider()` remains a pre-call prediction for routing. The two are
+stored distinctly (`attribution ∈ {served, inferred}`), and spend/quarantine
+accounting keys off `served` when it diverges (a same-provider failover or a router
+deployment swap). `custom_llm_provider` distinguishes the multi-backend cases a
+model name cannot: `anthropic` vs `bedrock` vs `vertex_ai`; `openai` vs `azure`;
+and `vertex_ai` vs `gemini` (AI Studio) — the Google ambiguity is further split by
+the `api_base` host (`*-aiplatform.googleapis.com` vs `generativelanguage.googleapis.com`).
+
+**Hook placement (streaming-aware).** Identity + pre/during-call mutations are
+emitted as response headers in `async_post_call_response_headers_hook`
+(`model_override_headers.py`) — which fires for streaming *and* non-streaming and
+flushes before the SSE body. On streams the provider is read from the wrapper
+attribute `response.custom_llm_provider` (it is not yet in `_hidden_params` at
+header-flush time); unknown provider ⇒ the header is omitted, not guessed. Cost +
+post-call mutations + the full JSONL record are finalized in
+`async_log_success_event` on the assembled response, where the logger attributes
+*independently* (no cross-callback ordering dependency). The `X-Airlock-Explain`
+body envelope is non-streaming only. See
+`design-mutation-and-provider-transparency.md` §4.1.
+
+#### Response-header catalog (Airlock → client)
+
+| Header | Meaning | Source |
+|--------|---------|--------|
+| `X-Airlock-Served-By` | the backend that actually served (`custom_llm_provider`) | transparency layer (§3.7) |
+| `X-Airlock-Served-Region` | served region, when applicable (Bedrock/Vertex) | transparency layer (§3.7) |
+| `X-Airlock-Mutations` | compact, byte-bounded summary of changed fields (`…+N more` overflow) | transparency layer (§3.7) |
+| `X-Airlock-Model-Override` | final model when Airlock routed/failed-over (unpinned) | `guardian.py` (§3.2) |
+| `X-Airlock-Budget-State` | `near_limit` at ≥80% of a provider's daily cap | `monitor.py` |
+| `X-Airlock-Provider-State` | `quarantined` (breaker) or Gemini output-shape | `proxy_errors.py` / Gemini |
+| `X-Airlock-Block-Scope` | scope of a breaker block (`provider`/`client_provider`) | `proxy_errors.py` |
+| `Retry-After` | client backoff on a 429 (breaker cooldown or provider reset) | `proxy_errors.py` |
+
+Request headers consumed: `X-Airlock-Explain: 1` (opt-in additive `airlock.mutations`
+response-body envelope), `X-Airlock-Capability` (guardrail-skip JWT, §3.6),
+`X-Airlock-Client` (unauthenticated attribution only, §3.6).
+
+Config: `transparency.{mutation_headers, served_headers, attribute_accounting_to_served,
+mutation_header_budget_bytes}` — all default-safe. Absent config leaves the response
+**body** and existing behavior unchanged; the only wire change is the additive
+default-on headers + log fields, each with a one-line opt-out.
+
+**Design documents:** `dev/notes/design-mutation-and-provider-transparency.md`;
+requirements UN-19/UN-20.
+
 ---
 
 ## 4. Configuration Architecture
