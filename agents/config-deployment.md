@@ -76,7 +76,9 @@ services:
       - ./logs:/app/logs                      # Logs persist on host
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      # /health/liveliness makes no model calls; GET /health fires live completions
+      # to every model when background_health_checks is off (repo hard constraint).
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health/liveliness"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -123,8 +125,8 @@ AIRLOCK_PII_ENTITIES=CREDIT_CARD,US_SSN,EMAIL_ADDRESS,PHONE_NUMBER,US_BANK_NUMBE
   only config.yaml changes — no code modifications.
 - **Volume mounts**: config.yaml is mounted `:ro` (read-only), logs are mounted
   `:rw` (read-write) for persistence.
-- **Health checks**: the proxy exposes `/health` — always include health checks
-  in container orchestration.
+- **Health checks**: probe `/health/liveliness` (no model calls) in container
+  orchestration — never `/health`, which fires live completions to every model.
 - **Editable install**: use `pip install -e .` for development so code changes
   take effect without reinstalling.
 

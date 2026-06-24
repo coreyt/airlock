@@ -29,7 +29,7 @@ kubectl apply -f deploy/k8s/ingress.yaml
 kubectl apply -f deploy/k8s/hpa.yaml
 ```
 
-The deployment runs as non-root (UID 1000), sets resource limits (250m-1 CPU, 512Mi-1Gi RAM), and should use `/health/liveliness` for liveness probes. Reserve `/health` for slower readiness-style checks because it can trigger real provider work.
+The deployment runs as non-root (UID 1000), sets resource limits (250m-1 CPU, 512Mi-1Gi RAM), and uses `/health/liveliness` for **both liveness and readiness** probes (it makes no model calls). Never point an automated probe at `/health` — it can trigger real provider work on every poll; reserve `/health` for on-demand/manual deep checks only.
 
 ### Bare Metal / VM
 
@@ -105,11 +105,18 @@ airlock post --json                   # machine-readable output
 
 | Endpoint | Purpose | Use For |
 |----------|---------|---------|
-| `GET /health` | Full health check (may call providers) | Readiness probes, monitoring |
-| `GET /health/liveliness` | Lightweight liveness check | Liveness probes, frequent polling |
+| `GET /health` | Full health check (**calls every provider** when `background_health_checks` is off) | On-demand deep check / dashboards only — **never automated probes** |
+| `GET /health/liveliness` | Lightweight liveness check (no model calls) | Liveness **and readiness** probes, load balancers, frequent polling |
 | `GET /health/circuits` | Per-model circuit-breaker state (JSON) | Diagnosing routing/circuit issues |
 
-`/health` and `/health/liveliness` return HTTP 200 when healthy. Use `/health/liveliness` for high-frequency checks (load balancer, TUI polling). The `/health/circuits` endpoint is installed by the `model_override_headers` callback (see [Callbacks](#callbacks)).
+> **Hard constraint:** liveness/readiness probes and any high-frequency poller MUST
+> use `GET /health/liveliness`. `GET /health` fires live completions to every model
+> when `background_health_checks` is off — running it on a 10–30 s probe interval
+> hammers (and bills) every provider.
+
+`/health` and `/health/liveliness` return HTTP 200 when healthy. The
+`/health/circuits` endpoint is installed by the `model_override_headers` callback
+(see [Callbacks](#callbacks)).
 
 ## Startup Modes
 

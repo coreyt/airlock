@@ -155,7 +155,8 @@ pip install -e ".[tui]"
 
 ### Container health check fails
 
-The health check runs `curl -f http://localhost:4000/health`.
+The health check runs `curl -f http://localhost:4000/health/liveliness` (the
+lightweight probe that makes no model calls).
 
 **Check:**
 - Is `curl` installed in the image? (It is in `python:3.12-slim`)

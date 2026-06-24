@@ -167,8 +167,9 @@ with no secrets committed to source control.
 
 **Traces to:** UN-7
 
-The system SHALL expose a `/health` HTTP endpoint suitable for container
-orchestrator health probes.
+The system SHALL expose a `/health/liveliness` HTTP endpoint suitable for
+container orchestrator liveness/readiness probes (no model calls). The deeper
+`/health` endpoint may call providers and MUST NOT be used for automated probes.
 
 ### NFR-4: Automatic Restart on Failure
 
