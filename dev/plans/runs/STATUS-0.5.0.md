@@ -38,7 +38,7 @@ _Last updated: 2026-06-23 · mainline: `main` · **design gate PASSED; ready for
 | RES-observ | capture `x-ratelimit-*` + `record_type` + TUI headroom | breaker | **CLOSED** (PASS + fix-1) | `5f12aea`+`dff4ea5`; code-reviewer PASS; remaining=0/wiring tests added; log-enrichment/TUI/passthrough deferred to polish |
 | ADM-jwt | HS256 mint/verify + `admin mint-token` | — | **CLOSED** (PASS_WITH_NOTES + fix-1) | `7dde6f9`+`2f24288`; require-jti, max-TTL cap, scope filter added |
 | ADM-state | CC-8 clear/arm mutators + admin_action ingest | breaker, observ | **MERGED (review running)** | `8c14e58`; cascade R12, CC-6 floor, CC-9 ingest branch; unblocks ADM-http/tui/skip |
-| RES-routing | `_suppress_fallbacks` + budget warn | breaker, errors, observ | **MERGED (review running)** | `a2c7f11`; A2 large/quarantined suppression + A3 80% warn; **resilience workstream complete** |
+| RES-routing | `_suppress_fallbacks` + budget warn | breaker, errors, observ | **MERGED + fix-1 (re-review running)** | `a2c7f11`+`7d3d831`; review R1 BLOCK (CC-3 budget defaults) → fix-1 (explicit-config gate + A2 narrowed to large-prompt); **resilience workstream complete** |
 | ADM-state | CC-8 mutators + `admin_action` + ingest | breaker, observ | **PLANNED** | — |
 | ADM-jwt | HS256 mint/verify + `admin mint-token` | — | **PLANNED** | — |
 | ADM-http | PDP + perimeter middleware + `/airlock/admin/*` | ADM-state, ADM-jwt, errors | **PLANNED** | — |
