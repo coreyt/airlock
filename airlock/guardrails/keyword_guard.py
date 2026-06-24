@@ -79,10 +79,15 @@ class AirlockKeywordGuard(CustomGuardrail):
             return data
 
         # Honour a per-request capability skip (CC-10): "off" skips entirely,
-        # "observe" still scans + logs but does not block.
-        from airlock.guardrails.overrides import effective_mode
+        # "observe" still scans + logs but does not block. Resolve (verify) here
+        # rather than reading the stamped decision, so a client cannot bypass the
+        # token check by injecting airlock_guardrail_decision into request metadata
+        # and we don't depend on hook ordering.
+        from airlock.guardrails.overrides import resolve_guardrail_decision
 
-        mode = effective_mode(data, "keyword")
+        mode = resolve_guardrail_decision(data, user_api_key_dict).get(
+            "keyword", "enforce"
+        )
         if mode == "off":
             return data
 

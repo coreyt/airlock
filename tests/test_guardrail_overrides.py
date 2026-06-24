@@ -110,18 +110,24 @@ class TestEffectiveMode:
 
 class TestKeywordGuardHonorsDecision:
     async def test_observe_does_not_block(self, monkeypatch):
+        # A REAL capability token (not an injected decision) downgrades to observe.
         monkeypatch.setenv("AIRLOCK_KW_ENABLED", "1")
         monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "topsecret")
+        configure_guardrail_overrides(
+            {"guardrail_overrides": {"allow_capability_skip": True}}
+        )
+        tok = mint_token(AUTH_ID, ["guardrail:skip:keyword"], 60)
         from airlock.guardrails.keyword_guard import AirlockKeywordGuard
 
         guard = AirlockKeywordGuard()
         data = {
             "messages": [{"role": "user", "content": "the topsecret plan"}],
-            "metadata": {"airlock_guardrail_decision": {"keyword": "observe"}},
+            "headers": {"x-airlock-capability": tok},
         }
-        # observe -> scanned + logged but NOT blocked
-        out = await guard.async_pre_call_hook(None, None, data, "completion")
-        assert out is data
+        out = await guard.async_pre_call_hook(
+            {"api_key": AUTH_KEY}, None, data, "completion"
+        )
+        assert out is data  # observe -> scanned + logged but not blocked
 
     async def test_enforce_blocks(self, monkeypatch):
         monkeypatch.setenv("AIRLOCK_KW_ENABLED", "1")
@@ -132,3 +138,44 @@ class TestKeywordGuardHonorsDecision:
         data = {"messages": [{"role": "user", "content": "the topsecret plan"}]}
         with pytest.raises(ValueError):
             await guard.async_pre_call_hook(None, None, data, "completion")
+
+
+class TestAdmSkipFix1Security:
+    """The CRITICAL metadata-injection bypass + crash hardening (review BLOCK)."""
+
+    def test_injected_decision_is_ignored(self):
+        # Feature ON but client injects a decision with NO token -> must be wiped.
+        configure_guardrail_overrides({"guardrail_overrides": {"allow_capability_skip": True}})
+        data = {
+            "metadata": {"airlock_guardrail_decision": {"keyword": "observe", "pii_redact": "off"}},
+            "headers": {},
+        }
+        d = resolve_guardrail_decision(data, _user_key())
+        assert d == {}  # injection overwritten by the verified (empty) result
+        assert data["metadata"]["airlock_guardrail_decision"] == {}
+
+    def test_injected_decision_ignored_even_when_feature_off(self):
+        configure_guardrail_overrides({})  # off by default
+        data = {"metadata": {"airlock_guardrail_decision": {"keyword": "observe"}}}
+        assert resolve_guardrail_decision(data, _user_key()) == {}
+
+    async def test_keyword_guard_blocks_despite_injection(self, monkeypatch):
+        # The end-to-end bypass: client injects the decision, no token -> still blocked.
+        configure_guardrail_overrides({"guardrail_overrides": {"allow_capability_skip": True}})
+        monkeypatch.setenv("AIRLOCK_KW_ENABLED", "1")
+        monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "topsecret")
+        from airlock.guardrails.keyword_guard import AirlockKeywordGuard
+
+        guard = AirlockKeywordGuard()
+        data = {
+            "messages": [{"role": "user", "content": "the topsecret plan"}],
+            "metadata": {"airlock_guardrail_decision": {"keyword": "observe"}},
+        }
+        with pytest.raises(ValueError):  # injection ignored -> still enforced
+            await guard.async_pre_call_hook({"api_key": AUTH_KEY}, None, data, "completion")
+
+    def test_malformed_utf8_header_no_crash(self):
+        configure_guardrail_overrides({"guardrail_overrides": {"allow_capability_skip": True}})
+        data = {"metadata": {"headers": [(b"x-airlock-capability", b"\xff\xfe bad")]}}
+        # must not raise UnicodeDecodeError; invalid token -> no skip
+        assert resolve_guardrail_decision(data, _user_key()) == {}

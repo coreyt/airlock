@@ -8,12 +8,16 @@ request only. Security invariants:
     key-derived id (``key:<last8>`` of the validated bearer key), NEVER the
     forgeable ``X-Airlock-Client`` attribution header.
   * CC-10 — only content guards are skippable; the breaker / fallbacks are never
-    governed here. "Skip" means *downgrade to observe* (still scans + logs), not
-    silence. PII redaction is non-skippable by default.
+    governed here. A skip *downgrades* a guard to its configured ``downgrade_to``
+    mode — usually ``observe`` (still scans + logs); a guard may be configured to
+    ``off`` (silenced, e.g. ``reasoning_strip``). PII redaction is non-skippable by
+    default.
   * Off by default — ``allow_capability_skip: false`` ignores the header entirely.
 
-The decision is cached in ``data["metadata"]["airlock_guardrail_decision"]`` so
-the resolver runs once; content guards read their entry via :func:`effective_mode`.
+Content guards call :func:`resolve_guardrail_decision` to obtain a freshly
+*verified* decision (the resolver overwrites any value in the client-controllable
+``data["metadata"]``, so an injected ``airlock_guardrail_decision`` can never grant
+a skip). The verified result is also stamped into metadata for logging.
 """
 
 from __future__ import annotations
@@ -95,9 +99,11 @@ def _header_value(data: dict, name: str) -> str | None:
                     k, v = item
                 except (TypeError, ValueError):
                     continue
-                kk = k.decode() if isinstance(k, bytes) else str(k)
+                kk = k.decode("utf-8", "replace") if isinstance(k, bytes) else str(k)
                 if kk.lower() == name and v:
-                    return v.decode() if isinstance(v, bytes) else str(v)
+                    return (
+                        v.decode("utf-8", "replace") if isinstance(v, bytes) else str(v)
+                    )
     return None
 
 
@@ -105,12 +111,16 @@ def resolve_guardrail_decision(data: dict, user_api_key_dict: Any) -> dict[str, 
     """Compute (and cache) the per-guardrail effective-mode map for this request.
 
     Returns only the guardrails that are downgraded; an absent guardrail means
-    ``enforce``. Always stamps ``data["metadata"][_DECISION_KEY]`` (possibly {}).
+    ``enforce``. Always recomputes and **overwrites**
+    ``data["metadata"][_DECISION_KEY]``.
+
+    SECURITY: ``data["metadata"]`` is client-controllable (LiteLLM preserves a
+    caller-supplied ``metadata`` dict), so a pre-existing decision key MUST NOT be
+    trusted — a client could otherwise inject ``airlock_guardrail_decision`` to
+    grant itself skips with no token. We never short-circuit on the existing
+    value; the verified result always wins.
     """
     metadata = data.setdefault("metadata", {})
-    if _DECISION_KEY in metadata:
-        return metadata[_DECISION_KEY]
-
     decision: dict[str, str] = {}
     if not _cfg.allow_capability_skip:
         metadata[_DECISION_KEY] = decision
