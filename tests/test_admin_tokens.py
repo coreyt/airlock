@@ -115,3 +115,67 @@ class TestCli:
         )
         out = capsys.readouterr().out.strip()
         assert verify_token(out)["sub"] == "key:abc12345"
+
+
+class TestAdmJwtFix1:
+    """Hardening from the ADM-jwt review (max-TTL cap, jti-required, etc.)."""
+
+    def test_max_ttl_cap(self):
+        with pytest.raises(TokenError):
+            mint_token("s", ["x"], 365 * 86400)  # 1 year > 24h cap
+        # an explicit higher cap is honored
+        assert mint_token("s", ["x"], 2 * 86400, max_ttl_seconds=7 * 86400)
+
+    def test_jti_required(self):
+        import jwt as pyjwt
+
+        from airlock.admin.tokens import _signing_secret
+
+        # a validly-signed token WITHOUT jti must be rejected (denylist bypass guard)
+        now = int(time.time())
+        tok = pyjwt.encode(
+            {"iss": "airlock", "sub": "s", "iat": now, "exp": now + 60},
+            _signing_secret(),
+            algorithm="HS256",
+        )
+        with pytest.raises(TokenError):
+            verify_token(tok)
+
+    def test_alg_none_rejected(self):
+        import jwt as pyjwt
+
+        now = int(time.time())
+        tok = pyjwt.encode(
+            {"iss": "airlock", "sub": "s", "iat": now, "exp": now + 60, "jti": "z"},
+            None,
+            algorithm="none",
+        )
+        with pytest.raises(TokenError):
+            verify_token(tok)
+
+    def test_prev_secret_cannot_mint(self, monkeypatch):
+        # After rotation, a freshly minted token verifies under the NEW secret only.
+        monkeypatch.setenv("AIRLOCK_JWT_SECRET", "new-secret-aaaaaaaaaaaaaaaa")
+        monkeypatch.setenv("AIRLOCK_JWT_SECRET_PREV", "old-secret-bbbbbbbbbbbbbbbb")
+        tok = mint_token("s", ["x"], 60)
+        # verifies now (new secret current)
+        assert verify_token(tok)["sub"] == "s"
+        # if the new secret were the only one and we swap PREV away, still verifies
+        monkeypatch.delenv("AIRLOCK_JWT_SECRET_PREV", raising=False)
+        assert verify_token(tok)["sub"] == "s"
+
+    def test_token_scopes_filters_non_strings(self):
+        from airlock.admin.tokens import token_scopes
+
+        assert token_scopes({"scope": ["a", 1, None, "b"]}) == ["a", "b"]
+        assert token_scopes({"scope": "notalist"}) == []
+
+    def test_cli_invalid_ttl_and_unknown_action(self):
+        from types import SimpleNamespace
+
+        from airlock.cli.admin_cmd import _parse_ttl, run
+
+        with pytest.raises(ValueError):
+            _parse_ttl("abc")
+        with pytest.raises(SystemExit):
+            run(SimpleNamespace(admin_action=None))

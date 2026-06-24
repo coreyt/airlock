@@ -26,6 +26,7 @@ import jwt  # PyJWT
 ISSUER = "airlock"
 ALGORITHM = "HS256"
 DEFAULT_LEEWAY_SECONDS = 30
+DEFAULT_MAX_TTL_SECONDS = 86400  # 24h ceiling (defense-in-depth; design max_ttl)
 
 
 class TokenError(Exception):
@@ -69,12 +70,17 @@ def mint_token(
     *,
     now: float | None = None,
     jti: str | None = None,
+    max_ttl_seconds: int = DEFAULT_MAX_TTL_SECONDS,
 ) -> str:
     """Sign a capability token. ``now`` is injectable for testing."""
     if not sub:
         raise TokenError("sub is required")
     if ttl_seconds <= 0:
         raise TokenError("ttl_seconds must be positive")
+    if max_ttl_seconds and ttl_seconds > max_ttl_seconds:
+        raise TokenError(
+            f"ttl_seconds {ttl_seconds} exceeds the max of {max_ttl_seconds}"
+        )
     issued = int(time.time() if now is None else now)
     claims = {
         "iss": ISSUER,
@@ -113,7 +119,7 @@ def verify_token(
                 algorithms=[ALGORITHM],
                 issuer=ISSUER,
                 leeway=leeway,
-                options={"require": ["exp", "iat", "sub", "iss"]},
+                options={"require": ["exp", "iat", "sub", "iss", "jti"]},
             )
         except jwt.PyJWTError as exc:
             last_err = exc
@@ -127,7 +133,9 @@ def verify_token(
 
 def token_scopes(claims: dict) -> list[str]:
     scope = claims.get("scope")
-    return list(scope) if isinstance(scope, list) else []
+    if not isinstance(scope, list):
+        return []
+    return [s for s in scope if isinstance(s, str)]
 
 
 def has_scope(claims: dict, scope: str) -> bool:
