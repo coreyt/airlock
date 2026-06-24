@@ -577,7 +577,12 @@ class TestGuardianLedger:
         assert result["disable_fallbacks"] is True
 
     async def test_alias_resolution_records_model_rewrite(
-        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict, monkeypatch
+        self,
+        guardian,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
+        monkeypatch,
     ):
         import airlock.fast.guardian as gmod
 
@@ -604,7 +609,12 @@ class TestGuardianLedger:
         assert result["metadata"]["airlock_alias"]["resolved"] == "claude-haiku"
 
     async def test_failover_records_model_rewrite(
-        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict, monkeypatch
+        self,
+        guardian,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
+        monkeypatch,
     ):
         import json
 
@@ -633,7 +643,12 @@ class TestGuardianLedger:
         assert result["metadata"]["airlock_failover"]["failover_model"] == "model-b"
 
     async def test_drop_params_records_drop(
-        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict, monkeypatch
+        self,
+        guardian,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
+        monkeypatch,
     ):
         import airlock.fast.guardian as gmod
 
@@ -657,7 +672,12 @@ class TestGuardianLedger:
         assert drops[0].reason == "provider-unsupported (drop_params)"
 
     async def test_drop_params_none_when_supported(
-        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict, monkeypatch
+        self,
+        guardian,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
+        monkeypatch,
     ):
         import airlock.fast.guardian as gmod
 

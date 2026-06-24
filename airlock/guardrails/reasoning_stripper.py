@@ -28,6 +28,8 @@ from typing import Any
 from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
+from airlock.transparency import record_mutation
+
 logger = logging.getLogger("airlock.guardrails.reasoning_stripper")
 
 _START = "◁think▷"
@@ -86,6 +88,7 @@ class _StreamStripper:
     def __init__(self) -> None:
         self._buf = ""
         self._in_think = False
+        self.stripped_any = False
 
     def feed(self, chunk: str) -> str:
         self._buf += chunk
@@ -110,6 +113,7 @@ class _StreamStripper:
                 out.append(self._buf[:start])
                 self._buf = self._buf[start + len(_START):]
                 self._in_think = True
+                self.stripped_any = True
                 continue
 
             # No start marker visible. Hold back only the longest suffix
@@ -181,6 +185,15 @@ class AirlockReasoningStripper(CustomGuardrail):
 
         if stripped_any:
             logger.debug("reasoning_stripped model=%s", data.get("model"))
+            record_mutation(
+                data.setdefault("metadata", {}),
+                field="messages",
+                op="rewrite",
+                before=None,
+                after=None,
+                stage="post_call",
+                source="reasoning_stripper",
+            )
         return response
 
     async def async_post_call_streaming_iterator_hook(
@@ -195,6 +208,7 @@ class AirlockReasoningStripper(CustomGuardrail):
             return
 
         strippers: dict[int, _StreamStripper] = {}
+        recorded = False
         async for chunk in response:
             for choice in getattr(chunk, "choices", []) or []:
                 delta = getattr(choice, "delta", None)
@@ -206,4 +220,15 @@ class AirlockReasoningStripper(CustomGuardrail):
                 idx = getattr(choice, "index", 0) or 0
                 stripper = strippers.setdefault(idx, _StreamStripper())
                 delta.content = stripper.feed(content)
+                if not recorded and stripper.stripped_any:
+                    record_mutation(
+                        request_data.setdefault("metadata", {}),
+                        field="messages",
+                        op="rewrite",
+                        before=None,
+                        after=None,
+                        stage="post_call",
+                        source="reasoning_stripper.stream",
+                    )
+                    recorded = True
             yield chunk

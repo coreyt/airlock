@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from airlock.transparency import record_mutation
+
 
 _GEMINI_MODES = {"balanced", "deep_reasoning", "text_only", "tool_oriented"}
 _GEMINI_VISIBILITY = {"final_only", "provider_native"}
@@ -69,8 +71,28 @@ def apply_gemini_request_semantics(
     if not explicit_controls:
         if mode == "deep_reasoning":
             data["reasoning_effort"] = "high"
+            record_mutation(
+                data.setdefault("metadata", {}),
+                field="reasoning_effort",
+                op="set",
+                before=None,
+                after="high",
+                stage="pre_call",
+                source="gemini.mode",
+                reason=mode,
+            )
         elif mode == "text_only":
             data["reasoning_effort"] = "disable"
+            record_mutation(
+                data.setdefault("metadata", {}),
+                field="reasoning_effort",
+                op="set",
+                before=None,
+                after="disable",
+                stage="pre_call",
+                source="gemini.mode",
+                reason=mode,
+            )
         elif mode == "tool_oriented":
             # Preserve Gemini's native reasoning/tool behavior while signaling
             # that successful non-text completions are acceptable.

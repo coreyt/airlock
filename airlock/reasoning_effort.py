@@ -22,6 +22,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from airlock.transparency import record_mutation
+
 # Tokens a caller uses to mean "turn reasoning off / as low as possible".
 _OFF_INTENT = {"none", "off", "disable", "disabled", "false", "no", "0"}
 _OPENAI_VALID = {"minimal", "low", "medium", "high"}
@@ -55,14 +57,41 @@ def normalize_reasoning_effort(
             return data
         if val in _OFF_INTENT:
             data["reasoning_effort"] = "minimal"
+            record_mutation(
+                data.setdefault("metadata", {}),
+                field="reasoning_effort",
+                op="set",
+                before=raw,
+                after="minimal",
+                stage="pre_call",
+                source="reasoning_effort.normalize",
+            )
     elif provider == "gemini":
         if val in _GEMINI_VALID:
             return data
         if val in _OFF_INTENT or val == "minimal":
             data["reasoning_effort"] = "disable"
+            record_mutation(
+                data.setdefault("metadata", {}),
+                field="reasoning_effort",
+                op="set",
+                before=raw,
+                after="disable",
+                stage="pre_call",
+                source="reasoning_effort.normalize",
+            )
     elif provider == "anthropic":
         # Anthropic has no reasoning_effort enum; "off" intent → no extended thinking.
         if val in _OFF_INTENT:
             data.pop("reasoning_effort", None)
+            record_mutation(
+                data.setdefault("metadata", {}),
+                field="reasoning_effort",
+                op="drop",
+                before=raw,
+                after=None,
+                stage="pre_call",
+                source="reasoning_effort.normalize",
+            )
     # Unknown providers / unknown values: leave for drop_params.
     return data

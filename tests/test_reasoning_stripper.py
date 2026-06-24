@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 
@@ -223,9 +222,7 @@ class TestStripperLedger:
         ):
             pass
         muts = [
-            m
-            for m in _ledger(request_data)
-            if m.source == "reasoning_stripper.stream"
+            m for m in _ledger(request_data) if m.source == "reasoning_stripper.stream"
         ]
         assert len(muts) == 1
         assert muts[0].op == "rewrite"
