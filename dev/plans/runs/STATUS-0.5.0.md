@@ -37,7 +37,8 @@ _Last updated: 2026-06-23 · mainline: `main` · **design gate PASSED; ready for
 | RES-errors | `AirlockProviderBlocked` + handler + `Retry-After` | breaker | **CLOSED** (fix-1 **PASS**) | `cf452d6` + `f7569c2`; review R1 BLOCK → fix-1 **PASS**; HITL H1 (seam) pending for B acceptance |
 | RES-observ | capture `x-ratelimit-*` + `record_type` + TUI headroom | breaker | **CLOSED** (PASS + fix-1) | `5f12aea`+`dff4ea5`; code-reviewer PASS; remaining=0/wiring tests added; log-enrichment/TUI/passthrough deferred to polish |
 | ADM-jwt | HS256 mint/verify + `admin mint-token` | — | **CLOSED** (PASS_WITH_NOTES + fix-1) | `7dde6f9`+`2f24288`; require-jti, max-TTL cap, scope filter added |
-| ADM-state | CC-8 clear/arm mutators + admin_action ingest | breaker, observ | **MERGED (review running)** | `8c14e58`; cascade R12, CC-6 floor, CC-9 ingest branch; unblocks ADM-http/tui/skip |
+| ADM-state | CC-8 clear/arm mutators + admin_action ingest | breaker, observ | **CLOSED** (PASS_WITH_NOTES + fix-1) | `8c14e58`+`f59a429`; cascade R12, CC-6 floor, CC-9 ingest; mode-validate + ts-replay fixes |
+| ADM-http | PDP + perimeter middleware + `/airlock/admin/*` | ADM-state, ADM-jwt, errors | **MERGED (security review running)** | `a7399f8`; loopback+JWT PDP, fail-closed CC-12, mount-before-gateway, never-raises; known fix-1: drop "" from LOOPBACK_HOSTS |
 | RES-routing | `_suppress_fallbacks` + budget warn | breaker, errors, observ | **CLOSED** (fix-1 **PASS**) | `a2c7f11`+`7d3d831`; R1 BLOCK (CC-3 budget defaults) → fix-1 PASS; **✅ resilience workstream 100% CLOSED, all reviewed** |
 | ADM-state | CC-8 mutators + `admin_action` + ingest | breaker, observ | **PLANNED** | — |
 | ADM-jwt | HS256 mint/verify + `admin mint-token` | — | **PLANNED** | — |
