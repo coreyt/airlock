@@ -207,16 +207,18 @@ class AirlockFastMonitor(CustomLogger):
             )
             metadata = litellm_params.get("metadata") or {}
             litellm_params["metadata"] = metadata
-            action = (
-                "provider_quarantine"
-                if outcome["provider_quarantined"]
-                else "client_quarantine"
-            )
-            cooldown = (
-                outcome["provider_cooldown_seconds"]
-                if outcome["provider_quarantined"]
-                else outcome["client_cooldown_seconds"]
-            )
+            # Three-way label so a below-threshold 429 (nothing armed, possible
+            # when rate_limit_threshold > 1) is NOT logged as a quarantine —
+            # otherwise ingest_jsonl_record would re-quarantine the TUI replica.
+            if outcome["provider_quarantined"]:
+                action = "provider_quarantine"
+                cooldown = outcome["provider_cooldown_seconds"]
+            elif outcome["client_quarantined"]:
+                action = "client_quarantine"
+                cooldown = outcome["client_cooldown_seconds"]
+            else:
+                action = "rate_limited"
+                cooldown = 0.0
             metadata["airlock_provider"] = provider
             metadata["airlock_provider_protection"] = {
                 "action": action,

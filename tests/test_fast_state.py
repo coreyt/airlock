@@ -943,3 +943,69 @@ class TestBreakerPolicy:
             {"airlock_settings": {"circuit_breaker": {"rate_limit_threshold": 2}}}
         )
         assert policy_for("x").rate_limit_threshold == 7  # env wins
+
+
+class TestBreakerPolicyFixes:
+    """Regressions for the RES-breaker fix-1 (codex BLOCK round)."""
+
+    def test_provider_half_open_failure_rearms(self):
+        store = StateStore()
+        ps = store.get_provider("openai")
+        ps._half_open_probe = True
+        out = store.record_provider_rate_limit("c", "openai", time.time(), "r", "RL")
+        assert out["provider_quarantined"] is True  # failed probe re-arms (CC-7)
+        assert ps._half_open_probe is False
+        assert ps.is_quarantined() is True
+
+    def test_disabled_excluded_from_escalation(self):
+        configure_breaker(
+            {
+                "airlock_settings": {
+                    "circuit_breaker": {"clients": {"key:off": {"disabled": True}}}
+                }
+            }
+        )
+        store = StateStore()
+        # disabled client + one normal client = only 1 eligible -> no escalation
+        store.record_provider_rate_limit("key:off", "openai", time.time(), "r", "RL")
+        out = store.record_provider_rate_limit("c-normal", "openai", time.time(), "r", "RL")
+        assert out["provider_quarantined"] is False
+        # a second normal client -> 2 eligible -> escalate
+        out = store.record_provider_rate_limit("c-normal2", "openai", time.time(), "r", "RL")
+        assert out["provider_quarantined"] is True
+
+    def test_per_client_bucket_floor_excludes_from_escalation(self):
+        store = StateStore()
+        store.record_provider_rate_limit("c1", "openai", time.time(), "r", "RL")
+        store.record_provider_rate_limit("c2", "openai", time.time(), "r", "RL")
+        # Clear c1's bucket; its pre-clear event must no longer drive escalation.
+        store.get_client_provider("c1", "openai").cleared_at = time.time()
+        impacted = store._escalation_impacted(
+            "openai", store.get_provider("openai"), 300.0, time.time()
+        )
+        assert impacted == {"c2"}
+
+    def test_env_default_flows_into_config_clients(self, monkeypatch):
+        # config client only overrides cooldown; env raises the default threshold;
+        # the config client must inherit the env default threshold (env > config).
+        monkeypatch.setenv(
+            "AIRLOCK_BREAKER_OVERRIDES", '{"defaults":{"rate_limit_threshold":6}}'
+        )
+        configure_breaker(
+            {
+                "airlock_settings": {
+                    "circuit_breaker": {
+                        "rate_limit_threshold": 2,
+                        "clients": {"key:c": {"client_cooldown_seconds": 15}},
+                    }
+                }
+            }
+        )
+        p = policy_for("key:c")
+        assert p.rate_limit_threshold == 6  # env default flowed in
+        assert p.client_cooldown_seconds == 15  # config client override kept
+
+    def test_malformed_clients_shape_no_crash(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_BREAKER_OVERRIDES", '{"clients":[]}')
+        configure_breaker({})  # must not raise
+        assert policy_for("x").rate_limit_threshold == 1

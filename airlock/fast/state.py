@@ -96,30 +96,47 @@ def configure_breaker(config: dict | None) -> None:
 
     log = logging.getLogger("airlock.fast.state")
     global _breaker_default, _breaker_clients
-    default = _DEFAULT_BREAKER_POLICY
-    clients: dict[str, BreakerPolicy] = {}
+
+    # Collect raw override mappings first so precedence can be applied once at the
+    # end: per-client > default, and env > config. Building policies eagerly (as a
+    # prior version did) leaked the *config* default into config-defined clients
+    # even when env overrode the default.
+    default_raw: dict = {}
+    client_raw: dict[str, dict] = {}
+
+    def _merge_clients(raw_clients: object) -> None:
+        if not isinstance(raw_clients, dict):
+            if raw_clients is not None:
+                log.warning("circuit_breaker.clients is not a mapping, ignoring")
+            return
+        for cid, raw in raw_clients.items():
+            if isinstance(raw, dict):
+                key = normalize_client_id(str(cid))
+                client_raw.setdefault(key, {}).update(raw)
 
     block = ((config or {}).get("airlock_settings") or {}).get("circuit_breaker") or {}
     if isinstance(block, dict):
-        default = _policy_from_mapping(default, block)
-        for cid, raw in (block.get("clients") or {}).items():
-            clients[normalize_client_id(str(cid))] = _policy_from_mapping(default, raw)
+        default_raw.update({k: v for k, v in block.items() if k != "clients"})
+        _merge_clients(block.get("clients"))
 
     raw_env = os.environ.get("AIRLOCK_BREAKER_OVERRIDES")
     if raw_env:
         try:
             parsed = json.loads(raw_env)
-            if isinstance(parsed, dict):
-                if isinstance(parsed.get("defaults"), dict):
-                    default = _policy_from_mapping(default, parsed["defaults"])
-                for cid, raw in (parsed.get("clients") or {}).items():
-                    clients[normalize_client_id(str(cid))] = _policy_from_mapping(
-                        default, raw
-                    )
-            else:
-                log.warning("AIRLOCK_BREAKER_OVERRIDES has wrong shape, ignoring")
         except (json.JSONDecodeError, TypeError):
             log.warning("Invalid AIRLOCK_BREAKER_OVERRIDES JSON, using defaults")
+            parsed = None
+        if isinstance(parsed, dict):
+            if isinstance(parsed.get("defaults"), dict):
+                default_raw.update(parsed["defaults"])  # env > config
+            _merge_clients(parsed.get("clients"))
+        elif parsed is not None:
+            log.warning("AIRLOCK_BREAKER_OVERRIDES has wrong shape, ignoring")
+
+    default = _policy_from_mapping(_DEFAULT_BREAKER_POLICY, default_raw)
+    clients: dict[str, BreakerPolicy] = {
+        cid: _policy_from_mapping(default, raw) for cid, raw in client_raw.items()
+    }
 
     _breaker_default = default
     _breaker_clients = clients
@@ -742,6 +759,33 @@ class StateStore:
             self.get_provider(provider).record_failure(timestamp)
             self.get_client_provider(client_id, provider).record_failure(timestamp)
 
+    def _escalation_impacted(
+        self,
+        provider: str,
+        provider_state: ProviderState,
+        window_seconds: float,
+        now: float,
+    ) -> set[str]:
+        """Distinct clients eligible to drive provider-wide escalation.
+
+        Applies both CC-6 floors (the provider's ``cleared_at`` and each
+        client→provider bucket's ``cleared_at``) and excludes clients whose policy
+        is ``escalation_exempt`` or ``disabled``. Caller holds ``self._lock``.
+        """
+        cutoff = max(now - window_seconds, provider_state.cleared_at)
+        impacted: set[str] = set()
+        for ts, cid in provider_state.rate_limit_events:
+            if ts <= cutoff:
+                continue
+            pol = policy_for(cid)
+            if pol.escalation_exempt or pol.disabled:
+                continue
+            bucket = self._client_provider.get((normalize_client_id(cid), provider))
+            if bucket is not None and ts <= bucket.cleared_at:
+                continue  # this client's bucket was cleared after the event
+            impacted.add(cid)
+        return impacted
+
     def record_provider_rate_limit(
         self,
         client_id: str,
@@ -785,18 +829,28 @@ class StateStore:
                 rate_limit_window_seconds=policy.rate_limit_window_seconds,
             )
 
-            # Escalation counts distinct impacted clients, excluding any that are
-            # escalation-exempt (E: a trusted client must not quarantine the
-            # provider for everyone else).
-            impacted = {
-                cid
-                for cid in provider_state.impacted_clients(
-                    policy.rate_limit_window_seconds
-                )
-                if not policy_for(cid).escalation_exempt
-            }
+            # Escalation set: distinct clients with a recent 429, with the CC-6
+            # floors applied (provider cleared_at AND each client bucket's
+            # cleared_at) and escalation_exempt / disabled clients excluded (E).
+            impacted = self._escalation_impacted(
+                provider,
+                provider_state,
+                policy.rate_limit_window_seconds,
+                timestamp,
+            )
             provider_quarantined = False
-            if len(impacted) >= policy.provider_escalation_client_threshold:
+            if provider_state._half_open_probe:
+                # CC-7: a failed probe after a provider half-open clear re-arms
+                # immediately, regardless of the escalation threshold.
+                provider_state._half_open_probe = False
+                provider_state.quarantine(
+                    timestamp,
+                    reason,
+                    error_type,
+                    cooldown_seconds=policy.provider_cooldown_seconds,
+                )
+                provider_quarantined = True
+            elif len(impacted) >= policy.provider_escalation_client_threshold:
                 provider_state.quarantine(
                     timestamp,
                     reason,
