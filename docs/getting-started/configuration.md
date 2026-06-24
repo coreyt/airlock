@@ -191,6 +191,94 @@ Full recipe in
 | `AIRLOCK_SMART_THRESHOLDS` | JSON `[simple_max, complex_min]` complexity cutoffs for `model: smart` | `[0.30, 0.60]` |
 | `AIRLOCK_SESSION_TTL` | Seconds a routing `session_id` stays pinned to its model | `3600` |
 | `AIRLOCK_PROVIDER_BUDGETS` | JSON provider→daily-budget map for budget-aware routing swaps | per-provider defaults |
+| `AIRLOCK_SSL_CERTFILE` | TLS certificate file for native HTTPS. **Both** cert and key must be set, or Airlock serves plain HTTP. | -- |
+| `AIRLOCK_SSL_KEYFILE` | TLS private-key file for native HTTPS (see `AIRLOCK_SSL_CERTFILE`) | -- |
+| `AIRLOCK_BREAKER_OVERRIDES` | JSON per-client circuit-breaker overrides: `{"defaults":{…},"clients":{"key:<last8>":{…}}}`. See [Rate Limiting](../guide/rate-limiting.md). | -- |
+| `AIRLOCK_BUDGET_WARN_RATIO` | Fraction of a provider's daily budget cap at which Airlock warns and tags responses `X-Airlock-Budget-State: near_limit` | `0.8` |
+| `AIRLOCK_FALLBACK_MAX_PROMPT_TOKENS` | Prompt-token size above which fallbacks are suppressed (fail fast instead of fanning out a large payload) | `60000` |
+| `AIRLOCK_JWT_SECRET` | Secret for signing/verifying admin & capability tokens. Falls back to an HMAC derivation from `AIRLOCK_MASTER_KEY` when unset. | -- |
+| `AIRLOCK_JWT_SECRET_PREV` | Previous JWT secret, accepted for verification during a rolling secret rotation | -- |
+
+## Resilience & admin settings
+
+Airlock 0.5.0 adds three optional `config.yaml` blocks for the circuit breaker, the
+admin API, and per-request guardrail skips. All are **off by default / behaviour-
+preserving** — a config-free deploy behaves exactly as before.
+
+### `airlock_settings.circuit_breaker`
+
+Per-client rate-limit circuit breaker. The defaults reproduce the historical
+one-strike behaviour. Full reference in [Rate Limiting](../guide/rate-limiting.md).
+
+```yaml
+airlock_settings:
+  circuit_breaker:
+    rate_limit_threshold: 1                 # 429s within the window before quarantine
+    rate_limit_window_seconds: 300
+    client_cooldown_seconds: 300
+    provider_cooldown_seconds: 300
+    provider_escalation_client_threshold: 2 # distinct clients before provider-wide quarantine
+    clients:
+      "key:b35cf679":                       # per-client-key override
+        rate_limit_threshold: 8
+        client_cooldown_seconds: 30
+        escalation_exempt: true             # don't trip the provider for everyone else
+        disabled: false                     # true = skip the breaker for this client
+```
+
+The env override `AIRLOCK_BREAKER_OVERRIDES` (JSON, same shape under
+`defaults`/`clients`) takes precedence.
+
+### `admin`
+
+Enables the admin control plane. When `enabled` is `false`, `/airlock/admin/*`
+returns `404`. Full reference in [Admin API](../guide/admin-api.md).
+
+```yaml
+admin:
+  enabled: false            # off → /airlock/admin/* returns 404
+  trust_loopback: true      # loopback connections are the operator (Path A)
+  allow_insecure_tokens: false   # permit token auth over plaintext on a non-loopback bind
+  behind_tls_proxy: false   # assert TLS is terminated upstream
+```
+
+Tokens are signed with `AIRLOCK_JWT_SECRET` (falling back to a derivation from
+`AIRLOCK_MASTER_KEY`); mint them with `airlock admin mint-token`. If the admin API
+or capability skips are active on a non-loopback bind without TLS, Airlock refuses
+to start unless one of `AIRLOCK_SSL_*`, `behind_tls_proxy`, or
+`allow_insecure_tokens` is set.
+
+### `guardrail_overrides`
+
+Allows trusted clients to downgrade specific content guards per request via an
+`X-Airlock-Capability` token. Off until `allow_capability_skip: true`. Full
+reference in [Guardrails → Per-request guardrail skips](../guide/guardrails.md#per-request-guardrail-skips).
+
+```yaml
+guardrail_overrides:
+  allow_capability_skip: false              # master flag
+  capability_header: X-Airlock-Capability
+  skippable:
+    pii_redact:      { skippable: false }                  # never, by default
+    keyword:         { skippable: true, downgrade_to: observe }
+    response_scan:   { skippable: true, downgrade_to: observe }
+    reasoning_strip: { skippable: true, downgrade_to: off }
+```
+
+### `provider_budget_config`
+
+The existing per-provider daily budget caps (under `router_settings`) now warn
+before the cliff. At `AIRLOCK_BUDGET_WARN_RATIO` (default `0.8`) of a provider's
+`budget_limit`, Airlock logs a warning and emits `X-Airlock-Budget-State:
+near_limit`. See [Routing → Provider budgets](../guide/routing.md#provider-budgets).
+
+## Native HTTPS
+
+Set **both** `AIRLOCK_SSL_CERTFILE` and `AIRLOCK_SSL_KEYFILE` to serve HTTPS
+natively on the same `AIRLOCK_HOST:AIRLOCK_PORT`. Leave either unset to serve plain
+HTTP (the default), e.g. when TLS is terminated by a reverse proxy. Certificates
+load at startup only, so renewal means a restart. See
+[Operations → Native TLS](../operations.md#native-tls).
 
 ## Startup Defaults
 

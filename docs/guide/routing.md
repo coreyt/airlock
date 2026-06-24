@@ -156,6 +156,46 @@ Per-provider daily budgets drive the budget-awareness step. Defaults are
 AIRLOCK_PROVIDER_BUDGETS='{"anthropic":100,"openai":75,"gemini":40}'
 ```
 
+## Fallbacks
+
+When a request to a model fails, LiteLLM's `router_settings.fallbacks` can re-send
+it to other models. For a large-context call each hop re-sends the full payload,
+multiplying tokens and spend across providers — and can silently answer a request
+from a different model than the client asked for. Airlock makes fan-out deliberate:
+
+- **Large prompts.** When a request's estimated prompt size exceeds
+  `AIRLOCK_FALLBACK_MAX_PROMPT_TOKENS` (default `60000`), fallbacks are suppressed —
+  Airlock fails fast with a descriptive [429](rate-limiting.md) instead of burning
+  3× the tokens on retries.
+- **Quarantined target.** When the resolved target provider is currently
+  quarantined by the [circuit breaker](rate-limiting.md), fallbacks are suppressed
+  rather than spreading the incident to another provider.
+- **Pinned requests** keep today's behaviour (no fallback), as before.
+
+When fallbacks are suppressed, Airlock records it in request metadata as
+`airlock_fallback_suppressed`. When a fallback *is* used, the answering model is
+surfaced via the `X-Airlock-Model-Override` header so the client knows a different
+model responded.
+
+## Provider budgets
+
+`router_settings.provider_budget_config` sets a per-provider daily spend cap (e.g.
+$50/day for OpenAI and Anthropic). Once a provider hits its cap, LiteLLM stops
+routing to it until the window rolls — a hard, deliberate stop. Airlock makes the
+approach visible:
+
+- At **`AIRLOCK_BUDGET_WARN_RATIO`** (default `0.8`, i.e. 80%) of a provider's
+  `budget_limit`, Airlock logs a warning and tags responses with
+  `X-Airlock-Budget-State: near_limit`, so clients and operators see the cliff
+  coming.
+- Spend against the cap is exported as the `airlock_provider_budget_used_usd` /
+  `airlock_provider_budget_limit_usd` gauges — see
+  [Provider Quota Observability](provider-observability.md).
+
+This per-provider daily cap (a hard stop) is distinct from the budget-awareness
+*routing swap* above, which proactively moves traffic at ≥90% of the
+`AIRLOCK_PROVIDER_BUDGETS` daily budget while headroom remains elsewhere.
+
 ## Configuration reference
 
 | Variable | Description | Default |
@@ -164,6 +204,8 @@ AIRLOCK_PROVIDER_BUDGETS='{"anthropic":100,"openai":75,"gemini":40}'
 | `AIRLOCK_SMART_THRESHOLDS` | JSON `[simple_max, complex_min]` band cutoffs for `model: smart` | `[0.30, 0.60]` |
 | `AIRLOCK_SESSION_TTL` | Seconds a `session_id` stays pinned to its model | `3600` |
 | `AIRLOCK_PROVIDER_BUDGETS` | JSON provider→daily-budget map for budget-aware swaps | see above |
+| `AIRLOCK_FALLBACK_MAX_PROMPT_TOKENS` | Prompt-token size above which fallbacks are suppressed | `60000` |
+| `AIRLOCK_BUDGET_WARN_RATIO` | Fraction of a provider's `budget_limit` at which Airlock warns and tags `near_limit` | `0.8` |
 
 Routing decisions are recorded on every request under
 `metadata.airlock_routing` and surfaced in the JSONL logs, so you can

@@ -50,3 +50,12 @@ airlock tui --start
 ```
 
 See [Installation](getting-started/installation.md) for detailed setup instructions.
+
+## Resilience & admin (new in 0.5.0)
+
+- [Admin API](guide/admin-api.md) — the control plane for live protection state:
+  clear a quarantine, reset a circuit, mint scoped tokens, audit log.
+- [Rate Limiting & the Circuit Breaker](guide/rate-limiting.md) — the 429 contract
+  (`Retry-After`, headers, body) and the tunable per-client circuit breaker.
+- [Provider Quota Observability](guide/provider-observability.md) — observe-only
+  rate-limit headroom and budget gauges captured from upstream providers.
