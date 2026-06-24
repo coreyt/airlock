@@ -451,6 +451,36 @@ cost_tiers:
 #         # disabled: true                  # turn the breaker off for this client
 
 # ---------------------------------------------------------------------------
+# Admin control plane (off by default) — see docs/guide/admin-api.md
+# ---------------------------------------------------------------------------
+# When admin.enabled is false (default), /airlock/admin/* returns 404. Auth is
+# either loopback (operator) or a bearer credential (master key or a capability
+# JWT). Bearer admin over a non-loopback bind without TLS is refused at startup
+# unless behind_tls_proxy or allow_insecure_tokens is set (set AIRLOCK_JWT_SECRET
+# for token signing; it falls back to deriving from AIRLOCK_MASTER_KEY).
+# admin:
+#   enabled: false
+#   trust_loopback: true        # a request on the loopback interface is the operator
+#   behind_tls_proxy: false     # assert TLS is terminated upstream (skips fail-closed)
+#   allow_insecure_tokens: false  # last resort: permit bearer admin over plaintext
+
+# ---------------------------------------------------------------------------
+# Guardrail overrides — per-request capability skip (off by default)
+# ---------------------------------------------------------------------------
+# A trusted client may present X-Airlock-Capability (a guardrail:skip:<name> JWT)
+# to downgrade a CONTENT guard for that request. "Skip" = downgrade to observe
+# (still scans + logs) unless downgrade_to: off. PII is non-skippable by default.
+# The token sub must be the client's authenticated key id (key:<last8>).
+# guardrail_overrides:
+#   allow_capability_skip: false
+#   capability_header: X-Airlock-Capability
+#   skippable:
+#     pii_redact:      { skippable: false }
+#     keyword:         { skippable: true, downgrade_to: observe }
+#     response_scan:   { skippable: true, downgrade_to: observe }
+#     reasoning_strip: { skippable: true, downgrade_to: off }
+
+# ---------------------------------------------------------------------------
 # Batch profile — Airlock Batch Gateway posture (design §3.3 / §4.2)
 # ---------------------------------------------------------------------------
 # One place to declare the batch posture, distinct from the interactive chat
