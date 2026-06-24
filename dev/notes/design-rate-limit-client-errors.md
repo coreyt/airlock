@@ -1,7 +1,7 @@
 # Design: Descriptive client-facing rate-limit errors + Retry-After (B)
 
 **Date:** 2026-06-23
-**Status:** Design proposal (pre-implementation).
+**Status:** Implemented in 0.5.0 (branch `feat/0.5.0-resilience-admin`; see `dev/plans/runs/STATUS-0.5.0.md`).
 **Scope:** new `airlock/proxy_errors.py` (FastAPI exception handler) +
 registration seam in `airlock/callbacks/model_override_headers.py`,
 `airlock/fast/guardian.py`, `airlock/docs.py`.

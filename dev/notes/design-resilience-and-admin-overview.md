@@ -1,7 +1,7 @@
 # Design: Resilience + Admin/Auth — unified review & reconciliation
 
 **Date:** 2026-06-23
-**Status:** Design proposal (pre-implementation). Umbrella review over SIX design
+**Status:** Implemented in 0.5.0 (branch `feat/0.5.0-resilience-admin`; see `dev/plans/runs/STATUS-0.5.0.md`). Umbrella review over SIX design
 notes; defines the cross-cutting decisions and pack sequencing that let them be
 built without conflicting.
 **Scope:** the union of the six notes below — `airlock/fast/{guardian,monitor,state}.py`,

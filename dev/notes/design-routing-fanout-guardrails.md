@@ -1,7 +1,7 @@
 # Design: Routing fan-out & budget-cap guardrails (A2 + A3)
 
 **Date:** 2026-06-23
-**Status:** Design proposal (pre-implementation).
+**Status:** Implemented in 0.5.0 (branch `feat/0.5.0-resilience-admin`; see `dev/plans/runs/STATUS-0.5.0.md`).
 **Scope:** `config.yaml` (`router_settings.fallbacks`,
 `router_settings.provider_budget_config`), `airlock/fast/guardian.py`,
 `airlock/fast/state.py` (read-only reuse), docs.

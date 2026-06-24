@@ -1,7 +1,7 @@
 # Design: Admin API + capability auth (native TLS, loopback ops, JWT skips)
 
 **Date:** 2026-06-23
-**Status:** Design proposal (pre-implementation).
+**Status:** Implemented in 0.5.0 (branch `feat/0.5.0-resilience-admin`; see `dev/plans/runs/STATUS-0.5.0.md`).
 **Scope:** `airlock/proxy.py`, `airlock/fast/state.py`, a new `airlock/admin/`
 package, `airlock/guardrails/*`, `airlock/tui/screens/overview.py`,
 `airlock/cli/main.py`, `config.yaml`, docs.

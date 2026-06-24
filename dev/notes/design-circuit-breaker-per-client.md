@@ -1,7 +1,7 @@
 # Design: Per-client circuit breaker + threshold tuning (A1 + E)
 
 **Date:** 2026-06-23
-**Status:** Design proposal (pre-implementation).
+**Status:** Implemented in 0.5.0 (branch `feat/0.5.0-resilience-admin`; see `dev/plans/runs/STATUS-0.5.0.md`).
 **Scope:** `airlock/fast/state.py`, `airlock/fast/guardian.py`,
 `airlock/fast/monitor.py`, `config.yaml`, `tests/test_fast_*`.
 **Index:** [design-large-context-resilience-overview.md](design-large-context-resilience-overview.md)

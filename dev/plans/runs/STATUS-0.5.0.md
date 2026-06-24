@@ -5,7 +5,7 @@
 > resume, re-derive each pack's state from its witnesses (runbook §1.5) and trust
 > the witnesses over this file.
 
-_Last updated: 2026-06-23 · mainline: `main` · **design gate PASSED; ready for Phase E (awaiting go-ahead)**_
+_Last updated: 2026-06-23 · mainline: `main` · **RELEASE COMPLETE — all 10 packs implemented, reviewed, CLOSED; full suite green**_
 
 ## 1. Current pack in flight + next action
 
@@ -44,23 +44,25 @@ _Last updated: 2026-06-23 · mainline: `main` · **design gate PASSED; ready for
 | ADM-jwt | HS256 mint/verify + `admin mint-token` | — | **PLANNED** | — |
 | ADM-http | PDP + perimeter middleware + `/airlock/admin/*` | ADM-state, ADM-jwt, errors | **PLANNED** | — |
 | ADM-tui | clear-quarantine keybindings → loopback client | ADM-http | **CLOSED** (CONCERN + fix-1) | `94f7701`+`9883160`; `c` keybinding + loopback client; R10 host-gate fix |
-| ADM-skip | guardrail-skip resolver + `X-Airlock-Capability` | ADM-http, ADM-jwt | **MERGED (security review running)** | `f5626f2`; CC-11 key-derived binding, CC-10 content-only/PII-never, off by default |
+| ADM-skip | guardrail-skip resolver + `X-Airlock-Capability` | ADM-http, ADM-jwt | **MERGED + fix-1 (re-review running)** | `f5626f2`+`a5f452b`; review BLOCK = **CRITICAL metadata-injection auth bypass** → fix-1 (never trust client metadata; recompute+verify); CC-11/CC-10 |
 
-**Full suite: 1959 passed, 0 failures — all 10 packs implemented & green together.**
+**All 10 packs implemented; full suite 1959 passed, 0 failures.** Docs written
+(3 new guides + 7 updates). The ADM-skip review caught a critical injection
+bypass (a client could grant itself guardrail skips with no token) — fixed.
 
 ## 3. Acceptance scoreboard (UN → pack)
 
 | Requirement | Pack | Status |
 |-------------|------|--------|
-| UN-10 operator quarantine clear | ADM-state + ADM-http (+ ADM-tui) | ⬜ |
-| UN-11 capability auth (loopback + JWT) | ADM-jwt + ADM-http | ⬜ |
-| UN-12 native TLS | RES-tls | ⬜ |
-| UN-13 per-request guardrail skip | ADM-skip | ⬜ |
-| UN-14 no self-inflicted quarantine storms | RES-breaker | ⬜ |
-| UN-15 per-client breaker tuning | RES-breaker | ⬜ |
-| UN-16 correct client backoff signaling | RES-errors | ⬜ |
-| UN-17 provider quota observability | RES-observ | ⬜ |
-| UN-18 bounded fallback/budget blast-radius | RES-routing | ⬜ |
+| UN-10 operator quarantine clear | ADM-state + ADM-http (+ ADM-tui) | ✅ |
+| UN-11 capability auth (loopback + JWT) | ADM-jwt + ADM-http | ✅ |
+| UN-12 native TLS | RES-tls | ✅ |
+| UN-13 per-request guardrail skip | ADM-skip | ✅ |
+| UN-14 no self-inflicted quarantine storms | RES-breaker | ✅ |
+| UN-15 per-client breaker tuning | RES-breaker | ✅ |
+| UN-16 correct client backoff signaling | RES-errors | ✅ |
+| UN-17 provider quota observability | RES-observ | ✅ |
+| UN-18 bounded fallback/budget blast-radius | RES-routing | ✅ |
 
 ## 4. Parallelization plan
 

@@ -1,7 +1,7 @@
 # Design: Large-context resilience — overview & index
 
 **Date:** 2026-06-23
-**Status:** Design proposal (pre-implementation). Six workstreams, grouped into
+**Status:** Implemented in 0.5.0 (branch `feat/0.5.0-resilience-admin`; see `dev/plans/runs/STATUS-0.5.0.md`). Six workstreams, grouped into
 four design notes + this index.
 **Scope:** `airlock/fast/{guardian,monitor,state}.py`, a new proxy exception
 handler, `airlock/callbacks/*`, `config.yaml`, docs.

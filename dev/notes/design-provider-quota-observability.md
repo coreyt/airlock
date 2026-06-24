@@ -1,7 +1,7 @@
 # Design: Provider quota / rate-limit observability (C)
 
 **Date:** 2026-06-23
-**Status:** Design proposal (pre-implementation).
+**Status:** Implemented in 0.5.0 (branch `feat/0.5.0-resilience-admin`; see `dev/plans/runs/STATUS-0.5.0.md`).
 **Scope:** `airlock/fast/monitor.py`, `airlock/fast/state.py`,
 `airlock/callbacks/enterprise_logger.py`, `airlock/callbacks/metrics.py`,
 `airlock/tui/screens/*`, `config.yaml`.
