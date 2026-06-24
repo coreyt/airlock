@@ -19,7 +19,9 @@ import logging
 import time
 from typing import Any
 
+from airlock.callbacks.metrics import record_provider_ratelimit_headroom
 from airlock.client_identity import extract_airlock_client_from_kwargs
+from airlock.fast.ratelimit_headers import parse_ratelimit_headers
 from airlock.gemini_interface import classify_gemini_response
 from airlock.guardrails.extract import is_batch_call
 from litellm.exceptions import APIError, RateLimitError
@@ -117,6 +119,16 @@ class AirlockFastMonitor(CustomLogger):
                 store.get_provider_spend(provider).record_spend(now, cost)
             store.record_provider_request(client_id, provider, now)
             store.record_provider_success(client_id, provider, now)
+            # Capture upstream quota headroom (workstream C, observe-only).
+            hidden = getattr(response_obj, "_hidden_params", None)
+            if isinstance(hidden, dict):
+                parsed = parse_ratelimit_headers(hidden.get("additional_headers") or {})
+                store.record_provider_ratelimit(provider, parsed, now)
+                record_provider_ratelimit_headroom(
+                    provider,
+                    parsed["remaining_tokens"],
+                    parsed["remaining_requests"],
+                )
             if provider == "gemini":
                 metadata = kwargs.get("litellm_params", {}).get("metadata", {}) or {}
                 gemini_request = metadata.get("airlock_gemini") or {}
@@ -205,6 +217,17 @@ class AirlockFastMonitor(CustomLogger):
                 reason or "provider_rate_limited",
                 error_type or "RateLimitError",
             )
+            # Capture the exhausted-quota snapshot from the 429 response headers.
+            resp = getattr(exception, "response", None)
+            resp_headers = getattr(resp, "headers", None)
+            if resp_headers is not None:
+                parsed = parse_ratelimit_headers(resp_headers)
+                store.record_provider_ratelimit(provider, parsed, now)
+                record_provider_ratelimit_headroom(
+                    provider,
+                    parsed["remaining_tokens"],
+                    parsed["remaining_requests"],
+                )
             metadata = litellm_params.get("metadata") or {}
             litellm_params["metadata"] = metadata
             # Three-way label so a below-threshold 429 (nothing armed, possible

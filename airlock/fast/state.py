@@ -267,6 +267,39 @@ class ProviderSpend:
         return sum(cost for t, cost in self.spend_records if t > cutoff)
 
 
+@dataclass
+class ProviderRateLimitState:
+    """Latest upstream quota headroom for a provider (workstream C, observe-only).
+
+    Updated every call from parsed ``x-ratelimit-*`` headers; fields stay ``None``
+    until a header is observed. Cheap, in-memory, mirrors ``ProviderSpend``.
+    """
+
+    provider: str
+    remaining_tokens: int | None = None
+    remaining_requests: int | None = None
+    limit_tokens: int | None = None
+    limit_requests: int | None = None
+    reset_tokens_seconds: float | None = None
+    reset_requests_seconds: float | None = None
+    observed_at: float = 0.0
+
+    def update(self, parsed: dict, timestamp: float) -> None:
+        """Overlay the non-None parsed fields; record when it was observed."""
+        for key in (
+            "remaining_tokens",
+            "remaining_requests",
+            "limit_tokens",
+            "limit_requests",
+            "reset_tokens_seconds",
+            "reset_requests_seconds",
+        ):
+            value = parsed.get(key)
+            if value is not None:
+                setattr(self, key, value)
+        self.observed_at = timestamp
+
+
 # ---------------------------------------------------------------------------
 # Provider protection state
 # ---------------------------------------------------------------------------
@@ -654,6 +687,7 @@ class StateStore:
         self._models: dict[str, ModelState] = {}
         self._sessions: dict[str, SessionRecord] = {}
         self._provider_spend: dict[str, ProviderSpend] = {}
+        self._provider_ratelimit: dict[str, ProviderRateLimitState] = {}
         self._providers: dict[str, ProviderState] = {}
         self._client_provider: dict[tuple[str, str], ClientProviderState] = {}
         self._mcp_servers: dict[str, McpServerState] = {}
@@ -712,6 +746,31 @@ class StateStore:
             if provider not in self._provider_spend:
                 self._provider_spend[provider] = ProviderSpend(provider=provider)
             return self._provider_spend[provider]
+
+    def get_provider_ratelimit(self, provider: str) -> ProviderRateLimitState:
+        with self._lock:
+            if provider not in self._provider_ratelimit:
+                self._provider_ratelimit[provider] = ProviderRateLimitState(
+                    provider=provider
+                )
+            return self._provider_ratelimit[provider]
+
+    def record_provider_ratelimit(
+        self, provider: str, parsed: dict, timestamp: float
+    ) -> None:
+        """Update a provider's headroom from parsed ``x-ratelimit-*`` headers.
+
+        No-op when ``parsed`` carries no usable values, so callers can pass the
+        tolerant parser output unconditionally.
+        """
+        if not parsed or all(v is None for v in parsed.values()):
+            return
+        with self._lock:
+            self.get_provider_ratelimit(provider).update(parsed, timestamp)
+
+    def all_provider_ratelimits(self) -> dict[str, ProviderRateLimitState]:
+        with self._lock:
+            return dict(self._provider_ratelimit)
 
     def get_provider(self, provider: str) -> ProviderState:
         with self._lock:

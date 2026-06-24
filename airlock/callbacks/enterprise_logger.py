@@ -463,6 +463,10 @@ class AirlockLogger(CustomLogger):
 
         record = {
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            # CC-9: discriminator so ingest_jsonl_record can route record kinds.
+            # Request records are "request"; the admin pack adds "admin_action".
+            # An absent record_type is treated as "request" for back-compat.
+            "record_type": "request",
             "success": success,
             "model": kwargs.get("model", "unknown"),
             "user": metadata.get("user_api_key_alias")

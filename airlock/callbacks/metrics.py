@@ -60,6 +60,16 @@ def _build_metrics() -> dict[str, Any]:
             "Circuit breaker state (0=closed, 1=half_open, 2=open)",
             ["model"],
         ),
+        "provider_ratelimit_remaining_tokens": Gauge(
+            "airlock_provider_ratelimit_remaining_tokens",
+            "Upstream remaining-tokens headroom per provider (latest observed)",
+            ["provider"],
+        ),
+        "provider_ratelimit_remaining_requests": Gauge(
+            "airlock_provider_ratelimit_remaining_requests",
+            "Upstream remaining-requests headroom per provider (latest observed)",
+            ["provider"],
+        ),
         "threat_blocks": Counter(
             "airlock_threat_blocks_total",
             "Total requests blocked by threat detector",
@@ -89,6 +99,28 @@ def record_keyword_block() -> None:
     """Increment keyword block counter. Called by keyword_guard."""
     if "keyword_blocks" in _metrics:
         _metrics["keyword_blocks"].inc()
+
+
+def record_provider_ratelimit_headroom(
+    provider: str,
+    remaining_tokens: int | None,
+    remaining_requests: int | None,
+) -> None:
+    """Set the latest upstream headroom gauges for a provider (workstream C)."""
+    if (
+        remaining_tokens is not None
+        and "provider_ratelimit_remaining_tokens" in _metrics
+    ):
+        _metrics["provider_ratelimit_remaining_tokens"].labels(provider=provider).set(
+            remaining_tokens
+        )
+    if (
+        remaining_requests is not None
+        and "provider_ratelimit_remaining_requests" in _metrics
+    ):
+        _metrics["provider_ratelimit_remaining_requests"].labels(provider=provider).set(
+            remaining_requests
+        )
 
 
 def record_response_scan_detection(category: str, mode: str) -> None:
