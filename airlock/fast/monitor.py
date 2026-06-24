@@ -15,6 +15,7 @@ Registered in config.yaml alongside the enterprise logger:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -72,8 +73,6 @@ def _explicit_budget_for(provider: str) -> float | None:
     AIRLOCK_PROVIDER_BUDGETS (env, explicit) overrides the captured
     provider_budget_config. Never falls back to the router's routing defaults.
     """
-    import json
-
     raw = os.getenv("AIRLOCK_PROVIDER_BUDGETS")
     if raw:
         try:
