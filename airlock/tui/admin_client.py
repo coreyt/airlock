@@ -15,13 +15,16 @@ import ssl
 import urllib.error
 import urllib.request
 
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
-def _scheme_and_context() -> tuple[str, ssl.SSLContext | None]:
+
+def _scheme_and_context(host: str) -> tuple[str, ssl.SSLContext | None]:
     if os.getenv("AIRLOCK_SSL_CERTFILE") and os.getenv("AIRLOCK_SSL_KEYFILE"):
         ctx = ssl.create_default_context()
-        # Loopback self-signed cert: skip verification for 127.0.0.1 only.
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+        if host in _LOOPBACK_HOSTS:
+            # Loopback self-signed cert: skip verification for loopback ONLY (R10).
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
         return "https", ctx
     return "http", None
 
@@ -36,24 +39,31 @@ def admin_post(
 ) -> tuple[int, dict]:
     """POST to a loopback admin endpoint. Returns (status, payload). status 0 on
     a transport error (with an ``error`` payload). Never raises."""
-    scheme, ctx = _scheme_and_context()
+    scheme, ctx = _scheme_and_context(host)
     url = f"{scheme}://{host}:{port}{path}"
-    data = json.dumps(body or {}).encode()
+    try:
+        data = json.dumps(body or {}).encode()
+    except (TypeError, ValueError):
+        return 0, {"error": "unserializable body"}
     req = urllib.request.Request(
         url, data=data, method="POST", headers={"Content-Type": "application/json"}
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-            raw = resp.read() or b"{}"
-            return resp.status, json.loads(raw)
+            status, raw = resp.status, (resp.read() or b"{}")
     except urllib.error.HTTPError as exc:
         try:
-            payload = json.loads(exc.read() or b"{}")
+            return exc.code, json.loads(exc.read() or b"{}")
         except (ValueError, OSError):
-            payload = {"error": f"HTTP {exc.code}"}
-        return exc.code, payload
-    except (urllib.error.URLError, OSError, ValueError) as exc:
+            return exc.code, {"error": f"HTTP {exc.code}"}
+    except (urllib.error.URLError, OSError) as exc:
         return 0, {"error": str(exc)}
+    # Parse the body outside the transport try so a non-JSON 2xx keeps its status.
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        return status, {"error": "non-JSON response"}
+    return status, payload if isinstance(payload, dict) else {"data": payload}
 
 
 def clear_provider_quarantine(

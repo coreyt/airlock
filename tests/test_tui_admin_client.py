@@ -68,11 +68,33 @@ class TestScheme:
     def test_http_by_default(self, monkeypatch):
         monkeypatch.delenv("AIRLOCK_SSL_CERTFILE", raising=False)
         monkeypatch.delenv("AIRLOCK_SSL_KEYFILE", raising=False)
-        scheme, ctx = _scheme_and_context()
+        scheme, ctx = _scheme_and_context("127.0.0.1")
         assert scheme == "http" and ctx is None
 
-    def test_https_when_tls_configured(self, monkeypatch):
+    def test_https_loopback_skips_verify(self, monkeypatch):
+        import ssl
+
         monkeypatch.setenv("AIRLOCK_SSL_CERTFILE", "/c")
         monkeypatch.setenv("AIRLOCK_SSL_KEYFILE", "/k")
-        scheme, ctx = _scheme_and_context()
-        assert scheme == "https" and ctx is not None
+        scheme, ctx = _scheme_and_context("127.0.0.1")
+        assert scheme == "https"
+        assert ctx.verify_mode == ssl.CERT_NONE  # R10: loopback only
+        assert ctx.check_hostname is False
+
+    def test_https_non_loopback_keeps_verify(self, monkeypatch):
+        import ssl
+
+        monkeypatch.setenv("AIRLOCK_SSL_CERTFILE", "/c")
+        monkeypatch.setenv("AIRLOCK_SSL_KEYFILE", "/k")
+        scheme, ctx = _scheme_and_context("airlock.internal")
+        assert scheme == "https"
+        assert ctx.verify_mode == ssl.CERT_REQUIRED  # R10 is loopback-only
+
+    def test_malformed_2xx_body_keeps_status(self):
+        class _BadResp(_FakeResp):
+            def read(self):
+                return b"<<not json>>"
+
+        with patch("urllib.request.urlopen", return_value=_BadResp(200, {})):
+            status, payload = admin_post("127.0.0.1", "4000", "/p")
+        assert status == 200 and "error" in payload  # status preserved
