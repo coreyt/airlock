@@ -107,3 +107,59 @@ class TestAdminActionIngest:
         replica.get_client("c").backoff_until = time.time() + 100
         replica.ingest_jsonl_record(rec)  # no "model" key — must NOT be dropped
         assert replica.get_client("c").is_in_backoff() is False
+
+
+class TestAdmStateFix1:
+    """From the ADM-state PASS_WITH_NOTES review."""
+
+    def test_unknown_mode_raises(self):
+        import pytest
+
+        store = StateStore()
+        with pytest.raises(ValueError):
+            store.clear_provider_quarantine("openai", mode="Force")
+        with pytest.raises(ValueError):
+            store.clear_client_provider_quarantine("c", "openai", mode="nope")
+
+    def test_probe_unquarantines_immediately(self):
+        store = StateStore()
+        now = time.time()
+        store.get_provider("openai").quarantine_until = now + 100
+        store.clear_provider_quarantine("openai", mode="probe", now=now)
+        ps = store.get_provider("openai")
+        assert ps.quarantine_until == now
+        assert ps.is_quarantined(now) is False  # now < now is False
+
+    def test_ingest_uses_record_timestamp(self):
+        live = StateStore()
+        t0 = 10_000.0
+        rec = live.clear_client_provider_quarantine("c", "openai", mode="force", now=t0)
+        replica = StateStore()
+        replica.ingest_jsonl_record(rec)
+        # cleared_at on the replica reflects the original event time, not replay time
+        assert replica.get_client_provider("c", "openai").cleared_at == t0
+
+    def test_ingest_roundtrip_client_provider(self):
+        live = StateStore()
+        now = time.time()
+        rec = live.clear_client_provider_quarantine("c", "openai", mode="force", now=now)
+        replica = StateStore()
+        replica.get_client_provider("c", "openai").quarantine_until = now + 100
+        replica.ingest_jsonl_record(rec)
+        assert replica.get_client_provider("c", "openai").is_quarantined() is False
+
+    def test_ingest_roundtrip_reset_model_circuit(self):
+        live = StateStore()
+        rec = live.reset_model_circuit("gpt-5.4")
+        replica = StateStore()
+        replica.get_model("gpt-5.4").circuit = CircuitState.OPEN
+        replica.ingest_jsonl_record(rec)
+        assert replica.get_model("gpt-5.4").circuit == CircuitState.HALF_OPEN
+
+    def test_ingest_roundtrip_quarantine_provider(self):
+        live = StateStore()
+        now = time.time()
+        rec = live.quarantine_provider("openai", now=now, cooldown=120)
+        replica = StateStore()
+        replica.ingest_jsonl_record(rec)
+        assert replica.get_provider("openai").is_quarantined() is True

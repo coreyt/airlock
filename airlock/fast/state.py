@@ -957,6 +957,8 @@ class StateStore:
         provider AND every ``(client, provider)`` bucket so the threshold counter
         and escalation cannot re-arm off pre-clear history (CC-6).
         """
+        if mode not in ("probe", "force"):
+            raise ValueError(f"unknown clear mode: {mode!r}")
         now = time.time() if now is None else now
         probe = mode == "probe"
         with self._lock:
@@ -991,6 +993,8 @@ class StateStore:
         now: float | None = None,
     ) -> dict:
         """Clear one client→provider quarantine bucket — the precise UN-10 op."""
+        if mode not in ("probe", "force"):
+            raise ValueError(f"unknown clear mode: {mode!r}")
         now = time.time() if now is None else now
         client_id = normalize_client_id(client_id)
         probe = mode == "probe"
@@ -1076,9 +1080,18 @@ class StateStore:
         """
         op = record.get("op")
         actor = record.get("actor", "")
+        # Use the record's own timestamp so the replica's cleared_at matches the
+        # original event (matters for cold-start replay of older JSONL, not just
+        # live tailing); fall back to wall-clock if it can't be parsed.
+        try:
+            from datetime import datetime
+
+            now = datetime.fromisoformat(record.get("timestamp", "")).timestamp()
+        except (ValueError, TypeError):
+            now = time.time()
         if op == "clear_provider_quarantine":
             self.clear_provider_quarantine(
-                record.get("provider", ""), mode="force", actor=actor
+                record.get("provider", ""), mode="force", actor=actor, now=now
             )
         elif op == "clear_client_provider_quarantine":
             self.clear_client_provider_quarantine(
@@ -1086,15 +1099,17 @@ class StateStore:
                 record.get("provider", ""),
                 mode="force",
                 actor=actor,
+                now=now,
             )
         elif op == "clear_client_backoff":
-            self.clear_client_backoff(record.get("client_id", ""), actor=actor)
+            self.clear_client_backoff(record.get("client_id", ""), actor=actor, now=now)
         elif op == "reset_model_circuit":
-            self.reset_model_circuit(record.get("model", ""), actor=actor)
+            self.reset_model_circuit(record.get("model", ""), actor=actor, now=now)
         elif op == "quarantine_provider":
             self.quarantine_provider(
                 record.get("provider", ""),
                 actor=actor,
+                now=now,
                 cooldown=record.get("cooldown_seconds"),
             )
 
