@@ -33,9 +33,10 @@ _Last updated: 2026-06-23 · mainline: `main` · **design gate PASSED; ready for
 | Pack | Goal (1 line) | Depends on | State | Witness |
 |------|---------------|------------|-------|---------|
 | RES-tls | TLS env → litellm ssl flags (`proxy.py`) | — | **CLOSED** | commit `1567b54`; review `0.5.0-RES-tls-review-*` (PASS, flags confirmed vs litellm 1.89.0) |
-| RES-breaker | threshold breaker + per-client policy + `cleared_at`/`_half_open_probe` + no-re-arm | — | **MERGED + fix-1 (re-review running)** | `41ab9d3` + fix-1 `2c48517`; review R1 BLOCK→fixed (provider half-open, escalation floors, config precedence, monitor label) |
-| RES-errors | `AirlockProviderBlocked` + handler + `Retry-After` | breaker | **MERGED + fix-1 (re-review running)** | `cf452d6` + fix-1 `f7569c2`; review R1 BLOCK→fixed (reason sanitizer at boundary) |
-| RES-observ | capture `x-ratelimit-*` + `record_type` + TUI headroom | breaker | **PLANNED** | — |
+| RES-breaker | threshold breaker + per-client policy + `cleared_at`/`_half_open_probe` + no-re-arm | — | **CLOSED** (fix-1 **PASS**) | `41ab9d3` + `2c48517`; review R1 BLOCK → fix-1 **PASS**; `state.py` shape locked for ADM-state |
+| RES-errors | `AirlockProviderBlocked` + handler + `Retry-After` | breaker | **CLOSED** (fix-1 **PASS**) | `cf452d6` + `f7569c2`; review R1 BLOCK → fix-1 **PASS**; HITL H1 (seam) pending for B acceptance |
+| RES-observ | capture `x-ratelimit-*` + `record_type` + TUI headroom | breaker | **MERGED (review running, code-reviewer)** | core + metrics; codex sandbox failed → Claude code-reviewer; log-enrichment/TUI/passthrough deferred to polish |
+| ADM-jwt | HS256 mint/verify + `admin mint-token` | — | **MERGED (review running, code-reviewer)** | commit `7dde6f9`; PyJWT HS256, master-key derivation, rotation, denylist |
 | RES-routing | `_suppress_fallbacks` + budget warn | breaker, errors, observ | **PLANNED** | — |
 | ADM-state | CC-8 mutators + `admin_action` + ingest | breaker, observ | **PLANNED** | — |
 | ADM-jwt | HS256 mint/verify + `admin mint-token` | — | **PLANNED** | — |
