@@ -224,6 +224,12 @@ class AirlockFastGuardian(CustomGuardrail):
     ) -> dict:
         now = time.time()
         client_id = _request_client_id(data, user_api_key_dict)
+        # Resolve per-request guardrail skips (CC-10/CC-11) and stamp the decision
+        # so content guards can honour it. Off by default; binds to the
+        # authenticated key id, not the forgeable client header.
+        from airlock.guardrails.overrides import resolve_guardrail_decision
+
+        resolve_guardrail_decision(data, user_api_key_dict)
         client = store.get_client(client_id)
         requested_model = data.get("model") or "unknown"
         model_name = requested_model
