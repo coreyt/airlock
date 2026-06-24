@@ -172,28 +172,21 @@ def _suppress_fallbacks(data: dict[str, Any], reason: str) -> None:
     """Disable downstream fan-out for this request (A2). Mirrors the pinned lock."""
     data["disable_fallbacks"] = True
     data["num_retries"] = 0
+    data["max_retries"] = 0
     metadata = data.setdefault("metadata", {})
     metadata["airlock_fallback_suppressed"] = reason
 
 
-def _maybe_suppress_fallbacks(
-    data: dict[str, Any], model_name: str, now: float
-) -> None:
-    """A2: suppress fallbacks for large prompts or a quarantined target provider.
+def _maybe_suppress_fallbacks(data: dict[str, Any]) -> None:
+    """A2-1: suppress fallbacks for large-context requests (cost × payload).
 
-    Large-context calls are the worst case for fan-out (cost × payload), and
-    falling back off a rate-limited provider just spreads the incident — fail fast
-    with B's typed 429 instead.
+    Scope note: this covers only the unambiguous large-prompt case. The
+    rate-limited-provider case (A2-2) is handled by the circuit breaker's own
+    failover (which redirects to a healthy model) plus same-provider fallback
+    curation in config.yaml — suppressing here would fight that redirect.
     """
-    reason = None
     if _estimate_prompt_tokens(data) > _fallback_max_prompt_tokens():
-        reason = "large_prompt"
-    else:
-        provider = infer_provider(model_name)
-        if provider and store.get_provider(provider).is_quarantined(now):
-            reason = "provider_quarantined"
-    if reason:
-        _suppress_fallbacks(data, reason)
+        _suppress_fallbacks(data, "large_prompt")
 
 
 def _lock_pinned_request(data: dict[str, Any]) -> None:
@@ -240,8 +233,8 @@ class AirlockFastGuardian(CustomGuardrail):
         if pinned_model and not mcp and not batch:
             _lock_pinned_request(data)
         elif not mcp and not batch:
-            # A2: large / quarantined-target requests must not fan out.
-            _maybe_suppress_fallbacks(data, model_name, now)
+            # A2-1: large-context requests must not fan out across models.
+            _maybe_suppress_fallbacks(data)
 
         # Record the inbound request
         client.record_request(now)

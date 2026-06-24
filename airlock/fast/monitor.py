@@ -32,11 +32,28 @@ from .state import normalize_client_id, store
 
 logger = logging.getLogger("airlock.fast.monitor")
 
-from .router import _load_provider_budgets
 from .router import infer_provider as _infer_provider
 
 _DEFAULT_BUDGET_WARN_RATIO = 0.8
 _budget_warned: set[str] = set()  # warn once per provider per process (anti-spam)
+# Explicit per-provider daily caps from provider_budget_config, captured at
+# startup. A3 warns ONLY for providers with an explicit cap here or in
+# AIRLOCK_PROVIDER_BUDGETS — never the router's internal routing defaults, so a
+# deploy that configures no budget gets no warn (CC-3).
+_configured_budgets: dict[str, float] = {}
+
+
+def configure_budgets(config: dict | None) -> None:
+    """Capture explicit provider_budget_config caps at startup (CC-2/CC-3)."""
+    global _configured_budgets
+    budgets: dict[str, float] = {}
+    block = (config or {}).get("provider_budget_config") or {}
+    if isinstance(block, dict):
+        for prov, cfg in block.items():
+            limit = cfg.get("budget_limit") if isinstance(cfg, dict) else None
+            if isinstance(limit, (int, float)):
+                budgets[str(prov)] = float(limit)
+    _configured_budgets = budgets
 
 
 def _budget_warn_ratio() -> float:
@@ -49,13 +66,33 @@ def _budget_warn_ratio() -> float:
     return _DEFAULT_BUDGET_WARN_RATIO
 
 
+def _explicit_budget_for(provider: str) -> float | None:
+    """Explicit daily cap for a provider, or None if none is configured.
+
+    AIRLOCK_PROVIDER_BUDGETS (env, explicit) overrides the captured
+    provider_budget_config. Never falls back to the router's routing defaults.
+    """
+    import json
+
+    raw = os.getenv("AIRLOCK_PROVIDER_BUDGETS")
+    if raw:
+        try:
+            env_budgets = json.loads(raw)
+            if isinstance(env_budgets, dict) and provider in env_budgets:
+                return float(env_budgets[provider])
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+    return _configured_budgets.get(provider)
+
+
 def _maybe_warn_budget(provider: str, spend_state, kwargs: dict) -> bool:
     """A3: warn (once) when a provider crosses warn_ratio of its daily cap.
 
     Sets ``airlock_budget_state=near_limit`` in response metadata and logs once
     per provider per process. Returns whether the provider is near its limit.
+    Only fires for providers with an *explicitly configured* budget (CC-3).
     """
-    limit = _load_provider_budgets().get(provider)
+    limit = _explicit_budget_for(provider)
     if not limit:
         return False
     spent = spend_state.recent_spend()
