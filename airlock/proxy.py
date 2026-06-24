@@ -95,6 +95,29 @@ def _validate_master_key() -> None:
         )
 
 
+def _ssl_cli_args() -> list[str]:
+    """Native TLS passthrough flags for the litellm/uvicorn subprocess.
+
+    Native HTTPS is opt-in: ``AIRLOCK_SSL_CERTFILE`` and ``AIRLOCK_SSL_KEYFILE``
+    must *both* be set (and non-blank) to serve HTTPS on ``AIRLOCK_HOST:PORT``.
+    When unset, the proxy serves plain HTTP and TLS is expected to be terminated by
+    a reverse proxy. Per CC-12 this is a parent-process concern (a uvicorn flag),
+    not a subprocess store setting. Setting only one of the two is a
+    misconfiguration: no TLS is enabled and a warning is emitted.
+    """
+    cert = os.getenv("AIRLOCK_SSL_CERTFILE", "").strip()
+    key = os.getenv("AIRLOCK_SSL_KEYFILE", "").strip()
+    if cert and key:
+        return ["--ssl_certfile_path", cert, "--ssl_keyfile_path", key]
+    if cert or key:
+        print(
+            "WARNING: only one of AIRLOCK_SSL_CERTFILE / AIRLOCK_SSL_KEYFILE is set; "
+            "native TLS requires both. Serving plain HTTP.",
+            file=sys.stderr,
+        )
+    return []
+
+
 def _env_flag(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
     if value is None:
@@ -381,6 +404,8 @@ def main() -> None:
         "--port",
         str(port),
     ]
+    # Native HTTPS (opt-in): append uvicorn ssl flags when AIRLOCK_SSL_* are set.
+    litellm_cmd += _ssl_cli_args()
     env = os.environ.copy()
     existing_pythonpath = env.get("PYTHONPATH", "")
     repo_pythonpath = str(project_root)
