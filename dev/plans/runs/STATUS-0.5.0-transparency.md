@@ -6,7 +6,7 @@
 > (runbook §1.5) and trust the witnesses over this file. Parent board:
 > `STATUS-0.5.0.md` (resilience+admin, all CLOSED).
 
-_Last updated: 2026-06-24 · branch: `feat/0.5.0-resilience-admin` · **PHASE E IN PROGRESS — OBS-core implementing (worktree `.claude/worktrees/obs-core` @ base 96744f2; TDD implementer spawned).**_
+_Last updated: 2026-06-24 · branch: `feat/0.5.0-resilience-admin` · **PHASE E IN PROGRESS — OBS-core CLOSED (merged `b997de0`); launching OBS-served ∥ OBS-ledger from that HEAD.**_
 
 ## 1. Current state + next action
 
@@ -24,24 +24,30 @@ _Last updated: 2026-06-24 · branch: `feat/0.5.0-resilience-admin` · **PHASE E 
   explain SSE-safety, back-compat wording). All resolved in the design; round 2 =
   **PASS, no new findings.** Promoted verdict:
   `dev/plans/runs/0.5.0-TRANSPARENCY-design-review-20260624T183245Z-r2.md`.
-- **Phase E (implementation): IN PROGRESS.** Preconditions verified: Phase D codex
-  PASS; base commit `96744f2` (`feat/0.5.0-resilience-admin` HEAD). Pack 1
-  **OBS-core** prompt authored (`dev/plans/prompts/0.5.0-OBS-core.md`), worktree
-  `.claude/worktrees/obs-core` (branch `obs-core`) cut from `96744f2` with its venv
-  synced (isolated; `import airlock` resolves into the worktree), TDD implementer
-  spawned. State: **IMPLEMENTING** (no durable witness yet).
+- **Phase E (implementation): IN PROGRESS.** Preconditions verified (Phase D codex
+  PASS; resilience+admin CLOSED).
+  - **OBS-core: ✅ CLOSED.** Merged `b997de0` (`--no-ff`) into
+    `feat/0.5.0-resilience-admin`. Pure `airlock/transparency.py` module, zero
+    call-sites changed, 44 unit tests green. codex `gpt-5.5` = **CONCERN** (1 medium
+    byte-bound-on-tiny-budget, 1 low string-bool coercion) → both **fixed** + the
+    byte-bound invariant orchestrator-verified → promoted PASS-after-fix. Verdict:
+    `dev/plans/runs/0.5.0-OBS-core-review-20260624T220523Z.md`. Implementation commits
+    `76aa191` (impl) + `29b81f2` (fix); worktree removed.
 
-**Next action:** await OBS-core implementer REPORT + `0.5.0-OBS-core-output.json`
-witness → codex review → merge. Then OBS-served ∥ OBS-ledger (both depend only on
-OBS-core).
+**Next action:** launch **OBS-served ∥ OBS-ledger** (both depend only on OBS-core),
+each in its own worktree cut from `b997de0`. Anchors re-verified against branch HEAD
+(model_override_headers hook `:24-54` returns `dict|None`, reads `data["metadata"]`;
+proxy startup wiring after `proxy.py:394`; ~18 mutation sites confirmed, note
+`enhanced_passthrough.py` moved to `airlock/providers/` and is provider-side w/o
+metadata in scope; drop_params resolution at `guardian.py:291`/`:433`).
 
 ## 2. Pack scoreboard
 
 | Pack | Goal (1 line) | Depends on | State | Witness |
 |------|---------------|------------|-------|---------|
-| OBS-core | `airlock/transparency.py` dataclasses + `record_mutation`/`attribute_served_backend`/header serializers + `transparency.*` config | — | **IMPLEMENTING** (worktree `obs-core` @ 96744f2) | prompt: `0.5.0-OBS-core.md`; output.json pending |
-| OBS-served | post-call attribution + flush in `model_override_headers.py`; `X-Airlock-Served-By`/`-Region`; streaming | OBS-core | **PENDING** | — |
-| OBS-ledger | retrofit every mutation site → `record_mutation` | OBS-core | **PENDING** | — |
+| OBS-core | `airlock/transparency.py` dataclasses + `record_mutation`/`attribute_served_backend`/header serializers + `transparency.*` config | — | **✅ CLOSED** (merged `b997de0`) | `0.5.0-OBS-core-output.json`; review `…220523Z.md` |
+| OBS-served | post-call attribution + flush in `model_override_headers.py`; `X-Airlock-Served-By`/`-Region`; streaming | OBS-core ✅ | **READY** (launching) | — |
+| OBS-ledger | retrofit every mutation site → `record_mutation` | OBS-core ✅ | **READY** (launching) | — |
 | OBS-headers | ledger → `X-Airlock-Mutations` (bounded) + `X-Airlock-Explain` body envelope | OBS-core, OBS-served, OBS-ledger | **PENDING** | — |
 | OBS-log | `_build_record`: `mutations`/`served`/`attribution` | OBS-core, OBS-served, OBS-ledger | **PENDING** | — |
 | OBS-accounting | spend + rate-limit/quarantine keyed off **served** provider | OBS-served | **PENDING** | — |
@@ -68,8 +74,8 @@ rebase carefully to avoid conflicts on `model_override_headers.py` and
 
 ## 5. Outstanding worktrees
 
-- `.claude/worktrees/obs-core` (branch `obs-core`, base `96744f2`) — OBS-core,
-  IMPLEMENTING. Remove after merge.
+- OBS-core worktree removed after merge. OBS-served + OBS-ledger worktrees created
+  next (base `b997de0`).
 
 ## 6. Resolved design questions (were open; closed in Phase B)
 
@@ -81,6 +87,13 @@ rebase carefully to avoid conflicts on `model_override_headers.py` and
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-24 — **OBS-core CLOSED (pack 1/7).** Pure `airlock/transparency.py` shipped
+  TDD (RED tests-only first), zero call-sites changed. codex CONCERN → fixed the
+  `mutations_header` byte-bound (omit when even `…+N more` overflows; invariant: result
+  ≤ budget_bytes) and string-bool config coercion; re-verified green (44 tests).
+  Merged `--no-ff` as `b997de0`. The user's unrelated uncommitted `config.yaml`
+  budget-limits change was stashed across the merge and restored. Downstream packs cut
+  from `b997de0`.
 - 2026-06-24 — **Phase D codex gate PASSED (round 2).** Round 1 BLOCK surfaced 7
   real design holes before any code; all fixed in the design set and re-verified
   PASS. Two operational notes carried into implementers: the streaming served-by
