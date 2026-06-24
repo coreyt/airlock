@@ -32,7 +32,7 @@ from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
 from airlock.callbacks.enterprise_logger import write_precall_block_record
-from airlock.proxy_errors import AirlockProviderBlocked
+from airlock.proxy_errors import AirlockProviderBlocked, sanitize_reason
 from airlock.client_identity import extract_airlock_client_from_headers
 from airlock.gemini_interface import apply_gemini_request_semantics
 from airlock.guardrails.extract import extract_text, is_batch_call, is_mcp_call
@@ -112,6 +112,8 @@ def _raise_provider_protection(
     cooldown_seconds: float,
     scope: str = "provider",
 ) -> None:
+    # Sanitize upstream reason text before embedding it anywhere client-visible.
+    reason = sanitize_reason(reason)
     message = (
         f"Airlock temporarily blocked client {client_id} from provider {provider} "
         f"for model {model_name} to protect upstream standing. "

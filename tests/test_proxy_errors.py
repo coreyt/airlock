@@ -73,7 +73,8 @@ class TestBlockResponsePayload:
         assert headers["X-Airlock-Block-Scope"] == "provider"
 
     def test_reason_is_bounded(self):
-        body, _ = block_response_payload(self._exc(reason="x" * 1000))
+        # Use spaced words (no 32+ char token) so truncation, not redaction, applies.
+        body, _ = block_response_payload(self._exc(reason="word " * 200))
         assert len(body["error"]["airlock"]["reason"]) == 300
 
 
@@ -137,3 +138,42 @@ class TestGuardianRaisesTyped:
         assert exc.scope == "client_provider"
         assert exc.cooldown_seconds == 30.0
         assert exc.client_id == "key:abc"
+
+
+class TestSanitizeReason:
+    def test_redacts_key_like_tokens(self):
+        from airlock.proxy_errors import sanitize_reason
+
+        out = sanitize_reason("quota for sk-ABCD1234efgh5678 exhausted")
+        assert "sk-ABCD1234efgh5678" not in out
+        assert "[REDACTED]" in out
+
+    def test_redacts_bearer_and_long_secrets(self):
+        from airlock.proxy_errors import sanitize_reason
+
+        assert "[REDACTED]" in sanitize_reason("Bearer abcdef123456789")
+        assert "[REDACTED]" in sanitize_reason("token " + "a" * 40)
+
+    def test_truncates(self):
+        from airlock.proxy_errors import sanitize_reason
+
+        # Spaced words so truncation (not redaction) is what bounds the length.
+        assert len(sanitize_reason("word " * 200)) == 300
+
+    def test_message_in_body_is_sanitized(self):
+        """The BLOCK: raw reason embedded in the message must not leak."""
+        from airlock.fast.guardian import _raise_provider_protection
+
+        with pytest.raises(AirlockProviderBlocked) as ei:
+            _raise_provider_protection(
+                {"metadata": {}},
+                "key:abc",
+                "openai",
+                "gpt-5.4",
+                "upstream said sk-LEAK1234567890abcdef bad",
+                30.0,
+                scope="provider",
+            )
+        body, _ = block_response_payload(ei.value)
+        assert "sk-LEAK1234567890abcdef" not in body["error"]["message"]
+        assert "sk-LEAK1234567890abcdef" not in body["error"]["airlock"]["reason"]
