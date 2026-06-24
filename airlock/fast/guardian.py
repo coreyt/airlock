@@ -24,6 +24,7 @@ Registered in config.yaml as a pre_call guardrail:
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any
 
@@ -138,6 +139,63 @@ def _raise_provider_protection(
     )
 
 
+_DEFAULT_FALLBACK_MAX_PROMPT_TOKENS = 60000
+
+
+def _fallback_max_prompt_tokens() -> int:
+    raw = os.getenv("AIRLOCK_FALLBACK_MAX_PROMPT_TOKENS")
+    if raw:
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+    return _DEFAULT_FALLBACK_MAX_PROMPT_TOKENS
+
+
+def _estimate_prompt_tokens(data: dict[str, Any]) -> int:
+    """Cheap char/4 token estimate over message content (no tokenizer call)."""
+    chars = 0
+    for msg in data.get("messages") or []:
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content")
+        if isinstance(content, str):
+            chars += len(content)
+        elif isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and isinstance(part.get("text"), str):
+                    chars += len(part["text"])
+    return chars // 4
+
+
+def _suppress_fallbacks(data: dict[str, Any], reason: str) -> None:
+    """Disable downstream fan-out for this request (A2). Mirrors the pinned lock."""
+    data["disable_fallbacks"] = True
+    data["num_retries"] = 0
+    metadata = data.setdefault("metadata", {})
+    metadata["airlock_fallback_suppressed"] = reason
+
+
+def _maybe_suppress_fallbacks(
+    data: dict[str, Any], model_name: str, now: float
+) -> None:
+    """A2: suppress fallbacks for large prompts or a quarantined target provider.
+
+    Large-context calls are the worst case for fan-out (cost × payload), and
+    falling back off a rate-limited provider just spreads the incident — fail fast
+    with B's typed 429 instead.
+    """
+    reason = None
+    if _estimate_prompt_tokens(data) > _fallback_max_prompt_tokens():
+        reason = "large_prompt"
+    else:
+        provider = infer_provider(model_name)
+        if provider and store.get_provider(provider).is_quarantined(now):
+            reason = "provider_quarantined"
+    if reason:
+        _suppress_fallbacks(data, reason)
+
+
 def _lock_pinned_request(data: dict[str, Any]) -> None:
     """Prevent downstream LiteLLM retries/fallbacks for pinned requests."""
     data["disable_fallbacks"] = True
@@ -181,6 +239,9 @@ class AirlockFastGuardian(CustomGuardrail):
         pinned_model = _is_client_pinned(requested_model, data)
         if pinned_model and not mcp and not batch:
             _lock_pinned_request(data)
+        elif not mcp and not batch:
+            # A2: large / quarantined-target requests must not fan out.
+            _maybe_suppress_fallbacks(data, model_name, now)
 
         # Record the inbound request
         client.record_request(now)

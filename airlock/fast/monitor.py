@@ -16,6 +16,7 @@ Registered in config.yaml alongside the enterprise logger:
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any
 
@@ -31,7 +32,51 @@ from .state import normalize_client_id, store
 
 logger = logging.getLogger("airlock.fast.monitor")
 
+from .router import _load_provider_budgets
 from .router import infer_provider as _infer_provider
+
+_DEFAULT_BUDGET_WARN_RATIO = 0.8
+_budget_warned: set[str] = set()  # warn once per provider per process (anti-spam)
+
+
+def _budget_warn_ratio() -> float:
+    raw = os.getenv("AIRLOCK_BUDGET_WARN_RATIO")
+    if raw:
+        try:
+            return float(raw)
+        except ValueError:
+            pass
+    return _DEFAULT_BUDGET_WARN_RATIO
+
+
+def _maybe_warn_budget(provider: str, spend_state, kwargs: dict) -> bool:
+    """A3: warn (once) when a provider crosses warn_ratio of its daily cap.
+
+    Sets ``airlock_budget_state=near_limit`` in response metadata and logs once
+    per provider per process. Returns whether the provider is near its limit.
+    """
+    limit = _load_provider_budgets().get(provider)
+    if not limit:
+        return False
+    spent = spend_state.recent_spend()
+    near = spent >= limit * _budget_warn_ratio()
+    if near:
+        metadata = (kwargs.get("litellm_params", {}) or {}).get("metadata")
+        if isinstance(metadata, dict):
+            metadata.setdefault("airlock_response_headers", {})[
+                "X-Airlock-Budget-State"
+            ] = "near_limit"
+        if provider not in _budget_warned:
+            _budget_warned.add(provider)
+            logger.warning(
+                "provider_budget_near_limit provider=%s spent=%.2f limit=%.2f",
+                provider,
+                spent,
+                limit,
+            )
+    elif provider in _budget_warned:
+        _budget_warned.discard(provider)  # reset once it drops back under
+    return near
 
 
 def _extract_client_id(kwargs: dict) -> str:
@@ -117,6 +162,8 @@ class AirlockFastMonitor(CustomLogger):
         if provider:
             if cost and cost > 0:
                 store.get_provider_spend(provider).record_spend(now, cost)
+                # A3: warn (once) when crossing the daily-budget warn ratio.
+                _maybe_warn_budget(provider, store.get_provider_spend(provider), kwargs)
             store.record_provider_request(client_id, provider, now)
             store.record_provider_success(client_id, provider, now)
             # Capture upstream quota headroom (workstream C, observe-only).
