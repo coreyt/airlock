@@ -376,6 +376,7 @@ def main() -> None:
     # Log live provider models at startup (informational — does not affect routing).
     with open(config_path) as f:
         config = yaml.safe_load(f) or {}
+    from airlock.admin.policy import configure_admin
     from airlock.fast.monitor import configure_budgets
     from airlock.fast.router import set_router_config
     from airlock.fast.state import configure_breaker
@@ -385,6 +386,9 @@ def main() -> None:
     # startup (CC-2); both default to no-op when unconfigured (CC-3).
     configure_breaker(config)
     configure_budgets(config)
+    # Admin control plane (off by default). The fail-closed check (CC-12) refuses
+    # bearer-token admin over plaintext on a non-loopback bind.
+    configure_admin(config, host=host, tls_enabled=bool(_ssl_cli_args()))
     if _startup_model_discovery_enabled():
         live_models = fetch_live_provider_models(config)
         if live_models:
