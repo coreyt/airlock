@@ -35,8 +35,9 @@ _Last updated: 2026-06-23 · mainline: `main` · **design gate PASSED; ready for
 | RES-tls | TLS env → litellm ssl flags (`proxy.py`) | — | **CLOSED** | commit `1567b54`; review `0.5.0-RES-tls-review-*` (PASS, flags confirmed vs litellm 1.89.0) |
 | RES-breaker | threshold breaker + per-client policy + `cleared_at`/`_half_open_probe` + no-re-arm | — | **CLOSED** (fix-1 **PASS**) | `41ab9d3` + `2c48517`; review R1 BLOCK → fix-1 **PASS**; `state.py` shape locked for ADM-state |
 | RES-errors | `AirlockProviderBlocked` + handler + `Retry-After` | breaker | **CLOSED** (fix-1 **PASS**) | `cf452d6` + `f7569c2`; review R1 BLOCK → fix-1 **PASS**; HITL H1 (seam) pending for B acceptance |
-| RES-observ | capture `x-ratelimit-*` + `record_type` + TUI headroom | breaker | **MERGED (review running, code-reviewer)** | core + metrics; codex sandbox failed → Claude code-reviewer; log-enrichment/TUI/passthrough deferred to polish |
-| ADM-jwt | HS256 mint/verify + `admin mint-token` | — | **MERGED (review running, code-reviewer)** | commit `7dde6f9`; PyJWT HS256, master-key derivation, rotation, denylist |
+| RES-observ | capture `x-ratelimit-*` + `record_type` + TUI headroom | breaker | **CLOSED** (PASS + fix-1) | `5f12aea`+`dff4ea5`; code-reviewer PASS; remaining=0/wiring tests added; log-enrichment/TUI/passthrough deferred to polish |
+| ADM-jwt | HS256 mint/verify + `admin mint-token` | — | **CLOSED** (PASS_WITH_NOTES + fix-1) | `7dde6f9`+`2f24288`; require-jti, max-TTL cap, scope filter added |
+| ADM-state | CC-8 clear/arm mutators + admin_action ingest | breaker, observ | **MERGED (review running)** | `8c14e58`; cascade R12, CC-6 floor, CC-9 ingest branch; unblocks ADM-http/tui/skip |
 | RES-routing | `_suppress_fallbacks` + budget warn | breaker, errors, observ | **PLANNED** | — |
 | ADM-state | CC-8 mutators + `admin_action` + ingest | breaker, observ | **PLANNED** | — |
 | ADM-jwt | HS256 mint/verify + `admin mint-token` | — | **PLANNED** | — |
