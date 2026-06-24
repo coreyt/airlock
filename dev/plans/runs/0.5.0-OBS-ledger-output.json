@@ -1,0 +1,90 @@
+{
+  "pack": "0.5.0-OBS-ledger",
+  "baseline_sha": "827d126",
+  "branch": "obs-ledger",
+  "head_sha": "5f45fd4",
+  "commits": [
+    "01293b4: docs(transparency): OBS-ledger PLAN memo — per-site record map + enhanced_passthrough flag",
+    "bb3b715: test(transparency): OBS-ledger RED — ledger-assertion tests across mutation sites",
+    "5f45fd4: feat(transparency): OBS-ledger — record every mutation site into the ledger + drop_params detection"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "bb3b715",
+    "test_files": [
+      "tests/test_reasoning_effort.py",
+      "tests/test_fast_router.py",
+      "tests/test_fast_guardian.py",
+      "tests/test_pii_guard.py",
+      "tests/test_enhanced_interceptor.py",
+      "tests/test_reasoning_stripper.py",
+      "tests/test_gemini_interface.py"
+    ]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_reasoning_effort.py",
+      "tests/test_fast_router.py",
+      "tests/test_fast_guardian.py",
+      "tests/test_pii_guard.py",
+      "tests/test_enhanced_interceptor.py",
+      "tests/test_enhanced_passthrough.py",
+      "tests/test_reasoning_stripper.py",
+      "tests/test_gemini_interface.py"
+    ],
+    "passed": 285,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "covered_sites": [
+    "1-3 reasoning_effort.py:57/62/66 — set/set/drop reasoning_effort (reasoning_effort.normalize)",
+    "4 router.py:520 — rewrite model smart->claude-sonnet (router.smart)",
+    "5 router.py:606 — rewrite model pre-route->routed (router.cost_tier)",
+    "6 guardian _lock_pinned_request + _suppress_fallbacks — suppress fallbacks (guardian.pin + guardian.suppress)",
+    "7 guardian.py:281 — rewrite model alias->resolved (guardian.alias)",
+    "8 guardian.py:415 — rewrite model orig->failover (guardian.failover)",
+    "9 pii_guard.py:200 — record_redaction messages, value-free (pii_guard)",
+    "10 pii_guard.py:344/196 — record_redaction mcp_arguments, value-free (pii_guard.mcp)",
+    "11 enhanced_interceptor.py:33 — inject system, content-free (enhanced.interceptor)",
+    "13 reasoning_stripper.py:179 — rewrite messages non-stream (reasoning_stripper)",
+    "14 reasoning_stripper.py:208 — rewrite messages stream, once (reasoning_stripper.stream)",
+    "15-16 gemini_interface.py:71/73 — set reasoning_effort high/disable (gemini.mode)",
+    "17 derived drop_params — guardian Step 4 after provider resolution, op=drop per param (drop_params)"
+  ],
+  "files_changed": [
+    "airlock/reasoning_effort.py",
+    "airlock/fast/router.py",
+    "airlock/fast/guardian.py",
+    "airlock/guardrails/pii_guard.py",
+    "airlock/guardrails/enhanced_interceptor.py",
+    "airlock/guardrails/reasoning_stripper.py",
+    "airlock/gemini_interface.py",
+    "dev/notes/0.5.0-OBS-ledger-design.md",
+    "tests/test_reasoning_effort.py",
+    "tests/test_fast_router.py",
+    "tests/test_fast_guardian.py",
+    "tests/test_pii_guard.py",
+    "tests/test_enhanced_interceptor.py",
+    "tests/test_reasoning_stripper.py",
+    "tests/test_gemini_interface.py"
+  ],
+  "blockers_encountered": [
+    {
+      "id": "site-12-enhanced_passthrough",
+      "description": "Site 12 providers/enhanced_passthrough.py:157 system-prompt injection in EnhancedPassthroughProvider._resolve_request (a litellm CustomLLM provider-execution method). The only metadata in scope is built fresh at :171 as `dict(resolved_params.get('metadata') or {})`, stamped no_log=True + airlock_skip_fathom_logger=True, and handed to the INNER nested litellm.completion(**resolved_params). That inner call is explicitly suppressed from Airlock logging, so a ledger record written there never reaches the outer request data['metadata'] that OBS-served/headers/logger consume. The outer request ledger is not reachable without threading a new parameter through the litellm-defined CustomLLM.completion(self, model, messages, ...) contract (a do-not-absorb cross-file change). This injection is also a guardrail-ordering-independent fallback duplicating Site 11 (enhanced_interceptor), which already records the inject on the normal path.",
+      "resolution": "FLAGGED — not forced. Did not thread a new param through the CustomLLM contract (orchestrator's call). Sites 1-11, 13-17 + drop_params form a correct, mergeable partial ledger. enhanced_passthrough.py left unchanged."
+    },
+    {
+      "id": "test_reasoning_stripper-orphaned-line",
+      "description": "[DETECT] My first Edit to tests/test_reasoning_stripper.py split TestTargetConfig — the original trailing assertion `assert not g._is_target({'model': 'kimi-dev'})` (base line 186) was left orphaned after my appended TestStripperLedger block, indented into test_stream_no_strip_no_record and referencing an undefined `g`.",
+      "resolution": "[RESOLVE] Recovered the line from git HEAD, restored it into test_env_var_controls_targets, and removed the orphan. TestTargetConfig and the new stream test both pass."
+    }
+  ],
+  "additional_changes_made_in_scope": [
+    "Site 6 fan-out: recorded suppress/fallbacks in BOTH _suppress_fallbacks (source=guardian.suppress, large_prompt path) AND _lock_pinned_request (source=guardian.pin, pinned path) — both are genuine fan-out suppression mutations; the per-site table conflated them into one row.",
+    "Site 5 (router.py:606): used pre-route model as `before` (captured after the smart placeholder substitution) so the smart path does not double-record smart->claude-sonnet (Site 4 already covers that). Non-smart path unchanged (pre_route_model == original_model).",
+    "Site 14 (stream stripper): added a value-free `stripped_any` bool flag to _StreamStripper (set True when a _START marker is consumed) so the stream hook records exactly one rewrite on the first actual strip; behavior-neutral (no change to stripping logic or output).",
+    "Removed a pre-existing unused `from typing import Any` import in tests/test_reasoning_stripper.py (file was already being modified; F401 made lint-clean). Other pre-existing ruff-format deviations in pii_guard.py / reasoning_stripper.py / test_reasoning_effort.py / test_reasoning_stripper.py were left untouched (base 827d126 fails format-check identically on those lines; none touch added code — out of scope)."
+  ],
+  "agent_verify_result": "pass — targeted suite 285 passed/0 failed; full suite 2064 passed, 64 skipped, 1 xpassed, 0 failed; ruff check clean on all changed files; ruff format clean on all added code (residual format-check failures are pre-existing repo debt unrelated to this pack).",
+  "next_step_for_orchestrator": "Pack 0.5.0-OBS-ledger on branch obs-ledger at 5f45fd4; review (esp. Site 6 dual-record decision and Site 12 flag), verify, merge. Site 12 (enhanced_passthrough) intentionally not instrumented — orchestrator to decide whether to thread proxy metadata through the CustomLLM contract in a follow-up."
+}
