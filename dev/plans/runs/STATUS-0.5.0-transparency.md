@@ -46,8 +46,8 @@ metadata in scope; drop_params resolution at `guardian.py:291`/`:433`).
 | Pack | Goal (1 line) | Depends on | State | Witness |
 |------|---------------|------------|-------|---------|
 | OBS-core | `airlock/transparency.py` dataclasses + `record_mutation`/`attribute_served_backend`/header serializers + `transparency.*` config | — | **✅ CLOSED** (merged `b997de0`) | `0.5.0-OBS-core-output.json`; review `…220523Z.md` |
-| OBS-served | post-call attribution + flush in `model_override_headers.py`; `X-Airlock-Served-By`/`-Region`; streaming | OBS-core ✅ | **READY** (launching) | — |
-| OBS-ledger | retrofit every mutation site → `record_mutation` | OBS-core ✅ | **READY** (launching) | — |
+| OBS-served | post-call attribution + flush in `model_override_headers.py`; `X-Airlock-Served-By`/`-Region`; streaming | OBS-core ✅ | **IMPLEMENTING** (worktree `obs-served` @ 827d126) | prompt `0.5.0-OBS-served.md` |
+| OBS-ledger | retrofit every mutation site → `record_mutation` | OBS-core ✅ | **IMPLEMENTING** (worktree `obs-ledger` @ 827d126) | prompt `0.5.0-OBS-ledger.md` |
 | OBS-headers | ledger → `X-Airlock-Mutations` (bounded) + `X-Airlock-Explain` body envelope | OBS-core, OBS-served, OBS-ledger | **PENDING** | — |
 | OBS-log | `_build_record`: `mutations`/`served`/`attribution` | OBS-core, OBS-served, OBS-ledger | **PENDING** | — |
 | OBS-accounting | spend + rate-limit/quarantine keyed off **served** provider | OBS-served | **PENDING** | — |
@@ -74,8 +74,10 @@ rebase carefully to avoid conflicts on `model_override_headers.py` and
 
 ## 5. Outstanding worktrees
 
-- OBS-core worktree removed after merge. OBS-served + OBS-ledger worktrees created
-  next (base `b997de0`).
+- `.claude/worktrees/obs-served` (branch `obs-served`, base `827d126`) — IMPLEMENTING.
+- `.claude/worktrees/obs-ledger` (branch `obs-ledger`, base `827d126`) — IMPLEMENTING.
+  Disjoint file sets (callbacks/proxy vs the mutation sites) → safe in parallel; merge
+  sequentially. Remove each after its merge.
 
 ## 6. Resolved design questions (were open; closed in Phase B)
 
