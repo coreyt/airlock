@@ -66,7 +66,7 @@ def parse_ratelimit_headers(headers: object) -> dict:
     def get(*names: str) -> object:
         for name in names:
             val = headers.get(name)
-            if val is None and hasattr(headers, "get"):
+            if val is None:
                 # case-insensitive fallback for plain dicts
                 for k, v in getattr(headers, "items", lambda: [])():
                     if str(k).lower() == name:

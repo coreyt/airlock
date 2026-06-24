@@ -95,3 +95,66 @@ class TestRecordType:
             success=True,
         )
         assert rec["record_type"] == "request"
+
+
+class TestObservFix1:
+    """Coverage the RES-observ review flagged (remaining=0, case-insensitive,
+    empty dict, and the monitor success/failure wiring)."""
+
+    def test_zero_remaining_is_observed(self):
+        # The most important 429 signal: fully exhausted quota.
+        out = parse_ratelimit_headers({"x-ratelimit-remaining-tokens": "0"})
+        assert out["remaining_tokens"] == 0
+        store = StateStore()
+        store.record_provider_ratelimit("openai", out, 9999.0)
+        rl = store.get_provider_ratelimit("openai")
+        assert rl.remaining_tokens == 0
+        assert rl.observed_at == 9999.0
+
+    def test_case_insensitive_keys(self):
+        out = parse_ratelimit_headers({"X-RateLimit-Remaining-Tokens": "500"})
+        assert out["remaining_tokens"] == 500
+
+    def test_empty_dict(self):
+        out = parse_ratelimit_headers({})
+        assert all(v is None for v in out.values())
+
+    def test_monitor_success_captures_headroom(self, fresh_state_store):
+        from types import SimpleNamespace
+
+        from airlock.fast.monitor import AirlockFastMonitor
+
+        monitor = AirlockFastMonitor()
+        kwargs = {
+            "model": "gpt-5.4",
+            "litellm_params": {"metadata": {"user_api_key": "sk-aaaaaaaa12345678"}},
+            "response_cost": 0.0,
+        }
+        response_obj = SimpleNamespace(
+            _hidden_params={
+                "additional_headers": {"x-ratelimit-remaining-tokens": "777"}
+            },
+            usage=None,
+        )
+        monitor.log_success_event(kwargs, response_obj, None, None)
+        assert fresh_state_store.get_provider_ratelimit("openai").remaining_tokens == 777
+
+    def test_monitor_failure_captures_headroom(self, fresh_state_store):
+        from types import SimpleNamespace
+
+        from airlock.fast.monitor import AirlockFastMonitor
+
+        monitor = AirlockFastMonitor()
+        exc = RuntimeError("rate limit exceeded")
+        exc.response = SimpleNamespace(
+            headers={"x-ratelimit-remaining-requests": "3"}
+        )
+        kwargs = {
+            "model": "gpt-5.4",
+            "litellm_params": {"metadata": {"user_api_key": "sk-bbbbbbbb12345678"}},
+            "exception": exc,
+        }
+        monitor.log_failure_event(kwargs, None, None, None)
+        assert (
+            fresh_state_store.get_provider_ratelimit("openai").remaining_requests == 3
+        )
