@@ -29,6 +29,107 @@ PROVIDER_ESCALATION_WINDOW_SECONDS = 300.0
 PROVIDER_ESCALATION_CLIENT_THRESHOLD = 2
 
 
+# ---------------------------------------------------------------------------
+# Per-client circuit-breaker policy (A1 + E)
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class BreakerPolicy:
+    """Resolved breaker tuning for one client key.
+
+    Defaults reproduce the historical one-strike / 300 s behaviour, so a deploy
+    with no ``airlock_settings.circuit_breaker`` config and no
+    ``AIRLOCK_BREAKER_OVERRIDES`` env behaves exactly as before (CC-3).
+    """
+
+    rate_limit_threshold: int = 1
+    rate_limit_window_seconds: float = float(WINDOW_SECONDS)
+    client_cooldown_seconds: float = CLIENT_PROVIDER_COOLDOWN_SECONDS
+    provider_cooldown_seconds: float = PROVIDER_QUARANTINE_SECONDS
+    provider_escalation_client_threshold: int = PROVIDER_ESCALATION_CLIENT_THRESHOLD
+    escalation_exempt: bool = False
+    disabled: bool = False
+
+
+_DEFAULT_BREAKER_POLICY = BreakerPolicy()
+# Module-level resolved config: a default policy plus per-client overrides.
+_breaker_default: BreakerPolicy = _DEFAULT_BREAKER_POLICY
+_breaker_clients: dict[str, BreakerPolicy] = {}
+
+
+def _policy_from_mapping(base: BreakerPolicy, raw: dict) -> BreakerPolicy:
+    """Build a BreakerPolicy from ``base`` overlaid with the keys present in raw."""
+    import logging
+
+    if not isinstance(raw, dict):
+        return base
+    fields = {
+        "rate_limit_threshold": int,
+        "rate_limit_window_seconds": float,
+        "client_cooldown_seconds": float,
+        "provider_cooldown_seconds": float,
+        "provider_escalation_client_threshold": int,
+        "escalation_exempt": bool,
+        "disabled": bool,
+    }
+    values = {f: getattr(base, f) for f in fields}
+    for key, caster in fields.items():
+        if key in raw and raw[key] is not None:
+            try:
+                values[key] = caster(raw[key])
+            except (TypeError, ValueError):
+                logging.getLogger("airlock.fast.state").warning(
+                    "Invalid circuit_breaker value for %s; ignoring", key
+                )
+    return BreakerPolicy(**values)
+
+
+def configure_breaker(config: dict | None) -> None:
+    """Load breaker policy from config + ``AIRLOCK_BREAKER_OVERRIDES`` env (CC-2).
+
+    Read once at startup. Precedence: per-client override → global default →
+    hard-coded constant. Malformed env JSON falls back to config/defaults with a
+    logged warning (never crashes startup).
+    """
+    import json
+    import logging
+    import os
+
+    log = logging.getLogger("airlock.fast.state")
+    global _breaker_default, _breaker_clients
+    default = _DEFAULT_BREAKER_POLICY
+    clients: dict[str, BreakerPolicy] = {}
+
+    block = ((config or {}).get("airlock_settings") or {}).get("circuit_breaker") or {}
+    if isinstance(block, dict):
+        default = _policy_from_mapping(default, block)
+        for cid, raw in (block.get("clients") or {}).items():
+            clients[normalize_client_id(str(cid))] = _policy_from_mapping(default, raw)
+
+    raw_env = os.environ.get("AIRLOCK_BREAKER_OVERRIDES")
+    if raw_env:
+        try:
+            parsed = json.loads(raw_env)
+            if isinstance(parsed, dict):
+                if isinstance(parsed.get("defaults"), dict):
+                    default = _policy_from_mapping(default, parsed["defaults"])
+                for cid, raw in (parsed.get("clients") or {}).items():
+                    clients[normalize_client_id(str(cid))] = _policy_from_mapping(
+                        default, raw
+                    )
+            else:
+                log.warning("AIRLOCK_BREAKER_OVERRIDES has wrong shape, ignoring")
+        except (json.JSONDecodeError, TypeError):
+            log.warning("Invalid AIRLOCK_BREAKER_OVERRIDES JSON, using defaults")
+
+    _breaker_default = default
+    _breaker_clients = clients
+
+
+def policy_for(client_id: str) -> BreakerPolicy:
+    """Resolve the breaker policy for a client key (per-client → default)."""
+    return _breaker_clients.get(normalize_client_id(client_id), _breaker_default)
+
+
 class CircuitState(Enum):
     """Model health states (classic circuit-breaker pattern)."""
 
@@ -163,6 +264,12 @@ class ClientProviderState:
     failure_times: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     rate_limit_times: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     quarantine_until: float = 0.0
+    # CC-6: floor for the rate-limit window; an operator clear sets this so the
+    # threshold counter cannot re-arm off pre-clear 429s. Owned here; written by
+    # the admin clear mutators (Pack ADM-state).
+    cleared_at: float = 0.0
+    # CC-7: one-probe gate after a probe-mode clear (mirrors ModelState half-open).
+    _half_open_probe: bool = False
     last_reason: str = ""
     last_error_type: str = ""
     last_action: str = ""
@@ -172,6 +279,10 @@ class ClientProviderState:
 
     def record_success(self, timestamp: float) -> None:
         self.success_times.append(timestamp)
+        if self._half_open_probe:
+            # Successful probe after an admin clear → close the breaker (CC-7).
+            self._half_open_probe = False
+            self.quarantine_until = 0.0
 
     def record_failure(self, timestamp: float) -> None:
         self.failure_times.append(timestamp)
@@ -182,13 +293,34 @@ class ClientProviderState:
         reason: str,
         error_type: str,
         cooldown_seconds: float = CLIENT_PROVIDER_COOLDOWN_SECONDS,
-    ) -> None:
+        *,
+        rate_limit_threshold: int = 1,
+        rate_limit_window_seconds: float = WINDOW_SECONDS,
+    ) -> bool:
+        """Record a 429; arm the quarantine only if the threshold is met (A1).
+
+        The event is always recorded (for logging + provider escalation). The
+        quarantine is armed when the count of recent 429s reaches
+        ``rate_limit_threshold`` (default 1 reproduces today's one-strike
+        behaviour, CC-3) or immediately when a half-open probe fails (CC-7).
+        Returns whether the quarantine was armed.
+        """
         self.rate_limit_times.append(timestamp)
         self.failure_times.append(timestamp)
-        self.quarantine_until = max(self.quarantine_until, timestamp + cooldown_seconds)
         self.last_reason = reason
         self.last_error_type = error_type
-        self.last_action = "client_quarantine"
+        probe = self._half_open_probe
+        self._half_open_probe = False
+        armed = probe or (
+            self.recent_rate_limit_count(rate_limit_window_seconds)
+            >= rate_limit_threshold
+        )
+        if armed:
+            self.quarantine_until = max(
+                self.quarantine_until, timestamp + cooldown_seconds
+            )
+            self.last_action = "client_quarantine"
+        return armed
 
     def is_quarantined(self, now: float | None = None) -> bool:
         now = time.time() if now is None else now
@@ -203,7 +335,8 @@ class ClientProviderState:
         return sum(1 for t in self.request_times if t > cutoff)
 
     def recent_rate_limit_count(self, window_seconds: float = WINDOW_SECONDS) -> int:
-        cutoff = time.time() - window_seconds
+        # CC-6: events before an operator clear are hidden from threshold logic.
+        cutoff = max(time.time() - window_seconds, self.cleared_at)
         return sum(1 for t in self.rate_limit_times if t > cutoff)
 
 
@@ -219,6 +352,11 @@ class ProviderState:
     gemini_outcomes: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     gemini_modes: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     quarantine_until: float = 0.0
+    # CC-6: floor for impacted_clients() so a provider clear is not undone by
+    # pre-clear client history. CC-7: one-probe half-open gate. Both owned here;
+    # written by the admin clear mutators (Pack ADM-state).
+    cleared_at: float = 0.0
+    _half_open_probe: bool = False
     last_reason: str = ""
     last_error_type: str = ""
     last_action: str = ""
@@ -228,6 +366,10 @@ class ProviderState:
 
     def record_success(self, timestamp: float) -> None:
         self.success_times.append(timestamp)
+        if self._half_open_probe:
+            # Successful probe after an admin clear → close the breaker (CC-7).
+            self._half_open_probe = False
+            self.quarantine_until = 0.0
 
     def record_failure(self, timestamp: float) -> None:
         self.failure_times.append(timestamp)
@@ -288,7 +430,9 @@ class ProviderState:
         self,
         window_seconds: float = PROVIDER_ESCALATION_WINDOW_SECONDS,
     ) -> set[str]:
-        cutoff = time.time() - window_seconds
+        # CC-6: floor on cleared_at so a provider clear is not undone by pre-clear
+        # client history at the next 429 (escalation reads this set).
+        cutoff = max(time.time() - window_seconds, self.cleared_at)
         return {client_id for ts, client_id in self.rate_limit_events if ts > cutoff}
 
     def recent_gemini_outcome_count(
@@ -608,20 +752,61 @@ class StateStore:
     ) -> dict[str, float | str | bool]:
         client_id = normalize_client_id(client_id)
         with self._lock:
+            policy = policy_for(client_id)
             client_provider = self.get_client_provider(client_id, provider)
             provider_state = self.get_provider(provider)
 
-            client_provider.record_rate_limit(timestamp, reason, error_type)
+            # The provider event is always recorded so escalation can see it.
             provider_state.record_rate_limit(timestamp, client_id, reason, error_type)
 
+            if policy.disabled:
+                # Breaker off for this client: record the 429 for logging but never
+                # arm and never contribute to escalation (E).
+                client_provider.rate_limit_times.append(timestamp)
+                client_provider.failure_times.append(timestamp)
+                client_provider.last_reason = reason
+                client_provider.last_error_type = error_type
+                return {
+                    "client_quarantined": False,
+                    "provider_quarantined": False,
+                    "client_cooldown_seconds": 0.0,
+                    "provider_cooldown_seconds": provider_state.cooldown_remaining(
+                        timestamp
+                    ),
+                    "impacted_clients": 0,
+                }
+
+            client_quarantined = client_provider.record_rate_limit(
+                timestamp,
+                reason,
+                error_type,
+                cooldown_seconds=policy.client_cooldown_seconds,
+                rate_limit_threshold=policy.rate_limit_threshold,
+                rate_limit_window_seconds=policy.rate_limit_window_seconds,
+            )
+
+            # Escalation counts distinct impacted clients, excluding any that are
+            # escalation-exempt (E: a trusted client must not quarantine the
+            # provider for everyone else).
+            impacted = {
+                cid
+                for cid in provider_state.impacted_clients(
+                    policy.rate_limit_window_seconds
+                )
+                if not policy_for(cid).escalation_exempt
+            }
             provider_quarantined = False
-            impacted_clients = provider_state.impacted_clients()
-            if len(impacted_clients) >= PROVIDER_ESCALATION_CLIENT_THRESHOLD:
-                provider_state.quarantine(timestamp, reason, error_type)
+            if len(impacted) >= policy.provider_escalation_client_threshold:
+                provider_state.quarantine(
+                    timestamp,
+                    reason,
+                    error_type,
+                    cooldown_seconds=policy.provider_cooldown_seconds,
+                )
                 provider_quarantined = True
 
             return {
-                "client_quarantined": True,
+                "client_quarantined": client_quarantined,
                 "provider_quarantined": provider_quarantined,
                 "client_cooldown_seconds": client_provider.cooldown_remaining(
                     timestamp
@@ -629,7 +814,7 @@ class StateStore:
                 "provider_cooldown_seconds": provider_state.cooldown_remaining(
                     timestamp
                 ),
-                "impacted_clients": len(impacted_clients),
+                "impacted_clients": len(impacted),
             }
 
     def record_gemini_outcome(

@@ -145,6 +145,26 @@ class TestMonitorCallbacks:
         assert len(model.failure_times) == 0  # circuit breaker NOT affected
         assert model.consecutive_failures == 0
 
+    def test_precall_block_does_not_feed_provider_breaker(
+        self,
+        monitor,
+        fresh_state_store,
+        mock_logger_kwargs,
+        mock_start_end_times,
+    ):
+        """A1-b no-re-arm invariant: a pre-call block (exception=None) must NOT
+        call record_provider_rate_limit, so an Airlock quarantine can never feed
+        itself a fresh 429 and re-arm the cooldown."""
+        from unittest.mock import patch
+
+        start, end = mock_start_end_times
+        kwargs = {**mock_logger_kwargs, "exception": None}
+        with patch.object(
+            fresh_state_store, "record_provider_rate_limit"
+        ) as mock_rprl:
+            monitor.log_failure_event(kwargs, None, start, end)
+        mock_rprl.assert_not_called()
+
     def test_duration_calculated_correctly(
         self,
         monitor,

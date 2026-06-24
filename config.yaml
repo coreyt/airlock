@@ -429,6 +429,28 @@ cost_tiers:
     - gemini-3.1-pro
 
 # ---------------------------------------------------------------------------
+# Circuit breaker — provider-protection tuning (A1 + E)
+# ---------------------------------------------------------------------------
+# Optional. Omit this block entirely to keep the historical one-strike / 300 s
+# behaviour (defaults shown). Per-client keys (key:<last8> of the virtual key, or
+# the airlock_client identity) override the global defaults. The env var
+# AIRLOCK_BREAKER_OVERRIDES (JSON: {"defaults":{...},"clients":{...}}) takes
+# precedence if set. Read once at startup — a config change needs a proxy restart.
+# airlock_settings:
+#   circuit_breaker:
+#     rate_limit_threshold: 1               # 429s within the window before quarantine
+#     rate_limit_window_seconds: 300
+#     client_cooldown_seconds: 300
+#     provider_cooldown_seconds: 300
+#     provider_escalation_client_threshold: 2
+#     clients:
+#       "key:b35cf679":                     # a trusted first-party batch client
+#         rate_limit_threshold: 8           # tolerate bursts before tripping
+#         client_cooldown_seconds: 30       # short cooldown
+#         escalation_exempt: true           # never quarantine the provider for others
+#         # disabled: true                  # turn the breaker off for this client
+
+# ---------------------------------------------------------------------------
 # Batch profile — Airlock Batch Gateway posture (design §3.3 / §4.2)
 # ---------------------------------------------------------------------------
 # One place to declare the batch posture, distinct from the interactive chat

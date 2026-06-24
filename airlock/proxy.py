@@ -377,8 +377,11 @@ def main() -> None:
     with open(config_path) as f:
         config = yaml.safe_load(f) or {}
     from airlock.fast.router import set_router_config
+    from airlock.fast.state import configure_breaker
 
     set_router_config(config)
+    # Load per-client circuit-breaker policy once at startup (CC-2).
+    configure_breaker(config)
     if _startup_model_discovery_enabled():
         live_models = fetch_live_provider_models(config)
         if live_models:

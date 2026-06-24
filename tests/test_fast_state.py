@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 
 from airlock.fast.state import (
+    BreakerPolicy,
     CircuitState,
     ClientState,
     McpToolState,
@@ -15,7 +16,9 @@ from airlock.fast.state import (
     NO_CLIENT_ID,
     StateStore,
     MAX_SAMPLES,
+    configure_breaker,
     normalize_client_id,
+    policy_for,
     tail_jsonl,
     checkpoint_state,
     restore_state,
@@ -761,3 +764,182 @@ class TestTailJsonl:
 
         # Bad line skipped, good line ingested
         assert "gpt-4o" in test_store.all_models()
+
+
+# ---------------------------------------------------------------------------
+# Per-client circuit-breaker policy (A1 + E) — Pack 0.5.0-RES-breaker
+# ---------------------------------------------------------------------------
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _reset_breaker_config():
+    """Snapshot/restore module breaker config so tests don't leak policy."""
+    import airlock.fast.state as st
+
+    saved_default, saved_clients = st._breaker_default, st._breaker_clients
+    st._breaker_default = st.BreakerPolicy()
+    st._breaker_clients = {}
+    yield
+    st._breaker_default, st._breaker_clients = saved_default, saved_clients
+
+
+class TestBreakerPolicy:
+    def test_default_preserves_one_strike(self):
+        """CC-3: no config -> threshold 1, escalation 2 (today's behaviour)."""
+        p = policy_for("anything")
+        assert p.rate_limit_threshold == 1
+        assert p.provider_escalation_client_threshold == 2
+        store = StateStore()
+        out = store.record_provider_rate_limit("c", "openai", time.time(), "r", "RL")
+        assert out["client_quarantined"] is True
+
+    def test_threshold_gating(self):
+        configure_breaker(
+            {
+                "airlock_settings": {
+                    "circuit_breaker": {
+                        "clients": {"key:batch": {"rate_limit_threshold": 3}}
+                    }
+                }
+            }
+        )
+        store = StateStore()
+        out = None
+        for _ in range(2):
+            out = store.record_provider_rate_limit(
+                "key:batch", "openai", time.time(), "r", "RL"
+            )
+        assert out["client_quarantined"] is False  # below threshold
+        out = store.record_provider_rate_limit(
+            "key:batch", "openai", time.time(), "r", "RL"
+        )
+        assert out["client_quarantined"] is True  # Nth strike arms
+
+    def test_window_expiry_does_not_count(self):
+        configure_breaker(
+            {
+                "airlock_settings": {
+                    "circuit_breaker": {
+                        "clients": {
+                            "key:b": {
+                                "rate_limit_threshold": 2,
+                                "rate_limit_window_seconds": 300,
+                            }
+                        }
+                    }
+                }
+            }
+        )
+        store = StateStore()
+        cp = store.get_client_provider("key:b", "openai")
+        cp.rate_limit_times.append(time.time() - 400)  # outside the window
+        out = store.record_provider_rate_limit("key:b", "openai", time.time(), "r", "RL")
+        assert out["client_quarantined"] is False  # only 1 in-window 429
+
+    def test_per_client_precedence(self):
+        configure_breaker(
+            {
+                "airlock_settings": {
+                    "circuit_breaker": {
+                        "rate_limit_threshold": 5,
+                        "clients": {"key:special": {"rate_limit_threshold": 9}},
+                    }
+                }
+            }
+        )
+        assert policy_for("key:other").rate_limit_threshold == 5  # default
+        assert policy_for("key:special").rate_limit_threshold == 9  # override
+
+    def test_escalation_exempt_does_not_quarantine_provider(self):
+        configure_breaker(
+            {
+                "airlock_settings": {
+                    "circuit_breaker": {
+                        "clients": {
+                            "key:e1": {"escalation_exempt": True},
+                            "key:e2": {"escalation_exempt": True},
+                        }
+                    }
+                }
+            }
+        )
+        store = StateStore()
+        store.record_provider_rate_limit("key:e1", "openai", time.time(), "r", "RL")
+        out = store.record_provider_rate_limit("key:e2", "openai", time.time(), "r", "RL")
+        assert out["provider_quarantined"] is False  # both exempt -> no escalation
+        assert store.get_provider("openai").is_quarantined() is False
+
+    def test_disabled_never_arms(self):
+        configure_breaker(
+            {
+                "airlock_settings": {
+                    "circuit_breaker": {"clients": {"key:off": {"disabled": True}}}
+                }
+            }
+        )
+        store = StateStore()
+        out = store.record_provider_rate_limit("key:off", "openai", time.time(), "r", "RL")
+        assert out["client_quarantined"] is False
+        assert store.get_client_provider("key:off", "openai").is_quarantined() is False
+
+    def test_cleared_at_floors_client_count(self):
+        store = StateStore()
+        cp = store.get_client_provider("c", "openai")
+        for _ in range(3):
+            cp.rate_limit_times.append(time.time())
+        assert cp.recent_rate_limit_count() == 3
+        cp.cleared_at = time.time()
+        assert cp.recent_rate_limit_count() == 0  # pre-clear events hidden
+
+    def test_cleared_at_floors_impacted_clients(self):
+        """CC-6: a provider clear must not re-arm escalation on pre-clear history."""
+        store = StateStore()
+        store.record_provider_rate_limit("c1", "openai", time.time(), "r", "RL")
+        store.record_provider_rate_limit("c2", "openai", time.time(), "r", "RL")
+        ps = store.get_provider("openai")
+        assert len(ps.impacted_clients()) == 2
+        ps.cleared_at = time.time()  # simulates an operator provider clear
+        assert ps.impacted_clients() == set()  # pre-clear clients no longer counted
+
+    def test_half_open_probe_success_closes(self):
+        store = StateStore()
+        cp = store.get_client_provider("c", "openai")
+        cp.quarantine_until = time.time() + 100
+        cp._half_open_probe = True
+        cp.record_success(time.time())
+        assert cp._half_open_probe is False
+        assert cp.is_quarantined() is False  # closed
+
+    def test_half_open_probe_failure_rearms(self):
+        configure_breaker(
+            {
+                "airlock_settings": {
+                    "circuit_breaker": {
+                        "clients": {"key:b": {"rate_limit_threshold": 99}}
+                    }
+                }
+            }
+        )
+        store = StateStore()
+        cp = store.get_client_provider("key:b", "openai")
+        cp._half_open_probe = True
+        # A failed probe re-arms immediately even though threshold (99) is unmet.
+        out = store.record_provider_rate_limit("key:b", "openai", time.time(), "r", "RL")
+        assert out["client_quarantined"] is True
+        assert cp.is_quarantined() is True
+
+    def test_malformed_env_falls_back(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_BREAKER_OVERRIDES", "{not valid json")
+        configure_breaker({})  # must not raise
+        assert policy_for("x").rate_limit_threshold == 1  # default preserved
+
+    def test_env_overrides_config(self, monkeypatch):
+        monkeypatch.setenv(
+            "AIRLOCK_BREAKER_OVERRIDES",
+            '{"defaults":{"rate_limit_threshold":7}}',
+        )
+        configure_breaker(
+            {"airlock_settings": {"circuit_breaker": {"rate_limit_threshold": 2}}}
+        )
+        assert policy_for("x").rate_limit_threshold == 7  # env wins
