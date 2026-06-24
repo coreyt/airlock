@@ -314,6 +314,36 @@ def main(argv: list[str] | None = None) -> None:
         help="Target directory to extract files to (default: current directory).",
     )
 
+    # -- admin --
+    admin_parser = subparsers.add_parser(
+        "admin",
+        help="Admin capability tokens and control-plane operations.",
+    )
+    admin_sub = admin_parser.add_subparsers(dest="admin_action")
+    mint_parser = admin_sub.add_parser(
+        "mint-token",
+        help="Mint a short-lived HS256 capability token (signed locally).",
+    )
+    mint_parser.add_argument(
+        "--sub",
+        required=True,
+        help="Subject. For guardrail-skip tokens this MUST be the client's "
+        "authenticated key-derived id (key:<last8>).",
+    )
+    mint_parser.add_argument(
+        "--scope",
+        action="append",
+        default=[],
+        dest="scopes",
+        required=True,
+        help="Scope (repeatable): admin:<op> or guardrail:skip:<name>.",
+    )
+    mint_parser.add_argument(
+        "--ttl",
+        default="1h",
+        help="Token lifetime: 30m, 1h, 24h, or seconds (default: 1h).",
+    )
+
     # -- advise --
     advise_parser = subparsers.add_parser(
         "advise",
@@ -461,6 +491,11 @@ def main(argv: list[str] | None = None) -> None:
 
     elif args.command == "config":
         from airlock.cli.config_cmd import run
+
+        run(args)
+
+    elif args.command == "admin":
+        from airlock.cli.admin_cmd import run
 
         run(args)
 
