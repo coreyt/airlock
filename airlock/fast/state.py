@@ -930,6 +930,174 @@ class StateStore:
                 "impacted_clients": len(impacted),
             }
 
+    # -- Admin control plane (CC-8) ---------------------------------------
+    # Mutators clear/arm protection state and RETURN the ``admin_action`` JSONL
+    # payload — one object that is the audit record AND the channel by which the
+    # separate TUI process converges its read-replica (CC-9). The breaker pack
+    # owns ``cleared_at`` / ``_half_open_probe``; these methods only write them.
+
+    @staticmethod
+    def _admin_iso(now: float) -> str:
+        from datetime import datetime, timezone
+
+        return datetime.fromtimestamp(now, timezone.utc).isoformat()
+
+    def clear_provider_quarantine(
+        self,
+        provider: str,
+        *,
+        mode: str = "probe",
+        actor: str = "",
+        now: float | None = None,
+    ) -> dict:
+        """Clear a provider quarantine and cascade to its client buckets (R12).
+
+        ``mode="probe"`` drops to half-open (one probe admitted; a success closes,
+        a failure re-arms). ``mode="force"`` hard-clears. Sets ``cleared_at`` on the
+        provider AND every ``(client, provider)`` bucket so the threshold counter
+        and escalation cannot re-arm off pre-clear history (CC-6).
+        """
+        now = time.time() if now is None else now
+        probe = mode == "probe"
+        with self._lock:
+            ps = self.get_provider(provider)
+            ps.cleared_at = now
+            ps.quarantine_until = now if probe else 0.0
+            ps._half_open_probe = probe
+            cascaded = 0
+            for (_cid, prov), cp in self._client_provider.items():
+                if prov == provider:
+                    cp.cleared_at = now
+                    cp.quarantine_until = now if probe else 0.0
+                    cp._half_open_probe = probe
+                    cascaded += 1
+        return {
+            "record_type": "admin_action",
+            "timestamp": self._admin_iso(now),
+            "op": "clear_provider_quarantine",
+            "actor": actor,
+            "provider": provider,
+            "mode": mode,
+            "cascaded_clients": cascaded,
+        }
+
+    def clear_client_provider_quarantine(
+        self,
+        client_id: str,
+        provider: str,
+        *,
+        mode: str = "probe",
+        actor: str = "",
+        now: float | None = None,
+    ) -> dict:
+        """Clear one client→provider quarantine bucket — the precise UN-10 op."""
+        now = time.time() if now is None else now
+        client_id = normalize_client_id(client_id)
+        probe = mode == "probe"
+        with self._lock:
+            cp = self.get_client_provider(client_id, provider)
+            cp.cleared_at = now
+            cp.quarantine_until = now if probe else 0.0
+            cp._half_open_probe = probe
+        return {
+            "record_type": "admin_action",
+            "timestamp": self._admin_iso(now),
+            "op": "clear_client_provider_quarantine",
+            "actor": actor,
+            "client_id": client_id,
+            "provider": provider,
+            "mode": mode,
+        }
+
+    def clear_client_backoff(
+        self, client_id: str, *, actor: str = "", now: float | None = None
+    ) -> dict:
+        """Clear a client's threat backoff (no breaker history involved)."""
+        now = time.time() if now is None else now
+        client_id = normalize_client_id(client_id)
+        with self._lock:
+            self.get_client(client_id).backoff_until = 0.0
+        return {
+            "record_type": "admin_action",
+            "timestamp": self._admin_iso(now),
+            "op": "clear_client_backoff",
+            "actor": actor,
+            "client_id": client_id,
+        }
+
+    def reset_model_circuit(
+        self, model: str, *, actor: str = "", now: float | None = None
+    ) -> dict:
+        """Drop a model circuit to half-open so the next call probes."""
+        now = time.time() if now is None else now
+        with self._lock:
+            ms = self.get_model(model)
+            ms.circuit = CircuitState.HALF_OPEN
+            ms.consecutive_failures = 0
+            ms._half_open_admitted = False
+            ms.last_state_change = now
+        return {
+            "record_type": "admin_action",
+            "timestamp": self._admin_iso(now),
+            "op": "reset_model_circuit",
+            "actor": actor,
+            "model": model,
+        }
+
+    def quarantine_provider(
+        self,
+        provider: str,
+        *,
+        actor: str = "",
+        now: float | None = None,
+        cooldown: float | None = None,
+    ) -> dict:
+        """Manually arm a provider quarantine (operator/loopback-only op)."""
+        now = time.time() if now is None else now
+        cooldown = PROVIDER_QUARANTINE_SECONDS if cooldown is None else cooldown
+        with self._lock:
+            self.get_provider(provider).quarantine(now, "manual", "admin", cooldown)
+        return {
+            "record_type": "admin_action",
+            "timestamp": self._admin_iso(now),
+            "op": "quarantine_provider",
+            "actor": actor,
+            "provider": provider,
+            "cooldown_seconds": cooldown,
+        }
+
+    def _ingest_admin_action(self, record: dict) -> None:
+        """Replay an admin_action JSONL record into this replica store (CC-9).
+
+        Replays as a hard ``force`` clear: the half-open probe is a live-traffic
+        concern; the replica only needs to reflect that the operator cleared the
+        state. A subsequent failed probe arrives as a normal rate-limit record and
+        re-quarantines the replica through the usual path.
+        """
+        op = record.get("op")
+        actor = record.get("actor", "")
+        if op == "clear_provider_quarantine":
+            self.clear_provider_quarantine(
+                record.get("provider", ""), mode="force", actor=actor
+            )
+        elif op == "clear_client_provider_quarantine":
+            self.clear_client_provider_quarantine(
+                record.get("client_id", ""),
+                record.get("provider", ""),
+                mode="force",
+                actor=actor,
+            )
+        elif op == "clear_client_backoff":
+            self.clear_client_backoff(record.get("client_id", ""), actor=actor)
+        elif op == "reset_model_circuit":
+            self.reset_model_circuit(record.get("model", ""), actor=actor)
+        elif op == "quarantine_provider":
+            self.quarantine_provider(
+                record.get("provider", ""),
+                actor=actor,
+                cooldown=record.get("cooldown_seconds"),
+            )
+
     def record_gemini_outcome(
         self,
         client_id: str,
@@ -1009,6 +1177,13 @@ class StateStore:
         This bridges the process gap: the proxy subprocess writes JSONL, and
         the TUI process reads it to populate the same StateStore interface.
         """
+        # CC-9: route by record_type BEFORE the model check below (admin_action
+        # records carry no model and would otherwise be dropped). Absent
+        # record_type is treated as "request" for back-compat with older logs.
+        if record.get("record_type") == "admin_action":
+            self._ingest_admin_action(record)
+            return
+
         model = record.get("model")
         if not model:
             return

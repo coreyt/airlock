@@ -214,6 +214,23 @@ def _write_log(record: dict[str, Any]) -> None:
         logger.error("Failed to write log record (disk full?)", exc_info=True)
 
 
+def write_admin_action_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Append an admin_action audit record to the JSONL log (CC-8/CC-9).
+
+    The record (already shaped by a StateStore admin mutator) is both the audit
+    trail and the channel by which the TUI replica converges (via
+    ``StateStore.ingest_jsonl_record``). Returns the record for convenience.
+    """
+    _write_log(record)
+    logger.info(
+        "admin_action op=%s actor=%s target=%s",
+        record.get("op"),
+        record.get("actor"),
+        record.get("provider") or record.get("client_id") or record.get("model"),
+    )
+    return record
+
+
 def write_precall_block_record(
     data: dict[str, Any],
     *,
