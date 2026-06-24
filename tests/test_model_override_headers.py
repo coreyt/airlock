@@ -234,3 +234,35 @@ class TestServedHeaders:
 
         assert result["X-Airlock-Model-Override"] == "claude-haiku"
         assert result["X-Airlock-Served-By"] == "anthropic"
+
+    async def test_null_metadata_in_request_does_not_crash(self):
+        """Regression: data["metadata"]=None must not raise TypeError on stash."""
+        hook = AirlockModelOverrideHeaders()
+        response = SimpleNamespace(_hidden_params={"custom_llm_provider": "openai"})
+        data: dict = {"metadata": None}
+
+        result = await hook.async_post_call_response_headers_hook(
+            data=data,
+            user_api_key_dict=None,
+            response=response,
+        )
+
+        assert result is not None
+        assert "X-Airlock-Served-By" in result
+        assert data["metadata"]["airlock_served"]["provider"] == "openai"
+
+    async def test_missing_metadata_key_does_not_crash(self):
+        """Regression: data with no 'metadata' key must stash correctly."""
+        hook = AirlockModelOverrideHeaders()
+        response = SimpleNamespace(_hidden_params={"custom_llm_provider": "openai"})
+        data: dict = {}
+
+        result = await hook.async_post_call_response_headers_hook(
+            data=data,
+            user_api_key_dict=None,
+            response=response,
+        )
+
+        assert result is not None
+        assert "X-Airlock-Served-By" in result
+        assert data["metadata"]["airlock_served"]["provider"] == "openai"
