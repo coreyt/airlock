@@ -955,9 +955,7 @@ class TestTransparencyRecord:
             "messages": [],
             "litellm_params": {"metadata": {}},
         }
-        record = AirlockLogger._build_record(
-            kwargs, response, start, end, success=True
-        )
+        record = AirlockLogger._build_record(kwargs, response, start, end, success=True)
         assert record["served"]["provider"] == "bedrock"
         assert record["served"]["region"] == "us-east-1"
         assert record["served"]["response_cost"] == 0.0123
@@ -968,18 +966,14 @@ class TestTransparencyRecord:
 
     def test_served_cost_falls_back_to_kwargs(self, mock_start_end_times):
         start, end = mock_start_end_times
-        response = self._response(
-            {"custom_llm_provider": "openai"}
-        )
+        response = self._response({"custom_llm_provider": "openai"})
         kwargs = {
             "model": "gpt-4o",
             "messages": [],
             "response_cost": 0.5,
             "litellm_params": {"metadata": {}},
         }
-        record = AirlockLogger._build_record(
-            kwargs, response, start, end, success=True
-        )
+        record = AirlockLogger._build_record(kwargs, response, start, end, success=True)
         assert record["served"]["response_cost"] == 0.5
         assert record["served"]["backend_kind"] == "native"
         assert record["attribution"] == "served"
@@ -992,9 +986,7 @@ class TestTransparencyRecord:
             "messages": [],
             "litellm_params": {"metadata": {}},
         }
-        record = AirlockLogger._build_record(
-            kwargs, response, start, end, success=True
-        )
+        record = AirlockLogger._build_record(kwargs, response, start, end, success=True)
         served = record["served"]
         assert served is None or served["provider"] is None
         assert record["attribution"] == "inferred"
@@ -1073,7 +1065,5 @@ class TestTransparencyRecord:
             "messages": [],
             "litellm_params": {"metadata": {}},
         }
-        record = AirlockLogger._build_record(
-            kwargs, response, start, end, success=True
-        )
+        record = AirlockLogger._build_record(kwargs, response, start, end, success=True)
         assert record["record_type"] == "request"
