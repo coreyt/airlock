@@ -60,6 +60,28 @@ target files — `model_override_headers.py` / `enterprise_logger.py` / `monitor
 `metrics.py`+`tui/overview.py` — are disjoint → parallelizable, cap 3 concurrent;
 stagger codex reviews to avoid the load-correlated `bwrap` sandbox failure).
 
+## ◆ Smoke-test results (OBS-served HITL — run 2026-06-24, isolated instance port 4137)
+
+Harness (`dev/smoketest/`) built + a startup bug fixed (litellm resolves config handler
+modules relative to the config dir → symlink `airlock/` into the runtime). Live run on an
+isolated instance (production :4000 untouched):
+- ✅ **native non-streaming**: `gemini-3.5-flash-aistudio` → `X-Airlock-Served-By: gemini`
+  (real backend, not the alias). Correct.
+- ✅ **`X-Airlock-Explain`**: `airlock.mutations` body envelope + header present (showed the
+  `fallbacks=suppressed` mutation from `guardian.pin`). Correct.
+- ⚠️ **gateway (vertex)**: call 500'd — test venv lacks `google-auth` (`No module named
+  'google'`); a test-env dependency gap, NOT a header bug. **Gateway served-by unvalidated**
+  — re-run after `uv pip install google-auth` (or `make sync`) in the runtime, OR validate
+  on prod-equivalent creds.
+- 🐞 **streaming served-by BUG**: same AI-Studio backend → non-streaming reports `gemini`,
+  **streaming reports `vertex_ai_beta`** (litellm's internal streaming-wrapper provider label
+  leaks via the wrapper attribute, CC-T3 source). Header present but value inconsistent.
+  **Fix queued**: normalize streaming provider + disambiguate AI-Studio-vs-Vertex by
+  `api_base_host` (generativelanguage.googleapis.com ⇒ `gemini`); handle `vertex_ai_beta` in
+  `classify_backend_kind`.
+- 🔧 **harness note**: uvicorn bound `0.0.0.0:4137` not loopback despite `AIRLOCK_HOST` —
+  pass `--host` explicitly in the runbook (low risk; separate port).
+
 ## ◆ Blocked / pending operator (HITL)
 
 - **OBS-served smoke-test (does not block further pack work; blocks release sign-off).**
