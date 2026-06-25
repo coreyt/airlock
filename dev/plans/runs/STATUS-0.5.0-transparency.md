@@ -6,7 +6,7 @@
 > (runbook §1.5) and trust the witnesses over this file. Parent board:
 > `STATUS-0.5.0.md` (resilience+admin, all CLOSED).
 
-_Last updated: 2026-06-24 · branch: `feat/0.5.0-resilience-admin` · **PHASE E — 6/7 CLOSED (OBS-core/served/ledger/headers/log/accounting). Last pack OBS-metrics-tui launching @ `13110c2`. Remaining: OBS-metrics-tui, Site-12 follow-up, two ◆ HITL smoke-tests (served headers + accounting).**_
+_Last updated: 2026-06-24 · branch: `feat/0.5.0-resilience-admin` · **PHASE E — ✅ ALL 7 PACKS CLOSED (OBS-core/served/ledger/headers/log/accounting/metrics-tui, merged through `c31b362`). Remaining to close the workstream: Site-12 follow-up, the served-header live smoke test (harness built), the accounting HITL, observability docs, release sign-off.**_
 
 ## 1. Current state + next action
 
@@ -94,7 +94,7 @@ stagger codex reviews to avoid the load-correlated `bwrap` sandbox failure).
 | OBS-headers | ledger → `X-Airlock-Mutations` (bounded) + `X-Airlock-Explain` body envelope | OBS-core/served/ledger ✅ | **✅ CLOSED** (merged `13110c2`) | codex CONCERN (CR/LF)→fixed; review `…PROMOTED.md` |
 | OBS-log | `_build_record`: `mutations`/`served`/`attribution` | OBS-core/served/ledger ✅ | **✅ CLOSED** (merged `f933acf`) | codex **PASS**; review `…log-review-PROMOTED.md` |
 | OBS-accounting | spend + rate-limit/quarantine keyed off **served** provider | OBS-served ✅ | **✅ CLOSED** (merged `b079b97`) ◆ HITL pending | codex CONCERN (silent fallback)→fixed |
-| OBS-metrics-tui | `airlock_mutations_total` + served label/column | OBS-core/ledger/served ✅ | **READY** (prompt authored; launching @ `13110c2`) | prompt `0.5.0-OBS-metrics-tui.md` |
+| OBS-metrics-tui | `airlock_mutations_total` + served label/column | OBS-core/ledger/served ✅ | **✅ CLOSED** (merged `c31b362`) | codex **PASS**; review `…metrics-tui-review-PROMOTED.md` |
 
 All packs PENDING — design complete, implementation not started.
 
@@ -102,7 +102,7 @@ All packs PENDING — design complete, implementation not started.
 
 | Requirement | Pack(s) | Status |
 |-------------|---------|--------|
-| UN-19 transparent request mutations | OBS-ledger ✅ + OBS-headers ✅ + OBS-log ✅ (+ OBS-metrics-tui) | ◧ near-complete (ledger+header+log shipped; metrics counter pending; Site-12 follow-up) |
+| UN-19 transparent request mutations | OBS-ledger ✅ + OBS-headers ✅ + OBS-log ✅ + OBS-metrics-tui ✅ | ✅ shipped (ledger + header + log + metrics counter); ⚠ Site-12 config-fallback injection gap tracked |
 | UN-20 truthful serving-backend attribution | OBS-served ✅ + OBS-accounting ✅ + OBS-log ✅ | ✅ shipped (header + log + served-keyed accounting; HITL smoke-tests pending) |
 
 ## 4. Parallelization plan
@@ -132,6 +132,15 @@ rebase carefully to avoid conflicts on `model_override_headers.py` and
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-24 — **ALL 7 TRANSPARENCY PACKS CLOSED.** Wave 2 (headers/log/accounting/
+  metrics-tui) implemented in parallel (disjoint files), reviewed by codex **serially at
+  zero load** (parallel codex sandboxes re-trigger the load-correlated `bwrap` failure).
+  Verdicts: OBS-log PASS; OBS-metrics-tui PASS; OBS-accounting CONCERN (silent
+  attribution-failure fallback → fixed: warning+exc_info); OBS-headers CONCERN (header
+  values not CR/LF-normalized → fixed: `_header_safe()` on both serializers, also closing
+  the OBS-served CRLF nit). All merged through `c31b362`. UN-19 + UN-20 shipped. Remaining:
+  Site-12 follow-up, live served-header smoke test (harness committed at
+  `dev/smoketest/`), accounting HITL, observability docs, release sign-off.
 - 2026-06-24 — **OBS-served CLOSED (pack 2/7).** Served-backend headers shipped
   default-on. **Reviewer-fallback exercised:** codex hit a `bwrap` sandbox/network
   failure under concurrent load and could not inspect → used the `code-reviewer`
