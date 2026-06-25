@@ -473,3 +473,169 @@ class TestMonitorCallbacks:
 
         client_provider = fresh_state_store.get_client_provider("same-client", "openai")
         assert client_provider.is_quarantined(end.timestamp())
+
+
+# ---------------------------------------------------------------------------
+# OBS-accounting (CC-T4): spend keys off the SERVED provider on success;
+# quarantine keys off the ERROR's provider on failure. Flag-gated (default on).
+# ---------------------------------------------------------------------------
+def _served_response(hidden_params: dict | None):
+    """A minimal response object carrying ``_hidden_params`` (or none)."""
+
+    class _Resp:
+        pass
+
+    resp = _Resp()
+    if hidden_params is not None:
+        resp._hidden_params = hidden_params
+    return resp
+
+
+class TestServedAccounting:
+    @pytest.fixture
+    def monitor(self):
+        return AirlockFastMonitor()
+
+    def test_success_spend_keys_off_served_provider(
+        self,
+        monitor,
+        fresh_state_store,
+        mock_logger_kwargs,
+        mock_start_end_times,
+    ):
+        """Served≠inferred: spend is debited to the served provider, not inferred."""
+        start, end = mock_start_end_times
+        # model "claude-sonnet" infers anthropic, but it was served by bedrock.
+        response = _served_response(
+            {"custom_llm_provider": "bedrock", "response_cost": 0.02}
+        )
+        kwargs = {**mock_logger_kwargs, "response_cost": 0.02}
+
+        monitor.log_success_event(kwargs, response, start, end)
+
+        assert fresh_state_store.get_provider_spend("bedrock").recent_spend() == 0.02
+        assert fresh_state_store.get_provider_spend("anthropic").recent_spend() == 0.0
+
+    def test_success_served_cost_none_falls_back_to_kwargs_cost(
+        self,
+        monitor,
+        fresh_state_store,
+        mock_logger_kwargs,
+        mock_start_end_times,
+    ):
+        """Served provider but no served cost → amount from kwargs, keyed to served."""
+        start, end = mock_start_end_times
+        response = _served_response({"custom_llm_provider": "bedrock"})
+        kwargs = {**mock_logger_kwargs, "response_cost": 0.05}
+
+        monitor.log_success_event(kwargs, response, start, end)
+
+        assert fresh_state_store.get_provider_spend("bedrock").recent_spend() == 0.05
+        assert fresh_state_store.get_provider_spend("anthropic").recent_spend() == 0.0
+
+    def test_success_no_served_read_uses_inferred(
+        self,
+        monitor,
+        fresh_state_store,
+        mock_logger_kwargs,
+        mock_start_end_times,
+    ):
+        """No _hidden_params → old behavior: inferred provider + kwargs cost."""
+        start, end = mock_start_end_times
+        response = _served_response(None)
+        kwargs = {**mock_logger_kwargs, "response_cost": 0.03}
+
+        monitor.log_success_event(kwargs, response, start, end)
+
+        assert fresh_state_store.get_provider_spend("anthropic").recent_spend() == 0.03
+        assert fresh_state_store.get_provider_spend("bedrock").recent_spend() == 0.0
+
+    def test_rate_limit_no_response_keys_off_error_provider(
+        self,
+        monitor,
+        fresh_state_store,
+        mock_logger_kwargs,
+        mock_start_end_times,
+    ):
+        """429 with response_obj=None → quarantine keyed off exception.llm_provider."""
+        start, end = mock_start_end_times
+        # model "claude-sonnet" infers anthropic; the 429 came from openai.
+        kwargs = {
+            **mock_logger_kwargs,
+            "exception": RateLimitError(
+                message="You exceeded your current quota",
+                llm_provider="openai",
+                model="claude-sonnet",
+            ),
+        }
+
+        monitor.log_failure_event(kwargs, None, start, end)
+
+        client_provider = fresh_state_store.get_client_provider(
+            "user:dev-alice", "openai"
+        )
+        assert client_provider.is_quarantined(end.timestamp())
+        metadata = kwargs["litellm_params"]["metadata"]
+        assert metadata["airlock_provider"] == "openai"
+        assert metadata["airlock_provider_protection"]["provider"] == "openai"
+
+    def test_flag_off_success_uses_inferred(
+        self,
+        monitor,
+        fresh_state_store,
+        mock_logger_kwargs,
+        mock_start_end_times,
+        monkeypatch,
+    ):
+        """Flag OFF restores inferred spend keying on success."""
+        from airlock.transparency import TransparencyConfig
+
+        monkeypatch.setattr(
+            "airlock.fast.monitor.get_transparency_config",
+            lambda: TransparencyConfig(attribute_accounting_to_served=False),
+        )
+        start, end = mock_start_end_times
+        response = _served_response(
+            {"custom_llm_provider": "bedrock", "response_cost": 0.02}
+        )
+        kwargs = {**mock_logger_kwargs, "response_cost": 0.02}
+
+        monitor.log_success_event(kwargs, response, start, end)
+
+        assert fresh_state_store.get_provider_spend("anthropic").recent_spend() == 0.02
+        assert fresh_state_store.get_provider_spend("bedrock").recent_spend() == 0.0
+
+    def test_flag_off_failure_uses_inferred(
+        self,
+        monitor,
+        fresh_state_store,
+        mock_logger_kwargs,
+        mock_start_end_times,
+        monkeypatch,
+    ):
+        """Flag OFF restores inferred quarantine keying on failure."""
+        from airlock.transparency import TransparencyConfig
+
+        monkeypatch.setattr(
+            "airlock.fast.monitor.get_transparency_config",
+            lambda: TransparencyConfig(attribute_accounting_to_served=False),
+        )
+        start, end = mock_start_end_times
+        # model infers anthropic; exception says openai — flag off keeps anthropic.
+        kwargs = {
+            **mock_logger_kwargs,
+            "exception": RateLimitError(
+                message="quota",
+                llm_provider="openai",
+                model="claude-sonnet",
+            ),
+        }
+
+        monitor.log_failure_event(kwargs, None, start, end)
+
+        client_provider = fresh_state_store.get_client_provider(
+            "user:dev-alice", "anthropic"
+        )
+        assert client_provider.is_quarantined(end.timestamp())
+        metadata = kwargs["litellm_params"]["metadata"]
+        assert metadata["airlock_provider"] == "anthropic"
