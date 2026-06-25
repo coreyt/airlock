@@ -3,6 +3,8 @@ from typing import Any
 
 from litellm.integrations.custom_guardrail import CustomGuardrail
 
+from airlock.transparency import record_mutation
+
 
 class EnhancedModelInterceptor(CustomGuardrail):
     """Middleware for intercepting and mutating enhanced model requests."""
@@ -31,6 +33,16 @@ class EnhancedModelInterceptor(CustomGuardrail):
             messages = data.get("messages") or []
             self._inject_or_append_system_prompt(messages, system_prompt)
             data["messages"] = messages
+            record_mutation(
+                data.setdefault("metadata", {}),
+                field="system",
+                op="inject",
+                before=None,
+                after=None,
+                stage="pre_call",
+                source="enhanced.interceptor",
+                reason=enhanced_profile.get("name") or data.get("model"),
+            )
 
         if params_override:
             optional_params = data.get("optional_params") or {}

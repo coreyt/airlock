@@ -35,6 +35,7 @@ from litellm.types.guardrails import GuardrailEventHooks
 from airlock.callbacks.enterprise_logger import write_precall_block_record
 from airlock.proxy_errors import AirlockProviderBlocked, sanitize_reason
 from airlock.reasoning_effort import normalize_reasoning_effort
+from airlock.transparency import detect_dropped_params, record_mutation
 from airlock.client_identity import extract_airlock_client_from_headers
 from airlock.gemini_interface import apply_gemini_request_semantics
 from airlock.guardrails.extract import extract_text, is_batch_call, is_mcp_call
@@ -176,6 +177,16 @@ def _suppress_fallbacks(data: dict[str, Any], reason: str) -> None:
     data["max_retries"] = 0
     metadata = data.setdefault("metadata", {})
     metadata["airlock_fallback_suppressed"] = reason
+    record_mutation(
+        metadata,
+        field="fallbacks",
+        op="suppress",
+        before=None,
+        after=None,
+        stage="pre_call",
+        source="guardian.suppress",
+        reason=reason,
+    )
 
 
 def _maybe_suppress_fallbacks(data: dict[str, Any]) -> None:
@@ -201,6 +212,16 @@ def _lock_pinned_request(data: dict[str, Any]) -> None:
         "num_retries": 0,
         "max_retries": 0,
     }
+    record_mutation(
+        metadata,
+        field="fallbacks",
+        op="suppress",
+        before=None,
+        after=None,
+        stage="pre_call",
+        source="guardian.pin",
+        reason="pinned_request",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -284,6 +305,15 @@ class AirlockFastGuardian(CustomGuardrail):
                     "original": model_name,
                     "resolved": resolved,
                 }
+                record_mutation(
+                    metadata,
+                    field="model",
+                    op="rewrite",
+                    before=model_name,
+                    after=resolved,
+                    stage="pre_call",
+                    source="guardian.alias",
+                )
                 model_name = resolved
 
             # ---- Step 2.5b: Provider protection / intelligent routing ----
@@ -417,6 +447,16 @@ class AirlockFastGuardian(CustomGuardrail):
                         "failover_model": failover.failover_model,
                         "reason": failover.reason,
                     }
+                    record_mutation(
+                        metadata,
+                        field="model",
+                        op="rewrite",
+                        before=model_name,
+                        after=failover.failover_model,
+                        stage="pre_call",
+                        source="guardian.failover",
+                        reason=failover.reason,
+                    )
                     _set_model_override(
                         data,
                         requested_model,
@@ -436,6 +476,23 @@ class AirlockFastGuardian(CustomGuardrail):
         # for OpenAI) to the target provider's floor BEFORE litellm's drop_params
         # silently strips it and the model falls back to its default reasoning.
         normalize_reasoning_effort(data, target_provider)
+        # Derived drop_params transparency (Decision 8): record each client param the
+        # resolved provider does not support as an op="drop" — once per request.
+        if target_provider:
+            ledger_metadata = data.setdefault("metadata", {})
+            for dropped_param in detect_dropped_params(
+                data, data.get("model") or model_name, target_provider
+            ):
+                record_mutation(
+                    ledger_metadata,
+                    field=dropped_param,
+                    op="drop",
+                    before=None,
+                    after=None,
+                    stage="pre_call",
+                    source="drop_params",
+                    reason="provider-unsupported (drop_params)",
+                )
         priority = compute_priority(client)
         metadata = data.setdefault("metadata", {})
         metadata["airlock_priority"] = {

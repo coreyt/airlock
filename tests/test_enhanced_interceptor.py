@@ -163,3 +163,43 @@ async def test_none_optional_params(interceptor: EnhancedModelInterceptor) -> No
     }
     result = await interceptor.async_pre_call(data)
     assert result["optional_params"]["temperature"] == 0.5
+
+
+@pytest.mark.asyncio
+async def test_system_injection_records_inject(
+    interceptor: EnhancedModelInterceptor,
+) -> None:
+    data = {
+        "model": "logical-model",
+        "litellm_params": {
+            "enhanced_profile": {
+                "target_model": "physical-model",
+                "system_prompt": "SECRET_SYS_PROMPT_TEXT",
+                "name": "coder",
+            }
+        },
+    }
+    result = await interceptor.async_pre_call(data)
+    muts = result["metadata"]["airlock_mutations"]
+    inj = [m for m in muts if m.op == "inject" and m.field == "system"]
+    assert len(inj) == 1
+    assert inj[0].source == "enhanced.interceptor"
+    assert inj[0].stage == "pre_call"
+    assert inj[0].before is None and inj[0].after is None
+    # CC-T2: injected system-prompt text never lands in the ledger
+    assert "SECRET_SYS_PROMPT_TEXT" not in repr(muts)
+    # behavior unchanged
+    assert result["model"] == "physical-model"
+
+
+@pytest.mark.asyncio
+async def test_no_system_prompt_no_inject_record(
+    interceptor: EnhancedModelInterceptor,
+) -> None:
+    data = {
+        "model": "logical-model",
+        "litellm_params": {"enhanced_profile": {"target_model": "physical-model"}},
+    }
+    result = await interceptor.async_pre_call(data)
+    muts = result.get("metadata", {}).get("airlock_mutations", [])
+    assert [m for m in muts if m.op == "inject"] == []
