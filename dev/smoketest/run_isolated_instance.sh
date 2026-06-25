@@ -67,6 +67,14 @@ prepare() {
 
   # COPY production config + env into the runtime dir (originals untouched).
   cp "$REPO_ROOT/config.yaml" "$RUNTIME_DIR/config.yaml"
+
+  # litellm's get_instance_fn resolves custom-handler / callback module paths
+  # (custom_provider_map, callbacks, success/failure_callback) RELATIVE TO the
+  # config file's DIRECTORY when loaded from config (litellm/proxy/types_utils/utils.py
+  # uses spec_from_file_location at <config_dir>/<dotted.module>.py). The runtime dir
+  # has no airlock/ source tree, so symlink it in — without this the proxy aborts at
+  # startup with "Could not import tavily_handler from airlock.providers.tavily_provider".
+  ln -sfn "$REPO_ROOT/airlock" "$RUNTIME_DIR/airlock"
   if [[ -f "$REPO_ROOT/.env" ]]; then
     cp "$REPO_ROOT/.env" "$RUNTIME_DIR/.env"
   else
