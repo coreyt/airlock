@@ -6,7 +6,7 @@
 > (runbook §1.5) and trust the witnesses over this file. Parent board:
 > `STATUS-0.5.0.md` (resilience+admin, all CLOSED).
 
-_Last updated: 2026-06-24 · branch: `feat/0.5.0-resilience-admin` · **PHASE E IN PROGRESS — OBS-core + OBS-served CLOSED (2/7). ◆ OBS-served HITL smoke-test pending operator. OBS-ledger implementing.**_
+_Last updated: 2026-06-24 · branch: `feat/0.5.0-resilience-admin` · **PHASE E IN PROGRESS — OBS-core + OBS-served + OBS-ledger CLOSED (3/7). Next: OBS-headers / OBS-log / OBS-accounting / OBS-metrics-tui (disjoint files). ◆ OBS-served HITL smoke-test harness in progress. Follow-up: OBS-ledger-passthrough (Site 12).**_
 
 ## 1. Current state + next action
 
@@ -45,9 +45,20 @@ _Last updated: 2026-06-24 · branch: `feat/0.5.0-resilience-admin` · **PHASE E 
     tests) + re-verified. Verdict: `0.5.0-OBS-served-review-20260624T223530Z.md`.
     **◆ HITL pending** — see Blocked.
 
-**Next action:** finish OBS-ledger (implementing); review (retry codex now that load is
-dropping) + merge. Then OBS-headers / OBS-log / OBS-accounting / OBS-metrics-tui.
-**Open ◆ HITL:** operator smoke-tests the served headers (below).
+  - **OBS-ledger: ✅ CLOSED.** Merged `40520e5` (`--no-ff`). 16/17 mutation sites +
+    derived `drop_params` recorded via `record_mutation`/`record_redaction`
+    (observe-only CC-T4; legacy `airlock_*` keys preserved CC-T1; PII value-free CC-T2);
+    285 targeted + full suite (2064) green, purely additive (+817/−1). **Review:** codex
+    `gpt-5.5` = **CONCERN** (1 medium — Site 12 `enhanced_passthrough` config-fallback
+    injection unrecorded; Site 6 dual-record + drop_params + CC-T1/T2/T4 all verified
+    correct) → **override-to-merge with rationale** (medium coverage gap, not a bug; 16
+    sites clean; proper fix is cross-module) → **follow-up `OBS-ledger-passthrough`**.
+    Verdict: `0.5.0-OBS-ledger-review-PROMOTED.md`.
+
+**Next action:** launch OBS-headers / OBS-log / OBS-accounting / OBS-metrics-tui (their
+target files — `model_override_headers.py` / `enterprise_logger.py` / `monitor.py` /
+`metrics.py`+`tui/overview.py` — are disjoint → parallelizable, cap 3 concurrent;
+stagger codex reviews to avoid the load-correlated `bwrap` sandbox failure).
 
 ## ◆ Blocked / pending operator (HITL)
 
@@ -60,6 +71,15 @@ dropping) + merge. Then OBS-headers / OBS-log / OBS-accounting / OBS-metrics-tui
 - **Deferred nit (OBS-served review):** CRLF-strip served header values in
   `transparency.py:served_headers` (operator-sourced, low risk) — fold into OBS-headers
   or a small OBS-core touch.
+- **Follow-up `OBS-ledger-passthrough` (Site 12, medium):** record the
+  `EnhancedPassthroughProvider` config-fallback system-prompt injection in the outer
+  ledger (Site 11 only covers the `litellm_params` path). Investigate metadata
+  reachability empirically; likely extend the pre-call interceptor for config-resolved
+  profiles. Do before release sign-off. Tracked as task.
+- **User's in-progress budget edits (not ours):** uncommitted `config.yaml` +
+  `airlock/fast/router.py` (`gemini` provider budget → 0) on the main checkout break 2
+  existing `test_fast_router.py` default-budget tests; the committed transparency merges
+  are green without those edits. Left untouched (the operator's work).
 
 ## 2. Pack scoreboard
 
