@@ -1,0 +1,45 @@
+{
+  "pack": "0.5.0-OBS-served-streamfix",
+  "status": "CLOSED",
+  "baseline_sha": "7fb339e",
+  "branch": "obs-served-streamfix",
+  "head_sha": "e2c9ffa915daede01fca5fa96ea2bbeb960f264b",
+  "commits": [
+    "9f404c7: test(transparency): RED — streaming served-by vertex_ai_beta + AI-Studio-vs-Vertex disambiguation",
+    "e2c9ffa: fix(transparency): normalize streaming served-by — vertex_ai_beta + AI-Studio-vs-Vertex by api_base_host"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "9f404c76eb9334b89cdef1e618f66c50539842ae",
+    "test_files": ["tests/test_served_attribution.py"]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_served_attribution.py::test_streaming_ai_studio_vertex_ai_beta_resolves_gemini",
+      "tests/test_served_attribution.py::test_streaming_vertex_vertex_ai_beta_resolves_vertex_ai",
+      "tests/test_served_attribution.py::test_classify_backend_kind_gateway"
+    ],
+    "passed": 20,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/transparency.py",
+    "tests/test_served_attribution.py"
+  ],
+  "step1_observations": {
+    "litellm_version": "1.89.0",
+    "finding": "api_base host is a reliable AI-Studio-vs-Vertex disambiguator on the streaming path.",
+    "details": [
+      "vertex_and_google_ai_studio_gemini.py:2935 and :3227 construct CustomStreamWrapper with custom_llm_provider='vertex_ai_beta' HARDCODED — for both AI-Studio and Vertex gemini, so the wrapper instance attr always leaks vertex_ai_beta on streams.",
+      "CustomStreamWrapper.__init__ (streaming_handler.py:149) sets _hidden_params['api_base'] = get_api_base(model, litellm_params).",
+      "get_api_base.py:106-113: custom_llm_provider='gemini' (the gemini/ prefix, no vertex_location/project) → host generativelanguage.googleapis.com (AI Studio).",
+      "get_api_base.py:88-98: Vertex (vertex_location+project) → host {location}-aiplatform.googleapis.com (gateway).",
+      "Empirical scratch (deleted before commit): AI-Studio stream api_base = https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent ; Vertex stream api_base = us-east5-aiplatform.googleapis.com/v1/projects/proj/locations/us-east5/publishers/google/models/gemini-1.5-flash:generateContent"
+    ]
+  },
+  "fix_summary": "Added _normalize_served_provider(provider, api_base_host): maps vertex_ai_beta→vertex_ai, and for the Google/Vertex family resolves to gemini when api_base_host == generativelanguage.googleapis.com (AI Studio); else stays vertex_ai (gateway). Applied in attribute_served_backend after api_base_host is computed, before classify_backend_kind, so streaming (wrapper attr) and non-streaming (_hidden_params) converge. Added vertex_ai_beta to _GATEWAY_PROVIDERS so classify_backend_kind handles it defensively. Additive only — no ServedBackend fields, signatures, or serializers changed.",
+  "blockers_encountered": [],
+  "additional_changes_made_in_scope": [],
+  "agent_verify_result": "pass — tests/test_served_attribution.py 20 passed; tests/test_served_attribution.py+test_header_safety.py 32 passed; -k 'served or transparency or header' 120 passed, 1 skipped; ruff check + format clean",
+  "next_step_for_orchestrator": "Pack 0.5.0-OBS-served-streamfix on branch obs-served-streamfix at e2c9ffa; review, verify, merge"
+}
