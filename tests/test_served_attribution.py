@@ -155,3 +155,44 @@ def test_served_headers_includes_region_only_when_present() -> None:
 
 def test_served_headers_none_input() -> None:
     assert served_headers(None) == {}
+
+
+# ---------------------------------------------------------------------------
+# CR/LF header-injection safety tests for served_headers
+# ---------------------------------------------------------------------------
+
+
+def test_served_headers_crlf_in_provider_is_stripped() -> None:
+    """provider value with CR/LF cannot inject a new header line.
+
+    After stripping, the CRLF is gone so no new header can be injected;
+    any remaining text is embedded in the same value — that is fine.
+    """
+    s = ServedBackend(
+        provider="anthropic\r\nX-Injected: evil",
+        api_base_host=None,
+        region=None,
+        model_id=None,
+        response_cost=None,
+        backend_kind="native",
+    )
+    h = served_headers(s)
+    val = h.get("X-Airlock-Served-By", "")
+    assert "\r" not in val
+    assert "\n" not in val
+
+
+def test_served_headers_crlf_in_region_is_stripped() -> None:
+    """region value with CR/LF cannot inject a new header line."""
+    s = ServedBackend(
+        provider="bedrock",
+        api_base_host=None,
+        region="us-east-1\r\nX-Injected: evil",
+        model_id=None,
+        response_cost=None,
+        backend_kind="gateway",
+    )
+    h = served_headers(s)
+    val = h.get("X-Airlock-Served-Region", "")
+    assert "\r" not in val
+    assert "\n" not in val

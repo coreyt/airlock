@@ -218,16 +218,22 @@ def detect_dropped_params(data: dict, model: str, provider: str) -> list[str]:
 # ---------------------------------------------------------------------------
 # Header serializers (allowlist-aware, content-safe, byte-bounded)
 # ---------------------------------------------------------------------------
+def _header_safe(value: str) -> str:
+    """Strip CR and LF from a value so it cannot inject new header lines."""
+    return str(value).replace("\r", "").replace("\n", "")
+
+
 def _mutation_token(m: Mutation) -> str:
+    field = _header_safe(m.field)
     if m.op == "redact":
-        return f"{m.field}=redacted({m.count})"
+        return f"{field}=redacted({m.count})"
     if m.op == "suppress":
-        return f"{m.field}=suppressed"
+        return f"{field}=suppressed"
     if m.field in HEADER_VALUE_FIELDS and m.op in {"set", "clamp", "rewrite"}:
-        return f"{m.field}={m.after}"
+        return f"{field}={_header_safe(str(m.after))}"
     # inject / rewrite|drop on non-allowlisted fields / any non-allowlisted field
     # → op only, never content.
-    return f"{m.field}={m.op}"
+    return f"{field}={m.op}"
 
 
 def mutations_header(ledger: list[Mutation], budget_bytes: int = 256) -> str:
@@ -256,9 +262,9 @@ def served_headers(s: ServedBackend | None) -> dict[str, str]:
     """X-Airlock-Served-By/-Region; {} when provider is unknown (omit, never guess)."""
     if s is None or s.provider is None:
         return {}
-    headers = {"X-Airlock-Served-By": s.provider}
+    headers = {"X-Airlock-Served-By": _header_safe(s.provider)}
     if s.region:
-        headers["X-Airlock-Served-Region"] = s.region
+        headers["X-Airlock-Served-Region"] = _header_safe(s.region)
     return headers
 
 
