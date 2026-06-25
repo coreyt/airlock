@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any
 
 from litellm.integrations.custom_logger import CustomLogger
@@ -19,6 +20,7 @@ from airlock.gemini_interface import (
 from airlock.transparency import (
     attribute_served_backend,
     get_transparency_config,
+    mutations_header,
     served_headers,
 )
 
@@ -69,8 +71,18 @@ class AirlockModelOverrideHeaders(CustomLogger):
                 "model_id": served.model_id,
                 "backend_kind": served.backend_kind,
             }
-        if get_transparency_config().served_headers:
+        cfg = get_transparency_config()
+        if cfg.served_headers:
             response_headers.update(served_headers(served))
+
+        # X-Airlock-Mutations (OBS-headers Part A): serialize the pre/during-call
+        # ledger via the allowlist-aware, byte-bounded serializer (CC-T2). Additive
+        # (CC-T7); fires for streaming + non-streaming alike (CC-T6).
+        ledger = metadata.get("airlock_mutations") or []
+        if ledger and cfg.mutation_headers != "off":
+            header_val = mutations_header(ledger, cfg.mutation_header_budget_bytes)
+            if header_val:
+                response_headers["X-Airlock-Mutations"] = header_val
 
         if not response_headers:
             return None
@@ -81,6 +93,50 @@ class AirlockModelOverrideHeaders(CustomLogger):
             additional_headers.update(response_headers)
 
         return dict(response_headers)
+
+    async def async_post_call_success_hook(
+        self,
+        data: dict,
+        user_api_key_dict: Any,  # noqa: ARG002
+        response: Any,
+    ) -> Any:
+        """Attach the additive ``airlock.mutations`` body envelope (OBS-headers
+        Part B), NON-STREAMING ONLY (streaming uses the iterator hook, which is
+        intentionally not implemented — Decision 7). The default path (no opt-in)
+        is a byte-identical no-op (CC-T5/CC-T7)."""
+        cfg = get_transparency_config()
+        if not self._explain_opted_in(data, cfg.explain_body_optin_header):
+            return response
+
+        metadata = (data or {}).get("metadata") or {}
+        ledger = metadata.get("airlock_mutations") or []
+        if not ledger or not hasattr(response, "model_dump"):
+            return response
+
+        # Metadata-only, value-safe (CC-T2); ModelResponse has extra="allow" so a
+        # plain attribute serializes into the client-visible JSON.
+        response.airlock = {"mutations": [asdict(m) for m in ledger]}
+        return response
+
+    @staticmethod
+    def _explain_opted_in(data: dict, header_name: str) -> bool:
+        headers = ((data or {}).get("proxy_server_request") or {}).get("headers") or {}
+        if not isinstance(headers, dict):
+            return False
+        target = header_name.lower()
+        for key, value in headers.items():
+            if isinstance(key, str) and key.lower() == target:
+                return _coerce_optin(value)
+        return False
+
+
+_FALSY_OPTIN = {"", "0", "false", "off", "no"}
+
+
+def _coerce_optin(value: object) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() not in _FALSY_OPTIN
+    return bool(value)
 
 
 proxy_model_override_headers = AirlockModelOverrideHeaders()

@@ -342,9 +342,7 @@ class TestMutationsHeader:
         ledger = [_mut(f"field_with_a_longish_name_{i}", "inject") for i in range(50)]
         data = {"metadata": {"airlock_mutations": ledger}}
 
-        configure_transparency(
-            {"transparency": {"mutation_header_budget_bytes": 80}}
-        )
+        configure_transparency({"transparency": {"mutation_header_budget_bytes": 80}})
         try:
             result = await hook.async_post_call_response_headers_hook(
                 data=data,
