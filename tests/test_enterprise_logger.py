@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 
@@ -18,6 +19,9 @@ from airlock.callbacks.enterprise_logger import (
     write_batch_record,
     write_precall_block_record,
 )
+from airlock.transparency import record_mutation, record_redaction
+
+_UNSET = object()
 
 
 # ---------------------------------------------------------------------------
@@ -923,3 +927,153 @@ class TestLogFieldRedaction:
         written = json.loads(log_path.read_text().strip())
         assert written["messages"] == "[REDACTED]"
         assert written["model"] == "gpt-4o"
+
+
+# ---------------------------------------------------------------------------
+# Transparency: mutations / served / attribution (OBS-log)
+# ---------------------------------------------------------------------------
+class TestTransparencyRecord:
+    def _response(self, hidden_params, *, custom_llm_provider=_UNSET):
+        ns = SimpleNamespace(_hidden_params=hidden_params)
+        if custom_llm_provider is not _UNSET:
+            ns.custom_llm_provider = custom_llm_provider
+        return ns
+
+    def test_served_attribution_from_hidden_params(self, mock_start_end_times):
+        start, end = mock_start_end_times
+        response = self._response(
+            {
+                "custom_llm_provider": "bedrock",
+                "region_name": "us-east-1",
+                "api_base": "https://bedrock-runtime.us-east-1.amazonaws.com",
+                "model_id": "anthropic.claude-3",
+                "response_cost": 0.0123,
+            }
+        )
+        kwargs = {
+            "model": "claude-sonnet",
+            "messages": [],
+            "litellm_params": {"metadata": {}},
+        }
+        record = AirlockLogger._build_record(
+            kwargs, response, start, end, success=True
+        )
+        assert record["served"]["provider"] == "bedrock"
+        assert record["served"]["region"] == "us-east-1"
+        assert record["served"]["response_cost"] == 0.0123
+        assert record["served"]["backend_kind"] == "gateway"
+        assert record["attribution"] == "served"
+        # The inferred provider stays distinct and present.
+        assert record["airlock_provider"] == "anthropic"
+
+    def test_served_cost_falls_back_to_kwargs(self, mock_start_end_times):
+        start, end = mock_start_end_times
+        response = self._response(
+            {"custom_llm_provider": "openai"}
+        )
+        kwargs = {
+            "model": "gpt-4o",
+            "messages": [],
+            "response_cost": 0.5,
+            "litellm_params": {"metadata": {}},
+        }
+        record = AirlockLogger._build_record(
+            kwargs, response, start, end, success=True
+        )
+        assert record["served"]["response_cost"] == 0.5
+        assert record["served"]["backend_kind"] == "native"
+        assert record["attribution"] == "served"
+
+    def test_attribution_inferred_when_no_provider(self, mock_start_end_times):
+        start, end = mock_start_end_times
+        response = self._response({})  # no provider resolvable
+        kwargs = {
+            "model": "gpt-4o",
+            "messages": [],
+            "litellm_params": {"metadata": {}},
+        }
+        record = AirlockLogger._build_record(
+            kwargs, response, start, end, success=True
+        )
+        served = record["served"]
+        assert served is None or served["provider"] is None
+        assert record["attribution"] == "inferred"
+        # Inferred provider still set even when attribution is inferred.
+        assert record["airlock_provider"] == "openai"
+
+    def test_served_none_when_no_response(self, mock_start_end_times):
+        start, end = mock_start_end_times
+        kwargs = {
+            "model": "gpt-4o",
+            "messages": [],
+            "litellm_params": {"metadata": {}},
+        }
+        record = AirlockLogger._build_record(kwargs, None, start, end, success=True)
+        assert record["served"] is None
+        assert record["attribution"] == "inferred"
+
+    def test_mutations_full_ledger_serialized(self, mock_start_end_times):
+        start, end = mock_start_end_times
+        metadata: dict = {}
+        record_mutation(
+            metadata,
+            field="reasoning_effort",
+            op="set",
+            before="off",
+            after="minimal",
+            stage="pre_call",
+            source="reasoning_effort.normalize",
+            reason="openai has no 'off' enum",
+        )
+        record_redaction(
+            metadata,
+            field="messages",
+            count=3,
+            category="pii",
+            stage="pre_call",
+            source="pii_guard",
+        )
+        kwargs = {
+            "model": "gpt-4o",
+            "messages": [],
+            "litellm_params": {"metadata": metadata},
+        }
+        record = AirlockLogger._build_record(kwargs, None, start, end, success=True)
+        muts = record["mutations"]
+        assert isinstance(muts, list) and len(muts) == 2
+        # Order preserved.
+        assert muts[0]["field"] == "reasoning_effort"
+        assert muts[0]["op"] == "set"
+        assert muts[0]["after"] == "minimal"
+        assert muts[1]["field"] == "messages"
+        assert muts[1]["op"] == "redact"
+        # Value-free: redact record carries no before/after content.
+        assert muts[1]["before"] is None
+        assert muts[1]["after"] is None
+        assert muts[1]["count"] == 3
+        assert muts[1]["category"] == "pii"
+        # Whole ledger is plain JSON (no dataclass repr leaking).
+        json.dumps(muts)
+
+    def test_mutations_empty_when_absent(self, mock_start_end_times):
+        start, end = mock_start_end_times
+        kwargs = {
+            "model": "gpt-4o",
+            "messages": [],
+            "litellm_params": {"metadata": {}},
+        }
+        record = AirlockLogger._build_record(kwargs, None, start, end, success=True)
+        assert record["mutations"] == []
+
+    def test_record_type_unchanged(self, mock_start_end_times):
+        start, end = mock_start_end_times
+        response = self._response({"custom_llm_provider": "bedrock"})
+        kwargs = {
+            "model": "claude-sonnet",
+            "messages": [],
+            "litellm_params": {"metadata": {}},
+        }
+        record = AirlockLogger._build_record(
+            kwargs, response, start, end, success=True
+        )
+        assert record["record_type"] == "request"
