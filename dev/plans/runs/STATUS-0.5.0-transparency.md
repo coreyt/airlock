@@ -55,10 +55,21 @@ _Last updated: 2026-06-24 · branch: `feat/0.5.0-resilience-admin` · **PHASE E 
     sites clean; proper fix is cross-module) → **follow-up `OBS-ledger-passthrough`**.
     Verdict: `0.5.0-OBS-ledger-review-PROMOTED.md`.
 
-**Next action:** launch OBS-headers / OBS-log / OBS-accounting / OBS-metrics-tui (their
-target files — `model_override_headers.py` / `enterprise_logger.py` / `monitor.py` /
-`metrics.py`+`tui/overview.py` — are disjoint → parallelizable, cap 3 concurrent;
-stagger codex reviews to avoid the load-correlated `bwrap` sandbox failure).
+**Engineering COMPLETE.** All 7 packs + 2 follow-up fixes (Site-12 ledger gap; streaming
+served-by) merged + codex-reviewed; full suite 2102 green; observability docs written;
+served-header smoke test executed (native served-by + explain envelope correct; streaming
+bug found, fixed, and re-confirmed live). **Remaining = operator/HITL only, not orchestrator
+code work:**
+1. **OBS-accounting HITL** — validate accounting + dashboards on real traffic before GA
+   (default `attribute_accounting_to_served: on`; opt-out documented).
+2. **Gateway served-by validation** — the smoke test's vertex call needs `google-auth` in the
+   test venv (`uv pip install google-auth` in the runtime, or validate on prod creds); native
+   path already validated.
+3. **0.5.0 release sign-off** (HITL) — fold transparency into the release; tag.
+4. **Local hygiene** — `dev/smoketest/.runtime/` holds a copied `.env` (real keys); operator
+   may `rm -rf dev/smoketest/.runtime` when done (gitignored, never committed).
+5. **Nothing is pushed** — branch `feat/0.5.0-resilience-admin` advanced locally; push on the
+   operator's go.
 
 ## ◆ Smoke-test results (OBS-served HITL — run 2026-06-24, isolated instance port 4137)
 
@@ -77,8 +88,9 @@ isolated instance (production :4000 untouched):
   reported `gemini` (non-stream) vs `vertex_ai_beta` (stream). Root cause: litellm hardcodes
   `vertex_ai_beta` on the gemini stream wrapper; `api_base` disambiguates. `_normalize_served_
   provider` now maps `vertex_ai_beta`→`vertex_ai` and resolves to `gemini` on the AI-Studio
-  host → streaming + non-streaming converge. codex PASS. **Re-confirm on the isolated instance
-  pending** (a streaming gemini-aistudio call should now report `gemini`).
+  host → streaming + non-streaming converge. codex PASS. **✅ RE-CONFIRMED live** — both
+  non-streaming and streaming now report `X-Airlock-Served-By: gemini` for
+  `gemini-3.5-flash-aistudio` (was `vertex_ai_beta` on stream). Production untouched.
 - 🔧 **harness note**: uvicorn bound `0.0.0.0:4137` not loopback despite `AIRLOCK_HOST` —
   pass `--host` explicitly in the runbook (low risk; separate port).
 
