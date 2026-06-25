@@ -88,10 +88,10 @@ stagger codex reviews to avoid the load-correlated `bwrap` sandbox failure).
 | OBS-core | `airlock/transparency.py` dataclasses + `record_mutation`/`attribute_served_backend`/header serializers + `transparency.*` config | — | **✅ CLOSED** (merged `b997de0`) | `0.5.0-OBS-core-output.json`; review `…220523Z.md` |
 | OBS-served | post-call attribution + flush in `model_override_headers.py`; `X-Airlock-Served-By`/`-Region`; streaming | OBS-core ✅ | **✅ CLOSED** (merged `55b9690`) ◆ HITL pending | review `…223530Z.md` (codex infra-fail → sonnet fallback → fixed) |
 | OBS-ledger | retrofit every mutation site → `record_mutation` | OBS-core ✅ | **IMPLEMENTING** (worktree `obs-ledger` @ 827d126) | prompt `0.5.0-OBS-ledger.md` |
-| OBS-headers | ledger → `X-Airlock-Mutations` (bounded) + `X-Airlock-Explain` body envelope | OBS-core, OBS-served, OBS-ledger | **PENDING** | — |
-| OBS-log | `_build_record`: `mutations`/`served`/`attribution` | OBS-core, OBS-served, OBS-ledger | **PENDING** | — |
-| OBS-accounting | spend + rate-limit/quarantine keyed off **served** provider | OBS-served | **PENDING** | — |
-| OBS-metrics-tui | `airlock_mutations_total` + served label/column | OBS-core, OBS-ledger, OBS-served | **PENDING** | — |
+| OBS-headers | ledger → `X-Airlock-Mutations` (bounded) + `X-Airlock-Explain` body envelope | OBS-core/served/ledger ✅ | **IMPLEMENTING** (worktree `obs-headers` @ d1ca77f) | prompt `0.5.0-OBS-headers.md` |
+| OBS-log | `_build_record`: `mutations`/`served`/`attribution` | OBS-core/served/ledger ✅ | **IMPLEMENTING** (worktree `obs-log` @ d1ca77f) | prompt `0.5.0-OBS-log.md` |
+| OBS-accounting | spend + rate-limit/quarantine keyed off **served** provider | OBS-served ✅ | **IMPLEMENTING** (worktree `obs-accounting` @ d1ca77f) | prompt `0.5.0-OBS-accounting.md` |
+| OBS-metrics-tui | `airlock_mutations_total` + served label/column | OBS-core/ledger/served ✅ | **READY** (scouted; authoring next) | — |
 
 All packs PENDING — design complete, implementation not started.
 
