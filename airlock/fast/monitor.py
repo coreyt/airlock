@@ -26,6 +26,7 @@ from airlock.client_identity import extract_airlock_client_from_kwargs
 from airlock.fast.ratelimit_headers import parse_ratelimit_headers
 from airlock.gemini_interface import classify_gemini_response
 from airlock.guardrails.extract import is_batch_call
+from airlock.transparency import attribute_served_backend, get_transparency_config
 from litellm.exceptions import APIError, RateLimitError
 from litellm.integrations.custom_logger import CustomLogger
 
@@ -195,6 +196,25 @@ class AirlockFastMonitor(CustomLogger):
         # Track spend per provider for budget-aware routing
         cost = kwargs.get("response_cost", 0.0)
         provider = _infer_provider(model_name)
+        # CC-T4: key spend (and the other per-provider success counters) off the
+        # SERVED backend, not the inferred one — a same-provider failover or backend
+        # swap is then billed correctly. Flag-gated; falls back to inferred when the
+        # served read is absent/unparseable (a monitor callback must never crash the
+        # request path). response_obj is the final served response.
+        if get_transparency_config().attribute_accounting_to_served:
+            try:
+                served = attribute_served_backend(
+                    response_obj, cost_fallback=kwargs.get("response_cost")
+                )
+            except Exception:
+                served = None
+            if served and served.provider:
+                provider = served.provider
+                cost = (
+                    served.response_cost
+                    if served.response_cost is not None
+                    else kwargs.get("response_cost", 0.0)
+                )
         if provider:
             if cost and cost > 0:
                 store.get_provider_spend(provider).record_spend(now, cost)
@@ -286,6 +306,13 @@ class AirlockFastMonitor(CustomLogger):
             store.record_provider_request(client_id, provider, now)
             if is_provider_call:
                 store.record_provider_failure(client_id, provider, now)
+
+        # CC-T4: the quarantine/rate-limit counter keys off the provider parsed from
+        # the error (the backend that actually 429'd), else the inferred provider —
+        # never a served read (often no response on failure). Attempt/breaker counting
+        # above stays per-attempted-provider (inferred). Flag-gated.
+        if get_transparency_config().attribute_accounting_to_served:
+            provider = getattr(exception, "llm_provider", None) or provider
 
         is_rate_limited, reason = _is_provider_rate_limited(exception)
         if provider and is_rate_limited:

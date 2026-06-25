@@ -159,9 +159,7 @@ class TestMonitorCallbacks:
 
         start, end = mock_start_end_times
         kwargs = {**mock_logger_kwargs, "exception": None}
-        with patch.object(
-            fresh_state_store, "record_provider_rate_limit"
-        ) as mock_rprl:
+        with patch.object(fresh_state_store, "record_provider_rate_limit") as mock_rprl:
             monitor.log_failure_event(kwargs, None, start, end)
         mock_rprl.assert_not_called()
 
