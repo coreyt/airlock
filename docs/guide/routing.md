@@ -177,6 +177,12 @@ When fallbacks are suppressed, Airlock records it in request metadata as
 surfaced via the `X-Airlock-Model-Override` header so the client knows a different
 model responded.
 
+`X-Airlock-Model-Override` tells you which *model alias* answered; its companion
+[`X-Airlock-Served-By`](../reference/response-headers.md#x-airlock-served-by) tells
+you which *backend* did (e.g. `anthropic` vs `bedrock` for the same model) — read
+from the response rather than inferred. See
+[Observability & Transparency](observability.md).
+
 ## Provider budgets
 
 `router_settings.provider_budget_config` sets a per-provider daily spend cap (e.g.

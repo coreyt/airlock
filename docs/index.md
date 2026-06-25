@@ -59,3 +59,6 @@ See [Installation](getting-started/installation.md) for detailed setup instructi
   (`Retry-After`, headers, body) and the tunable per-client circuit breaker.
 - [Provider Quota Observability](guide/provider-observability.md) — observe-only
   rate-limit headroom and budget gauges captured from upstream providers.
+- [Observability & Transparency](guide/observability.md) — the mutation ledger,
+  served-backend attribution, and the `X-Airlock-*` response-header contract
+  ([reference](reference/response-headers.md)).
