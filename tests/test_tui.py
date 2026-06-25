@@ -670,6 +670,38 @@ async def test_overview_status_line_exists() -> None:
         assert status_line is not None
 
 
+async def test_overview_providers_has_served_via_column() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as _pilot:
+        table = app.query_one("#ov-providers", DataTable)
+        labels = [str(col.label) for col in table.columns.values()]
+        assert "Served via" in labels
+
+
+async def test_overview_served_via_renders_backend_kind() -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        from airlock.fast.state import store
+        from airlock.tui.screens.overview import OverviewPane
+
+        # Register a known-native provider so a row is produced.
+        store.get_provider("anthropic")
+
+        overview = app.query_one(OverviewPane)
+        overview._refresh_state()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        table = app.query_one("#ov-providers", DataTable)
+        labels = [str(col.label) for col in table.columns.values()]
+        served_idx = labels.index("Served via")
+
+        rows = [table.get_row_at(i) for i in range(table.row_count)]
+        anthropic_rows = [r for r in rows if r and r[0] == "anthropic"]
+        assert anthropic_rows, "expected an anthropic provider row"
+        assert anthropic_rows[0][served_idx] == "native"
+
+
 # -------------------------------------------------------------------
 # 2. Config Screen Tests
 # -------------------------------------------------------------------
