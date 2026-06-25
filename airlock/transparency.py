@@ -138,6 +138,20 @@ def record_redaction(
 # ---------------------------------------------------------------------------
 # Served-backend attribution (post-call counterpart to infer_provider)
 # ---------------------------------------------------------------------------
+def classify_backend_kind(
+    provider: str | None,
+) -> Literal["native", "gateway", "unknown"]:
+    """Map a provider name to its backend kind (pure, no I/O).
+
+    gateway: bedrock/azure/vertex_ai ; native: anthropic/openai/gemini ; else unknown.
+    """
+    if provider in _GATEWAY_PROVIDERS:
+        return "gateway"
+    if provider in _NATIVE_PROVIDERS:
+        return "native"
+    return "unknown"
+
+
 def attribute_served_backend(
     response: Any, *, cost_fallback: float | None = None
 ) -> ServedBackend | None:
@@ -172,12 +186,7 @@ def attribute_served_backend(
     if response_cost is None:
         response_cost = cost_fallback
 
-    if provider in _GATEWAY_PROVIDERS:
-        backend_kind: Literal["native", "gateway", "unknown"] = "gateway"
-    elif provider in _NATIVE_PROVIDERS:
-        backend_kind = "native"
-    else:
-        backend_kind = "unknown"
+    backend_kind = classify_backend_kind(provider)
 
     return ServedBackend(
         provider=provider,

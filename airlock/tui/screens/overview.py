@@ -25,6 +25,7 @@ from textual.widgets import Button, Collapsible, DataTable, RichLog, Static
 from airlock.tui.widgets.safe_data_table import _SafeDataTable
 from airlock.tui.widgets.status_indicator import StatusIndicator
 from airlock.api.queries import get_billing_metrics
+from airlock.transparency import classify_backend_kind
 
 if TYPE_CHECKING:
     from airlock.tui.proxy_manager import ProxyManager
@@ -190,6 +191,7 @@ class OverviewPane(VerticalScroll):
             "Err%",
             "Recovery",
             "Impacted",
+            "Served via",
         )
         yield providers
 
@@ -641,8 +643,9 @@ class OverviewPane(VerticalScroll):
             requests = str(provider.recent_request_count())
             err_rate = f"{provider.recent_error_rate() * 100:.1f}%"
             impacted = str(len(provider.impacted_clients()))
+            served_via = classify_backend_kind(name)
             provider_rows.append(
-                (name, status, requests, err_rate, recovery, impacted),
+                (name, status, requests, err_rate, recovery, impacted, served_via),
             )
             provider_keys.append(name)
 
@@ -736,6 +739,7 @@ class OverviewPane(VerticalScroll):
             else:
                 ptable.add_row(
                     "(no providers tracked)",
+                    "-",
                     "-",
                     "-",
                     "-",

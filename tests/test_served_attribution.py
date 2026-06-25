@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from airlock.transparency import (
     ServedBackend,
     attribute_served_backend,
+    classify_backend_kind,
     served_headers,
 )
 
@@ -126,6 +127,23 @@ def test_cost_fallback_used_when_absent() -> None:
 
 def test_falsy_response_returns_none() -> None:
     assert attribute_served_backend(None) is None
+
+
+def test_classify_backend_kind_gateway() -> None:
+    assert classify_backend_kind("bedrock") == "gateway"
+    assert classify_backend_kind("azure") == "gateway"
+    assert classify_backend_kind("vertex_ai") == "gateway"
+
+
+def test_classify_backend_kind_native() -> None:
+    assert classify_backend_kind("anthropic") == "native"
+    assert classify_backend_kind("openai") == "native"
+    assert classify_backend_kind("gemini") == "native"
+
+
+def test_classify_backend_kind_unknown() -> None:
+    assert classify_backend_kind("something-else") == "unknown"
+    assert classify_backend_kind(None) == "unknown"
 
 
 def test_served_headers_includes_region_only_when_present() -> None:

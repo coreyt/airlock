@@ -66,6 +66,12 @@ def fresh_metrics(monkeypatch):
             ["category", "mode"],
             registry=registry,
         ),
+        "mutations_total": Counter(
+            "test_airlock_mutations_total",
+            "Total ledger mutations",
+            ["field", "op"],
+            registry=registry,
+        ),
     }
     monkeypatch.setattr(metrics_module, "_metrics", fresh)
     return fresh
@@ -183,3 +189,86 @@ class TestAirlockMetricsCallback:
             ._value.get()
             == 1
         )
+
+
+class TestMutationsCounter:
+    def test_log_success_increments_per_mutation(self, fresh_metrics):
+        from airlock.transparency import Mutation
+
+        cb = AirlockMetricsCallback()
+        ledger = [
+            Mutation(
+                field="model",
+                op="rewrite",
+                before="a",
+                after="b",
+                stage="pre_call",
+                source="test",
+            ),
+            Mutation(
+                field="messages",
+                op="redact",
+                before=None,
+                after=None,
+                stage="pre_call",
+                source="test",
+            ),
+        ]
+        kwargs = {
+            "model": "gpt-4",
+            "litellm_params": {"metadata": {"airlock_mutations": ledger}},
+        }
+        cb.log_success_event(kwargs, MagicMock(), None, None)
+
+        assert (
+            fresh_metrics["mutations_total"]
+            .labels(field="model", op="rewrite")
+            ._value.get()
+            == 1
+        )
+        assert (
+            fresh_metrics["mutations_total"]
+            .labels(field="messages", op="redact")
+            ._value.get()
+            == 1
+        )
+
+    def test_absent_ledger_no_crash(self, fresh_metrics):
+        cb = AirlockMetricsCallback()
+        kwargs = {"model": "gpt-4", "litellm_params": {"metadata": {}}}
+        cb.log_success_event(kwargs, MagicMock(), None, None)
+
+    def test_empty_ledger_no_increment(self, fresh_metrics):
+        cb = AirlockMetricsCallback()
+        kwargs = {
+            "model": "gpt-4",
+            "litellm_params": {"metadata": {"airlock_mutations": []}},
+        }
+        cb.log_success_event(kwargs, MagicMock(), None, None)
+
+    def test_non_iterable_ledger_no_crash(self, fresh_metrics):
+        cb = AirlockMetricsCallback()
+        kwargs = {
+            "model": "gpt-4",
+            "litellm_params": {"metadata": {"airlock_mutations": 5}},
+        }
+        cb.log_success_event(kwargs, MagicMock(), None, None)
+
+
+class TestSelfRegister:
+    def test_registers_and_idempotent(self):
+        import litellm
+
+        from airlock.callbacks.metrics import _self_register, metrics_callback
+
+        _self_register()
+        _self_register()
+
+        assert metrics_callback in litellm.success_callback
+        assert metrics_callback in litellm.failure_callback
+        assert metrics_callback in litellm._async_success_callback
+        assert metrics_callback in litellm._async_failure_callback
+
+        # Idempotent: registered exactly once per list.
+        assert litellm.success_callback.count(metrics_callback) == 1
+        assert litellm._async_success_callback.count(metrics_callback) == 1
