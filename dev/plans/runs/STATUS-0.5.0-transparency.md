@@ -73,12 +73,12 @@ isolated instance (production :4000 untouched):
   'google'`); a test-env dependency gap, NOT a header bug. **Gateway served-by unvalidated**
   — re-run after `uv pip install google-auth` (or `make sync`) in the runtime, OR validate
   on prod-equivalent creds.
-- 🐞 **streaming served-by BUG**: same AI-Studio backend → non-streaming reports `gemini`,
-  **streaming reports `vertex_ai_beta`** (litellm's internal streaming-wrapper provider label
-  leaks via the wrapper attribute, CC-T3 source). Header present but value inconsistent.
-  **Fix queued**: normalize streaming provider + disambiguate AI-Studio-vs-Vertex by
-  `api_base_host` (generativelanguage.googleapis.com ⇒ `gemini`); handle `vertex_ai_beta` in
-  `classify_backend_kind`.
+- 🐞→✅ **streaming served-by BUG — FIXED + merged (`84f18c6`).** Same AI-Studio backend
+  reported `gemini` (non-stream) vs `vertex_ai_beta` (stream). Root cause: litellm hardcodes
+  `vertex_ai_beta` on the gemini stream wrapper; `api_base` disambiguates. `_normalize_served_
+  provider` now maps `vertex_ai_beta`→`vertex_ai` and resolves to `gemini` on the AI-Studio
+  host → streaming + non-streaming converge. codex PASS. **Re-confirm on the isolated instance
+  pending** (a streaming gemini-aistudio call should now report `gemini`).
 - 🔧 **harness note**: uvicorn bound `0.0.0.0:4137` not loopback despite `AIRLOCK_HOST` —
   pass `--host` explicitly in the runbook (low risk; separate port).
 
