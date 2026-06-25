@@ -637,3 +637,52 @@ class TestServedAccounting:
         assert client_provider.is_quarantined(end.timestamp())
         metadata = kwargs["litellm_params"]["metadata"]
         assert metadata["airlock_provider"] == "anthropic"
+
+    def test_attribution_failure_logs_warning_and_falls_back_to_inferred(
+        self,
+        monitor,
+        fresh_state_store,
+        mock_logger_kwargs,
+        mock_start_end_times,
+        monkeypatch,
+        caplog,
+    ):
+        """When attribute_served_backend raises, a WARNING must be emitted and
+        spend falls back to the inferred provider (not lost, not silently wrong)."""
+        import logging
+
+        from airlock.transparency import TransparencyConfig
+
+        # Ensure the flag is ON so the try/except block is entered.
+        monkeypatch.setattr(
+            "airlock.fast.monitor.get_transparency_config",
+            lambda: TransparencyConfig(attribute_accounting_to_served=True),
+        )
+        # Force attribute_served_backend to raise an unexpected error.
+        monkeypatch.setattr(
+            "airlock.fast.monitor.attribute_served_backend",
+            lambda *_a, **_kw: (_ for _ in ()).throw(
+                RuntimeError("simulated attribution failure")
+            ),
+        )
+
+        start, end = mock_start_end_times
+        kwargs = {**mock_logger_kwargs, "response_cost": 0.07}
+        response = _served_response(None)
+
+        with caplog.at_level(logging.WARNING, logger="airlock.fast.monitor"):
+            monitor.log_success_event(kwargs, response, start, end)
+
+        # Spend must still be recorded — to the inferred provider (anthropic for claude-sonnet).
+        assert fresh_state_store.get_provider_spend("anthropic").recent_spend() == 0.07
+
+        # A WARNING must have been emitted so the mis-billing is detectable.
+        warning_records = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING and "attribution" in r.message.lower()
+        ]
+        assert warning_records, (
+            "Expected a WARNING log from served-backend attribution failure, got none. "
+            f"All caplog records: {[(r.levelno, r.message) for r in caplog.records]}"
+        )

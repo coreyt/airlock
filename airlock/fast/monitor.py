@@ -207,6 +207,10 @@ class AirlockFastMonitor(CustomLogger):
                     response_obj, cost_fallback=kwargs.get("response_cost")
                 )
             except Exception:
+                logger.warning(
+                    "served-backend attribution failed; billing falls back to inferred provider",
+                    exc_info=True,
+                )
                 served = None
             if served and served.provider:
                 provider = served.provider
