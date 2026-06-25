@@ -104,6 +104,45 @@ def test_streaming_provider_from_wrapper_attribute() -> None:
     assert s.backend_kind == "native"
 
 
+def test_streaming_ai_studio_vertex_ai_beta_resolves_gemini() -> None:
+    # Regression: streaming wrapper hardcodes custom_llm_provider="vertex_ai_beta"
+    # even for native AI-Studio gemini. api_base host (generativelanguage) disambiguates.
+    s = attribute_served_backend(
+        _resp(
+            {
+                "model_id": "gemini-3.5-flash",
+                "api_base": (
+                    "https://generativelanguage.googleapis.com/v1beta/models/"
+                    "gemini-3.5-flash:streamGenerateContent"
+                ),
+            },
+            custom_llm_provider="vertex_ai_beta",
+        )
+    )
+    assert s.provider == "gemini"
+    assert s.backend_kind == "native"
+    assert s.api_base_host == "generativelanguage.googleapis.com"
+
+
+def test_streaming_vertex_vertex_ai_beta_resolves_vertex_ai() -> None:
+    # Streaming wrapper attr vertex_ai_beta + Vertex endpoint → vertex_ai (gateway).
+    s = attribute_served_backend(
+        _resp(
+            {
+                "region_name": "us-east5",
+                "api_base": (
+                    "https://us-east5-aiplatform.googleapis.com/v1/projects/p/"
+                    "locations/us-east5/publishers/google/models/g:streamGenerateContent"
+                ),
+            },
+            custom_llm_provider="vertex_ai_beta",
+        )
+    )
+    assert s.provider == "vertex_ai"
+    assert s.backend_kind == "gateway"
+    assert s.region == "us-east5"
+
+
 def test_unknown_provider_yields_partial_and_empty_headers() -> None:
     s = attribute_served_backend(_resp({}))
     assert s is not None
@@ -133,6 +172,7 @@ def test_classify_backend_kind_gateway() -> None:
     assert classify_backend_kind("bedrock") == "gateway"
     assert classify_backend_kind("azure") == "gateway"
     assert classify_backend_kind("vertex_ai") == "gateway"
+    assert classify_backend_kind("vertex_ai_beta") == "gateway"
 
 
 def test_classify_backend_kind_native() -> None:
