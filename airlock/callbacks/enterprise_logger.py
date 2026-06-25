@@ -15,6 +15,7 @@ Env vars:
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import os
@@ -24,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from airlock.client_identity import extract_airlock_client_from_kwargs
+from airlock.transparency import attribute_served_backend
 from airlock.gemini_interface import (
     build_gemini_response_headers,
     classify_gemini_response,
@@ -507,6 +509,32 @@ class AirlockLogger(CustomLogger):
             **mcp_meta,
             **guardrail_meta,
         }
+
+        # Transparency (OBS-log): additive mutation ledger + served-backend
+        # attribution. Attribution is self-contained here (Decision 5) — it does
+        # not depend on the response-headers hook having run.
+        ledger = metadata.get("airlock_mutations") or []
+        record["mutations"] = [
+            dataclasses.asdict(m) if dataclasses.is_dataclass(m) else _serialize(m)
+            for m in ledger
+        ]
+        try:
+            served_backend = attribute_served_backend(
+                response_obj, cost_fallback=kwargs.get("response_cost")
+            )
+        except Exception:  # logging must never crash the record build
+            logger.debug("served-backend attribution failed", exc_info=True)
+            served_backend = None
+        served = (
+            dataclasses.asdict(served_backend) if served_backend is not None else None
+        )
+        record["served"] = served
+        record["attribution"] = (
+            "served"
+            if served is not None and served.get("provider") is not None
+            else "inferred"
+        )
+
         record["airlock_client"] = airlock_client
         return record
 

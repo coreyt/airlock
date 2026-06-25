@@ -1,0 +1,47 @@
+{
+  "pack": "0.5.0-OBS-log",
+  "baseline_sha": "d1ca77f2b2e3920d5608822386a42609f8d636d1",
+  "branch": "obs-log",
+  "head_sha": "a9f9c8f34ebdfcd54bb66cdcf8abd51378a11b29",
+  "commits": [
+    "26383c8: docs(transparency): OBS-log — PLAN memo for mutations/served/attribution record fields",
+    "4ca0f93: test(transparency): OBS-log — RED tests for mutations/served/attribution record fields",
+    "a9f9c8f: feat(transparency): OBS-log — add mutations/served/attribution to the JSONL request record"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "4ca0f93",
+    "test_files": ["tests/test_enterprise_logger.py"]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_enterprise_logger.py::TestTransparencyRecord::test_served_attribution_from_hidden_params",
+      "tests/test_enterprise_logger.py::TestTransparencyRecord::test_served_cost_falls_back_to_kwargs",
+      "tests/test_enterprise_logger.py::TestTransparencyRecord::test_attribution_inferred_when_no_provider",
+      "tests/test_enterprise_logger.py::TestTransparencyRecord::test_served_none_when_no_response",
+      "tests/test_enterprise_logger.py::TestTransparencyRecord::test_mutations_full_ledger_serialized",
+      "tests/test_enterprise_logger.py::TestTransparencyRecord::test_mutations_empty_when_absent",
+      "tests/test_enterprise_logger.py::TestTransparencyRecord::test_record_type_unchanged"
+    ],
+    "passed": 68,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/callbacks/enterprise_logger.py",
+    "tests/test_enterprise_logger.py",
+    "dev/notes/0.5.0-OBS-log-design.md",
+    "dev/plans/runs/0.5.0-OBS-log-output.json"
+  ],
+  "blockers_encountered": [
+    {
+      "id": "magicmock-hidden-params",
+      "description": "Existing tests pass a bare MagicMock as response_obj (shared conftest mock_response_obj fixture, read-only). attribute_served_backend reads response._hidden_params expecting a dict; on a MagicMock it auto-creates a truthy MagicMock so hp.get('api_base') returns a MagicMock and urlsplit(...) raises, breaking 9 pre-existing tests. conftest.py and transparency.py are DO-NOT-TOUCH.",
+      "resolution": "Wrapped the attribute_served_backend call in _build_record in a try/except that logs at debug and falls back to served=None / attribution='inferred'. A logging callback must never crash the record build; real litellm responses always carry a dict _hidden_params, so the happy path is unaffected. The new SimpleNamespace-based transparency tests still exercise the real attribution path."
+    }
+  ],
+  "additional_changes_made_in_scope": [
+    "Added a crash-safety try/except around attribute_served_backend in _build_record (in-scope robustness for the log path; see blocker magicmock-hidden-params)."
+  ],
+  "agent_verify_result": "pass (68 passed in tests/test_enterprise_logger.py; ruff check + format --check clean on both scoped files)",
+  "next_step_for_orchestrator": "Pack 0.5.0-OBS-log on branch obs-log at a9f9c8f; review, verify, merge"
+}
