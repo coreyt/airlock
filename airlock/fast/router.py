@@ -68,7 +68,7 @@ _DEFAULT_SESSION_TTL = 3600  # 1 hour
 _DEFAULT_PROVIDER_BUDGETS: dict[str, float] = {
     "anthropic": 50.0,
     "openai": 50.0,
-    "gemini": 25.0,
+    "gemini": 0.0,  # 0 = no budget-aware swap (falsy short-circuits _apply_budget_awareness); matches provider_budget_config gemini:0 in config.yaml
     "mistral": 25.0,
     "perplexity": 25.0,
 }

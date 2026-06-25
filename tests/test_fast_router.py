@@ -106,7 +106,7 @@ class TestLoadProviderBudgets:
     def test_defaults(self):
         budgets = _load_provider_budgets()
         assert budgets["anthropic"] == 50.0
-        assert budgets["gemini"] == 25.0
+        assert budgets["gemini"] == 0.0  # budget-exempt (0 = no budget-aware swap)
 
     def test_custom_env(self, monkeypatch):
         custom = {"anthropic": 100.0, "openai": 75.0}
@@ -284,13 +284,13 @@ class TestBudgetAwareness:
 
     def test_all_providers_near_budget_stays(self, fresh_state_store):
         now = time.time()
-        for prov, limit in [("anthropic", 50.0), ("openai", 50.0), ("gemini", 25.0)]:
+        # gemini is budget-exempt (default 0), so it can't be "near budget" and would
+        # be picked as an overflow target — exercise only budgeted providers here.
+        for prov, limit in [("anthropic", 50.0), ("openai", 50.0)]:
             spend = fresh_state_store.get_provider_spend(prov)
             spend.record_spend(now, limit * 0.95)
 
-        model, reason = _apply_budget_awareness(
-            "claude-sonnet", ["gpt-4o", "gemini-pro"]
-        )
+        model, reason = _apply_budget_awareness("claude-sonnet", ["gpt-4o"])
         assert model == "claude-sonnet"
         assert reason is None
 
