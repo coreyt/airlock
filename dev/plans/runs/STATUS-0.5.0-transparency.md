@@ -6,7 +6,7 @@
 > (runbook §1.5) and trust the witnesses over this file. Parent board:
 > `STATUS-0.5.0.md` (resilience+admin, all CLOSED).
 
-_Last updated: 2026-06-24 · branch: `feat/0.5.0-resilience-admin` · **PHASE E IN PROGRESS — OBS-core + OBS-served + OBS-ledger CLOSED (3/7). Next: OBS-headers / OBS-log / OBS-accounting / OBS-metrics-tui (disjoint files). ◆ OBS-served HITL smoke-test harness in progress. Follow-up: OBS-ledger-passthrough (Site 12).**_
+_Last updated: 2026-06-24 · branch: `feat/0.5.0-resilience-admin` · **PHASE E — 6/7 CLOSED (OBS-core/served/ledger/headers/log/accounting). Last pack OBS-metrics-tui launching @ `13110c2`. Remaining: OBS-metrics-tui, Site-12 follow-up, two ◆ HITL smoke-tests (served headers + accounting).**_
 
 ## 1. Current state + next action
 
@@ -68,9 +68,12 @@ stagger codex reviews to avoid the load-correlated `bwrap` sandbox failure).
   gateway-alias model — e.g. `gemini`/AI-Studio vs `vertex_ai`, plus one Bedrock-routed
   model — and confirm the headers report the **real** served backend (provider + region),
   not the requested alias. Folded into the 0.5.0 release sign-off.
-- **Deferred nit (OBS-served review):** CRLF-strip served header values in
-  `transparency.py:served_headers` (operator-sourced, low risk) — fold into OBS-headers
-  or a small OBS-core touch.
+- **OBS-accounting smoke-test (◆ HITL, before GA):** OBS-accounting now keys spend off
+  the **served** provider (default on). Operator validates accounting + dashboards on real
+  traffic before GA (a same-provider failover/backend-swap now bills the served backend).
+  Opt-out: `transparency.attribute_accounting_to_served: false`.
+- **DONE (was deferred):** CRLF-strip header values — fixed in the OBS-headers review-fix
+  (`_header_safe()` on both `mutations_header` + `served_headers`).
 - **Follow-up `OBS-ledger-passthrough` (Site 12, medium):** record the
   `EnhancedPassthroughProvider` config-fallback system-prompt injection in the outer
   ledger (Site 11 only covers the `litellm_params` path). Investigate metadata
@@ -88,10 +91,10 @@ stagger codex reviews to avoid the load-correlated `bwrap` sandbox failure).
 | OBS-core | `airlock/transparency.py` dataclasses + `record_mutation`/`attribute_served_backend`/header serializers + `transparency.*` config | — | **✅ CLOSED** (merged `b997de0`) | `0.5.0-OBS-core-output.json`; review `…220523Z.md` |
 | OBS-served | post-call attribution + flush in `model_override_headers.py`; `X-Airlock-Served-By`/`-Region`; streaming | OBS-core ✅ | **✅ CLOSED** (merged `55b9690`) ◆ HITL pending | review `…223530Z.md` (codex infra-fail → sonnet fallback → fixed) |
 | OBS-ledger | retrofit every mutation site → `record_mutation` | OBS-core ✅ | **IMPLEMENTING** (worktree `obs-ledger` @ 827d126) | prompt `0.5.0-OBS-ledger.md` |
-| OBS-headers | ledger → `X-Airlock-Mutations` (bounded) + `X-Airlock-Explain` body envelope | OBS-core/served/ledger ✅ | **IMPLEMENTING** (worktree `obs-headers` @ d1ca77f) | prompt `0.5.0-OBS-headers.md` |
-| OBS-log | `_build_record`: `mutations`/`served`/`attribution` | OBS-core/served/ledger ✅ | **IMPLEMENTING** (worktree `obs-log` @ d1ca77f) | prompt `0.5.0-OBS-log.md` |
-| OBS-accounting | spend + rate-limit/quarantine keyed off **served** provider | OBS-served ✅ | **IMPLEMENTING** (worktree `obs-accounting` @ d1ca77f) | prompt `0.5.0-OBS-accounting.md` |
-| OBS-metrics-tui | `airlock_mutations_total` + served label/column | OBS-core/ledger/served ✅ | **READY** (scouted; authoring next) | — |
+| OBS-headers | ledger → `X-Airlock-Mutations` (bounded) + `X-Airlock-Explain` body envelope | OBS-core/served/ledger ✅ | **✅ CLOSED** (merged `13110c2`) | codex CONCERN (CR/LF)→fixed; review `…PROMOTED.md` |
+| OBS-log | `_build_record`: `mutations`/`served`/`attribution` | OBS-core/served/ledger ✅ | **✅ CLOSED** (merged `f933acf`) | codex **PASS**; review `…log-review-PROMOTED.md` |
+| OBS-accounting | spend + rate-limit/quarantine keyed off **served** provider | OBS-served ✅ | **✅ CLOSED** (merged `b079b97`) ◆ HITL pending | codex CONCERN (silent fallback)→fixed |
+| OBS-metrics-tui | `airlock_mutations_total` + served label/column | OBS-core/ledger/served ✅ | **READY** (prompt authored; launching @ `13110c2`) | prompt `0.5.0-OBS-metrics-tui.md` |
 
 All packs PENDING — design complete, implementation not started.
 
@@ -99,8 +102,8 @@ All packs PENDING — design complete, implementation not started.
 
 | Requirement | Pack(s) | Status |
 |-------------|---------|--------|
-| UN-19 transparent request mutations | OBS-ledger + OBS-headers + OBS-log (+ OBS-metrics-tui) | ◻ pending |
-| UN-20 truthful serving-backend attribution | OBS-served ✅ + OBS-accounting + OBS-log | ◧ partial (served headers shipped; log + accounting pending) |
+| UN-19 transparent request mutations | OBS-ledger ✅ + OBS-headers ✅ + OBS-log ✅ (+ OBS-metrics-tui) | ◧ near-complete (ledger+header+log shipped; metrics counter pending; Site-12 follow-up) |
+| UN-20 truthful serving-backend attribution | OBS-served ✅ + OBS-accounting ✅ + OBS-log ✅ | ✅ shipped (header + log + served-keyed accounting; HITL smoke-tests pending) |
 
 ## 4. Parallelization plan
 
@@ -114,8 +117,10 @@ rebase carefully to avoid conflicts on `model_override_headers.py` and
 
 ## 5. Outstanding worktrees
 
-- `.claude/worktrees/obs-ledger` (branch `obs-ledger`, base `827d126`) — IMPLEMENTING.
-  (obs-served worktree removed after merge `55b9690`.)
+- All wave-2 worktrees (obs-log/accounting/headers) removed after merge. Next:
+  `.claude/worktrees/obs-metrics-tui` (base `13110c2`).
+- Note: a stray `[main]` worktree under another session's scratchpad shows in
+  `git worktree list` — not part of this workstream; do not remove.
 
 ## 6. Resolved design questions (were open; closed in Phase B)
 
