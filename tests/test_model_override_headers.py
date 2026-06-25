@@ -4,10 +4,25 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from litellm import ModelResponse
+
 from airlock.callbacks.model_override_headers import (
     AirlockModelOverrideHeaders,
 )
-from airlock.transparency import configure_transparency
+from airlock.transparency import Mutation, configure_transparency
+
+
+def _mut(field, op, after=None, count=None, category=None):
+    return Mutation(
+        field=field,
+        op=op,
+        before=None,
+        after=after,
+        stage="pre_call",
+        source="test",
+        count=count,
+        category=category,
+    )
 
 
 class TestModelOverrideHeaders:
@@ -266,3 +281,153 @@ class TestServedHeaders:
         assert result is not None
         assert "X-Airlock-Served-By" in result
         assert data["metadata"]["airlock_served"]["provider"] == "openai"
+
+
+class TestMutationsHeader:
+    async def test_allowlisted_value_non_allowlisted_op_and_redact(self):
+        hook = AirlockModelOverrideHeaders()
+        response = SimpleNamespace(_hidden_params={"custom_llm_provider": "anthropic"})
+        ledger = [
+            _mut("reasoning_effort", "set", after="high"),
+            _mut("system", "inject", after="SECRET INJECTED PROMPT"),
+            _mut("ssn", "redact", count=2, category="pii"),
+        ]
+        data = {"metadata": {"airlock_mutations": ledger}}
+
+        result = await hook.async_post_call_response_headers_hook(
+            data=data,
+            user_api_key_dict=None,
+            response=response,
+        )
+
+        header = result["X-Airlock-Mutations"]
+        assert "reasoning_effort=high" in header
+        assert "system=inject" in header
+        assert "SECRET INJECTED PROMPT" not in header
+        assert "ssn=redacted(2)" in header
+
+    async def test_empty_ledger_omits_header(self):
+        hook = AirlockModelOverrideHeaders()
+        response = SimpleNamespace(_hidden_params={"custom_llm_provider": "anthropic"})
+        data = {"metadata": {"airlock_mutations": []}}
+
+        result = await hook.async_post_call_response_headers_hook(
+            data=data,
+            user_api_key_dict=None,
+            response=response,
+        )
+
+        assert "X-Airlock-Mutations" not in result
+
+    async def test_mutation_headers_off_suppresses(self):
+        hook = AirlockModelOverrideHeaders()
+        response = SimpleNamespace(_hidden_params={"custom_llm_provider": "anthropic"})
+        data = {"metadata": {"airlock_mutations": [_mut("system", "inject")]}}
+
+        configure_transparency({"transparency": {"mutation_headers": "off"}})
+        try:
+            result = await hook.async_post_call_response_headers_hook(
+                data=data,
+                user_api_key_dict=None,
+                response=response,
+            )
+        finally:
+            configure_transparency(None)
+
+        assert "X-Airlock-Mutations" not in result
+
+    async def test_header_respects_byte_budget(self):
+        hook = AirlockModelOverrideHeaders()
+        response = SimpleNamespace(_hidden_params={"custom_llm_provider": "anthropic"})
+        ledger = [_mut(f"field_with_a_longish_name_{i}", "inject") for i in range(50)]
+        data = {"metadata": {"airlock_mutations": ledger}}
+
+        configure_transparency({"transparency": {"mutation_header_budget_bytes": 80}})
+        try:
+            result = await hook.async_post_call_response_headers_hook(
+                data=data,
+                user_api_key_dict=None,
+                response=response,
+            )
+        finally:
+            configure_transparency(None)
+
+        header = result["X-Airlock-Mutations"]
+        assert len(header.encode("utf-8")) <= 80
+        assert "more" in header
+
+
+class TestExplainEnvelope:
+    async def test_optin_attaches_serialized_envelope(self):
+        hook = AirlockModelOverrideHeaders()
+        response = ModelResponse()
+        ledger = [_mut("reasoning_effort", "set", after="high")]
+        data = {
+            "metadata": {"airlock_mutations": ledger},
+            "proxy_server_request": {"headers": {"x-airlock-explain": "1"}},
+        }
+
+        result = await hook.async_post_call_success_hook(
+            data=data,
+            user_api_key_dict=None,
+            response=response,
+        )
+
+        dumped = result.model_dump()
+        assert dumped["airlock"]["mutations"][0]["field"] == "reasoning_effort"
+        assert dumped["airlock"]["mutations"][0]["op"] == "set"
+        # Proves the client-visible serialization carries the envelope.
+        assert "airlock" in result.model_dump_json()
+
+    async def test_no_optin_body_byte_identical(self):
+        hook = AirlockModelOverrideHeaders()
+        response = ModelResponse()
+        before = response.model_dump_json()
+        ledger = [_mut("reasoning_effort", "set", after="high")]
+        data = {
+            "metadata": {"airlock_mutations": ledger},
+            "proxy_server_request": {"headers": {}},
+        }
+
+        result = await hook.async_post_call_success_hook(
+            data=data,
+            user_api_key_dict=None,
+            response=response,
+        )
+
+        assert result.model_dump_json() == before
+        assert "airlock" not in result.model_dump()
+
+    async def test_falsy_optin_value_is_no_op(self):
+        hook = AirlockModelOverrideHeaders()
+        response = ModelResponse()
+        before = response.model_dump_json()
+        data = {
+            "metadata": {"airlock_mutations": [_mut("system", "inject")]},
+            "proxy_server_request": {"headers": {"x-airlock-explain": "0"}},
+        }
+
+        result = await hook.async_post_call_success_hook(
+            data=data,
+            user_api_key_dict=None,
+            response=response,
+        )
+
+        assert result.model_dump_json() == before
+
+    async def test_optin_with_empty_ledger_is_no_op(self):
+        hook = AirlockModelOverrideHeaders()
+        response = ModelResponse()
+        before = response.model_dump_json()
+        data = {
+            "metadata": {"airlock_mutations": []},
+            "proxy_server_request": {"headers": {"x-airlock-explain": "1"}},
+        }
+
+        result = await hook.async_post_call_success_hook(
+            data=data,
+            user_api_key_dict=None,
+            response=response,
+        )
+
+        assert result.model_dump_json() == before

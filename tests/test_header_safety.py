@@ -107,3 +107,30 @@ def test_tiny_budget_always_within_bound() -> None:
         )
     # degenerate case: budget=1 must return empty string
     assert mutations_header(ledger, budget_bytes=1) == ""
+
+
+# ---------------------------------------------------------------------------
+# CR/LF header-injection safety tests
+# ---------------------------------------------------------------------------
+
+
+def test_crlf_in_allowlisted_after_is_stripped() -> None:
+    """An allowlisted `after` value with CR/LF cannot inject a new header line.
+
+    After stripping, the CRLF is gone so no new header can be injected;
+    any remaining text is embedded in the same value — that is fine.
+    """
+    out = mutations_header(
+        [_m(field="model", op="rewrite", before="x", after="claude\r\nX-Injected: 1")]
+    )
+    assert "\r" not in out
+    assert "\n" not in out
+
+
+def test_crlf_in_field_name_is_stripped() -> None:
+    """A field name containing CR/LF cannot inject a new header line."""
+    out = mutations_header(
+        [_m(field="model\r\nEvil: hdr", op="drop", before=None, after=None)]
+    )
+    assert "\r" not in out
+    assert "\n" not in out

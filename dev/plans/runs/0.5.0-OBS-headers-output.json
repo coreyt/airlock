@@ -1,0 +1,34 @@
+{
+  "pack": "0.5.0-OBS-headers",
+  "baseline_sha": "d1ca77f",
+  "branch": "obs-headers",
+  "head_sha": "3e2cd2283f0019129c8573524ce313b736ffe33f",
+  "commits": [
+    "9951f17: docs(0.5.0): OBS-headers PLAN memo — Part A slot + Part B serialization finding",
+    "3a00c9b: test(transparency): RED — X-Airlock-Mutations header + X-Airlock-Explain envelope",
+    "3e2cd22: feat(transparency): OBS-headers — X-Airlock-Mutations header + X-Airlock-Explain body envelope"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "3a00c9bf6f9168269d0d13013ba89c62887b1450",
+    "test_files": ["tests/test_model_override_headers.py"]
+  },
+  "tests": {
+    "targeted": ["tests/test_model_override_headers.py"],
+    "passed": 22,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/callbacks/model_override_headers.py",
+    "tests/test_model_override_headers.py",
+    "dev/notes/0.5.0-OBS-headers-design.md",
+    "dev/plans/runs/0.5.0-OBS-headers-output.json"
+  ],
+  "blockers_encountered": [],
+  "additional_changes_made_in_scope": [
+    "Part A (X-Airlock-Mutations header) DONE — default-on, allowlist-aware/byte-bounded via mutations_header, gated on shared get_transparency_config() call; served-headers block left intact.",
+    "Part B (X-Airlock-Explain body envelope) DONE (not flagged) — empirical investigation: litellm ModelResponse uses pydantic model_config extra='allow', so a plain attribute (response.airlock = {...}) serializes into both model_dump() and model_dump_json() (the client-visible body). Implemented async_post_call_success_hook (non-streaming only; streaming iterator hook intentionally NOT implemented per Decision 7). Opt-in read from data['proxy_server_request']['headers'] case-insensitively vs cfg.explain_body_optin_header; falsy/absent value = byte-identical no-op (CC-T5). Test asserts against model_dump()/model_dump_json() so green proves client-visible serialization."
+  ],
+  "agent_verify_result": "pass — 22 passed in tests/test_model_override_headers.py; transparency_config+ledger suites 16 passed; ruff check + format clean on changed files",
+  "next_step_for_orchestrator": "Pack 0.5.0-OBS-headers on branch obs-headers at 3e2cd22; review, verify, merge"
+}
