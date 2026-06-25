@@ -54,8 +54,14 @@ class ServedBackend:
 # these scalar/enum fields. Everything else renders as `field=<op>` — never content.
 HEADER_VALUE_FIELDS = {"model", "reasoning_effort", "fallbacks", "num_retries"}
 
-_GATEWAY_PROVIDERS = {"bedrock", "azure", "vertex_ai"}
+_GATEWAY_PROVIDERS = {"bedrock", "azure", "vertex_ai", "vertex_ai_beta"}
 _NATIVE_PROVIDERS = {"anthropic", "openai", "gemini"}
+
+# litellm's streaming wrapper hardcodes custom_llm_provider="vertex_ai_beta" for the
+# Vertex-Gemini handler — even for native AI-Studio gemini calls. Normalize the alias
+# and disambiguate AI Studio vs Vertex by api_base host so streaming and non-streaming
+# agree (CC-T3 / §3). AI Studio is served from generativelanguage.googleapis.com.
+_AI_STUDIO_HOST = "generativelanguage.googleapis.com"
 
 # Fixed set of droppable OpenAI request params — restricts detect_dropped_params so
 # metadata / airlock-internal keys are never flagged (Decision 8).
@@ -152,6 +158,23 @@ def classify_backend_kind(
     return "unknown"
 
 
+def _normalize_served_provider(
+    provider: str | None, api_base_host: str | None
+) -> str | None:
+    """Reconcile streaming/non-streaming Google provider labels (additive).
+
+    litellm's streaming wrapper reports ``vertex_ai_beta`` for both AI-Studio and
+    Vertex gemini; the non-streaming path reports ``gemini``/``vertex_ai``. Map the
+    ``vertex_ai_beta`` alias to ``vertex_ai`` and, for the Google/Vertex family,
+    resolve to ``gemini`` (native AI Studio) when the api_base host is AI Studio.
+    """
+    if provider == "vertex_ai_beta":
+        provider = "vertex_ai"
+    if provider in {"gemini", "vertex_ai"} and api_base_host == _AI_STUDIO_HOST:
+        return "gemini"
+    return provider
+
+
 def attribute_served_backend(
     response: Any, *, cost_fallback: float | None = None
 ) -> ServedBackend | None:
@@ -174,6 +197,10 @@ def attribute_served_backend(
 
     api_base = hp.get("api_base")
     api_base_host = urlsplit(api_base).hostname if api_base else None
+
+    # Reconcile streaming (wrapper attr → vertex_ai_beta) with non-streaming so the
+    # same backend reports the same served provider (AI Studio ⇒ gemini/native).
+    provider = _normalize_served_provider(provider, api_base_host)
 
     region = hp.get("region_name")
     model_id = (
