@@ -203,3 +203,99 @@ async def test_no_system_prompt_no_inject_record(
     result = await interceptor.async_pre_call(data)
     muts = result.get("metadata", {}).get("airlock_mutations", [])
     assert [m for m in muts if m.op == "inject"] == []
+
+
+_CONFIG_FALLBACK_YAML = """
+model_list:
+  - model_name: gemini-coding
+    litellm_params:
+      model: enhanced/gemini-coding
+      enhanced_profile:
+        target_model: gemini/gemini-3.1-pro-preview-customtools
+        system_prompt: "CONFIG_SECRET_SYS_PROMPT_TEXT"
+        params:
+          thinking: true
+          thinking_level: "MEDIUM"
+  - model_name: plain-model
+    litellm_params:
+      model: gemini/gemini-3.1-pro-preview
+""".strip()
+
+
+@pytest.fixture
+def config_fallback_env(tmp_path, monkeypatch):
+    from airlock.providers.enhanced_passthrough import enhanced_handler
+
+    config = tmp_path / "config.yaml"
+    config.write_text(_CONFIG_FALLBACK_YAML)
+    monkeypatch.setenv("AIRLOCK_CONFIG", str(config))
+    # Force the shared provider cache to reload from this temp config.
+    enhanced_handler._config_profile_cache = None
+    enhanced_handler._config_profile_cache_key = None
+    yield
+    enhanced_handler._config_profile_cache = None
+    enhanced_handler._config_profile_cache_key = None
+
+
+@pytest.mark.asyncio
+async def test_config_fallback_injection_records_inject(
+    interceptor: EnhancedModelInterceptor, config_fallback_env
+) -> None:
+    # litellm_params lacks enhanced_profile; the provider resolves it from config.
+    data = {
+        "model": "gemini-coding",
+        "messages": [{"role": "user", "content": "hi"}],
+        "litellm_params": {"model": "enhanced/gemini-coding"},
+    }
+    result = await interceptor.async_pre_call(data)
+    muts = result["metadata"]["airlock_mutations"]
+    inj = [m for m in muts if m.op == "inject" and m.field == "system"]
+    assert len(inj) == 1
+    assert inj[0].source == "enhanced.passthrough"
+    assert inj[0].stage == "pre_call"
+    assert inj[0].before is None and inj[0].after is None
+    # CC-T2: config system-prompt text never lands in the ledger
+    assert "CONFIG_SECRET_SYS_PROMPT_TEXT" not in repr(muts)
+    # behavior unchanged: the interceptor does NOT rewrite the model or messages
+    # for the config-fallback path (the passthrough provider does that at exec).
+    assert result["model"] == "gemini-coding"
+    assert result["messages"] == [{"role": "user", "content": "hi"}]
+
+
+@pytest.mark.asyncio
+async def test_config_fallback_non_enhanced_no_record(
+    interceptor: EnhancedModelInterceptor, config_fallback_env
+) -> None:
+    data = {
+        "model": "plain-model",
+        "messages": [{"role": "user", "content": "hi"}],
+        "litellm_params": {"model": "gemini/gemini-3.1-pro-preview"},
+    }
+    result = await interceptor.async_pre_call(data)
+    muts = result.get("metadata", {}).get("airlock_mutations", [])
+    assert [m for m in muts if m.op == "inject"] == []
+
+
+@pytest.mark.asyncio
+async def test_litellm_params_path_no_double_record(
+    interceptor: EnhancedModelInterceptor, config_fallback_env
+) -> None:
+    # A request whose enhanced_profile IS in litellm_params records exactly once
+    # via Site 11 — never a second config-fallback record.
+    data = {
+        "model": "gemini-coding",
+        "messages": [{"role": "user", "content": "hi"}],
+        "litellm_params": {
+            "enhanced_profile": {
+                "target_model": "physical-model",
+                "system_prompt": "inline sys",
+                "name": "coder",
+            }
+        },
+    }
+    result = await interceptor.async_pre_call(data)
+    muts = result["metadata"]["airlock_mutations"]
+    inj = [m for m in muts if m.op == "inject" and m.field == "system"]
+    assert len(inj) == 1
+    assert inj[0].source == "enhanced.interceptor"
+    assert [m for m in muts if m.source == "enhanced.passthrough"] == []

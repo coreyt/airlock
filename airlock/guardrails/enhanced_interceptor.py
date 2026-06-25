@@ -3,6 +3,7 @@ from typing import Any
 
 from litellm.integrations.custom_guardrail import CustomGuardrail
 
+from airlock.providers.enhanced_passthrough import enhanced_handler
 from airlock.transparency import record_mutation
 
 
@@ -17,6 +18,7 @@ class EnhancedModelInterceptor(CustomGuardrail):
         enhanced_profile = litellm_params.get("enhanced_profile")
 
         if not enhanced_profile:
+            self._record_config_fallback_injection(data, litellm_params)
             return data
 
         target_model = enhanced_profile.get("target_model")
@@ -52,6 +54,36 @@ class EnhancedModelInterceptor(CustomGuardrail):
         data["model"] = target_model
 
         return data
+
+    def _record_config_fallback_injection(
+        self, data: dict[str, Any], litellm_params: dict[str, Any]
+    ) -> None:
+        """Record the config-resolved system-prompt injection the passthrough
+        provider performs at execution time.
+
+        Site 11 (above) only fires when ``litellm_params`` carries the
+        ``enhanced_profile``. A model whose profile is resolved from the config
+        cache injects a ``system_prompt`` inside the provider, which the ledger
+        never sees. Here — the pre-call point that holds the OUTER metadata — we
+        reuse the SAME resolution the provider uses and append exactly one
+        value-free ``inject`` record. Observe-only: no payload mutation.
+        """
+        model = data.get("model")
+        if not model:
+            return
+        profile = enhanced_handler._resolve_profile(model, litellm_params)
+        if not profile.get("target_model") or not profile.get("system_prompt"):
+            return
+        record_mutation(
+            data.setdefault("metadata", {}),
+            field="system",
+            op="inject",
+            before=None,
+            after=None,
+            stage="pre_call",
+            source="enhanced.passthrough",
+            reason=profile.get("name") or model,
+        )
 
     def _inject_or_append_system_prompt(
         self, messages: list[dict[str, Any]], system_prompt: str
