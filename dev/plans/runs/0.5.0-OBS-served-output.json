@@ -1,0 +1,35 @@
+{
+  "pack": "0.5.0-OBS-served",
+  "baseline_sha": "827d1265f92eef4aa2977b9171ba2dfd2e98bdc3",
+  "branch": "obs-served",
+  "head_sha": "04cdc0ef6d2ca837c536bccfa3d3fb91b10f2007",
+  "commits": [
+    "404d86a: docs(0.5.0-OBS-served): PLAN memo",
+    "e898a2f: test(0.5.0-OBS-served): RED — served-by/region header cases",
+    "04cdc0e: feat(transparency): OBS-served — X-Airlock-Served-By/-Region from response attribution + startup wiring"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "e898a2fd3859a6c09fcef7a90984ab3ef20ded14",
+    "test_files": ["tests/test_model_override_headers.py"]
+  },
+  "tests": {
+    "targeted": ["tests/test_model_override_headers.py"],
+    "passed": 12,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/callbacks/model_override_headers.py",
+    "airlock/proxy.py",
+    "tests/test_model_override_headers.py",
+    "dev/notes/0.5.0-OBS-served-design.md"
+  ],
+  "blockers_encountered": [],
+  "additional_changes_made_in_scope": [
+    "Anchors verified at 827d126 as documented; no drift. Hook's existing `response_headers` assignment changed to `dict(...)` copy so served headers can be merged additively without mutating the metadata-held dict in place.",
+    "Added TestServedHeaders cases including streaming wrapper-attribute, unknown-provider omission, config opt-out (with reset), metadata stash, and additive-with-override regression.",
+    "Did NOT touch X-Airlock-Mutations / X-Airlock-Explain (OBS-headers, later pack) per scope."
+  ],
+  "agent_verify_result": "pass — tests/test_model_override_headers.py: 12 passed; transparency suites 16 passed; ruff check + format clean; proxy/hook import ok",
+  "next_step_for_orchestrator": "Pack 0.5.0-OBS-served on branch obs-served at 04cdc0e; review, verify, merge. HITL after merge: operator smoke-tests a native-alias and gateway-alias call (vertex_ai vs gemini/AI-Studio, and a Bedrock-routed model)."
+}

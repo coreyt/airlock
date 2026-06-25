@@ -15,6 +15,7 @@ Env vars:
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import os
@@ -24,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from airlock.client_identity import extract_airlock_client_from_kwargs
+from airlock.transparency import attribute_served_backend
 from airlock.gemini_interface import (
     build_gemini_response_headers,
     classify_gemini_response,
@@ -212,6 +214,23 @@ def _write_log(record: dict[str, Any]) -> None:
             f.write(json.dumps(redacted, default=_serialize) + "\n")
     except OSError:
         logger.error("Failed to write log record (disk full?)", exc_info=True)
+
+
+def write_admin_action_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Append an admin_action audit record to the JSONL log (CC-8/CC-9).
+
+    The record (already shaped by a StateStore admin mutator) is both the audit
+    trail and the channel by which the TUI replica converges (via
+    ``StateStore.ingest_jsonl_record``). Returns the record for convenience.
+    """
+    _write_log(record)
+    logger.info(
+        "admin_action op=%s actor=%s target=%s",
+        record.get("op"),
+        record.get("actor"),
+        record.get("provider") or record.get("client_id") or record.get("model"),
+    )
+    return record
 
 
 def write_precall_block_record(
@@ -463,6 +482,10 @@ class AirlockLogger(CustomLogger):
 
         record = {
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            # CC-9: discriminator so ingest_jsonl_record can route record kinds.
+            # Request records are "request"; the admin pack adds "admin_action".
+            # An absent record_type is treated as "request" for back-compat.
+            "record_type": "request",
             "success": success,
             "model": kwargs.get("model", "unknown"),
             "user": metadata.get("user_api_key_alias")
@@ -486,6 +509,32 @@ class AirlockLogger(CustomLogger):
             **mcp_meta,
             **guardrail_meta,
         }
+
+        # Transparency (OBS-log): additive mutation ledger + served-backend
+        # attribution. Attribution is self-contained here (Decision 5) — it does
+        # not depend on the response-headers hook having run.
+        ledger = metadata.get("airlock_mutations") or []
+        record["mutations"] = [
+            dataclasses.asdict(m) if dataclasses.is_dataclass(m) else _serialize(m)
+            for m in ledger
+        ]
+        try:
+            served_backend = attribute_served_backend(
+                response_obj, cost_fallback=kwargs.get("response_cost")
+            )
+        except Exception:  # logging must never crash the record build
+            logger.debug("served-backend attribution failed", exc_info=True)
+            served_backend = None
+        served = (
+            dataclasses.asdict(served_backend) if served_backend is not None else None
+        )
+        record["served"] = served
+        record["attribution"] = (
+            "served"
+            if served is not None and served.get("provider") is not None
+            else "inferred"
+        )
+
         record["airlock_client"] = airlock_client
         return record
 

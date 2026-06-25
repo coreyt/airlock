@@ -31,6 +31,64 @@ Requests pass through 12 stages in order:
 
 Set via `AIRLOCK_ENFORCE_MODE` environment variable. Start in `observe` mode, review logs, then promote to `enforce` when confident.
 
+## Per-request guardrail skips
+
+A trusted client (e.g. a benchmark harness) can downgrade specific **content**
+guards on its own requests — without a global env flip — by presenting a signed
+capability token. This is **off by default**; enable it with
+`guardrail_overrides.allow_capability_skip: true`.
+
+Key properties:
+
+- **Skip means downgrade, not silence.** A granted skip lowers a guardrail's
+  *effective mode* (typically to `observe`) — the guard still **scans and logs**;
+  it just stops blocking. Nothing goes un-audited.
+- **Content guards only.** Skips never disable the [circuit breaker](rate-limiting.md)
+  or re-enable [fallbacks](routing.md#fallbacks) — provider protection is
+  non-skippable.
+- **PII is non-skippable by default** (compliance / exfiltration risk).
+
+Configure which guards are skippable, and what each downgrades to, in `config.yaml`:
+
+```yaml
+guardrail_overrides:
+  allow_capability_skip: false              # master flag — skips ignored until true
+  capability_header: X-Airlock-Capability
+  skippable:
+    pii_redact:      { skippable: false }                  # never, by default
+    keyword:         { skippable: true, downgrade_to: observe }
+    response_scan:   { skippable: true, downgrade_to: observe }
+    reasoning_strip: { skippable: true, downgrade_to: off }
+```
+
+### How a client uses it
+
+The operator mints a guardrail-skip token (see [Admin API → minting](admin-api.md#minting-capability-tokens)),
+scoped to the specific guard(s):
+
+```bash
+# --sub MUST be the client's authenticated key-derived id (key:<last8>).
+airlock admin mint-token --sub key:b35cf679 --scope guardrail:skip:keyword --ttl 24h
+```
+
+The client then adds **one header** to its requests — alongside, not replacing, its
+normal `Authorization` key:
+
+```
+POST /v1/chat/completions
+Authorization: Bearer <normal-LLM-key>     ← unchanged, the LLM key
+X-Airlock-Capability: <skip-scoped-jwt>     ← downgrades the granted guard(s)
+```
+
+Only the scopes the token carries (and that config permits) are downgraded; for the
+request above, the keyword guard drops to `observe` for that client's requests
+only, and everything is still scanned and logged.
+
+> **Security note.** A skip is authorized only when the token's `sub` matches the
+> `key:<last8>` derived from the request's *validated* `Authorization` key. The
+> forgeable `X-Airlock-Client` attribution header carries **zero** authorization
+> weight for skips — a stolen token cannot be replayed by forging it.
+
 ## PII redaction
 
 Uses Microsoft Presidio with the `en_core_web_lg` spaCy model.

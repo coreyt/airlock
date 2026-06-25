@@ -33,6 +33,8 @@ from litellm import DualCache
 from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
+from airlock.transparency import record_redaction
+
 from . import _env_flag
 from .extract import is_mcp_call
 
@@ -194,10 +196,30 @@ class AirlockPIIGuard(CustomGuardrail):
 
         if is_mcp_call(data, call_type):
             _scrub_mcp_arguments(data, mapping, counters)
+            if mapping:
+                record_redaction(
+                    data.setdefault("metadata", {}),
+                    field="mcp_arguments",
+                    count=len(mapping),
+                    category="pii",
+                    stage="pre_call",
+                    source="pii_guard.mcp",
+                )
 
         messages = data.get("messages")
         if messages:
+            redacted_before = len(mapping)
             data["messages"] = _scrub_messages(messages, mapping, counters)
+            redacted_added = len(mapping) - redacted_before
+            if redacted_added:
+                record_redaction(
+                    data.setdefault("metadata", {}),
+                    field="messages",
+                    count=redacted_added,
+                    category="pii",
+                    stage="pre_call",
+                    source="pii_guard",
+                )
 
         if mapping:
             data.setdefault("metadata", {})["airlock_pii_map"] = mapping

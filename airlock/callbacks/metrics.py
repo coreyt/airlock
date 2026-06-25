@@ -60,6 +60,16 @@ def _build_metrics() -> dict[str, Any]:
             "Circuit breaker state (0=closed, 1=half_open, 2=open)",
             ["model"],
         ),
+        "provider_ratelimit_remaining_tokens": Gauge(
+            "airlock_provider_ratelimit_remaining_tokens",
+            "Upstream remaining-tokens headroom per provider (latest observed)",
+            ["provider"],
+        ),
+        "provider_ratelimit_remaining_requests": Gauge(
+            "airlock_provider_ratelimit_remaining_requests",
+            "Upstream remaining-requests headroom per provider (latest observed)",
+            ["provider"],
+        ),
         "threat_blocks": Counter(
             "airlock_threat_blocks_total",
             "Total requests blocked by threat detector",
@@ -68,6 +78,11 @@ def _build_metrics() -> dict[str, Any]:
             "airlock_response_scan_detections_total",
             "Total response scan detections",
             ["category", "mode"],
+        ),
+        "mutations_total": Counter(
+            "airlock_mutations_total",
+            "Total ledger mutations by field and operation",
+            ["field", "op"],
         ),
     }
 
@@ -91,6 +106,28 @@ def record_keyword_block() -> None:
         _metrics["keyword_blocks"].inc()
 
 
+def record_provider_ratelimit_headroom(
+    provider: str,
+    remaining_tokens: int | None,
+    remaining_requests: int | None,
+) -> None:
+    """Set the latest upstream headroom gauges for a provider (workstream C)."""
+    if (
+        remaining_tokens is not None
+        and "provider_ratelimit_remaining_tokens" in _metrics
+    ):
+        _metrics["provider_ratelimit_remaining_tokens"].labels(provider=provider).set(
+            remaining_tokens
+        )
+    if (
+        remaining_requests is not None
+        and "provider_ratelimit_remaining_requests" in _metrics
+    ):
+        _metrics["provider_ratelimit_remaining_requests"].labels(provider=provider).set(
+            remaining_requests
+        )
+
+
 def record_response_scan_detection(category: str, mode: str) -> None:
     """Increment response scan detection counter. Called by response_scanner."""
     if "response_scan_detections" in _metrics:
@@ -101,6 +138,23 @@ def record_threat_block() -> None:
     """Increment threat block counter. Called by fast guardian."""
     if "threat_blocks" in _metrics:
         _metrics["threat_blocks"].inc()
+
+
+def _record_mutations(metadata: dict) -> None:
+    """Increment mutations_total per ledger Mutation (field/op bounded labels)."""
+    if "mutations_total" not in _metrics:
+        return
+    ledger = metadata.get("airlock_mutations") or []
+    try:
+        iterator = iter(ledger)
+    except TypeError:
+        return
+    for m in iterator:
+        field = getattr(m, "field", None)
+        op = getattr(m, "op", None)
+        if field is None or op is None:
+            continue
+        _metrics["mutations_total"].labels(field=field, op=op).inc()
 
 
 def set_circuit_breaker_state(model: str, state: str) -> None:
@@ -138,6 +192,8 @@ class AirlockMetricsCallback(CustomLogger):
             duration_s = (end_time - start_time).total_seconds()
             _metrics["request_duration"].labels(model=model).observe(duration_s)
 
+        _record_mutations(metadata)
+
     async def async_log_success_event(
         self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
     ) -> None:
@@ -163,3 +219,30 @@ class AirlockMetricsCallback(CustomLogger):
         self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
     ) -> None:
         self.log_failure_event(kwargs, response_obj, start_time, end_time)
+
+
+# Module-level instance for config.yaml callback registration.
+# LiteLLM's get_instance_fn does getattr — it needs an instance, not a class.
+# We also self-register into the async callback lists because the proxy runs
+# async but config's success_callback key only populates the sync list.
+metrics_callback = AirlockMetricsCallback()
+
+
+def _self_register() -> None:
+    """Ensure metrics_callback is in both sync and async callback lists.
+
+    LiteLLM's logging_callback_manager dedupes, so repeat calls are idempotent.
+    """
+    try:
+        import litellm
+
+        mgr = litellm.logging_callback_manager
+        mgr.add_litellm_success_callback(metrics_callback)
+        mgr.add_litellm_failure_callback(metrics_callback)
+        mgr.add_litellm_async_success_callback(metrics_callback)
+        mgr.add_litellm_async_failure_callback(metrics_callback)
+    except Exception:
+        logger.warning("metrics self-registration deferred — litellm not fully loaded")
+
+
+_self_register()

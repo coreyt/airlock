@@ -397,7 +397,18 @@ ahead of LiteLLM's route auth and enforces the key itself (open only if
 {"custom_id":"<your-id>","method":"POST","url":"/v1/chat/completions","body":{"model":"<alias>","messages":[…],"max_tokens":…}}
 ```
 `custom_id` must be unique per row (it keys the output and the gateway's
-idempotency/resume). `body` is a standard chat-completions request.
+idempotency/resume). `body` is a standard chat-completions request and is
+**forwarded to the provider verbatim** — the gateway rewrites only `body.model`
+(alias → served name) and drops nothing else, so any provider-specific params
+(`temperature`, `chat_template_kwargs`, …) pass straight through.
+
+**vLLM / Qwen3.6:** set `"chat_template_kwargs":{"enable_thinking":false}` in
+**every** row's `body` to suppress reasoning tokens. The gateway injects no
+default — a row that omits it gets thinking back on, which consumes `max_tokens`
+on reasoning prose and breaks the parse. Example row:
+```json
+{"custom_id":"r1","method":"POST","url":"/v1/chat/completions","body":{"model":"qwen36-27b-vllm-batch","messages":[…],"max_tokens":1536,"chat_template_kwargs":{"enable_thinking":false}}}
+```
 
 ### File status lifecycle (async scan)
 `GET /v1/files/{id}` `status` is OpenAI's file enum:

@@ -22,7 +22,15 @@ Press the number key to switch screens, or `q` to quit.
 
 ## Overview (Screen 1)
 
-The operator's home screen. Shows proxy status, provider/model health, active clients, and alerts at a glance. Auto-refreshes every 5 seconds.
+The operator's home screen. Shows proxy status, provider/model health, active clients, and alerts at a glance. Auto-refreshes every 5 seconds. Per-provider rate-limit headroom and spend-vs-cap are shown here too (see [Provider Quota Observability](provider-observability.md)).
+
+### Clear a quarantine (`c`)
+
+Highlight a provider row and press **`c`** to clear its quarantine. The TUI calls
+the loopback [Admin API](admin-api.md) (`clear-quarantine`, half-open probe mode),
+which logs an `admin_action` record; the tailer ingests it and the countdown you
+were watching clears. No credential is needed — being on the host is the
+authorization (Path A). This requires `admin.enabled: true` in `config.yaml`.
 
 ## Guards (Screen 2)
 

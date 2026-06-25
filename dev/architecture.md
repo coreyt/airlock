@@ -385,6 +385,131 @@ the guards (the async scan hook plugs into `_handle_file_upload`).
 
 ---
 
+### 3.6 Admin API & Capability Auth (`airlock/admin/`)
+
+**Traces to:** UN-10 (operator quarantine clear), UN-11 (capability auth),
+UN-12 (native TLS), UN-13 (per-request guardrail skip).
+
+An operator/automation control plane for live protection state plus a
+capability layer for trusted-client overrides. Off by default; a config-free
+deploy exposes no admin surface (`/airlock/admin/*` → 404) and ignores capability
+headers.
+
+```
+airlock/admin/
+├── policy.py        # PDP: decide(principal, op) → allow/deny + scope; config model
+├── tokens.py        # HS256 JWT mint/verify (sub, scope[], exp); mirrors AIRLOCK_MASTER_KEY HKDF fallback
+├── operations.py    # verbs over StateStore (clear/arm quarantine, reset circuit, clear backoff)
+└── http.py          # install_admin_on_proxy_app() + perimeter ASGI middleware
+```
+
+**Key design decisions** (full reconciliation in
+`dev/notes/design-resilience-and-admin-overview.md`):
+
+- **Two auth paths, one PDP.** *Path A* — a request on the loopback interface is
+  the operator (network position = auth; the TUI uses this). *Path B* — a remote
+  caller presents a short-lived HS256 JWT (`sub`,`scope[]`,`exp`) signed by
+  `AIRLOCK_JWT_SECRET` (HKDF of `AIRLOCK_MASTER_KEY` if unset). The master key is
+  the root credential (break-glass admin + token minting). No DB / IdP / PKI.
+- **`sub` is the authenticated key-derived identity** `key:<last8>` (CC-1/CC-11); a
+  `guardrail:skip:*` token is honored only when `sub` matches the id derived from
+  the request's **validated bearer key** — never the forgeable `X-Airlock-Client`
+  attribution header (which would otherwise allow token replay).
+- **Half-open clear.** Clearing a quarantine drops the provider/client breaker to
+  a one-probe half-open state (CC-7); a successful probe closes it, a failed one
+  re-arms. A "cleared floor" (`cleared_at`, CC-6) stops the breaker's threshold
+  counter re-arming off pre-clear 429s.
+- **Audit = propagation.** Each mutation emits an `admin_action` JSONL record
+  (`record_type`, CC-9) that is the audit log *and* the channel by which the
+  separate TUI process (which tails JSONL) converges its read-replica.
+- **Perimeter middleware** mounts before the LiteLLM routes and after the batch
+  gateway (§3 of the umbrella note); it owns `/airlock/admin/*` routing + admin
+  auth, returns its own 401/403/404, and never raises `RateLimitError`. The
+  **per-request `GuardrailDecision` is resolved in the guardian pre-call hook**
+  (not the perimeter) and stamped into `data["metadata"]["airlock_guardrail_decision"]`;
+  it governs **content guards only** — never the breaker or fallbacks (CC-10), and
+  PII redaction is non-skippable by default.
+- **Native TLS** (UN-12) is a parent-process concern:
+  `AIRLOCK_SSL_CERTFILE`/`KEYFILE` become litellm/uvicorn ssl flags in the
+  `litellm_cmd` builder (`proxy.py`), independent of the subprocess store config
+  (CC-12). The reverse-proxy TLS option remains.
+
+**Surfaces (when `admin.enabled`):** `GET /airlock/admin/{providers,circuits,clients}`,
+`POST /airlock/admin/providers/{p}/clear-quarantine` (mode `probe`|`force`;
+cascades to client→provider buckets),
+`POST /airlock/admin/clients/{c}/providers/{p}/clear-quarantine` (the per-client
+victim of UN-10), `POST /airlock/admin/providers/{p}/quarantine` (loopback-only),
+`POST /airlock/admin/models/{m}/reset-circuit`,
+`POST /airlock/admin/clients/{c}/clear-backoff`; CLI `airlock admin mint-token`.
+
+**Design documents:** `dev/notes/design-admin-api-capability-auth.md`,
+`dev/notes/design-resilience-and-admin-overview.md`.
+
+### 3.7 Transparency Layer (`airlock/transparency.py`)
+
+Makes observability a first-class benefit: every request mutation and the real
+serving backend are recorded and surfaced by default, rather than inferred or
+hidden. Two cooperating mechanisms, both riding the existing metadata bus.
+
+**Mutation ledger.** A single ordered list `metadata["airlock_mutations"]` (the
+canonical view; the legacy `airlock_routing`/`airlock_alias`/`airlock_pii_map`/…
+keys remain for back-compat). Each mutating site appends one `Mutation` record via
+`record_mutation()` — `{field, op (set/drop/clamp/rewrite/inject/redact/suppress),
+before, after, stage (pre_call/during_call/post_call), source, reason}`. Redaction
+records are **value-free**: `{field, op:redact, count, category}`, never the matched
+text.
+
+**Served-backend attribution.** `attribute_served_backend(response)` reads the
+truth from `response._hidden_params` (LiteLLM 1.89.0): `custom_llm_provider`,
+`api_base`, `region_name`, `model_id`/`litellm_model_name`, `response_cost` →
+a `ServedBackend`. This replaces inference-from-model-name as the *record of what
+served*; `infer_provider()` remains a pre-call prediction for routing. The two are
+stored distinctly (`attribution ∈ {served, inferred}`), and spend/quarantine
+accounting keys off `served` when it diverges (a same-provider failover or a router
+deployment swap). `custom_llm_provider` distinguishes the multi-backend cases a
+model name cannot: `anthropic` vs `bedrock` vs `vertex_ai`; `openai` vs `azure`;
+and `vertex_ai` vs `gemini` (AI Studio) — the Google ambiguity is further split by
+the `api_base` host (`*-aiplatform.googleapis.com` vs `generativelanguage.googleapis.com`).
+
+**Hook placement (streaming-aware).** Identity + pre/during-call mutations are
+emitted as response headers in `async_post_call_response_headers_hook`
+(`model_override_headers.py`) — which fires for streaming *and* non-streaming and
+flushes before the SSE body. On streams the provider is read from the wrapper
+attribute `response.custom_llm_provider` (it is not yet in `_hidden_params` at
+header-flush time); unknown provider ⇒ the header is omitted, not guessed. Cost +
+post-call mutations + the full JSONL record are finalized in
+`async_log_success_event` on the assembled response, where the logger attributes
+*independently* (no cross-callback ordering dependency). The `X-Airlock-Explain`
+body envelope is non-streaming only. See
+`design-mutation-and-provider-transparency.md` §4.1.
+
+#### Response-header catalog (Airlock → client)
+
+| Header | Meaning | Source |
+|--------|---------|--------|
+| `X-Airlock-Served-By` | the backend that actually served (`custom_llm_provider`) | transparency layer (§3.7) |
+| `X-Airlock-Served-Region` | served region, when applicable (Bedrock/Vertex) | transparency layer (§3.7) |
+| `X-Airlock-Mutations` | compact, byte-bounded summary of changed fields (`…+N more` overflow) | transparency layer (§3.7) |
+| `X-Airlock-Model-Override` | final model when Airlock routed/failed-over (unpinned) | `guardian.py` (§3.2) |
+| `X-Airlock-Budget-State` | `near_limit` at ≥80% of a provider's daily cap | `monitor.py` |
+| `X-Airlock-Provider-State` | `quarantined` (breaker) or Gemini output-shape | `proxy_errors.py` / Gemini |
+| `X-Airlock-Block-Scope` | scope of a breaker block (`provider`/`client_provider`) | `proxy_errors.py` |
+| `Retry-After` | client backoff on a 429 (breaker cooldown or provider reset) | `proxy_errors.py` |
+
+Request headers consumed: `X-Airlock-Explain: 1` (opt-in additive `airlock.mutations`
+response-body envelope), `X-Airlock-Capability` (guardrail-skip JWT, §3.6),
+`X-Airlock-Client` (unauthenticated attribution only, §3.6).
+
+Config: `transparency.{mutation_headers, served_headers, attribute_accounting_to_served,
+mutation_header_budget_bytes}` — all default-safe. Absent config leaves the response
+**body** and existing behavior unchanged; the only wire change is the additive
+default-on headers + log fields, each with a one-line opt-out.
+
+**Design documents:** `dev/notes/design-mutation-and-provider-transparency.md`;
+requirements UN-19/UN-20.
+
+---
+
 ## 4. Configuration Architecture
 
 Airlock uses a layered configuration approach:
@@ -446,10 +571,15 @@ keeps secrets out of the config file and source control.
 │  │    - ./logs (writable bind)        │  │
 │  └────────────────────────────────────┘  │
 │                                          │
-│  Health: GET /health (30s interval)      │
+│  Health: GET /health/liveliness (30s)    │
 │  Restart: unless-stopped                 │
 └─────────────────────────────────────────┘
 ```
+
+> **Liveness probes use `GET /health/liveliness`, never `GET /health`.** `/health`
+> fires live completions to every model when `background_health_checks` is off;
+> `/health/liveliness` is unprotected and makes no model calls (repo hard
+> constraint).
 
 ### 5.2 Local Development Deployment
 
@@ -543,6 +673,8 @@ Key observations:
 | New guardrail | Implement `CustomGuardrail` subclass, register in `config.yaml` | Semantic embedding filter, regex validator |
 | New logging backend | Implement `CustomLogger` subclass, add to callbacks | S3 shipper, Datadog integration, SQL writer |
 | New deployment target | Use `pip install` entry point or extend Dockerfile | Kubernetes, AWS ECS, systemd service |
+| New proxy-app route/middleware | Add an `install_*_on_proxy_app()` called from `model_override_headers` (pre-start `add_middleware` / post-start stack-wrap) | `/health/circuits`, batch gateway, admin API (`install_admin_on_proxy_app`) |
+| New admin operation | Add a verb in `airlock/admin/operations.py` over `StateStore` + a scope string in the PDP | clear-quarantine, reset-circuit, clear-backoff |
 
 ---
 
@@ -553,9 +685,11 @@ Key observations:
 | API key exposure | Keys stored in env vars, never in `config.yaml` or source control. `.env` is gitignored. |
 | PII in transit | PII guard runs `pre_call` — data is redacted before leaving the proxy process. |
 | Keyword leakage | Keyword guard runs `pre_call` — blocked requests never reach the provider. |
-| Unauthorized admin access | `/key/generate` and admin endpoints protected by `AIRLOCK_MASTER_KEY`. |
-| Log confidentiality | Logs contain full request/response content. Log directory access must be restricted at the OS/infrastructure level. |
-| Guardrail bypass | Guardrails are enforced server-side in the proxy. Clients cannot opt out. |
+| Unauthorized admin access | `/key/generate` and the admin API protected by `AIRLOCK_MASTER_KEY` (root) plus the admin PDP: loopback-only operator path (Path A) or a signed short-lived JWT (Path B). Admin off by default → routes 404. |
+| Capability-token forgery | Capability/admin tokens are HS256-signed by a server-side secret (`AIRLOCK_JWT_SECRET`), so client identity is proven, scoped, and expiring — not a forgeable header. Bearer tokens require TLS on any non-loopback bind (UN-11/UN-12). |
+| Quarantine thrash via admin | Clear operations are rate-limited per provider and audited; the default clear is half-open (a failed probe re-arms), so a mistaken clear self-corrects. |
+| Log confidentiality | Logs contain full request/response content and `admin_action` audit records. Log directory access must be restricted at the OS/infrastructure level. |
+| Guardrail bypass | Guardrails are enforced server-side. Clients cannot opt out **unless** the operator enables capability skips (off by default), and even then only for content guards downgraded to observe — PII redaction is non-skippable by default and the breaker/fallbacks are never client-grantable (CC-10). |
 
 ---
 

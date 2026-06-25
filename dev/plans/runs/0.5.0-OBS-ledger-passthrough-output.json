@@ -1,0 +1,50 @@
+{
+  "pack": "0.5.0-OBS-ledger-passthrough",
+  "status": "CLOSED",
+  "baseline_sha": "1f400eb1b243de8b1b4ce1d423b7a051a621eda3",
+  "branch": "obs-passthrough",
+  "head_sha": "c1d7c7b951b2dbb66b8fe9235700cda36f64ace5",
+  "commits": [
+    "0b12743b494f2330d788ada54200f156f79aa051: test(transparency): RED — config-fallback enhanced-profile injection must record in ledger",
+    "c1d7c7b951b2dbb66b8fe9235700cda36f64ace5: fix(transparency): OBS-ledger-passthrough — record config-fallback enhanced-profile injection in the ledger"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "0b12743b494f2330d788ada54200f156f79aa051",
+    "test_files": ["tests/test_enhanced_interceptor.py"]
+  },
+  "investigation": {
+    "method": "Scratch experiment (deleted before commit) loading a temp config and exercising enhanced_handler._load_profile_cache / _resolve_profile and EnhancedModelInterceptor.async_pre_call.",
+    "findings": [
+      "Config cache (enhanced_handler._load_profile_cache) is keyed by model_name (e.g. 'gemini-coding'); the 'enhanced/<name>' provider-model suffix collapses to the same key.",
+      "enhanced_handler._resolve_profile('gemini-coding', {}) returns the full config profile (target_model + system_prompt) — the SAME resolution the provider uses at execution; non-enhanced models return {}.",
+      "For a config-fallback request the interceptor pre-call sees data['model']='gemini-coding' and data['litellm_params'] WITHOUT enhanced_profile, so Site 11 early-returns and records nothing — the confirmed gap.",
+      "The interceptor pre-call holds the OUTER metadata dict (data.setdefault('metadata', {})) — the same dict Site 11 and other ledger sites append to — so it is a valid pre-call, metadata-reachable recording point with NO litellm CustomLLM.completion contract change."
+    ]
+  },
+  "decision": "Record one value-free inject in EnhancedModelInterceptor.async_pre_call's no-profile branch, reusing enhanced_handler._resolve_profile (the provider's own config cache). Observe-only: no payload/model/messages mutation in the config-fallback path (the passthrough provider still performs the actual injection at execution). Mutually exclusive with Site 11 (gated on `if not enhanced_profile`), so no double-record.",
+  "tests": {
+    "targeted": [
+      "tests/test_enhanced_interceptor.py",
+      "tests/test_enhanced_passthrough.py"
+    ],
+    "passed": 19,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/guardrails/enhanced_interceptor.py",
+    "tests/test_enhanced_interceptor.py"
+  ],
+  "blockers_encountered": [],
+  "additional_changes_made_in_scope": [
+    "Added 3 tests: config-fallback records exactly one inject (source=enhanced.passthrough, value-free); non-enhanced config model records none; litellm_params path still records exactly once (no double-record)."
+  ],
+  "constraints_honored": {
+    "CC-T2_value_free": "inject record carries before=None/after=None; system-prompt text never enters the ledger (asserted).",
+    "CC-T1_CC-T4_observe_only": "No airlock_* keys changed; no behavior change — target-model/system-prompt resolution and injection remain in the provider, unchanged.",
+    "no_double_record": "Config-fallback branch runs only when litellm_params lacks enhanced_profile; Site 11 path unchanged.",
+    "no_litellm_contract_change": "No new param threaded through CustomLLM.completion; inner suppressed call untouched."
+  },
+  "agent_verify_result": "pass — 19 passed (tests/test_enhanced_interceptor.py + tests/test_enhanced_passthrough.py); integration+overrides 28 passed; ruff check + format clean; import has no circular-dependency.",
+  "next_step_for_orchestrator": "Pack 0.5.0-OBS-ledger-passthrough CLOSED on branch obs-passthrough at c1d7c7b951b2dbb66b8fe9235700cda36f64ace5; review, verify, merge."
+}

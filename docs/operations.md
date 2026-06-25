@@ -29,7 +29,7 @@ kubectl apply -f deploy/k8s/ingress.yaml
 kubectl apply -f deploy/k8s/hpa.yaml
 ```
 
-The deployment runs as non-root (UID 1000), sets resource limits (250m-1 CPU, 512Mi-1Gi RAM), and should use `/health/liveliness` for liveness probes. Reserve `/health` for slower readiness-style checks because it can trigger real provider work.
+The deployment runs as non-root (UID 1000), sets resource limits (250m-1 CPU, 512Mi-1Gi RAM), and uses `/health/liveliness` for **both liveness and readiness** probes (it makes no model calls). Never point an automated probe at `/health` — it can trigger real provider work on every poll; reserve `/health` for on-demand/manual deep checks only.
 
 ### Bare Metal / VM
 
@@ -48,6 +48,27 @@ cd /opt/airlock && airlock start
 ```
 
 Use systemd or supervisord for process management. See the systemd unit example below.
+
+### Native TLS
+
+Airlock can terminate TLS itself instead of relying only on a reverse proxy. Set
+**both** of these and Airlock serves HTTPS on the same `AIRLOCK_HOST:AIRLOCK_PORT`:
+
+```bash
+AIRLOCK_SSL_CERTFILE=/etc/airlock/tls/fullchain.pem
+AIRLOCK_SSL_KEYFILE=/etc/airlock/tls/privkey.pem
+```
+
+Leave either unset to serve plain HTTP (the default). Clients only change the URL
+scheme (`http://` → `https://`).
+
+- **Certificates load at startup only** — renewal means a (rolling) restart. A
+  front proxy is still preferable when you need hot cert rotation, an LB, or an
+  HTTP→HTTPS redirect.
+- Native TLS is what protects the admin/capability bearer tokens. If the
+  [admin API](#admin-api) or capability skips are enabled on a non-loopback bind
+  with TLS off, Airlock **refuses to start** unless you set `AIRLOCK_SSL_*`,
+  `admin.behind_tls_proxy: true`, or `admin.allow_insecure_tokens: true`.
 
 ## Configuration
 
@@ -105,11 +126,18 @@ airlock post --json                   # machine-readable output
 
 | Endpoint | Purpose | Use For |
 |----------|---------|---------|
-| `GET /health` | Full health check (may call providers) | Readiness probes, monitoring |
-| `GET /health/liveliness` | Lightweight liveness check | Liveness probes, frequent polling |
+| `GET /health` | Full health check (**calls every provider** when `background_health_checks` is off) | On-demand deep check / dashboards only — **never automated probes** |
+| `GET /health/liveliness` | Lightweight liveness check (no model calls) | Liveness **and readiness** probes, load balancers, frequent polling |
 | `GET /health/circuits` | Per-model circuit-breaker state (JSON) | Diagnosing routing/circuit issues |
 
-`/health` and `/health/liveliness` return HTTP 200 when healthy. Use `/health/liveliness` for high-frequency checks (load balancer, TUI polling). The `/health/circuits` endpoint is installed by the `model_override_headers` callback (see [Callbacks](#callbacks)).
+> **Hard constraint:** liveness/readiness probes and any high-frequency poller MUST
+> use `GET /health/liveliness`. `GET /health` fires live completions to every model
+> when `background_health_checks` is off — running it on a 10–30 s probe interval
+> hammers (and bills) every provider.
+
+`/health` and `/health/liveliness` return HTTP 200 when healthy. The
+`/health/circuits` endpoint is installed by the `model_override_headers` callback
+(see [Callbacks](#callbacks)).
 
 ## Startup Modes
 
@@ -221,6 +249,17 @@ Exposed metrics:
 | `airlock_keyword_blocks_total` | Counter | — | Keyword guard blocks |
 | `airlock_threat_blocks_total` | Counter | — | Threat detector blocks |
 | `airlock_circuit_breaker_state` | Gauge | model | 0=closed, 1=half_open, 2=open |
+| `airlock_provider_ratelimit_remaining_tokens` | Gauge | provider | Tokens remaining against the provider's rate-limit window (from upstream `x-ratelimit-*`) |
+| `airlock_provider_ratelimit_remaining_requests` | Gauge | provider | Requests remaining against the provider's rate-limit window |
+| `airlock_provider_budget_used_usd` | Gauge | provider | USD spent against the provider's daily budget cap |
+| `airlock_provider_budget_limit_usd` | Gauge | provider | Configured daily budget cap for the provider |
+
+The rate-limit and budget gauges are **observe-only** — they capture what providers
+report without changing routing or what reaches the client. See
+[Provider Quota Observability](guide/provider-observability.md). Alert when
+`airlock_provider_ratelimit_remaining_tokens` falls below a fraction of its observed
+ceiling, or when `airlock_provider_budget_used_usd` approaches
+`airlock_provider_budget_limit_usd`.
 
 ### OpenTelemetry Tracing
 
@@ -272,6 +311,37 @@ The advisor has access to 9 data-gathering tools: state snapshots, error logs, a
 **Privacy:** The advisor prefers local models (vLLM, Ollama — any model with a custom `api_base`) to avoid sending operational data to remote providers. When a remote model is used, a warning is displayed. Use `--local-only` to enforce this.
 
 **Audit trail:** All advisor actions are logged to `logs/advisor-audit.jsonl`.
+
+## Admin API
+
+The admin control plane lets an operator mutate live protection state — clear a
+provider quarantine after a verified credit top-up, reset a model circuit, clear a
+client backoff — without a restart. It is **off by default**; when disabled,
+`/airlock/admin/*` returns `404`. Enable it in `config.yaml`:
+
+```yaml
+admin:
+  enabled: true
+  trust_loopback: true
+```
+
+Authentication is either **loopback** (a connection from `127.0.0.1`/`::1` is the
+operator, no credential) or a **Bearer token** — the master key or a scoped
+capability JWT. Mint tokens locally with the CLI:
+
+```bash
+airlock admin mint-token --sub lme-ops --scope admin:clear_quarantine --ttl 15m
+```
+
+```bash
+# Clear a draining quarantine after a credit top-up (probe = self-correcting half-open):
+curl -X POST http://localhost:4000/airlock/admin/providers/openai/clear-quarantine \
+     -d '{"mode":"probe"}'
+```
+
+Every mutation emits an `admin_action` record into the JSONL log as the audit trail.
+The TUI's `c` clear-quarantine keybinding is a loopback client of this API. Full
+reference, scopes, and the fail-closed TLS requirement: [Admin API](guide/admin-api.md).
 
 ## Guardrails
 

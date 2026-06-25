@@ -1,0 +1,39 @@
+{
+  "pack": "0.5.0-OBS-accounting",
+  "baseline_sha": "d1ca77f2b2e3920d5608822386a42609f8d636d1",
+  "branch": "obs-accounting",
+  "head_sha": "7e86758358500e6e052690ad51685dd90ed75653",
+  "commits": [
+    "500aa8a: docs(transparency): OBS-accounting PLAN memo — success/failure provider keying split",
+    "68574ad: test(transparency): OBS-accounting RED — served spend keying + error-provider quarantine",
+    "7e86758: feat(transparency): OBS-accounting — key spend off served provider; failure off error provider (flagged, default on)"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "68574adb7e38ff6d1944b80899c9fba022b439ce",
+    "test_files": ["tests/test_fast_monitor.py"]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_fast_monitor.py::TestServedAccounting::test_success_spend_keys_off_served_provider",
+      "tests/test_fast_monitor.py::TestServedAccounting::test_success_served_cost_none_falls_back_to_kwargs_cost",
+      "tests/test_fast_monitor.py::TestServedAccounting::test_success_no_served_read_uses_inferred",
+      "tests/test_fast_monitor.py::TestServedAccounting::test_rate_limit_no_response_keys_off_error_provider",
+      "tests/test_fast_monitor.py::TestServedAccounting::test_flag_off_success_uses_inferred",
+      "tests/test_fast_monitor.py::TestServedAccounting::test_flag_off_failure_uses_inferred"
+    ],
+    "passed": 32,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/fast/monitor.py",
+    "tests/test_fast_monitor.py",
+    "dev/notes/0.5.0-OBS-accounting-design.md"
+  ],
+  "blockers_encountered": [],
+  "additional_changes_made_in_scope": [
+    "ruff format normalized one pre-existing unrelated line (test_precall_block_does_not_feed_provider_breaker's `with patch.object(...)` collapsed to a single line) in the owned test file — required to keep `ruff format --check` clean; no logic change."
+  ],
+  "agent_verify_result": "pass — tests/test_fast_monitor.py 32 passed; neighbors tests/test_served_attribution.py + tests/test_transparency_config.py + tests/test_ratelimit_observability.py 40 passed; ruff check + format --check clean on both owned files",
+  "next_step_for_orchestrator": "Pack 0.5.0-OBS-accounting on branch obs-accounting at 7e86758; review, verify, merge. HITL after merge: operator validates accounting + dashboards on real traffic before GA."
+}

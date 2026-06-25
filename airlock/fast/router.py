@@ -27,6 +27,8 @@ import re
 import time
 from dataclasses import dataclass, field
 
+from airlock.transparency import record_mutation
+
 from .state import store
 
 logger = logging.getLogger("airlock.fast.router")
@@ -66,7 +68,7 @@ _DEFAULT_SESSION_TTL = 3600  # 1 hour
 _DEFAULT_PROVIDER_BUDGETS: dict[str, float] = {
     "anthropic": 50.0,
     "openai": 50.0,
-    "gemini": 25.0,
+    "gemini": 0.0,  # 0 = no budget-aware swap (falsy short-circuits _apply_budget_awareness); matches provider_budget_config gemini:0 in config.yaml
     "mistral": 25.0,
     "perplexity": 25.0,
 }
@@ -519,6 +521,15 @@ def apply_routing(data: dict) -> dict:
         # Set a concrete default so downstream logic has a real model
         data["model"] = "claude-sonnet"
         original_model = "smart"
+        record_mutation(
+            data.setdefault("metadata", {}),
+            field="model",
+            op="rewrite",
+            before="smart",
+            after="claude-sonnet",
+            stage="pre_call",
+            source="router.smart",
+        )
 
         # Stash classification for observability (slow analyzer reads this)
         routing_meta = data.setdefault("metadata", {}).setdefault(
@@ -535,6 +546,7 @@ def apply_routing(data: dict) -> dict:
         return data
 
     model = data.get("model", original_model)
+    pre_route_model = model
     reasons: list[str] = []
 
     session_id = airlock_meta.get("session_id")
@@ -605,6 +617,17 @@ def apply_routing(data: dict) -> dict:
     if reasons:
         data["model"] = model
         metadata = data.setdefault("metadata", {})
+        if model != pre_route_model:
+            record_mutation(
+                metadata,
+                field="model",
+                op="rewrite",
+                before=pre_route_model,
+                after=model,
+                stage="pre_call",
+                source="router.cost_tier",
+                reason=", ".join(reasons) or "routed",
+            )
         # Merge into existing routing_meta (smart_classify may already be set)
         routing_meta = metadata.setdefault("airlock_routing", {})
         routing_meta.update(

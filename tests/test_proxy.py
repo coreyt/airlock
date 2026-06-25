@@ -15,6 +15,7 @@ from airlock.proxy import (
     _fathom_logger_enabled,
     _mcp_startup_mode,
     _prepare_runtime_config,
+    _ssl_cli_args,
     _startup_model_discovery_enabled,
     _validate_config,
     _validate_master_key,
@@ -661,3 +662,69 @@ class TestConfigValidationExtra:
         if template.exists():
             warnings = _validate_config(str(template))
             assert warnings == [], f"Template config has warnings: {warnings}"
+
+
+# ---------------------------------------------------------------------------
+# _ssl_cli_args() — native TLS passthrough (Pack 0.5.0-RES-tls / UN-12 / CC-12)
+# ---------------------------------------------------------------------------
+class TestSslCliArgs:
+    def test_both_set_returns_flags(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_SSL_CERTFILE", "/etc/airlock/tls.crt")
+        monkeypatch.setenv("AIRLOCK_SSL_KEYFILE", "/etc/airlock/tls.key")
+        args = _ssl_cli_args()
+        assert args == [
+            "--ssl_certfile_path",
+            "/etc/airlock/tls.crt",
+            "--ssl_keyfile_path",
+            "/etc/airlock/tls.key",
+        ]
+
+    def test_neither_set_returns_empty(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_SSL_CERTFILE", raising=False)
+        monkeypatch.delenv("AIRLOCK_SSL_KEYFILE", raising=False)
+        assert _ssl_cli_args() == []
+
+    def test_partial_set_returns_empty_and_warns(self, monkeypatch, capsys):
+        """Only one of cert/key set is a misconfiguration: no TLS, loud warning."""
+        monkeypatch.setenv("AIRLOCK_SSL_CERTFILE", "/etc/airlock/tls.crt")
+        monkeypatch.delenv("AIRLOCK_SSL_KEYFILE", raising=False)
+        assert _ssl_cli_args() == []
+        assert "AIRLOCK_SSL" in capsys.readouterr().err
+
+    def test_blank_values_ignored(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_SSL_CERTFILE", "  ")
+        monkeypatch.setenv("AIRLOCK_SSL_KEYFILE", "")
+        assert _ssl_cli_args() == []
+
+
+class TestMainTls:
+    def test_main_appends_ssl_flags_when_set(self, config_file, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
+        monkeypatch.setenv("AIRLOCK_SSL_CERTFILE", "/c.crt")
+        monkeypatch.setenv("AIRLOCK_SSL_KEYFILE", "/k.key")
+        mock_result = MagicMock(returncode=0)
+        with (
+            patch("airlock.proxy.subprocess.run", return_value=mock_result) as mock_run,
+            patch("airlock.proxy.fetch_live_provider_models", return_value=[]),
+            pytest.raises(SystemExit),
+        ):
+            main()
+        cmd = mock_run.call_args[0][0]
+        assert cmd[cmd.index("--ssl_certfile_path") + 1] == "/c.crt"
+        assert cmd[cmd.index("--ssl_keyfile_path") + 1] == "/k.key"
+
+    def test_main_no_ssl_flags_by_default(self, config_file, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
+        monkeypatch.delenv("AIRLOCK_SSL_CERTFILE", raising=False)
+        monkeypatch.delenv("AIRLOCK_SSL_KEYFILE", raising=False)
+        mock_result = MagicMock(returncode=0)
+        with (
+            patch("airlock.proxy.load_dotenv", lambda *a, **k: None),
+            patch("airlock.proxy.subprocess.run", return_value=mock_result) as mock_run,
+            patch("airlock.proxy.fetch_live_provider_models", return_value=[]),
+            pytest.raises(SystemExit),
+        ):
+            main()
+        cmd = mock_run.call_args[0][0]
+        assert "--ssl_certfile_path" not in cmd
+        assert "--ssl_keyfile_path" not in cmd

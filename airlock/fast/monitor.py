@@ -15,13 +15,18 @@ Registered in config.yaml alongside the enterprise logger:
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import time
 from typing import Any
 
+from airlock.callbacks.metrics import record_provider_ratelimit_headroom
 from airlock.client_identity import extract_airlock_client_from_kwargs
+from airlock.fast.ratelimit_headers import parse_ratelimit_headers
 from airlock.gemini_interface import classify_gemini_response
 from airlock.guardrails.extract import is_batch_call
+from airlock.transparency import attribute_served_backend, get_transparency_config
 from litellm.exceptions import APIError, RateLimitError
 from litellm.integrations.custom_logger import CustomLogger
 
@@ -30,6 +35,85 @@ from .state import normalize_client_id, store
 logger = logging.getLogger("airlock.fast.monitor")
 
 from .router import infer_provider as _infer_provider
+
+_DEFAULT_BUDGET_WARN_RATIO = 0.8
+_budget_warned: set[str] = set()  # warn once per provider per process (anti-spam)
+# Explicit per-provider daily caps from provider_budget_config, captured at
+# startup. A3 warns ONLY for providers with an explicit cap here or in
+# AIRLOCK_PROVIDER_BUDGETS — never the router's internal routing defaults, so a
+# deploy that configures no budget gets no warn (CC-3).
+_configured_budgets: dict[str, float] = {}
+
+
+def configure_budgets(config: dict | None) -> None:
+    """Capture explicit provider_budget_config caps at startup (CC-2/CC-3)."""
+    global _configured_budgets
+    budgets: dict[str, float] = {}
+    block = (config or {}).get("provider_budget_config") or {}
+    if isinstance(block, dict):
+        for prov, cfg in block.items():
+            limit = cfg.get("budget_limit") if isinstance(cfg, dict) else None
+            if isinstance(limit, (int, float)):
+                budgets[str(prov)] = float(limit)
+    _configured_budgets = budgets
+
+
+def _budget_warn_ratio() -> float:
+    raw = os.getenv("AIRLOCK_BUDGET_WARN_RATIO")
+    if raw:
+        try:
+            return float(raw)
+        except ValueError:
+            pass
+    return _DEFAULT_BUDGET_WARN_RATIO
+
+
+def _explicit_budget_for(provider: str) -> float | None:
+    """Explicit daily cap for a provider, or None if none is configured.
+
+    AIRLOCK_PROVIDER_BUDGETS (env, explicit) overrides the captured
+    provider_budget_config. Never falls back to the router's routing defaults.
+    """
+    raw = os.getenv("AIRLOCK_PROVIDER_BUDGETS")
+    if raw:
+        try:
+            env_budgets = json.loads(raw)
+            if isinstance(env_budgets, dict) and provider in env_budgets:
+                return float(env_budgets[provider])
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+    return _configured_budgets.get(provider)
+
+
+def _maybe_warn_budget(provider: str, spend_state, kwargs: dict) -> bool:
+    """A3: warn (once) when a provider crosses warn_ratio of its daily cap.
+
+    Sets ``airlock_budget_state=near_limit`` in response metadata and logs once
+    per provider per process. Returns whether the provider is near its limit.
+    Only fires for providers with an *explicitly configured* budget (CC-3).
+    """
+    limit = _explicit_budget_for(provider)
+    if not limit:
+        return False
+    spent = spend_state.recent_spend()
+    near = spent >= limit * _budget_warn_ratio()
+    if near:
+        metadata = (kwargs.get("litellm_params", {}) or {}).get("metadata")
+        if isinstance(metadata, dict):
+            metadata.setdefault("airlock_response_headers", {})[
+                "X-Airlock-Budget-State"
+            ] = "near_limit"
+        if provider not in _budget_warned:
+            _budget_warned.add(provider)
+            logger.warning(
+                "provider_budget_near_limit provider=%s spent=%.2f limit=%.2f",
+                provider,
+                spent,
+                limit,
+            )
+    elif provider in _budget_warned:
+        _budget_warned.discard(provider)  # reset once it drops back under
+    return near
 
 
 def _extract_client_id(kwargs: dict) -> str:
@@ -112,11 +196,46 @@ class AirlockFastMonitor(CustomLogger):
         # Track spend per provider for budget-aware routing
         cost = kwargs.get("response_cost", 0.0)
         provider = _infer_provider(model_name)
+        # CC-T4: key spend (and the other per-provider success counters) off the
+        # SERVED backend, not the inferred one — a same-provider failover or backend
+        # swap is then billed correctly. Flag-gated; falls back to inferred when the
+        # served read is absent/unparseable (a monitor callback must never crash the
+        # request path). response_obj is the final served response.
+        if get_transparency_config().attribute_accounting_to_served:
+            try:
+                served = attribute_served_backend(
+                    response_obj, cost_fallback=kwargs.get("response_cost")
+                )
+            except Exception:
+                logger.warning(
+                    "served-backend attribution failed; billing falls back to inferred provider",
+                    exc_info=True,
+                )
+                served = None
+            if served and served.provider:
+                provider = served.provider
+                cost = (
+                    served.response_cost
+                    if served.response_cost is not None
+                    else kwargs.get("response_cost", 0.0)
+                )
         if provider:
             if cost and cost > 0:
                 store.get_provider_spend(provider).record_spend(now, cost)
+                # A3: warn (once) when crossing the daily-budget warn ratio.
+                _maybe_warn_budget(provider, store.get_provider_spend(provider), kwargs)
             store.record_provider_request(client_id, provider, now)
             store.record_provider_success(client_id, provider, now)
+            # Capture upstream quota headroom (workstream C, observe-only).
+            hidden = getattr(response_obj, "_hidden_params", None)
+            if isinstance(hidden, dict):
+                parsed = parse_ratelimit_headers(hidden.get("additional_headers") or {})
+                store.record_provider_ratelimit(provider, parsed, now)
+                record_provider_ratelimit_headroom(
+                    provider,
+                    parsed["remaining_tokens"],
+                    parsed["remaining_requests"],
+                )
             if provider == "gemini":
                 metadata = kwargs.get("litellm_params", {}).get("metadata", {}) or {}
                 gemini_request = metadata.get("airlock_gemini") or {}
@@ -192,6 +311,13 @@ class AirlockFastMonitor(CustomLogger):
             if is_provider_call:
                 store.record_provider_failure(client_id, provider, now)
 
+        # CC-T4: the quarantine/rate-limit counter keys off the provider parsed from
+        # the error (the backend that actually 429'd), else the inferred provider —
+        # never a served read (often no response on failure). Attempt/breaker counting
+        # above stays per-attempted-provider (inferred). Flag-gated.
+        if get_transparency_config().attribute_accounting_to_served:
+            provider = getattr(exception, "llm_provider", None) or provider
+
         is_rate_limited, reason = _is_provider_rate_limited(exception)
         if provider and is_rate_limited:
             litellm_params = kwargs.get("litellm_params")
@@ -205,18 +331,31 @@ class AirlockFastMonitor(CustomLogger):
                 reason or "provider_rate_limited",
                 error_type or "RateLimitError",
             )
+            # Capture the exhausted-quota snapshot from the 429 response headers.
+            resp = getattr(exception, "response", None)
+            resp_headers = getattr(resp, "headers", None)
+            if resp_headers is not None:
+                parsed = parse_ratelimit_headers(resp_headers)
+                store.record_provider_ratelimit(provider, parsed, now)
+                record_provider_ratelimit_headroom(
+                    provider,
+                    parsed["remaining_tokens"],
+                    parsed["remaining_requests"],
+                )
             metadata = litellm_params.get("metadata") or {}
             litellm_params["metadata"] = metadata
-            action = (
-                "provider_quarantine"
-                if outcome["provider_quarantined"]
-                else "client_quarantine"
-            )
-            cooldown = (
-                outcome["provider_cooldown_seconds"]
-                if outcome["provider_quarantined"]
-                else outcome["client_cooldown_seconds"]
-            )
+            # Three-way label so a below-threshold 429 (nothing armed, possible
+            # when rate_limit_threshold > 1) is NOT logged as a quarantine —
+            # otherwise ingest_jsonl_record would re-quarantine the TUI replica.
+            if outcome["provider_quarantined"]:
+                action = "provider_quarantine"
+                cooldown = outcome["provider_cooldown_seconds"]
+            elif outcome["client_quarantined"]:
+                action = "client_quarantine"
+                cooldown = outcome["client_cooldown_seconds"]
+            else:
+                action = "rate_limited"
+                cooldown = 0.0
             metadata["airlock_provider"] = provider
             metadata["airlock_provider_protection"] = {
                 "action": action,

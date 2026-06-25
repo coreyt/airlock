@@ -1,0 +1,32 @@
+{
+  "pack": "0.5.0-OBS-served-fix",
+  "baseline_sha": "e0f6082",
+  "branch": "obs-served",
+  "head_sha": "f6f0fae",
+  "commits": [
+    "0c3ab3a: test(transparency): OBS-served — RED regression tests for null metadata stash crash",
+    "f6f0fae: fix(transparency): OBS-served — guard airlock_served stash against null request metadata"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "0c3ab3a",
+    "test_files": ["tests/test_model_override_headers.py"]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_model_override_headers.py::TestServedHeaders::test_null_metadata_in_request_does_not_crash",
+      "tests/test_model_override_headers.py::TestServedHeaders::test_missing_metadata_key_does_not_crash"
+    ],
+    "passed": 14,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/callbacks/model_override_headers.py",
+    "tests/test_model_override_headers.py"
+  ],
+  "blockers_encountered": [],
+  "additional_changes_made_in_scope": [],
+  "agent_verify_result": "pass",
+  "summary": "Replace data.setdefault('metadata', {}) with explicit isinstance guard so that data['metadata']=null no longer raises TypeError on every successful call with a resolvable provider. Five identity fields (provider/api_base_host/region/model_id/backend_kind) and all header-emission logic are unchanged.",
+  "next_step_for_orchestrator": "Pack 0.5.0-OBS-served-fix on branch obs-served at f6f0fae; review, verify, merge"
+}

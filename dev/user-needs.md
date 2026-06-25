@@ -262,3 +262,364 @@ configuration,
    compatibility.
 6. The CLI uses only Python standard library modules (argparse) — no additional
    dependencies.
+
+---
+
+## UN-10: Operator-Initiated Quarantine Clear
+
+**As an** operator who has just topped up a provider's credits,
+**I need** to clear or accelerate Airlock's provider-protection quarantine
+instead of waiting out the full cooldown,
+**so that** a recovered provider returns to service immediately rather than
+draining a 300 s timer the operator knows is stale.
+
+> Traces to `dev/notes/design-admin-api-capability-auth.md` (§7) and the live
+> incident in `dev/notes/design-large-context-resilience-overview.md` (§1).
+
+### Stakeholders
+
+- Operations / on-call
+- Developers blocked behind a stale quarantine
+
+### Acceptance Criteria
+
+1. An admin operation clears a provider (or client→provider) quarantine, and the
+   provider is eligible for traffic again on the next request.
+2. The default clear is **half-open**: it admits a single probe; a successful
+   probe closes the breaker, a failed probe re-arms it using the configured
+   cooldown — so a mistaken clear (credits not actually restored) self-corrects.
+3. A blind **force** clear is available as a separate, higher-privilege
+   operation.
+4. Clearing a quarantine does not let the breaker's threshold counter re-arm off
+   pre-clear 429s (the clear sets a "cleared floor"; see CC-6).
+5. Clear operations are rate-limited per provider and every clear is audited.
+6. The operation is reachable from the TUI (operator) and over HTTP (scripted).
+
+---
+
+## UN-11: Capability Auth Without New Infrastructure
+
+**As an** operator,
+**I need** to authorize privileged actions and per-client capabilities without
+standing up a database, IdP, or PKI,
+**so that** admin and capability features are usable in a single-node, no-extra-
+infra deployment while remaining off by default.
+
+> Traces to `dev/notes/design-admin-api-capability-auth.md` (§4–§5).
+
+### Stakeholders
+
+- Operations
+- Information security
+- Platform engineers
+
+### Acceptance Criteria
+
+1. A request arriving on the loopback interface is treated as an operator
+   (network-position auth), governed by a `trust_loopback` setting.
+2. Remote/programmatic callers authorize with a short-lived HS256 JWT carrying
+   `sub`, `scope[]`, and `exp`, signed by a server-side secret
+   (`AIRLOCK_JWT_SECRET`, falling back to an HKDF of `AIRLOCK_MASTER_KEY`).
+3. The token `sub` is the **authenticated** key-derived identity `key:<last8>`
+   (from the validated bearer key); a guardrail-skip token is honored only when
+   `sub` matches that key-derived id — **never** the forgeable `X-Airlock-Client`
+   attribution header, which carries zero authorization weight (prevents token
+   replay).
+4. The master key remains the root credential: break-glass admin plus the
+   credential that mints tokens.
+5. No database, external IdP, or client-cert PKI is required.
+6. All of the above default to **off**; a config-free deploy exposes no admin
+   surface and ignores capability headers.
+
+---
+
+## UN-12: Native TLS Termination
+
+**As an** IT administrator,
+**I need** Airlock to optionally terminate TLS itself,
+**so that** I can serve HTTPS on a single node without deploying a separate
+reverse proxy, while keeping the reverse-proxy option for fleets that need it.
+
+> Traces to `dev/notes/design-admin-api-capability-auth.md` (§3).
+
+### Stakeholders
+
+- IT operations
+- Information security
+
+### Acceptance Criteria
+
+1. When `AIRLOCK_SSL_CERTFILE` and `AIRLOCK_SSL_KEYFILE` are both set, the proxy
+   serves HTTPS on `AIRLOCK_HOST:AIRLOCK_PORT` (litellm/uvicorn ssl passthrough).
+2. When unset, the proxy serves plain HTTP exactly as today (no behavior change).
+3. The existing "TLS at a reverse proxy" deployment remains supported and
+   documented.
+4. Token-based auth (UN-11) is documented as requiring TLS on any non-loopback
+   bind (bearer credentials must not traverse plaintext).
+
+---
+
+## UN-13: Per-Request Guardrail Skip for Trusted Clients
+
+**As a** platform engineer running a trusted internal workload (e.g., a
+benchmark),
+**I need** to downgrade specific guardrails for specific requests,
+**so that** a known-safe client can run without a global guardrail change that
+would weaken protection for everyone else.
+
+> Traces to `dev/notes/design-admin-api-capability-auth.md` (§8).
+
+### Stakeholders
+
+- Platform engineers
+- Information security (sets policy)
+
+### Acceptance Criteria
+
+1. A capability token scope (`guardrail:skip:<name>`) presented in the
+   `X-Airlock-Capability` header downgrades that guardrail's effective mode for
+   that request only.
+2. "Skip" defaults to **downgrade-to-observe** (the guardrail still scans and
+   logs) rather than full disable; full disable is a separately configured,
+   higher-privilege capability.
+3. PII redaction is **non-skippable** by default.
+4. A skip can never disable provider-protection (the breaker) or re-enable
+   fallbacks — those are operator-config, not client-grantable (see CC-10).
+5. The mechanism is off by default (`allow_capability_skip: false`); normal
+   clients are unaffected and send no new headers.
+6. The future batch path consumes the same resolver; this need ships for the
+   interactive path first.
+
+---
+
+## UN-14: No Self-Inflicted Quarantine Storms
+
+**As a** developer running large or bursty workloads,
+**I need** Airlock's breaker to quarantine a provider only after repeated genuine
+rate-limit signals, not on a single 429,
+**so that** a handful of upstream 429s do not amplify into a sustained,
+self-inflicted outage.
+
+> Traces to `dev/notes/design-circuit-breaker-per-client.md` (A1).
+
+### Stakeholders
+
+- Developers running large-context / batch jobs
+- Operations
+
+### Acceptance Criteria
+
+1. A client→provider pair is quarantined only after `rate_limit_threshold` 429s
+   within `rate_limit_window_seconds` (default threshold 1 preserves today's
+   behavior).
+2. A pre-call quarantine block does **not** feed the breaker's failure counter
+   (the no-re-arm invariant), locked by a regression test.
+3. The arming counter respects the "cleared floor" so an operator clear cannot be
+   undone by pre-clear history (CC-6).
+4. With no config, behavior is identical to today.
+
+---
+
+## UN-15: Per-Client Breaker Tuning
+
+**As an** operator,
+**I need** to tune breaker threshold, cooldown, and escalation per client key,
+**so that** a trusted batch client can be granted a looser breaker without
+loosening protection for everyone, and one client's 429s do not quarantine the
+provider for all.
+
+> Traces to `dev/notes/design-circuit-breaker-per-client.md` (E).
+
+### Stakeholders
+
+- Operations
+- Platform engineers
+
+### Acceptance Criteria
+
+1. A per-client policy supplies `{rate_limit_threshold, cooldown_seconds,
+   escalation_exempt, disabled}`, with precedence per-client → default →
+   constant.
+2. `escalation_exempt` clients do not count toward provider-wide escalation.
+3. Policy is read once at startup from `airlock_settings.circuit_breaker` plus an
+   `AIRLOCK_BREAKER_OVERRIDES` env override.
+4. Client identity is the existing `client_id` (CC-1); no new identity concept.
+
+---
+
+## UN-16: Correct Client Backoff Signaling
+
+**As a** developer whose client retries on rate limits,
+**I need** Airlock to return a typed, OpenAI-compatible 429 with a `Retry-After`
+header when it blocks a request,
+**so that** my client backs off correctly instead of hammering a quarantined
+provider or mis-recording empty responses.
+
+> Traces to `dev/notes/design-rate-limit-client-errors.md` (B).
+
+### Stakeholders
+
+- Developers / client authors
+- Operations
+
+### Acceptance Criteria
+
+1. Airlock breaker blocks raise a typed `AirlockProviderBlocked(RateLimitError)`
+   distinguishable from a passthrough provider 429 without string-parsing.
+2. Every rate-limit response carries `Retry-After` (breaker cooldown for Airlock
+   blocks; provider reset/`Retry-After` for passthrough) and triage headers
+   (`X-Airlock-Provider-State`, `X-Airlock-Block-Scope`).
+3. The response body stays OpenAI-shaped, enriched (new `type`, `airlock`
+   sub-object) without breaking existing parsers (CC-4).
+4. Status code is 429 for both cases.
+
+---
+
+## UN-17: Provider Quota Observability
+
+**As an** operator,
+**I need** to see upstream rate-limit headroom and spend-vs-cap per provider,
+**so that** 429s stop being surprises and I can act before a provider is
+exhausted.
+
+> Traces to `dev/notes/design-provider-quota-observability.md` (C).
+
+### Stakeholders
+
+- Operations
+- Finance (spend visibility)
+
+### Acceptance Criteria
+
+1. `x-ratelimit-*` headers are captured on both success and 429 failure and
+   tracked per provider in state.
+2. Headroom and spend-vs-cap are surfaced via metrics gauges, structured logs,
+   and the TUI.
+3. The feature is observe-only — it changes no request behavior (CC-5).
+4. Optional response passthrough of headroom headers is behind a default-off
+   flag.
+
+---
+
+## UN-18: Bounded Fallback and Budget Blast-Radius
+
+**As an** operator,
+**I need** fallbacks suppressed for large or rate-limited requests and the daily
+budget cap made visible,
+**so that** a single incident does not fan a large payload across providers or
+hit a silent spend cliff.
+
+> Traces to `dev/notes/design-routing-fanout-guardrails.md` (A2 + A3).
+
+### Stakeholders
+
+- Operations
+- Finance
+- Developers
+
+### Acceptance Criteria
+
+1. Requests above a prompt-size threshold, or targeting a quarantined provider,
+   have fallbacks suppressed and fail fast with the UN-16 typed 429.
+2. Rate-limit/quota errors never fall back across providers (same-provider only).
+3. When a fallback is used, the answering model is annotated and surfaced via
+   `X-Airlock-Model-Override`.
+4. The daily provider budget cap is observable and warns at ≥80% before the
+   cliff. Defaults preserve today's behavior except the new warning (CC-3).
+
+---
+
+## UN-19: Transparent Request Mutations
+
+**As a** developer (or operator) sending a request through Airlock,
+**I need** Airlock to tell me every way it changed my request before it reached
+the provider — which field, from what to what, and why,
+**so that** observability is a *benefit* of routing through Airlock rather than a
+black box I have to reverse-engineer, and so a surprising response (silently
+lowered reasoning effort, a dropped parameter, a swapped model, a suppressed
+fallback, an injected system prompt) is explainable from the response alone.
+
+> Traces to `dev/notes/design-mutation-and-provider-transparency.md`.
+> Motivated by the audit in that note: ~30 mutation sites across 7 categories,
+> most silent to the client today (see the inventory table). The bar is "more
+> observable than plain LiteLLM or any thin wrapper."
+
+### Stakeholders
+
+- Developers (debugging unexpected model behavior)
+- Operators (auditing what the gateway does to traffic)
+- Compliance (proving what left the building, e.g. PII redaction occurred)
+
+### Acceptance Criteria
+
+1. Every request-altering mutation is recorded in one canonical, ordered ledger
+   (`metadata["airlock_mutations"]`): field, op (`set`/`drop`/`clamp`/`rewrite`/
+   `inject`/`redact`/`suppress`), before→after, stage (`pre_call`/`during_call`/
+   `post_call`), source component, and reason. The previously-silent mutations
+   (reasoning-effort normalization, `drop_params`, alias resolution, fallback
+   suppression, system-prompt injection, reasoning-strip) are all included.
+2. The ledger is surfaced on **every** response by default: a compact
+   `X-Airlock-Mutations` header naming the changed fields, the full ledger in the
+   JSONL request record (`mutations: [...]`), and per-type counters in metrics/TUI.
+3. Surfacing never leaks content: redaction mutations record the field and a
+   **count/category**, never the redacted value (enforced at construction); and the
+   header serializer surfaces an after-value only for an allowlist of scalar/enum
+   fields (model, reasoning_effort, fallbacks, num_retries) — injected system
+   prompts and rewritten message bodies render as `field=<op>` with no content. The
+   header is size-bounded and degrades to a `…+N more` summary with full detail in
+   the log.
+4. A non-streaming response whose request opted in (`X-Airlock-Explain: 1`)
+   additionally receives a structured `airlock.mutations` block in the response body
+   envelope (non-breaking, additive). For streaming responses the envelope is
+   omitted (the data is in the headers + the JSONL log), since SSE headers are
+   already flushed and the chunk schema cannot carry a trailing envelope.
+5. Transparency is observe-only: it changes no request behavior and is governed by
+   `transparency.*` config that is backward compatible (config-free deploys behave
+   as before, plus the new default-on headers/logs).
+
+---
+
+## UN-20: Truthful Serving-Backend Attribution
+
+**As an** operator running models that are reachable through more than one
+backend (Anthropic native vs AWS Bedrock vs GCP Vertex; OpenAI native vs Azure;
+Google via Vertex AI vs AI Studio),
+**I need** Airlock to report which backend *actually* served each request — not a
+guess derived from the model name,
+**so that** spend, rate-limit, and quarantine accounting are attributed to the
+real provider, and so failovers or router deployment choices between backends are
+visible rather than hidden.
+
+> Traces to `dev/notes/design-mutation-and-provider-transparency.md`.
+> Root cause: `airlock_provider` is computed by `infer_provider(model_name)`
+> pre-call (`guardian.py:451`, `monitor.py:197`), while the ground truth already
+> exists post-call in `response._hidden_params` (`custom_llm_provider`,
+> `api_base`, `region_name`, `model_id`, `response_cost`) and is currently ignored.
+
+### Stakeholders
+
+- Operators (correct provider health/quarantine attribution)
+- Finance (spend debited to the backend that actually billed)
+- Developers (knowing whether they hit Vertex or AI Studio)
+
+### Acceptance Criteria
+
+1. After every successful call, Airlock extracts a truthful served-backend record
+   from `response._hidden_params`: `provider` (`custom_llm_provider`),
+   `api_base` host, `region`, served `model_id`, and `response_cost`. This is
+   stored distinctly from the pre-call inferred provider, so the record carries
+   both *requested/inferred* and *served* attribution.
+2. Native vs gateway backends are distinguished for the same logical model:
+   `anthropic` vs `bedrock` vs `vertex_ai`; `openai` vs `azure`; and the Google
+   ambiguity (`vertex_ai` vs `gemini`/AI Studio) is resolved via provider + the
+   `api_base` host (`*-aiplatform.googleapis.com` vs `generativelanguage.googleapis.com`).
+3. The served backend is surfaced by default via response headers
+   (`X-Airlock-Served-By`, and where applicable `X-Airlock-Served-Region`) and in
+   the JSONL record and TUI.
+4. Spend and provider rate-limit/quarantine state are keyed off the **served**
+   provider wherever it diverges from the inferred one (e.g. a same-provider
+   failover or a router deployment swap), closing the mis-attribution gap.
+5. `infer_provider()` remains the basis for *pre-call* policy/routing decisions
+   (it is a prediction) but is no longer treated as the authoritative record of
+   what served the request. Where served truth is unavailable (errors before a
+   response), the record is explicitly marked as inferred-only.

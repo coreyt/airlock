@@ -24,14 +24,18 @@ Registered in config.yaml as a pre_call guardrail:
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any
 
-from litellm import DualCache, RateLimitError
+from litellm import DualCache
 from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
 from airlock.callbacks.enterprise_logger import write_precall_block_record
+from airlock.proxy_errors import AirlockProviderBlocked, sanitize_reason
+from airlock.reasoning_effort import normalize_reasoning_effort
+from airlock.transparency import detect_dropped_params, record_mutation
 from airlock.client_identity import extract_airlock_client_from_headers
 from airlock.gemini_interface import apply_gemini_request_semantics
 from airlock.guardrails.extract import extract_text, is_batch_call, is_mcp_call
@@ -109,7 +113,10 @@ def _raise_provider_protection(
     model_name: str,
     reason: str,
     cooldown_seconds: float,
+    scope: str = "provider",
 ) -> None:
+    # Sanitize upstream reason text before embedding it anywhere client-visible.
+    reason = sanitize_reason(reason)
     message = (
         f"Airlock temporarily blocked client {client_id} from provider {provider} "
         f"for model {model_name} to protect upstream standing. "
@@ -121,11 +128,77 @@ def _raise_provider_protection(
         error_type="RateLimitError",
         failure_category="provider",
     )
-    raise RateLimitError(
+    # Typed subclass (workstream B): a FastAPI handler shapes this into a 429 with
+    # Retry-After + X-Airlock-* headers. Still a RateLimitError for existing paths.
+    raise AirlockProviderBlocked(
         message=message,
         llm_provider=provider,
         model=model_name,
+        cooldown_seconds=cooldown_seconds,
+        scope=scope,
+        reason=reason,
+        client_id=client_id,
     )
+
+
+_DEFAULT_FALLBACK_MAX_PROMPT_TOKENS = 60000
+
+
+def _fallback_max_prompt_tokens() -> int:
+    raw = os.getenv("AIRLOCK_FALLBACK_MAX_PROMPT_TOKENS")
+    if raw:
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+    return _DEFAULT_FALLBACK_MAX_PROMPT_TOKENS
+
+
+def _estimate_prompt_tokens(data: dict[str, Any]) -> int:
+    """Cheap char/4 token estimate over message content (no tokenizer call)."""
+    chars = 0
+    for msg in data.get("messages") or []:
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content")
+        if isinstance(content, str):
+            chars += len(content)
+        elif isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and isinstance(part.get("text"), str):
+                    chars += len(part["text"])
+    return chars // 4
+
+
+def _suppress_fallbacks(data: dict[str, Any], reason: str) -> None:
+    """Disable downstream fan-out for this request (A2). Mirrors the pinned lock."""
+    data["disable_fallbacks"] = True
+    data["num_retries"] = 0
+    data["max_retries"] = 0
+    metadata = data.setdefault("metadata", {})
+    metadata["airlock_fallback_suppressed"] = reason
+    record_mutation(
+        metadata,
+        field="fallbacks",
+        op="suppress",
+        before=None,
+        after=None,
+        stage="pre_call",
+        source="guardian.suppress",
+        reason=reason,
+    )
+
+
+def _maybe_suppress_fallbacks(data: dict[str, Any]) -> None:
+    """A2-1: suppress fallbacks for large-context requests (cost × payload).
+
+    Scope note: this covers only the unambiguous large-prompt case. The
+    rate-limited-provider case (A2-2) is handled by the circuit breaker's own
+    failover (which redirects to a healthy model) plus same-provider fallback
+    curation in config.yaml — suppressing here would fight that redirect.
+    """
+    if _estimate_prompt_tokens(data) > _fallback_max_prompt_tokens():
+        _suppress_fallbacks(data, "large_prompt")
 
 
 def _lock_pinned_request(data: dict[str, Any]) -> None:
@@ -139,6 +212,16 @@ def _lock_pinned_request(data: dict[str, Any]) -> None:
         "num_retries": 0,
         "max_retries": 0,
     }
+    record_mutation(
+        metadata,
+        field="fallbacks",
+        op="suppress",
+        before=None,
+        after=None,
+        stage="pre_call",
+        source="guardian.pin",
+        reason="pinned_request",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +246,12 @@ class AirlockFastGuardian(CustomGuardrail):
     ) -> dict:
         now = time.time()
         client_id = _request_client_id(data, user_api_key_dict)
+        # Resolve per-request guardrail skips (CC-10/CC-11) and stamp the decision
+        # so content guards can honour it. Off by default; binds to the
+        # authenticated key id, not the forgeable client header.
+        from airlock.guardrails.overrides import resolve_guardrail_decision
+
+        resolve_guardrail_decision(data, user_api_key_dict)
         client = store.get_client(client_id)
         requested_model = data.get("model") or "unknown"
         model_name = requested_model
@@ -171,6 +260,9 @@ class AirlockFastGuardian(CustomGuardrail):
         pinned_model = _is_client_pinned(requested_model, data)
         if pinned_model and not mcp and not batch:
             _lock_pinned_request(data)
+        elif not mcp and not batch:
+            # A2-1: large-context requests must not fan out across models.
+            _maybe_suppress_fallbacks(data)
 
         # Record the inbound request
         client.record_request(now)
@@ -213,6 +305,15 @@ class AirlockFastGuardian(CustomGuardrail):
                     "original": model_name,
                     "resolved": resolved,
                 }
+                record_mutation(
+                    metadata,
+                    field="model",
+                    op="rewrite",
+                    before=model_name,
+                    after=resolved,
+                    stage="pre_call",
+                    source="guardian.alias",
+                )
                 model_name = resolved
 
             # ---- Step 2.5b: Provider protection / intelligent routing ----
@@ -250,6 +351,7 @@ class AirlockFastGuardian(CustomGuardrail):
                             model_name,
                             client_provider.last_reason or "provider_rate_limited",
                             cooldown,
+                            scope="client_provider",
                         )
                     if provider_state.is_quarantined(now):
                         cooldown = provider_state.cooldown_remaining(now)
@@ -280,6 +382,7 @@ class AirlockFastGuardian(CustomGuardrail):
                             model_name,
                             provider_state.last_reason or "provider_rate_limited",
                             cooldown,
+                            scope="provider",
                         )
             else:
                 data = apply_routing(data)
@@ -328,6 +431,7 @@ class AirlockFastGuardian(CustomGuardrail):
                         model_name,
                         failover.reason,
                         store.get_provider(provider).cooldown_remaining(now) or 30.0,
+                        scope="model",
                     )
                 elif failover.failover_model:
                     logger.info(
@@ -343,6 +447,16 @@ class AirlockFastGuardian(CustomGuardrail):
                         "failover_model": failover.failover_model,
                         "reason": failover.reason,
                     }
+                    record_mutation(
+                        metadata,
+                        field="model",
+                        op="rewrite",
+                        before=model_name,
+                        after=failover.failover_model,
+                        stage="pre_call",
+                        source="guardian.failover",
+                        reason=failover.reason,
+                    )
                     _set_model_override(
                         data,
                         requested_model,
@@ -356,10 +470,29 @@ class AirlockFastGuardian(CustomGuardrail):
                     )
 
         # ---- Step 4: Priority scoring ----
-        data = apply_gemini_request_semantics(
-            data,
-            provider=infer_provider(data.get("model") or model_name),
-        )
+        target_provider = infer_provider(data.get("model") or model_name)
+        data = apply_gemini_request_semantics(data, provider=target_provider)
+        # Translate an off-intent / provider-invalid reasoning_effort (e.g. "none"
+        # for OpenAI) to the target provider's floor BEFORE litellm's drop_params
+        # silently strips it and the model falls back to its default reasoning.
+        normalize_reasoning_effort(data, target_provider)
+        # Derived drop_params transparency (Decision 8): record each client param the
+        # resolved provider does not support as an op="drop" — once per request.
+        if target_provider:
+            ledger_metadata = data.setdefault("metadata", {})
+            for dropped_param in detect_dropped_params(
+                data, data.get("model") or model_name, target_provider
+            ):
+                record_mutation(
+                    ledger_metadata,
+                    field=dropped_param,
+                    op="drop",
+                    before=None,
+                    after=None,
+                    stage="pre_call",
+                    source="drop_params",
+                    reason="provider-unsupported (drop_params)",
+                )
         priority = compute_priority(client)
         metadata = data.setdefault("metadata", {})
         metadata["airlock_priority"] = {

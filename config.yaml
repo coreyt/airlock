@@ -429,6 +429,70 @@ cost_tiers:
     - gemini-3.1-pro
 
 # ---------------------------------------------------------------------------
+# Transparency — mutation ledger + served-backend attribution (0.5.0)
+# ---------------------------------------------------------------------------
+# All additive and backward-compatible — absent → body and behavior unchanged
+# (CC-T7). Defaults shown; this block is read by airlock/transparency.py.
+transparency:
+  mutation_headers: compact          # off | compact | full
+  served_headers: true               # X-Airlock-Served-By / -Region
+  explain_body_optin_header: X-Airlock-Explain   # request header that adds body envelope
+  attribute_accounting_to_served: true           # key spend/quarantine off the served provider
+  mutation_header_budget_bytes: 256
+
+# ---------------------------------------------------------------------------
+# Circuit breaker — provider-protection tuning (A1 + E)
+# ---------------------------------------------------------------------------
+# Optional. Omit this block entirely to keep the historical one-strike / 300 s
+# behaviour (defaults shown). Per-client keys (key:<last8> of the virtual key, or
+# the airlock_client identity) override the global defaults. The env var
+# AIRLOCK_BREAKER_OVERRIDES (JSON: {"defaults":{...},"clients":{...}}) takes
+# precedence if set. Read once at startup — a config change needs a proxy restart.
+# airlock_settings:
+#   circuit_breaker:
+#     rate_limit_threshold: 1               # 429s within the window before quarantine
+#     rate_limit_window_seconds: 300
+#     client_cooldown_seconds: 300
+#     provider_cooldown_seconds: 300
+#     provider_escalation_client_threshold: 2
+#     clients:
+#       "key:b35cf679":                     # a trusted first-party batch client
+#         rate_limit_threshold: 8           # tolerate bursts before tripping
+#         client_cooldown_seconds: 30       # short cooldown
+#         escalation_exempt: true           # never quarantine the provider for others
+#         # disabled: true                  # turn the breaker off for this client
+
+# ---------------------------------------------------------------------------
+# Admin control plane (off by default) — see docs/guide/admin-api.md
+# ---------------------------------------------------------------------------
+# When admin.enabled is false (default), /airlock/admin/* returns 404. Auth is
+# either loopback (operator) or a bearer credential (master key or a capability
+# JWT). Bearer admin over a non-loopback bind without TLS is refused at startup
+# unless behind_tls_proxy or allow_insecure_tokens is set (set AIRLOCK_JWT_SECRET
+# for token signing; it falls back to deriving from AIRLOCK_MASTER_KEY).
+# admin:
+#   enabled: false
+#   trust_loopback: true        # a request on the loopback interface is the operator
+#   behind_tls_proxy: false     # assert TLS is terminated upstream (skips fail-closed)
+#   allow_insecure_tokens: false  # last resort: permit bearer admin over plaintext
+
+# ---------------------------------------------------------------------------
+# Guardrail overrides — per-request capability skip (off by default)
+# ---------------------------------------------------------------------------
+# A trusted client may present X-Airlock-Capability (a guardrail:skip:<name> JWT)
+# to downgrade a CONTENT guard for that request. "Skip" = downgrade to observe
+# (still scans + logs) unless downgrade_to: off. PII is non-skippable by default.
+# The token sub must be the client's authenticated key id (key:<last8>).
+# guardrail_overrides:
+#   allow_capability_skip: false
+#   capability_header: X-Airlock-Capability
+#   skippable:
+#     pii_redact:      { skippable: false }
+#     keyword:         { skippable: true, downgrade_to: observe }
+#     response_scan:   { skippable: true, downgrade_to: observe }
+#     reasoning_strip: { skippable: true, downgrade_to: off }
+
+# ---------------------------------------------------------------------------
 # Batch profile — Airlock Batch Gateway posture (design §3.3 / §4.2)
 # ---------------------------------------------------------------------------
 # One place to declare the batch posture, distinct from the interactive chat

@@ -29,6 +29,124 @@ PROVIDER_ESCALATION_WINDOW_SECONDS = 300.0
 PROVIDER_ESCALATION_CLIENT_THRESHOLD = 2
 
 
+# ---------------------------------------------------------------------------
+# Per-client circuit-breaker policy (A1 + E)
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class BreakerPolicy:
+    """Resolved breaker tuning for one client key.
+
+    Defaults reproduce the historical one-strike / 300 s behaviour, so a deploy
+    with no ``airlock_settings.circuit_breaker`` config and no
+    ``AIRLOCK_BREAKER_OVERRIDES`` env behaves exactly as before (CC-3).
+    """
+
+    rate_limit_threshold: int = 1
+    rate_limit_window_seconds: float = float(WINDOW_SECONDS)
+    client_cooldown_seconds: float = CLIENT_PROVIDER_COOLDOWN_SECONDS
+    provider_cooldown_seconds: float = PROVIDER_QUARANTINE_SECONDS
+    provider_escalation_client_threshold: int = PROVIDER_ESCALATION_CLIENT_THRESHOLD
+    escalation_exempt: bool = False
+    disabled: bool = False
+
+
+_DEFAULT_BREAKER_POLICY = BreakerPolicy()
+# Module-level resolved config: a default policy plus per-client overrides.
+_breaker_default: BreakerPolicy = _DEFAULT_BREAKER_POLICY
+_breaker_clients: dict[str, BreakerPolicy] = {}
+
+
+def _policy_from_mapping(base: BreakerPolicy, raw: dict) -> BreakerPolicy:
+    """Build a BreakerPolicy from ``base`` overlaid with the keys present in raw."""
+    import logging
+
+    if not isinstance(raw, dict):
+        return base
+    fields = {
+        "rate_limit_threshold": int,
+        "rate_limit_window_seconds": float,
+        "client_cooldown_seconds": float,
+        "provider_cooldown_seconds": float,
+        "provider_escalation_client_threshold": int,
+        "escalation_exempt": bool,
+        "disabled": bool,
+    }
+    values = {f: getattr(base, f) for f in fields}
+    for key, caster in fields.items():
+        if key in raw and raw[key] is not None:
+            try:
+                values[key] = caster(raw[key])
+            except (TypeError, ValueError):
+                logging.getLogger("airlock.fast.state").warning(
+                    "Invalid circuit_breaker value for %s; ignoring", key
+                )
+    return BreakerPolicy(**values)
+
+
+def configure_breaker(config: dict | None) -> None:
+    """Load breaker policy from config + ``AIRLOCK_BREAKER_OVERRIDES`` env (CC-2).
+
+    Read once at startup. Precedence: per-client override → global default →
+    hard-coded constant. Malformed env JSON falls back to config/defaults with a
+    logged warning (never crashes startup).
+    """
+    import json
+    import logging
+    import os
+
+    log = logging.getLogger("airlock.fast.state")
+    global _breaker_default, _breaker_clients
+
+    # Collect raw override mappings first so precedence can be applied once at the
+    # end: per-client > default, and env > config. Building policies eagerly (as a
+    # prior version did) leaked the *config* default into config-defined clients
+    # even when env overrode the default.
+    default_raw: dict = {}
+    client_raw: dict[str, dict] = {}
+
+    def _merge_clients(raw_clients: object) -> None:
+        if not isinstance(raw_clients, dict):
+            if raw_clients is not None:
+                log.warning("circuit_breaker.clients is not a mapping, ignoring")
+            return
+        for cid, raw in raw_clients.items():
+            if isinstance(raw, dict):
+                key = normalize_client_id(str(cid))
+                client_raw.setdefault(key, {}).update(raw)
+
+    block = ((config or {}).get("airlock_settings") or {}).get("circuit_breaker") or {}
+    if isinstance(block, dict):
+        default_raw.update({k: v for k, v in block.items() if k != "clients"})
+        _merge_clients(block.get("clients"))
+
+    raw_env = os.environ.get("AIRLOCK_BREAKER_OVERRIDES")
+    if raw_env:
+        try:
+            parsed = json.loads(raw_env)
+        except (json.JSONDecodeError, TypeError):
+            log.warning("Invalid AIRLOCK_BREAKER_OVERRIDES JSON, using defaults")
+            parsed = None
+        if isinstance(parsed, dict):
+            if isinstance(parsed.get("defaults"), dict):
+                default_raw.update(parsed["defaults"])  # env > config
+            _merge_clients(parsed.get("clients"))
+        elif parsed is not None:
+            log.warning("AIRLOCK_BREAKER_OVERRIDES has wrong shape, ignoring")
+
+    default = _policy_from_mapping(_DEFAULT_BREAKER_POLICY, default_raw)
+    clients: dict[str, BreakerPolicy] = {
+        cid: _policy_from_mapping(default, raw) for cid, raw in client_raw.items()
+    }
+
+    _breaker_default = default
+    _breaker_clients = clients
+
+
+def policy_for(client_id: str) -> BreakerPolicy:
+    """Resolve the breaker policy for a client key (per-client → default)."""
+    return _breaker_clients.get(normalize_client_id(client_id), _breaker_default)
+
+
 class CircuitState(Enum):
     """Model health states (classic circuit-breaker pattern)."""
 
@@ -149,6 +267,39 @@ class ProviderSpend:
         return sum(cost for t, cost in self.spend_records if t > cutoff)
 
 
+@dataclass
+class ProviderRateLimitState:
+    """Latest upstream quota headroom for a provider (workstream C, observe-only).
+
+    Updated every call from parsed ``x-ratelimit-*`` headers; fields stay ``None``
+    until a header is observed. Cheap, in-memory, mirrors ``ProviderSpend``.
+    """
+
+    provider: str
+    remaining_tokens: int | None = None
+    remaining_requests: int | None = None
+    limit_tokens: int | None = None
+    limit_requests: int | None = None
+    reset_tokens_seconds: float | None = None
+    reset_requests_seconds: float | None = None
+    observed_at: float = 0.0
+
+    def update(self, parsed: dict, timestamp: float) -> None:
+        """Overlay the non-None parsed fields; record when it was observed."""
+        for key in (
+            "remaining_tokens",
+            "remaining_requests",
+            "limit_tokens",
+            "limit_requests",
+            "reset_tokens_seconds",
+            "reset_requests_seconds",
+        ):
+            value = parsed.get(key)
+            if value is not None:
+                setattr(self, key, value)
+        self.observed_at = timestamp
+
+
 # ---------------------------------------------------------------------------
 # Provider protection state
 # ---------------------------------------------------------------------------
@@ -163,6 +314,12 @@ class ClientProviderState:
     failure_times: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     rate_limit_times: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     quarantine_until: float = 0.0
+    # CC-6: floor for the rate-limit window; an operator clear sets this so the
+    # threshold counter cannot re-arm off pre-clear 429s. Owned here; written by
+    # the admin clear mutators (Pack ADM-state).
+    cleared_at: float = 0.0
+    # CC-7: one-probe gate after a probe-mode clear (mirrors ModelState half-open).
+    _half_open_probe: bool = False
     last_reason: str = ""
     last_error_type: str = ""
     last_action: str = ""
@@ -172,6 +329,10 @@ class ClientProviderState:
 
     def record_success(self, timestamp: float) -> None:
         self.success_times.append(timestamp)
+        if self._half_open_probe:
+            # Successful probe after an admin clear → close the breaker (CC-7).
+            self._half_open_probe = False
+            self.quarantine_until = 0.0
 
     def record_failure(self, timestamp: float) -> None:
         self.failure_times.append(timestamp)
@@ -182,13 +343,34 @@ class ClientProviderState:
         reason: str,
         error_type: str,
         cooldown_seconds: float = CLIENT_PROVIDER_COOLDOWN_SECONDS,
-    ) -> None:
+        *,
+        rate_limit_threshold: int = 1,
+        rate_limit_window_seconds: float = WINDOW_SECONDS,
+    ) -> bool:
+        """Record a 429; arm the quarantine only if the threshold is met (A1).
+
+        The event is always recorded (for logging + provider escalation). The
+        quarantine is armed when the count of recent 429s reaches
+        ``rate_limit_threshold`` (default 1 reproduces today's one-strike
+        behaviour, CC-3) or immediately when a half-open probe fails (CC-7).
+        Returns whether the quarantine was armed.
+        """
         self.rate_limit_times.append(timestamp)
         self.failure_times.append(timestamp)
-        self.quarantine_until = max(self.quarantine_until, timestamp + cooldown_seconds)
         self.last_reason = reason
         self.last_error_type = error_type
-        self.last_action = "client_quarantine"
+        probe = self._half_open_probe
+        self._half_open_probe = False
+        armed = probe or (
+            self.recent_rate_limit_count(rate_limit_window_seconds)
+            >= rate_limit_threshold
+        )
+        if armed:
+            self.quarantine_until = max(
+                self.quarantine_until, timestamp + cooldown_seconds
+            )
+            self.last_action = "client_quarantine"
+        return armed
 
     def is_quarantined(self, now: float | None = None) -> bool:
         now = time.time() if now is None else now
@@ -203,7 +385,8 @@ class ClientProviderState:
         return sum(1 for t in self.request_times if t > cutoff)
 
     def recent_rate_limit_count(self, window_seconds: float = WINDOW_SECONDS) -> int:
-        cutoff = time.time() - window_seconds
+        # CC-6: events before an operator clear are hidden from threshold logic.
+        cutoff = max(time.time() - window_seconds, self.cleared_at)
         return sum(1 for t in self.rate_limit_times if t > cutoff)
 
 
@@ -219,6 +402,11 @@ class ProviderState:
     gemini_outcomes: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     gemini_modes: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     quarantine_until: float = 0.0
+    # CC-6: floor for impacted_clients() so a provider clear is not undone by
+    # pre-clear client history. CC-7: one-probe half-open gate. Both owned here;
+    # written by the admin clear mutators (Pack ADM-state).
+    cleared_at: float = 0.0
+    _half_open_probe: bool = False
     last_reason: str = ""
     last_error_type: str = ""
     last_action: str = ""
@@ -228,6 +416,10 @@ class ProviderState:
 
     def record_success(self, timestamp: float) -> None:
         self.success_times.append(timestamp)
+        if self._half_open_probe:
+            # Successful probe after an admin clear → close the breaker (CC-7).
+            self._half_open_probe = False
+            self.quarantine_until = 0.0
 
     def record_failure(self, timestamp: float) -> None:
         self.failure_times.append(timestamp)
@@ -288,7 +480,9 @@ class ProviderState:
         self,
         window_seconds: float = PROVIDER_ESCALATION_WINDOW_SECONDS,
     ) -> set[str]:
-        cutoff = time.time() - window_seconds
+        # CC-6: floor on cleared_at so a provider clear is not undone by pre-clear
+        # client history at the next 429 (escalation reads this set).
+        cutoff = max(time.time() - window_seconds, self.cleared_at)
         return {client_id for ts, client_id in self.rate_limit_events if ts > cutoff}
 
     def recent_gemini_outcome_count(
@@ -493,6 +687,7 @@ class StateStore:
         self._models: dict[str, ModelState] = {}
         self._sessions: dict[str, SessionRecord] = {}
         self._provider_spend: dict[str, ProviderSpend] = {}
+        self._provider_ratelimit: dict[str, ProviderRateLimitState] = {}
         self._providers: dict[str, ProviderState] = {}
         self._client_provider: dict[tuple[str, str], ClientProviderState] = {}
         self._mcp_servers: dict[str, McpServerState] = {}
@@ -552,6 +747,31 @@ class StateStore:
                 self._provider_spend[provider] = ProviderSpend(provider=provider)
             return self._provider_spend[provider]
 
+    def get_provider_ratelimit(self, provider: str) -> ProviderRateLimitState:
+        with self._lock:
+            if provider not in self._provider_ratelimit:
+                self._provider_ratelimit[provider] = ProviderRateLimitState(
+                    provider=provider
+                )
+            return self._provider_ratelimit[provider]
+
+    def record_provider_ratelimit(
+        self, provider: str, parsed: dict, timestamp: float
+    ) -> None:
+        """Update a provider's headroom from parsed ``x-ratelimit-*`` headers.
+
+        No-op when ``parsed`` carries no usable values, so callers can pass the
+        tolerant parser output unconditionally.
+        """
+        if not parsed or all(v is None for v in parsed.values()):
+            return
+        with self._lock:
+            self.get_provider_ratelimit(provider).update(parsed, timestamp)
+
+    def all_provider_ratelimits(self) -> dict[str, ProviderRateLimitState]:
+        with self._lock:
+            return dict(self._provider_ratelimit)
+
     def get_provider(self, provider: str) -> ProviderState:
         with self._lock:
             if provider not in self._providers:
@@ -598,6 +818,33 @@ class StateStore:
             self.get_provider(provider).record_failure(timestamp)
             self.get_client_provider(client_id, provider).record_failure(timestamp)
 
+    def _escalation_impacted(
+        self,
+        provider: str,
+        provider_state: ProviderState,
+        window_seconds: float,
+        now: float,
+    ) -> set[str]:
+        """Distinct clients eligible to drive provider-wide escalation.
+
+        Applies both CC-6 floors (the provider's ``cleared_at`` and each
+        client→provider bucket's ``cleared_at``) and excludes clients whose policy
+        is ``escalation_exempt`` or ``disabled``. Caller holds ``self._lock``.
+        """
+        cutoff = max(now - window_seconds, provider_state.cleared_at)
+        impacted: set[str] = set()
+        for ts, cid in provider_state.rate_limit_events:
+            if ts <= cutoff:
+                continue
+            pol = policy_for(cid)
+            if pol.escalation_exempt or pol.disabled:
+                continue
+            bucket = self._client_provider.get((normalize_client_id(cid), provider))
+            if bucket is not None and ts <= bucket.cleared_at:
+                continue  # this client's bucket was cleared after the event
+            impacted.add(cid)
+        return impacted
+
     def record_provider_rate_limit(
         self,
         client_id: str,
@@ -608,20 +855,71 @@ class StateStore:
     ) -> dict[str, float | str | bool]:
         client_id = normalize_client_id(client_id)
         with self._lock:
+            policy = policy_for(client_id)
             client_provider = self.get_client_provider(client_id, provider)
             provider_state = self.get_provider(provider)
 
-            client_provider.record_rate_limit(timestamp, reason, error_type)
+            # The provider event is always recorded so escalation can see it.
             provider_state.record_rate_limit(timestamp, client_id, reason, error_type)
 
+            if policy.disabled:
+                # Breaker off for this client: record the 429 for logging but never
+                # arm and never contribute to escalation (E).
+                client_provider.rate_limit_times.append(timestamp)
+                client_provider.failure_times.append(timestamp)
+                client_provider.last_reason = reason
+                client_provider.last_error_type = error_type
+                return {
+                    "client_quarantined": False,
+                    "provider_quarantined": False,
+                    "client_cooldown_seconds": 0.0,
+                    "provider_cooldown_seconds": provider_state.cooldown_remaining(
+                        timestamp
+                    ),
+                    "impacted_clients": 0,
+                }
+
+            client_quarantined = client_provider.record_rate_limit(
+                timestamp,
+                reason,
+                error_type,
+                cooldown_seconds=policy.client_cooldown_seconds,
+                rate_limit_threshold=policy.rate_limit_threshold,
+                rate_limit_window_seconds=policy.rate_limit_window_seconds,
+            )
+
+            # Escalation set: distinct clients with a recent 429, with the CC-6
+            # floors applied (provider cleared_at AND each client bucket's
+            # cleared_at) and escalation_exempt / disabled clients excluded (E).
+            impacted = self._escalation_impacted(
+                provider,
+                provider_state,
+                policy.rate_limit_window_seconds,
+                timestamp,
+            )
             provider_quarantined = False
-            impacted_clients = provider_state.impacted_clients()
-            if len(impacted_clients) >= PROVIDER_ESCALATION_CLIENT_THRESHOLD:
-                provider_state.quarantine(timestamp, reason, error_type)
+            if provider_state._half_open_probe:
+                # CC-7: a failed probe after a provider half-open clear re-arms
+                # immediately, regardless of the escalation threshold.
+                provider_state._half_open_probe = False
+                provider_state.quarantine(
+                    timestamp,
+                    reason,
+                    error_type,
+                    cooldown_seconds=policy.provider_cooldown_seconds,
+                )
+                provider_quarantined = True
+            elif len(impacted) >= policy.provider_escalation_client_threshold:
+                provider_state.quarantine(
+                    timestamp,
+                    reason,
+                    error_type,
+                    cooldown_seconds=policy.provider_cooldown_seconds,
+                )
                 provider_quarantined = True
 
             return {
-                "client_quarantined": True,
+                "client_quarantined": client_quarantined,
                 "provider_quarantined": provider_quarantined,
                 "client_cooldown_seconds": client_provider.cooldown_remaining(
                     timestamp
@@ -629,8 +927,191 @@ class StateStore:
                 "provider_cooldown_seconds": provider_state.cooldown_remaining(
                     timestamp
                 ),
-                "impacted_clients": len(impacted_clients),
+                "impacted_clients": len(impacted),
             }
+
+    # -- Admin control plane (CC-8) ---------------------------------------
+    # Mutators clear/arm protection state and RETURN the ``admin_action`` JSONL
+    # payload — one object that is the audit record AND the channel by which the
+    # separate TUI process converges its read-replica (CC-9). The breaker pack
+    # owns ``cleared_at`` / ``_half_open_probe``; these methods only write them.
+
+    @staticmethod
+    def _admin_iso(now: float) -> str:
+        from datetime import datetime, timezone
+
+        return datetime.fromtimestamp(now, timezone.utc).isoformat()
+
+    def clear_provider_quarantine(
+        self,
+        provider: str,
+        *,
+        mode: str = "probe",
+        actor: str = "",
+        now: float | None = None,
+    ) -> dict:
+        """Clear a provider quarantine and cascade to its client buckets (R12).
+
+        ``mode="probe"`` drops to half-open (one probe admitted; a success closes,
+        a failure re-arms). ``mode="force"`` hard-clears. Sets ``cleared_at`` on the
+        provider AND every ``(client, provider)`` bucket so the threshold counter
+        and escalation cannot re-arm off pre-clear history (CC-6).
+        """
+        if mode not in ("probe", "force"):
+            raise ValueError(f"unknown clear mode: {mode!r}")
+        now = time.time() if now is None else now
+        probe = mode == "probe"
+        with self._lock:
+            ps = self.get_provider(provider)
+            ps.cleared_at = now
+            ps.quarantine_until = now if probe else 0.0
+            ps._half_open_probe = probe
+            cascaded = 0
+            for (_cid, prov), cp in self._client_provider.items():
+                if prov == provider:
+                    cp.cleared_at = now
+                    cp.quarantine_until = now if probe else 0.0
+                    cp._half_open_probe = probe
+                    cascaded += 1
+        return {
+            "record_type": "admin_action",
+            "timestamp": self._admin_iso(now),
+            "op": "clear_provider_quarantine",
+            "actor": actor,
+            "provider": provider,
+            "mode": mode,
+            "cascaded_clients": cascaded,
+        }
+
+    def clear_client_provider_quarantine(
+        self,
+        client_id: str,
+        provider: str,
+        *,
+        mode: str = "probe",
+        actor: str = "",
+        now: float | None = None,
+    ) -> dict:
+        """Clear one client→provider quarantine bucket — the precise UN-10 op."""
+        if mode not in ("probe", "force"):
+            raise ValueError(f"unknown clear mode: {mode!r}")
+        now = time.time() if now is None else now
+        client_id = normalize_client_id(client_id)
+        probe = mode == "probe"
+        with self._lock:
+            cp = self.get_client_provider(client_id, provider)
+            cp.cleared_at = now
+            cp.quarantine_until = now if probe else 0.0
+            cp._half_open_probe = probe
+        return {
+            "record_type": "admin_action",
+            "timestamp": self._admin_iso(now),
+            "op": "clear_client_provider_quarantine",
+            "actor": actor,
+            "client_id": client_id,
+            "provider": provider,
+            "mode": mode,
+        }
+
+    def clear_client_backoff(
+        self, client_id: str, *, actor: str = "", now: float | None = None
+    ) -> dict:
+        """Clear a client's threat backoff (no breaker history involved)."""
+        now = time.time() if now is None else now
+        client_id = normalize_client_id(client_id)
+        with self._lock:
+            self.get_client(client_id).backoff_until = 0.0
+        return {
+            "record_type": "admin_action",
+            "timestamp": self._admin_iso(now),
+            "op": "clear_client_backoff",
+            "actor": actor,
+            "client_id": client_id,
+        }
+
+    def reset_model_circuit(
+        self, model: str, *, actor: str = "", now: float | None = None
+    ) -> dict:
+        """Drop a model circuit to half-open so the next call probes."""
+        now = time.time() if now is None else now
+        with self._lock:
+            ms = self.get_model(model)
+            ms.circuit = CircuitState.HALF_OPEN
+            ms.consecutive_failures = 0
+            ms._half_open_admitted = False
+            ms.last_state_change = now
+        return {
+            "record_type": "admin_action",
+            "timestamp": self._admin_iso(now),
+            "op": "reset_model_circuit",
+            "actor": actor,
+            "model": model,
+        }
+
+    def quarantine_provider(
+        self,
+        provider: str,
+        *,
+        actor: str = "",
+        now: float | None = None,
+        cooldown: float | None = None,
+    ) -> dict:
+        """Manually arm a provider quarantine (operator/loopback-only op)."""
+        now = time.time() if now is None else now
+        cooldown = PROVIDER_QUARANTINE_SECONDS if cooldown is None else cooldown
+        with self._lock:
+            self.get_provider(provider).quarantine(now, "manual", "admin", cooldown)
+        return {
+            "record_type": "admin_action",
+            "timestamp": self._admin_iso(now),
+            "op": "quarantine_provider",
+            "actor": actor,
+            "provider": provider,
+            "cooldown_seconds": cooldown,
+        }
+
+    def _ingest_admin_action(self, record: dict) -> None:
+        """Replay an admin_action JSONL record into this replica store (CC-9).
+
+        Replays as a hard ``force`` clear: the half-open probe is a live-traffic
+        concern; the replica only needs to reflect that the operator cleared the
+        state. A subsequent failed probe arrives as a normal rate-limit record and
+        re-quarantines the replica through the usual path.
+        """
+        op = record.get("op")
+        actor = record.get("actor", "")
+        # Use the record's own timestamp so the replica's cleared_at matches the
+        # original event (matters for cold-start replay of older JSONL, not just
+        # live tailing); fall back to wall-clock if it can't be parsed.
+        try:
+            from datetime import datetime
+
+            now = datetime.fromisoformat(record.get("timestamp", "")).timestamp()
+        except (ValueError, TypeError):
+            now = time.time()
+        if op == "clear_provider_quarantine":
+            self.clear_provider_quarantine(
+                record.get("provider", ""), mode="force", actor=actor, now=now
+            )
+        elif op == "clear_client_provider_quarantine":
+            self.clear_client_provider_quarantine(
+                record.get("client_id", ""),
+                record.get("provider", ""),
+                mode="force",
+                actor=actor,
+                now=now,
+            )
+        elif op == "clear_client_backoff":
+            self.clear_client_backoff(record.get("client_id", ""), actor=actor, now=now)
+        elif op == "reset_model_circuit":
+            self.reset_model_circuit(record.get("model", ""), actor=actor, now=now)
+        elif op == "quarantine_provider":
+            self.quarantine_provider(
+                record.get("provider", ""),
+                actor=actor,
+                now=now,
+                cooldown=record.get("cooldown_seconds"),
+            )
 
     def record_gemini_outcome(
         self,
@@ -711,6 +1192,13 @@ class StateStore:
         This bridges the process gap: the proxy subprocess writes JSONL, and
         the TUI process reads it to populate the same StateStore interface.
         """
+        # CC-9: route by record_type BEFORE the model check below (admin_action
+        # records carry no model and would otherwise be dropped). Absent
+        # record_type is treated as "request" for back-compat with older logs.
+        if record.get("record_type") == "admin_action":
+            self._ingest_admin_action(record)
+            return
+
         model = record.get("model")
         if not model:
             return

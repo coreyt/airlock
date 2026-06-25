@@ -94,6 +94,53 @@ The circuit breaker opens after repeated failures to a provider.
 - Fix the underlying provider issue (expired key, quota exceeded)
 - Restart the proxy to reset all circuit breakers
 
+### A provider quarantine is stale after a credit top-up
+
+A provider was quarantined by the circuit breaker, but you've since fixed the
+underlying cause (e.g. topped up credits). The quarantine otherwise drains only by
+wall-clock.
+
+**Fix:** Clear it without waiting:
+
+- **TUI** — on the Overview screen, highlight the provider row and press `c`.
+- **Admin API** — `POST /airlock/admin/providers/<provider>/clear-quarantine` with
+  `{"mode":"probe"}` (a self-correcting half-open probe; use `"force"` for a blind
+  clear). See [Admin API](guide/admin-api.md).
+
+Both require `admin.enabled: true`.
+
+### Admin API returns 404
+
+`/airlock/admin/*` returns `404` even though you're hitting the right path.
+
+**Cause:** The admin API is off by default; when disabled the routes return `404` on
+purpose (Airlock doesn't confirm they exist).
+
+**Fix:** Set `admin.enabled: true` in `config.yaml` and restart. See
+[Admin API → Enabling it](guide/admin-api.md#enabling-it).
+
+### A client sees empty / `None` responses under load
+
+A client appears to get an empty or `None` response instead of an error when a
+provider is busy.
+
+**Cause:** It's almost always an **HTTP 429** the client isn't handling — Airlock's
+circuit breaker is blocking the client→provider pair to protect the upstream.
+
+**Fix:** Have the client inspect the status code and honor the `Retry-After` header
+instead of tight-looping. The body is OpenAI-shaped with
+`type: "airlock_circuit_breaker"`. See the
+[429 contract](guide/rate-limiting.md#the-429-contract).
+
+### A client key is being quarantined too aggressively
+
+A trusted batch client trips the breaker on a handful of genuine 429s and then can't
+make progress.
+
+**Fix:** Raise its threshold or exempt it from provider-wide escalation in
+`airlock_settings.circuit_breaker.clients` (or `AIRLOCK_BREAKER_OVERRIDES`). See
+[Rate Limiting → configuring the breaker](guide/rate-limiting.md#configuring-it).
+
 ### Keyword guard blocks unexpected content
 
 **Check:** `AIRLOCK_BLOCKED_KEYWORDS` may contain terms that match too broadly.
@@ -155,7 +202,8 @@ pip install -e ".[tui]"
 
 ### Container health check fails
 
-The health check runs `curl -f http://localhost:4000/health`.
+The health check runs `curl -f http://localhost:4000/health/liveliness` (the
+lightweight probe that makes no model calls).
 
 **Check:**
 - Is `curl` installed in the image? (It is in `python:3.12-slim`)

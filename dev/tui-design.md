@@ -117,14 +117,14 @@ The Operator's home screen. Dense, read-only, auto-refreshing.
 
 | Region | Widget | Data Source |
 |--------|--------|-------------|
-| Proxy Status | `Static` labels | `/health` probe via `@work` (5s interval) |
+| Proxy Status | `Static` labels | `/health/liveliness` probe via `@work` (5s interval; never `/health` — it fires model calls) |
 | Guardrails | `Static` labels with status indicators | Guardrail config + counters from `fast.state` |
 | Request Traffic | `Sparkline` or `Static` bar chart | `fast.state.store` request counts |
 | Model Health | `DataTable` (read-only) | `fast.state.store` model states |
 
 **Refresh strategy:** A `set_interval(5.0)` timer calls a `@work` method that
-reads from `fast.state.store` and updates all widgets. The `/health` probe runs
-on a separate `@work` to avoid coupling.
+reads from `fast.state.store` and updates all widgets. The `/health/liveliness`
+probe runs on a separate `@work` to avoid coupling.
 
 ### 3.2 Models
 

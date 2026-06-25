@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from rich.markup import escape
 from textual import work
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.strip import Strip
 from textual.widgets import Button, Collapsible, DataTable, RichLog, Static
@@ -24,6 +25,7 @@ from textual.widgets import Button, Collapsible, DataTable, RichLog, Static
 from airlock.tui.widgets.safe_data_table import _SafeDataTable
 from airlock.tui.widgets.status_indicator import StatusIndicator
 from airlock.api.queries import get_billing_metrics
+from airlock.transparency import classify_backend_kind
 
 if TYPE_CHECKING:
     from airlock.tui.proxy_manager import ProxyManager
@@ -130,6 +132,10 @@ def _get_datastore_engine():
 class OverviewPane(VerticalScroll):
     """Unified dense overview — proxy status, providers, models, clients."""
 
+    BINDINGS = [
+        Binding("c", "clear_quarantine", "Clear quarantine", show=True),
+    ]
+
     def __init__(
         self,
         *,
@@ -146,6 +152,7 @@ class OverviewPane(VerticalScroll):
         self._stopping = False
         self._alert_text: str = "[dim]No alerts[/]"
         self._provider_filter: str | None = None
+        self._highlighted_provider: str | None = None
 
     # -- compose ------------------------------------------------------------
 
@@ -184,6 +191,7 @@ class OverviewPane(VerticalScroll):
             "Err%",
             "Recovery",
             "Impacted",
+            "Served via",
         )
         yield providers
 
@@ -458,11 +466,41 @@ class OverviewPane(VerticalScroll):
 
         table_id = event.data_table.id
         if table_id == "ov-providers":
+            self._highlighted_provider = key
             self._show_provider_detail(key)
         elif table_id == "ov-models":
             self._show_model_detail(key)
         elif table_id == "ov-clients":
             self._show_client_detail(key)
+
+    # -- admin: clear quarantine (loopback operator) ------------------------
+    def action_clear_quarantine(self) -> None:
+        """`c` — clear the highlighted provider's quarantine via the admin API."""
+        provider = self._highlighted_provider
+        if not provider or provider.startswith("_empty"):
+            self.notify("Highlight a provider row first.", severity="warning")
+            return
+        self._clear_quarantine_worker(provider)
+
+    @work(thread=True)
+    def _clear_quarantine_worker(self, provider: str) -> None:
+        from airlock.tui.admin_client import clear_provider_quarantine
+
+        status, payload = clear_provider_quarantine(self._host, self._port, provider)
+        if status == 200:
+            msg = f"Cleared {provider} quarantine ({payload.get('mode', '?')})"
+            self.app.call_from_thread(self.notify, msg)
+        elif status == 404:
+            self.app.call_from_thread(
+                self.notify,
+                "Admin API disabled (set admin.enabled).",
+                severity="error",
+            )
+        else:
+            err = payload.get("error", status)
+            self.app.call_from_thread(
+                self.notify, f"Clear failed: {err}", severity="error"
+            )
 
     def _show_provider_detail(self, provider_name: str) -> None:
         try:
@@ -605,8 +643,9 @@ class OverviewPane(VerticalScroll):
             requests = str(provider.recent_request_count())
             err_rate = f"{provider.recent_error_rate() * 100:.1f}%"
             impacted = str(len(provider.impacted_clients()))
+            served_via = classify_backend_kind(name)
             provider_rows.append(
-                (name, status, requests, err_rate, recovery, impacted),
+                (name, status, requests, err_rate, recovery, impacted, served_via),
             )
             provider_keys.append(name)
 
@@ -700,6 +739,7 @@ class OverviewPane(VerticalScroll):
             else:
                 ptable.add_row(
                     "(no providers tracked)",
+                    "-",
                     "-",
                     "-",
                     "-",

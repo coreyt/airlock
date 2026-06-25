@@ -98,6 +98,21 @@ class TestGuardianPreCallHook:
         assert "airlock_priority" in result["metadata"]
         assert "score" in result["metadata"]["airlock_priority"]
 
+    async def test_reasoning_effort_none_normalized_in_hook(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        # Wiring check: the pre-call hook normalizes an off-intent reasoning_effort
+        # before litellm's drop_params would silently strip it. anthropic -> dropped.
+        data = {
+            "messages": [{"role": "user", "content": "hi"}],
+            "model": "claude-sonnet",
+            "reasoning_effort": "none",
+        }
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        assert "reasoning_effort" not in result  # anthropic: off-intent -> no thinking
+
     async def test_client_in_backoff_rejected(
         self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
     ):
@@ -532,4 +547,150 @@ class TestBatchCallHandling:
         assert (
             result["metadata"]["airlock_request"]["requested_model"] == "claude-sonnet"
         )
+
+
+# ---------------------------------------------------------------------------
+# OBS-ledger — mutation records appended into airlock_mutations
+# ---------------------------------------------------------------------------
+class TestGuardianLedger:
+    @pytest.fixture
+    def guardian(self):
+        return AirlockFastGuardian()
+
+    async def test_pinned_request_records_fallback_suppression(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        data = {
+            "messages": [{"role": "user", "content": "Hello"}],
+            "model": "claude-sonnet",
+        }
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        muts = result["metadata"]["airlock_mutations"]
+        suppress = [m for m in muts if m.field == "fallbacks" and m.op == "suppress"]
+        assert len(suppress) == 1
+        assert suppress[0].source == "guardian.pin"
+        assert suppress[0].stage == "pre_call"
+        # CC-T1 back-compat + CC-T4 behavior unchanged
+        assert result["metadata"]["airlock_pinned_request"]["disable_fallbacks"] is True
+        assert result["disable_fallbacks"] is True
+
+    async def test_alias_resolution_records_model_rewrite(
+        self,
+        guardian,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
+        monkeypatch,
+    ):
+        import airlock.fast.guardian as gmod
+
+        monkeypatch.setattr(
+            gmod.alias_table,
+            "resolve",
+            lambda m: "claude-haiku" if m == "claude-sonnet" else None,
+        )
+        data = {
+            "messages": [{"role": "user", "content": "Hello"}],
+            "model": "claude-sonnet",
+        }
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        muts = result["metadata"]["airlock_mutations"]
+        alias = [m for m in muts if m.source == "guardian.alias"]
+        assert len(alias) == 1
+        assert alias[0].op == "rewrite"
+        assert alias[0].field == "model"
+        assert alias[0].before == "claude-sonnet"
+        assert alias[0].after == "claude-haiku"
+        # CC-T1
+        assert result["metadata"]["airlock_alias"]["resolved"] == "claude-haiku"
+
+    async def test_failover_records_model_rewrite(
+        self,
+        guardian,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
+        monkeypatch,
+    ):
+        import json
+
+        import airlock.fast.guardian as gmod
+
+        monkeypatch.setenv("AIRLOCK_FAILOVER_MAP", json.dumps({"model-a": ["model-b"]}))
+        monkeypatch.setattr(gmod, "_is_client_pinned", lambda m, d: False)
+        now = time.time()
+        broken = fresh_state_store.get_model("model-a")
+        for _ in range(5):
+            broken.record_failure(now)
+        data = {
+            "messages": [{"role": "user", "content": "Hi"}],
+            "model": "model-a",
+        }
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        muts = result["metadata"]["airlock_mutations"]
+        fo = [m for m in muts if m.source == "guardian.failover"]
+        assert len(fo) == 1
+        assert fo[0].op == "rewrite"
+        assert fo[0].before == "model-a"
+        assert fo[0].after == "model-b"
+        # CC-T1
+        assert result["metadata"]["airlock_failover"]["failover_model"] == "model-b"
+
+    async def test_drop_params_records_drop(
+        self,
+        guardian,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
+        monkeypatch,
+    ):
+        import airlock.fast.guardian as gmod
+
+        monkeypatch.setattr(
+            gmod, "detect_dropped_params", lambda data, model, provider: ["temperature"]
+        )
+        data = {
+            "messages": [{"role": "user", "content": "Hi"}],
+            "model": "claude-sonnet",
+            "temperature": 0.5,
+        }
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        muts = result["metadata"]["airlock_mutations"]
+        drops = [m for m in muts if m.source == "drop_params"]
+        assert len(drops) == 1
+        assert drops[0].field == "temperature"
+        assert drops[0].op == "drop"
+        assert drops[0].stage == "pre_call"
+        assert drops[0].reason == "provider-unsupported (drop_params)"
+
+    async def test_drop_params_none_when_supported(
+        self,
+        guardian,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
+        monkeypatch,
+    ):
+        import airlock.fast.guardian as gmod
+
+        monkeypatch.setattr(
+            gmod, "detect_dropped_params", lambda data, model, provider: []
+        )
+        data = {
+            "messages": [{"role": "user", "content": "Hi"}],
+            "model": "claude-sonnet",
+        }
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        muts = result["metadata"].get("airlock_mutations", [])
+        assert [m for m in muts if m.source == "drop_params"] == []
         assert "airlock_priority" in result["metadata"]
