@@ -6,7 +6,7 @@
 > (runbook §1.5) and trust the witnesses over this file. Parent board:
 > `STATUS-0.5.0.md` (resilience+admin, all CLOSED).
 
-_Last updated: 2026-06-24 · branch: `feat/0.5.0-resilience-admin` · **PHASE E — ✅ ALL 7 PACKS CLOSED (OBS-core/served/ledger/headers/log/accounting/metrics-tui, merged through `c31b362`). Remaining to close the workstream: Site-12 follow-up, the served-header live smoke test (harness built), the accounting HITL, observability docs, release sign-off.**_
+_Last updated: 2026-06-24 · branch: `feat/0.5.0-resilience-admin` · **✅ WORKSTREAM COMPLETE — DoD MET. All 7 packs + 2 follow-up fixes (Site-12, streaming served-by) CLOSED & merged; full suite 2102 green; docs written; both HITL smoke-tests PASS (operator-confirmed); transparency folded into 0.5.0 release sign-off. Branch ready to push/tag on operator command (not pushed).**_
 
 ## 1. Current state + next action
 
@@ -94,14 +94,21 @@ isolated instance (production :4000 untouched):
 - 🔧 **harness note**: uvicorn bound `0.0.0.0:4137` not loopback despite `AIRLOCK_HOST` —
   pass `--host` explicitly in the runbook (low risk; separate port).
 
-## ◆ Blocked / pending operator (HITL)
+## ◆ HITL gates — ✅ ALL CONFIRMED PASS (operator, 2026-06-24)
 
-- **OBS-served smoke-test (does not block further pack work; blocks release sign-off).**
-  The new `X-Airlock-Served-By`/`X-Airlock-Served-Region` headers are now live on the
-  branch. Operator: with a running proxy, call (a) a native-alias model and (b) a
-  gateway-alias model — e.g. `gemini`/AI-Studio vs `vertex_ai`, plus one Bedrock-routed
-  model — and confirm the headers report the **real** served backend (provider + region),
-  not the requested alias. Folded into the 0.5.0 release sign-off.
+- ✅ **OBS-served smoke-test — PASS (operator-confirmed).** Served headers report the real
+  backend (native + gateway). Orchestrator pre-validated native (`gemini`) + the explain
+  envelope + streaming-after-fix live; operator confirmed the full gate incl. the gateway path.
+- ✅ **OBS-accounting — PASS (operator-confirmed).** Accounting + dashboards validated on real
+  traffic; spend keyed off the served provider is correct (default `attribute_accounting_to_served: on`).
+- ✅ **0.5.0 release sign-off — transparency folded in (operator-confirmed).**
+
+**Definition of Done: MET.** All 7 packs + 2 fixes CLOSED w/ promoted codex verdicts; UN-19 +
+UN-20 satisfied; full suite green (2102); docs written; both HITL smoke-tests passed;
+transparency folded into the 0.5.0 release sign-off. Branch `feat/0.5.0-resilience-admin` ready
+to push/tag on the operator's command (not yet pushed).
+
+### (historical) original HITL asks
 - **OBS-accounting smoke-test (◆ HITL, before GA):** OBS-accounting now keys spend off
   the **served** provider (default on). Operator validates accounting + dashboards on real
   traffic before GA (a same-provider failover/backend-swap now bills the served backend).
