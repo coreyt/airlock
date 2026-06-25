@@ -1,0 +1,46 @@
+{
+  "pack": "0.5.0-OBS-metrics-tui",
+  "baseline_sha": "ae00f52",
+  "branch": "obs-metrics-tui",
+  "head_sha": "see git rev-parse obs-metrics-tui (closure commit is the branch tip; final code/docs at fb4eb83)",
+  "commits": [
+    "17d4e52: test(transparency): OBS-metrics-tui RED — mutations_total counter, classify_backend_kind, TUI served-via column",
+    "a7f484a: feat(transparency): OBS-metrics-tui — airlock_mutations_total counter + TUI served-via column",
+    "fb4eb83: docs(0.5.0-OBS-metrics-tui): design memo",
+    "<closure>: chore(0.5.0-OBS-metrics-tui): closure output.json"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "17d4e522b7056e428cfbb460aeda655ee1319423",
+    "test_files": [
+      "tests/test_metrics.py",
+      "tests/test_served_attribution.py",
+      "tests/test_tui.py"
+    ]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_metrics.py",
+      "tests/test_tui.py",
+      "tests/test_served_attribution.py"
+    ],
+    "passed": 97,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/callbacks/metrics.py",
+    "airlock/transparency.py",
+    "airlock/tui/screens/overview.py",
+    "tests/test_metrics.py",
+    "tests/test_served_attribution.py",
+    "tests/test_tui.py",
+    "dev/notes/0.5.0-OBS-metrics-tui-design.md"
+  ],
+  "blockers_encountered": [],
+  "additional_changes_made_in_scope": [
+    "Added module-level _record_mutations helper in metrics.py (single-place increment from log_success_event; ledger only populated pre-call so no failure-path double-count).",
+    "Added classify_backend_kind to test_served_attribution import and the mutations_total counter to the fresh_metrics fixture in test_metrics.py."
+  ],
+  "agent_verify_result": "pass (97 passed in 71.10s; ruff check + format --check clean on all 6 changed source/test files)",
+  "next_step_for_orchestrator": "Pack 0.5.0-OBS-metrics-tui on branch obs-metrics-tui at fb4eb83; review, verify, merge"
+}
