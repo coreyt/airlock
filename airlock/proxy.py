@@ -379,11 +379,16 @@ def main() -> None:
     from airlock.admin.policy import configure_admin
     from airlock.fast.monitor import configure_budgets
     from airlock.fast.router import set_router_config
+    from airlock.fast.settings import configure_settings
     from airlock.fast.state import configure_breaker
     from airlock.guardrails.overrides import configure_guardrail_overrides
     from airlock.transparency import configure_transparency
 
     set_router_config(config)
+    # Build the typed AirlockSettings snapshot once at startup (0.5.1-SET-loader).
+    # Constructed here but not yet consumed — SET-unify migrates the router/monitor/
+    # breaker consumers onto it; this call is additive and behavior-preserving.
+    configure_settings(config)
     # Load per-client circuit-breaker policy + explicit budget caps once at
     # startup (CC-2); both default to no-op when unconfigured (CC-3).
     configure_breaker(config)
