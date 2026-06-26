@@ -27,7 +27,7 @@ Audit source-of-record: `dev/notes/architecture-audit-0.5.0-2026-06.md`.
 
 | Pack | Goal (1 line) | Depends on | State | Witness |
 |------|---------------|------------|-------|---------|
-| `SET-loader` | One typed `AirlockSettings` read in place; uniform `env>config>default` (additive: new module + proxy wiring + precedence tests; behavior changes deferred to SET-unify) | — | IMPLEMENTING | `dev/plans/runs/0.5.1-SET-loader-output.json` |
+| `SET-loader` | One typed `AirlockSettings` read in place; uniform `env>config>default` (additive: new module + proxy wiring + precedence tests; behavior changes deferred to SET-unify) | — | REVIEWED (codex CONCERN → fixing 2 mediums) | `dev/plans/runs/0.5.1-SET-loader-output.json` |
 | `SET-unify` | Delete hidden budget/failover defaults; fix R6; derive from config; budget-doc note | SET-loader | NOT_STARTED | `dev/plans/runs/0.5.1-SET-unify-output.json` |
 | `SET-warnratio` | Collapse 0.8/0.9 into one configurable warn ratio | SET-loader | NOT_STARTED | `dev/plans/runs/0.5.1-SET-warnratio-output.json` |
 | `STORE-seam` | DualCache-backed store; rolling-window spend (R5); checkpoint-in-child (FIX-1) | — (∥) | IMPLEMENTING | `dev/plans/runs/0.5.1-STORE-seam-output.json` |
