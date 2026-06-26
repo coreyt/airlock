@@ -371,6 +371,55 @@ class TestBudgetAwareness:
         assert model == "claude-sonnet"
         assert reason is None
 
+    def test_default_swap_point_is_warn_ratio_080(self, fresh_state_store, monkeypatch):
+        """Behavior-change #2: the proactive swap point is now the configured
+        budget_warn_ratio (default 0.8), NOT the old hardcoded 0.9. A spend at 84%
+        of budget — between 0.8 and 0.9 — now swaps (it would not have at 0.9)."""
+        monkeypatch.setenv(
+            "AIRLOCK_PROVIDER_BUDGETS",
+            json.dumps({"anthropic": 50.0, "openai": 50.0}),
+        )
+        spend = fresh_state_store.get_provider_spend("anthropic")
+        spend.record_spend(time.time(), 42.0)  # 42/50 = 0.84: >=0.8, <0.9
+
+        model, reason = _apply_budget_awareness(
+            "claude-sonnet", ["gpt-4o", "gemini-pro"]
+        )
+        assert model != "claude-sonnet"
+        assert reason is not None
+        assert "budget" in reason
+
+    def test_swap_point_honors_configured_ratio(self, fresh_state_store, monkeypatch):
+        """R3 single source: the router swap reads get_settings().budget_warn_ratio.
+        With ratio 0.5, a 60%-of-budget spend swaps (it would not at the 0.8 default)."""
+        monkeypatch.delenv("AIRLOCK_PROVIDER_BUDGETS", raising=False)
+        configure_settings(
+            {
+                "router_settings": {
+                    "provider_budget_config": {
+                        "anthropic": {"budget_limit": 50.0, "time_period": "1d"},
+                        "openai": {"budget_limit": 50.0, "time_period": "1d"},
+                    }
+                },
+                "airlock_settings": {"budget_warn_ratio": 0.5},
+            }
+        )
+        spend = fresh_state_store.get_provider_spend("anthropic")
+        spend.record_spend(time.time(), 30.0)  # 30/50 = 0.6: >=0.5, <0.8
+
+        model, reason = _apply_budget_awareness(
+            "claude-sonnet", ["gpt-4o", "gemini-pro"]
+        )
+        assert model != "claude-sonnet"
+        assert reason is not None
+        assert "budget" in reason
+
+    def test_no_legacy_warn_threshold_constant(self):
+        """R3: the duplicate hardcoded router threshold is gone — single source only."""
+        import airlock.fast.router as router_mod
+
+        assert not hasattr(router_mod, "_BUDGET_WARN_THRESHOLD")
+
 
 # ---------------------------------------------------------------------------
 # Provider preference

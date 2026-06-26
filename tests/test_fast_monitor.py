@@ -783,3 +783,30 @@ class TestBudgetWarn:
         kwargs = {"litellm_params": {"metadata": {}}}
         near = _maybe_warn_budget("openai", _FakeSpend(18.0), kwargs)  # 18 >= 16
         assert near is True
+
+    def test_warn_honors_configured_ratio(self):
+        """R3 single source: the monitor warn reads get_settings().budget_warn_ratio,
+        so a config-set ratio (not just the env var) moves the warn point. With ratio
+        0.5 and a 50 budget, a 30 spend (0.6) warns — it would NOT at the 0.8 default."""
+        configure_settings(
+            {
+                "router_settings": {
+                    "provider_budget_config": {
+                        "anthropic": {"budget_limit": 50.0, "time_period": "1d"},
+                    }
+                },
+                "airlock_settings": {"budget_warn_ratio": 0.5},
+            }
+        )
+        kwargs = {"litellm_params": {"metadata": {}}}
+        near = _maybe_warn_budget("anthropic", _FakeSpend(30.0), kwargs)  # 30 >= 25
+        assert near is True
+        headers = kwargs["litellm_params"]["metadata"]["airlock_response_headers"]
+        assert headers["X-Airlock-Budget-State"] == "near_limit"
+
+    def test_no_legacy_monitor_ratio_helpers(self):
+        """R3: the monitor's duplicate ratio constant/helper are gone — single source."""
+        import airlock.fast.monitor as monitor_mod
+
+        assert not hasattr(monitor_mod, "_DEFAULT_BUDGET_WARN_RATIO")
+        assert not hasattr(monitor_mod, "_budget_warn_ratio")

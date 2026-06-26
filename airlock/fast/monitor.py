@@ -36,18 +36,7 @@ logger = logging.getLogger("airlock.fast.monitor")
 
 from .router import infer_provider as _infer_provider
 
-_DEFAULT_BUDGET_WARN_RATIO = 0.8
 _budget_warned: set[str] = set()  # warn once per provider per process (anti-spam)
-
-
-def _budget_warn_ratio() -> float:
-    raw = os.getenv("AIRLOCK_BUDGET_WARN_RATIO")
-    if raw:
-        try:
-            return float(raw)
-        except ValueError:
-            pass
-    return _DEFAULT_BUDGET_WARN_RATIO
 
 
 def _explicit_budget_for(provider: str) -> float | None:
@@ -73,7 +62,7 @@ def _maybe_warn_budget(provider: str, spend_state, kwargs: dict) -> bool:
     if not limit:
         return False
     spent = spend_state.recent_spend()
-    near = spent >= limit * _budget_warn_ratio()
+    near = spent >= limit * get_settings().budget_warn_ratio
     if near:
         metadata = (kwargs.get("litellm_params", {}) or {}).get("metadata")
         if isinstance(metadata, dict):
