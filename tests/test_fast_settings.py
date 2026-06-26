@@ -19,14 +19,9 @@ from airlock.fast.settings import (
     load_airlock_settings,
 )
 
-# Defaults reproduced from the read-only anchors (must match exactly).
-_EXPECTED_DEFAULT_BUDGETS = {
-    "anthropic": 50.0,
-    "openai": 50.0,
-    "gemini": 0.0,
-    "mistral": 25.0,
-    "perplexity": 25.0,
-}
+# SET-unify removed the hidden value-carrying budget/failover defaults: with no
+# config (and no env override) the provider-budget and failover maps are EMPTY.
+_EXPECTED_DEFAULT_BUDGETS: dict[str, float] = {}
 _EXPECTED_DEFAULT_SESSION_TTL = 3600
 _EXPECTED_DEFAULT_SMART_THRESHOLDS = (0.30, 0.60)
 _EXPECTED_DEFAULT_WARN_RATIO = 0.8
@@ -60,13 +55,28 @@ def test_none_config_all_defaults() -> None:
     assert s.smart_thresholds == _EXPECTED_DEFAULT_SMART_THRESHOLDS
     assert s.budget_warn_ratio == _EXPECTED_DEFAULT_WARN_RATIO
     assert s.cost_tiers["low"]  # populated default tiers
-    assert s.failover_map  # populated default failover map
+    assert s.failover_map == {}  # no hidden failover default (SET-unify)
 
 
 def test_empty_dict_all_defaults() -> None:
     s = load_airlock_settings({})
     assert s.provider_budgets == _EXPECTED_DEFAULT_BUDGETS
     assert s.session_ttl == _EXPECTED_DEFAULT_SESSION_TTL
+
+
+def test_empty_config_reproduces_nonbudget_defaults_only() -> None:
+    """FIX-5 scoped golden: empty config keeps NON-budget defaults; the hidden
+    provider-budget / failover defaults are gone (operator-confirmed change)."""
+    s = load_airlock_settings({"airlock_settings": {}})
+    # Non-budget defaults preserved verbatim.
+    assert s.session_ttl == _EXPECTED_DEFAULT_SESSION_TTL
+    assert s.smart_thresholds == _EXPECTED_DEFAULT_SMART_THRESHOLDS
+    assert s.budget_warn_ratio == _EXPECTED_DEFAULT_WARN_RATIO
+    assert s.cost_tiers["low"]
+    # Budget / failover defaults explicitly NOT preserved.
+    assert s.provider_budgets == {}
+    assert s.budget_windows == {}
+    assert s.failover_map == {}
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +163,9 @@ def test_provider_budgets_malformed_env_falls_back_to_config() -> None:
 def test_provider_budgets_malformed_config_falls_back_to_default() -> None:
     cfg = {"router_settings": {"provider_budget_config": "not-a-mapping"}}
     s = load_airlock_settings(cfg)
+    # No hidden default to fall back to (SET-unify) — empty means no enforcement.
     assert s.provider_budgets == _EXPECTED_DEFAULT_BUDGETS
+    assert s.provider_budgets == {}
 
 
 def test_provider_budgets_malformed_entry_skipped() -> None:
@@ -209,9 +221,10 @@ def test_failover_map_malformed_env_falls_back_to_config() -> None:
     assert s.failover_map == {"a": ["b"]}
 
 
-def test_failover_map_default_when_absent() -> None:
+def test_failover_map_empty_when_absent() -> None:
+    # SET-unify: no hidden failover default — absent fallbacks => empty map.
     s = load_airlock_settings({})
-    assert "claude-sonnet" in s.failover_map
+    assert s.failover_map == {}
 
 
 def test_failover_map_env_wrong_inner_shape_falls_back_to_config() -> None:
@@ -225,7 +238,8 @@ def test_failover_map_env_wrong_inner_shape_falls_back_to_config() -> None:
 def test_failover_map_env_wrong_inner_shape_falls_back_to_default() -> None:
     s = load_airlock_settings({}, env={"AIRLOCK_FAILOVER_MAP": '{"a": "bc"}'})
     assert s.failover_map.get("a") != ["b", "c"]
-    assert "claude-sonnet" in s.failover_map
+    # No config fallbacks + no hidden default => empty map (SET-unify).
+    assert s.failover_map == {}
 
 
 # ---------------------------------------------------------------------------
@@ -367,12 +381,13 @@ def test_get_settings_returns_defaults_when_unconfigured() -> None:
 
 def test_get_settings_unconfigured_windows_match_budgets() -> None:
     # The unconfigured accessor must be internally consistent: every provider in
-    # provider_budgets must have a matching budget_windows entry.
+    # provider_budgets must have a matching budget_windows entry. SET-unify removed
+    # the hidden defaults, so both maps are empty (and therefore still consistent).
     settings_mod._configured = None
     s = get_settings()
     assert set(s.budget_windows) == set(s.provider_budgets)
-    assert s.budget_windows  # non-empty for the default budget map
-    assert all(w == 86400 for w in s.budget_windows.values())
+    assert s.provider_budgets == {}
+    assert s.budget_windows == {}
 
 
 def test_configure_then_get_round_trip() -> None:

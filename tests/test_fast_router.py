@@ -7,6 +7,7 @@ import time
 
 import pytest
 
+import airlock.fast.settings as settings_mod
 from airlock.fast.monitor import AirlockFastMonitor, _infer_provider
 from airlock.fast.router import (
     _apply_budget_awareness,
@@ -14,7 +15,6 @@ from airlock.fast.router import (
     _apply_provider_preference,
     _extract_text,
     _load_cost_tiers,
-    _load_provider_budgets,
     _load_session_ttl,
     _load_smart_thresholds,
     apply_routing,
@@ -22,14 +22,18 @@ from airlock.fast.router import (
     infer_provider,
     set_router_config,
 )
+from airlock.fast.settings import configure_settings
 
 
 @pytest.fixture(autouse=True)
 def _reset_router_config():
-    """Every test starts with an empty router config cache."""
+    """Every test starts with an empty router config cache and unconfigured
+    AirlockSettings (so env overrides / configure_settings are honoured per-test)."""
     set_router_config(None)
+    settings_mod._configured = None
     yield
     set_router_config(None)
+    settings_mod._configured = None
 
 
 # ---------------------------------------------------------------------------
@@ -102,23 +106,39 @@ class TestLoadSessionTtl:
         assert _load_session_ttl() == 7200
 
 
-class TestLoadProviderBudgets:
-    def test_defaults(self):
-        budgets = _load_provider_budgets()
-        # Default budgets are production-tuned (values change for operational reasons,
-        # e.g. a provider set to 0 to exempt it) — assert structure, not the numbers.
-        assert {"anthropic", "openai", "gemini"} <= set(budgets)
-        assert all(isinstance(v, (int, float)) and v >= 0 for v in budgets.values())
+class TestProviderBudgetSource:
+    """Budget source is now get_settings().provider_budgets (SET-unify).
+
+    The router no longer owns a hidden default map; with no config and no env there
+    are simply no budgets.
+    """
+
+    def test_no_config_no_budgets(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_PROVIDER_BUDGETS", raising=False)
+        from airlock.fast.settings import get_settings
+
+        assert get_settings().provider_budgets == {}
 
     def test_custom_env(self, monkeypatch):
         custom = {"anthropic": 100.0, "openai": 75.0}
         monkeypatch.setenv("AIRLOCK_PROVIDER_BUDGETS", json.dumps(custom))
-        assert _load_provider_budgets() == custom
+        from airlock.fast.settings import get_settings
 
-    def test_invalid_json(self, monkeypatch):
-        monkeypatch.setenv("AIRLOCK_PROVIDER_BUDGETS", "{bad")
-        budgets = _load_provider_budgets()
-        assert "anthropic" in budgets  # defaults
+        assert get_settings().provider_budgets == custom
+
+    def test_from_router_settings_config(self):
+        configure_settings(
+            {
+                "router_settings": {
+                    "provider_budget_config": {
+                        "anthropic": {"budget_limit": 40.0, "time_period": "1d"},
+                    }
+                }
+            }
+        )
+        from airlock.fast.settings import get_settings
+
+        assert get_settings().provider_budgets == {"anthropic": 40.0}
 
 
 # ---------------------------------------------------------------------------
@@ -265,14 +285,23 @@ class TestSessionAffinity:
 # Budget awareness
 # ---------------------------------------------------------------------------
 class TestBudgetAwareness:
-    def test_under_budget_no_change(self, fresh_state_store):
+    def test_under_budget_no_change(self, fresh_state_store, monkeypatch):
+        monkeypatch.setenv(
+            "AIRLOCK_PROVIDER_BUDGETS",
+            json.dumps({"anthropic": 50.0, "openai": 50.0}),
+        )
         model, reason = _apply_budget_awareness(
             "claude-sonnet", ["gpt-4o", "gemini-pro"]
         )
         assert model == "claude-sonnet"
         assert reason is None
 
-    def test_over_threshold_swaps(self, fresh_state_store):
+    def test_over_threshold_swaps(self, fresh_state_store, monkeypatch):
+        # Budgets are config-driven now (SET-unify) — set them explicitly.
+        monkeypatch.setenv(
+            "AIRLOCK_PROVIDER_BUDGETS",
+            json.dumps({"anthropic": 50.0, "openai": 50.0}),
+        )
         # Spend 46 of 50 on anthropic (>90%)
         spend = fresh_state_store.get_provider_spend("anthropic")
         spend.record_spend(time.time(), 46.0)
@@ -303,6 +332,42 @@ class TestBudgetAwareness:
     def test_no_budget_configured(self, fresh_state_store, monkeypatch):
         monkeypatch.setenv("AIRLOCK_PROVIDER_BUDGETS", json.dumps({}))
         model, reason = _apply_budget_awareness("claude-sonnet", ["gpt-4o"])
+        assert model == "claude-sonnet"
+        assert reason is None
+
+    def test_no_provider_budget_config_no_swap(self, fresh_state_store, monkeypatch):
+        """Behavior-change #1: with NO provider_budget_config there is no hidden
+        default budget, so even a huge spend never triggers a proactive swap."""
+        monkeypatch.delenv("AIRLOCK_PROVIDER_BUDGETS", raising=False)
+        configure_settings({"router_settings": {}})  # no provider_budget_config
+        spend = fresh_state_store.get_provider_spend("anthropic")
+        spend.record_spend(time.time(), 10_000.0)
+
+        model, reason = _apply_budget_awareness(
+            "claude-sonnet", ["gpt-4o", "gemini-pro"]
+        )
+        assert model == "claude-sonnet"
+        assert reason is None
+
+    def test_zero_budget_means_no_swap(self, fresh_state_store, monkeypatch):
+        """AC-0 (router layer): a 0-configured budget => no proactive swap, even when
+        spend is enormous (falsy short-circuit, identical to absent)."""
+        monkeypatch.delenv("AIRLOCK_PROVIDER_BUDGETS", raising=False)
+        configure_settings(
+            {
+                "router_settings": {
+                    "provider_budget_config": {
+                        "anthropic": {"budget_limit": 0, "time_period": "1d"},
+                    }
+                }
+            }
+        )
+        spend = fresh_state_store.get_provider_spend("anthropic")
+        spend.record_spend(time.time(), 10_000.0)
+
+        model, reason = _apply_budget_awareness(
+            "claude-sonnet", ["gpt-4o", "gemini-pro"]
+        )
         assert model == "claude-sonnet"
         assert reason is None
 

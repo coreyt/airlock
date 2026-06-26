@@ -370,7 +370,6 @@ def main() -> None:
     with open(config_path) as f:
         config = yaml.safe_load(f) or {}
     from airlock.admin.policy import configure_admin
-    from airlock.fast.monitor import configure_budgets
     from airlock.fast.router import set_router_config
     from airlock.fast.settings import configure_settings
     from airlock.fast.state import configure_breaker
@@ -378,14 +377,14 @@ def main() -> None:
     from airlock.transparency import configure_transparency
 
     set_router_config(config)
-    # Build the typed AirlockSettings snapshot once at startup (0.5.1-SET-loader).
-    # Constructed here but not yet consumed — SET-unify migrates the router/monitor/
-    # breaker consumers onto it; this call is additive and behavior-preserving.
+    # Build the typed AirlockSettings snapshot once at startup. The router (budget-aware
+    # swap), monitor (near-limit warn) and circuit-breaker (failover) consumers read
+    # their budgets/failover map from this snapshot via get_settings() (0.5.1-SET-unify).
     configure_settings(config)
-    # Load per-client circuit-breaker policy + explicit budget caps once at
-    # startup (CC-2); both default to no-op when unconfigured (CC-3).
+    # Load per-client circuit-breaker policy once at startup (CC-2); defaults to a
+    # no-op when unconfigured (CC-3). Provider budget caps now flow through
+    # configure_settings above (the monitor reads get_settings().provider_budgets).
     configure_breaker(config)
-    configure_budgets(config)
     # Admin control plane (off by default). The fail-closed check (CC-12) refuses
     # bearer-token admin over plaintext on a non-loopback bind.
     configure_admin(config, host=host, tls_enabled=bool(_ssl_cli_args()))
