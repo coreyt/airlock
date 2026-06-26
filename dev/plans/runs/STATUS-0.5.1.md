@@ -21,13 +21,17 @@ Audit source-of-record: `dev/notes/architecture-audit-0.5.0-2026-06.md`.
   Behavior-change register (all 4) shipped in CHANGELOG. **Final 4-pack no-network suite
   (HEAD `845c84f`): 2182 passed, 73 skipped, 4 deselected, 0 failed (267s)** — incl. the e2e
   subprocess restart durability test.
-- **Remaining for sign-off (engineering DONE) — AWAITING OPERATOR SMOKE:** operator elected
-  (2026-06-26) to **run the live smoke themselves**, then I write the final sign-off. Smoke =
-  isolated instance on a spare port (`PORT=4137 dev/smoketest/run_isolated_instance.sh start`),
-  a few billed calls via `served_header_client.py`, `restart`, confirm **spend persists** (not
-  reset) + (with a configured budget) `X-Airlock-Budget-State: near_limit`/`X-Airlock-Model-Override`
-  fire at the warn ratio; `:4000` untouched. **On operator PASS:** write DoD sign-off line, then
-  **merge `feat/0.5.1-settings` → local `main` + tag `v0.5.1` locally (operator-approved; NO push).**
+## ✅ 0.5.1 SIGNED OFF (2026-06-26)
+
+All 8 DoD items met. Live smoke PASS (orchestrator-run on isolated port 4137 at operator
+direction): spend survived restart (62µ$ → restore → 128µ$), unified warn ratio fired at the
+configured ratio, clean boot, production untouched. 3 pre-existing non-blocking findings logged
+as follow-ups (`0.5.1-SIGNOFF-smoke-20260626.md`: F-B near_limit response-header surfacing;
+F-C proactive-swap needs a candidate pool; F-D AIRLOCK_STATE_DIR via .env). Per operator: merged
+`feat/0.5.1-settings` → local `main` + tagged `v0.5.1` **locally (NOT pushed)**.
+
+**Follow-ups for a later release:** F-B, F-C, F-D above; the stale `configure_budgets` comment
+at `monitor.py:~399`; and the deferred Redis backend + `--num_workers` (Q2).
 
 ## 0. Definition-of-Done checklist (release sign-off)
 
@@ -39,8 +43,8 @@ Audit source-of-record: `dev/notes/architecture-audit-0.5.0-2026-06.md`.
 | 4 | Durability proven by the e2e subprocess restart test (FIX-1 + Q3) | ✅ (no-network round-trip in `test_fast_spend_store.py`) |
 | 5 | Behavior-change register shipped (4 entries) + config.yaml/template budget-doc note | ✅ (CHANGELOG #1–#4; note in SET-unify) |
 | 6 | HITL kickoff questions answered + recorded | ✅ (§6) |
-| 7 | `dev/smoketest/` extended + green on a separate dir+port (incl. spend-survives-restart); live `:4000` untouched | ⏳ **OPERATOR-RUN** (scenarios added; awaiting operator smoke) |
-| 8 | Nothing pushed/tagged without approval; branch advanced locally; sign-off line written | ⏳ (branch local @ `845c84f`+docs; sign-off pending #7) |
+| 7 | `dev/smoketest/` extended + green on a separate dir+port (incl. spend-survives-restart); live `:4000` untouched | ✅ **PASS** (orchestrator-run 2026-06-26, isolated port 4137 — spend 62µ$→restore→128µ$; warn fires at configured ratio; boot clean. 3 pre-existing non-blocking findings F-B/F-C/F-D. See `0.5.1-SIGNOFF-smoke-20260626.md`) |
+| 8 | Nothing pushed/tagged without approval; branch advanced locally; sign-off line written | ✅ branch local; operator-approved local merge→main + tag `v0.5.1` (NO push); sign-off below |
 - **Done:** kickoff cleared; Phase A (UN-25/26); Phase D PASS. **`SET-loader` CLOSED**
   (`6af83f7`). **`STORE-seam` CLOSED** (merged `93e15a2`; codex CONCERN→fixed; post-merge
   affected suites 230 green, proxy.py auto-merge verified). UN-26 engineering-complete
