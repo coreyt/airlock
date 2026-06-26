@@ -197,12 +197,14 @@ def _load_failover_map(
     if raw:
         try:
             parsed = json.loads(raw)
-            if isinstance(parsed, dict):
+            if isinstance(parsed, dict) and all(
+                isinstance(vals, list) for vals in parsed.values()
+            ):
                 return {str(k): [str(v) for v in vals] for k, vals in parsed.items()}
         except (json.JSONDecodeError, TypeError):
             pass
         logger.warning(
-            "Invalid AIRLOCK_FAILOVER_MAP JSON, falling back to config/defaults"
+            "Invalid AIRLOCK_FAILOVER_MAP shape, falling back to config/defaults"
         )
 
     converted = _convert_fallbacks(router_settings.get("fallbacks"))
@@ -362,7 +364,13 @@ def configure_settings(config: dict | None) -> None:
 
 
 def get_settings() -> AirlockSettings:
-    """Return the configured settings, or safe defaults if never configured."""
+    """Return the configured settings, or safe defaults if never configured.
+
+    When unconfigured we build via ``load_airlock_settings({})`` (not a bare
+    ``AirlockSettings()``) so every field gets its real default — notably
+    ``budget_windows`` is keyed for every entry in the default ``provider_budgets``
+    map rather than being an empty dict.
+    """
     if _configured is None:
-        return AirlockSettings()
+        return load_airlock_settings({})
     return _configured
