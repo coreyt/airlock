@@ -427,4 +427,111 @@ def _self_register() -> None:
         logger.warning("monitor self-registration deferred — litellm not fully loaded")
 
 
+# ---------------------------------------------------------------------------
+# FIX-1 — checkpoint/restore run in the litellm CHILD process, where spend is
+# actually mutated. The monitor module is imported in BOTH the launcher (for
+# configure_budgets) and the child (as the callback); the AIRLOCK_LITELLM_CHILD
+# env var (set by proxy.py on the subprocess env) gates this glue to the child
+# only, so the launcher is no longer a second writer.
+# ---------------------------------------------------------------------------
+_DEFAULT_CHECKPOINT_INTERVAL = 60.0  # seconds between periodic child checkpoints
+_checkpoint_stop = None  # type: ignore[var-annotated]
+
+
+def _state_paths() -> tuple[str, str]:
+    state_dir = os.getenv("AIRLOCK_STATE_DIR", os.getenv("AIRLOCK_LOG_DIR", "./logs"))
+    return (
+        os.path.join(state_dir, "cb_state.json"),
+        os.path.join(state_dir, "spend_state.json"),
+    )
+
+
+def _checkpoint_child_state() -> None:
+    """Persist breaker + spend state from the child (best-effort)."""
+    from .state import checkpoint_spend, checkpoint_state
+
+    cb_path, spend_path = _state_paths()
+    try:
+        checkpoint_state(store, cb_path)
+    except Exception:
+        logger.warning("breaker checkpoint failed", exc_info=True)
+    try:
+        checkpoint_spend(store, spend_path)
+    except Exception:
+        logger.warning("spend checkpoint failed", exc_info=True)
+
+
+def _restore_child_state() -> None:
+    """Rehydrate breaker (5-min gated) + spend (age-bounded) on child startup."""
+    from .state import restore_spend, restore_state
+
+    cb_path, spend_path = _state_paths()
+    try:
+        restore_state(store, cb_path)
+    except Exception:
+        logger.warning("breaker restore failed", exc_info=True)
+    try:
+        restore_spend(store, spend_path)
+    except Exception:
+        logger.warning("spend restore failed", exc_info=True)
+
+
+def _checkpoint_interval() -> float:
+    raw = os.getenv("AIRLOCK_SPEND_CHECKPOINT_INTERVAL")
+    if raw:
+        try:
+            return max(1.0, float(raw))
+        except ValueError:
+            pass
+    return _DEFAULT_CHECKPOINT_INTERVAL
+
+
+def _init_child_state() -> None:
+    """Wire FIX-1 in the litellm child: restore-on-start + periodic/shutdown save."""
+    import atexit
+    import signal
+    import threading
+
+    global _checkpoint_stop
+
+    _restore_child_state()
+
+    # Periodic checkpoint so durability does not depend on the shutdown signal
+    # actually reaching the (possibly orphaned) child.
+    _checkpoint_stop = threading.Event()
+    interval = _checkpoint_interval()
+
+    def _loop() -> None:
+        while not _checkpoint_stop.wait(interval):
+            _checkpoint_child_state()
+
+    threading.Thread(target=_loop, name="airlock-spend-checkpoint", daemon=True).start()
+
+    # Shutdown checkpoint: atexit (normal exit) + a SIGTERM handler that chains to
+    # any previously installed handler so we do not break litellm/uvicorn shutdown.
+    atexit.register(_checkpoint_child_state)
+
+    _prev_handler = signal.getsignal(signal.SIGTERM)
+
+    def _on_sigterm(signum, frame):
+        if _checkpoint_stop is not None:
+            _checkpoint_stop.set()
+        _checkpoint_child_state()
+        if callable(_prev_handler):
+            _prev_handler(signum, frame)
+        elif _prev_handler == signal.SIG_DFL:
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            os.kill(os.getpid(), signal.SIGTERM)
+
+    try:
+        signal.signal(signal.SIGTERM, _on_sigterm)
+    except ValueError:
+        # signal.signal only works in the main thread; if the monitor imports off
+        # the main thread, the periodic + atexit paths still guarantee durability.
+        logger.debug("SIGTERM handler not installed (monitor imported off main thread)")
+
+
 _self_register()
+
+if os.getenv("AIRLOCK_LITELLM_CHILD") == "1":
+    _init_child_state()

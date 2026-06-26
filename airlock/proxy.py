@@ -302,17 +302,10 @@ def _register_shutdown_handlers() -> None:
         except Exception:
             pass  # best-effort on shutdown
 
-        # Checkpoint circuit breaker state for restart recovery
-        try:
-            from airlock.fast.state import checkpoint_state, store
-
-            state_dir = os.getenv(
-                "AIRLOCK_STATE_DIR", os.getenv("AIRLOCK_LOG_DIR", "./logs")
-            )
-            state_path = os.path.join(state_dir, "cb_state.json")
-            checkpoint_state(store, state_path)
-        except Exception:
-            pass  # best-effort on shutdown
+        # FIX-1: state checkpoint/restore now runs in the litellm CHILD process
+        # (airlock.fast.monitor), where spend + breaker state are actually mutated.
+        # The launcher must NOT checkpoint here — it holds an empty store and would
+        # race the child as a second writer of cb_state.json.
 
         sys.exit(0)  # triggers atexit handlers too
 
@@ -435,20 +428,16 @@ def main() -> None:
         if existing_pythonpath
         else repo_pythonpath
     )
+    # FIX-1: mark the litellm subprocess so airlock.fast.monitor restores spend +
+    # breaker state on startup and checkpoints them periodically/on shutdown there —
+    # in the process that actually mutates the store.
+    env["AIRLOCK_LITELLM_CHILD"] = "1"
 
     _register_shutdown_handlers()
 
-    # Restore circuit breaker state from previous run if recent
-    try:
-        from airlock.fast.state import restore_state, store
-
-        state_dir = os.getenv(
-            "AIRLOCK_STATE_DIR", os.getenv("AIRLOCK_LOG_DIR", "./logs")
-        )
-        state_path = os.path.join(state_dir, "cb_state.json")
-        restore_state(store, state_path)
-    except Exception:
-        pass  # best-effort
+    # FIX-1: state restore now happens in the litellm child (airlock.fast.monitor),
+    # not here — the launcher's store is empty, so a launcher-side restore was a no-op
+    # that defeated restart recovery.
 
     print(f"Airlock starting on {host}:{port}")
     try:

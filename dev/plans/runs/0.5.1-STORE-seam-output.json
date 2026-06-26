@@ -1,0 +1,63 @@
+{
+  "pack": "0.5.1-STORE-seam",
+  "baseline_sha": "1068125",
+  "branch": "feat/0.5.1-STORE-seam",
+  "head_sha": "dffb24e10804c51a2901d9ea7071a99ed9e33092",
+  "head_sha_note": "dffb24e is the final substantive (review-fix) commit; the only commit after it on the branch is the chore commit that records this very output.json.",
+  "commits": [
+    "7ff8613: docs(0.5.1): STORE-seam design memo (bucketed µ$ seam + FIX-1 child wiring)",
+    "ed01d44: test(0.5.1): RED — bucketed µ$ spend seam, checkpoint, subprocess round-trip, breaker round-trip",
+    "a30a89b: feat(0.5.1): GREEN — DualCache spend seam (bucketed µ$, R5) + FIX-1 child checkpoint",
+    "4797d5f: chore(0.5.1): STORE-seam closure artifact (output.json)",
+    "dffb24e: docs(0.5.1): pin + document conservative trailing-edge spend semantic (review F1)"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "ed01d44",
+    "test_files": [
+      "tests/test_fast_spend_store.py",
+      "tests/test_proxy.py"
+    ]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_fast_spend_store.py (20 tests: R5 accuracy x2, integer-µ$ x2, TTL>=window, rolling-window x2 incl. conservative trailing-edge boundary, checkpoint semantics x7, subprocess round-trip, breaker round-trip x3, child-wiring x2)",
+      "tests/test_proxy.py::TestShutdownHandlers::test_sigterm_handler_does_not_checkpoint_state"
+    ],
+    "passed": 20,
+    "failed": 0,
+    "failing_ids": [],
+    "notes": "Review re-verify: tests/test_fast_spend_store.py = 20 passed (was 19; +1 test_trailing_edge_is_conservative_within_one_bucket pinning the conservative trailing-edge semantic from review Finding 1). Earlier full affected-suite run: 377 passed + 2 skipped (spend_store, fast_state, fast_monitor, fast_router, advisor_tools, routing_guardrails, proxy*, circuit_breaker*, phase3_smart). Full suite: 2125 passed, 73 skipped, 1 xpassed, 1 PRE-EXISTING unrelated failure (test_fathom_init.py::test_init_engine_with_fathomdb — requires the optional fathomdb 'db' extra not installed; the test's own comment notes it; untouched by this pack)."
+  },
+  "files_changed": [
+    "airlock/fast/state.py",
+    "airlock/fast/monitor.py",
+    "airlock/proxy.py",
+    "tests/test_fast_spend_store.py",
+    "tests/test_proxy.py",
+    "dev/smoketest/run_isolated_instance.sh",
+    "dev/smoketest/README.md",
+    "dev/notes/0.5.1-STORE-seam-design.md"
+  ],
+  "blockers_encountered": [
+    {
+      "id": "DETECT-1",
+      "description": "Pre-existing test tests/test_proxy.py::TestShutdownHandlers::test_sigterm_handler_checkpoints_circuit_breaker_state asserted the LAUNCHER SIGTERM handler writes cb_state.json — exactly the buggy launcher-side checkpoint that FIX-1 removes.",
+      "resolution": "Rewrote it as test_sigterm_handler_does_not_checkpoint_state: the launcher flushes S3 but must NOT write cb_state.json (the litellm child is the single writer). In-scope (tests/ is in MODIFY)."
+    },
+    {
+      "id": "DETECT-2",
+      "description": "`uv run pytest` used an ephemeral pytest without project deps (ModuleNotFoundError: dotenv). pytest lives in the optional 'test' extra (not 'dev').",
+      "resolution": "Ran tests with `uv run --extra test pytest`. No code/config change; pyproject untouched."
+    }
+  ],
+  "additional_changes_made_in_scope": [
+    "tests/test_proxy.py: updated one shutdown-handler test to the new FIX-1 contract (launcher no longer checkpoints).",
+    "tests/test_fast_spend_store.py: added TestChildCheckpointWiring (2 tests) proving monitor._checkpoint_child_state/_restore_child_state round-trip BOTH spend and breaker via AIRLOCK_STATE_DIR, plus the launcher gating contract.",
+    "dev/smoketest/run_isolated_instance.sh: added a `restart` subcommand (+ reap_port_listeners helper) that stops the launcher, reaps the orphaned litellm child holding the test port, and relaunches PRESERVING the runtime state dir.",
+    "dev/smoketest/README.md: documented the restart-durability scenario (operator-run).",
+    "Review Finding 1 (conservative trailing-edge): KEPT the safe conservative inclusion (counts the boundary bucket, rounds UP so budget warns/swaps fire early not late); DOCUMENTED it on SpendStore/recent_spend docstrings + design memo; ADDED test_trailing_edge_is_conservative_within_one_bucket pinning it.",
+    "Review Finding 2: corrected the stale head_sha to the real final substantive HEAD (dffb24e)."
+  ],
+  "agent_verify_result": "pass (review re-verify: tests/test_fast_spend_store.py 20/20 pass; ruff clean; 1 pre-existing unrelated fathomdb failure noted)",
+  "next_step_for_orchestrator": "Pack 0.5.1-STORE-seam on branch feat/0.5.1-STORE-seam, final substantive HEAD dffb24e (branch tip is the chore commit recording this output.json); both codex CONCERN findings addressed; review, run the dev/smoketest restart-durability scenario on a separate dir+port, verify, merge."
+}
