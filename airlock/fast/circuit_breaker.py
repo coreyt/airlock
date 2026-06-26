@@ -4,59 +4,36 @@ Airlock Fast — Circuit breaker for model/provider failover.
 Detects when an upstream model becomes unavailable (consecutive failures
 exceed a threshold) and transparently re-routes to a healthy fallback.
 
-The failover map is configurable via the AIRLOCK_FAILOVER_MAP environment
-variable (JSON object) or falls back to sensible defaults derived from
-the models already declared in config.yaml.
+The failover map derives from ``router_settings.fallbacks`` in config.yaml (via
+``get_settings()``), with an optional ``AIRLOCK_FAILOVER_MAP`` environment override.
+There is no hidden default: an unconfigured deployment has no failover targets.
 
 Env vars:
     AIRLOCK_FAILOVER_MAP — JSON mapping of model → fallback list, e.g.
-        {"claude-sonnet": ["claude-haiku", "gpt-4o"]}
+        {"claude-sonnet": ["claude-haiku", "gpt-5-mini"]}
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 from dataclasses import dataclass
 
 from .router import infer_provider
+from .settings import get_settings
 from .state import store
 
 logger = logging.getLogger("airlock.fast.circuit_breaker")
 
 
-# ---------------------------------------------------------------------------
-# Default failover map (mirrors models declared in config.yaml)
-# ---------------------------------------------------------------------------
-_DEFAULT_FAILOVER_MAP: dict[str, list[str]] = {
-    "claude-sonnet": ["claude-haiku", "gpt-4o"],
-    "claude-haiku": ["claude-sonnet", "gpt-4o-mini"],
-    "claude-opus": ["claude-sonnet", "gpt-4o"],
-    "gpt-4o": ["claude-sonnet", "gpt-4o-mini"],
-    "gpt-4o-mini": ["claude-haiku", "gpt-4o"],
-}
-
-
-_UNSET = object()
-_cached_failover_raw: object = _UNSET
-_cached_failover_map: dict[str, list[str]] = _DEFAULT_FAILOVER_MAP
-
-
 def _load_failover_map() -> dict[str, list[str]]:
-    global _cached_failover_raw, _cached_failover_map
-    raw = os.getenv("AIRLOCK_FAILOVER_MAP")
-    if raw != _cached_failover_raw:
-        _cached_failover_raw = raw
-        if raw:
-            try:
-                _cached_failover_map = json.loads(raw)
-            except json.JSONDecodeError:
-                logger.warning("invalid AIRLOCK_FAILOVER_MAP JSON, using defaults")
-                _cached_failover_map = _DEFAULT_FAILOVER_MAP
-        else:
-            _cached_failover_map = _DEFAULT_FAILOVER_MAP
-    return _cached_failover_map
+    """Failover map, derived from ``router_settings.fallbacks`` (SET-unify).
+
+    Thin accessor over :func:`get_settings`: the env override
+    (``AIRLOCK_FAILOVER_MAP``) and the list-of-dicts -> dict conversion are handled
+    there. There is no hidden default — an unconfigured deployment has no failover
+    targets. Kept as a function because ``airlock/tui/screens/overview.py`` imports it.
+    """
+    return get_settings().failover_map
 
 
 @dataclass

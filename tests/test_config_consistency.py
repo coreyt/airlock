@@ -424,22 +424,11 @@ class TestCostTierConsistency:
                     f"which is not in config.yaml model_list"
                 )
 
-    def test_default_budgets_cover_tier_providers(self):
-        """Every provider referenced in cost tiers should have a default budget."""
-        from airlock.fast.router import (
-            _DEFAULT_COST_TIERS,
-            _DEFAULT_PROVIDER_BUDGETS,
-            infer_provider,
-        )
+    def test_no_hidden_default_provider_budgets(self):
+        """SET-unify: there is no hidden default provider-budget map. With no config
+        and no env override, budgets are empty (no proactive swap / no warn)."""
+        import airlock.fast.settings as settings_mod
+        from airlock.fast.settings import load_airlock_settings
 
-        tier_providers = set()
-        for models in _DEFAULT_COST_TIERS.values():
-            for model in models:
-                provider = infer_provider(model)
-                if provider:
-                    tier_providers.add(provider)
-
-        for provider in tier_providers:
-            assert provider in _DEFAULT_PROVIDER_BUDGETS, (
-                f"Provider '{provider}' appears in cost tiers but has no default budget"
-            )
+        settings_mod._configured = None
+        assert load_airlock_settings({}).provider_budgets == {}

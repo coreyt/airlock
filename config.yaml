@@ -353,6 +353,17 @@ files_settings:
 # ---------------------------------------------------------------------------
 router_settings:
   routing_strategy: cost-based-routing
+  # provider_budget_config — ONE number drives THREE behaviors per provider:
+  #   1. LiteLLM hard block      — request refused once spend hits budget_limit.
+  #   2. Monitor near-limit warn — emits `X-Airlock-Budget-State: near_limit` as spend
+  #                                approaches the cap (default warn at 80%).
+  #   3. Fast-router reroute     — proactively routes away from a provider as its spend
+  #                                approaches the cap (default at 90%).
+  # `budget_limit: 0` means NO enforcement / unlimited / no warn / no reroute (the falsy
+  # short-circuit is identical across all three layers). `time_period: "1d"` is the
+  # rolling enforcement window. Override the whole map with the AIRLOCK_PROVIDER_BUDGETS
+  # env var (JSON, e.g. {"anthropic": 50}). With no provider_budget_config and no env
+  # override there is NO hidden default budget — nothing is blocked, warned, or rerouted.
   provider_budget_config:
     anthropic:
       budget_limit: 0          # 0 = no enforcement (unlimited); LiteLLM skips the check on falsy max_budget

@@ -6,13 +6,14 @@ Structure mirrors ``transparency.TransparencyConfig`` / ``load_transparency_conf
 the precedence ladder mirrors ``router._load_cost_tiers``. Budget blocks are parsed
 with LiteLLM's own ``BudgetConfig`` + ``duration_in_seconds`` primitives.
 
-NOTE (intentional, not dead code): as of pack 0.5.1-SET-loader this loader is
-*constructed* at startup (via :func:`configure_settings`) but NOT yet consumed by
-the router/monitor/circuit-breaker. Those consumers still read through their own
-loaders. Pack SET-unify migrates them onto ``AirlockSettings`` (and fixes the R6
-``provider_budget_config`` nesting bug). This module is additive and
-behavior-preserving: it reproduces the existing defaults verbatim and reads the
-existing config keys in place — it never moves a key or changes consumer behavior.
+As of pack 0.5.1-SET-unify the router (budget-aware swap), monitor (near-limit warn)
+and circuit-breaker (failover) consumers read through this loader via
+:func:`get_settings`. SET-unify also removed the hidden value-carrying provider-budget
+and failover defaults (operator-confirmed behavior change): with no config and no env
+override those maps are empty, which means no swap / no warn / no failover — identical
+to the ``0 => no enforcement`` contract. The non-budget defaults (cost tiers, session
+TTL, smart thresholds, warn ratio) are still reproduced verbatim. Config keys are read
+in place — this loader never moves a key.
 """
 
 from __future__ import annotations
@@ -29,22 +30,18 @@ from litellm.types.utils import BudgetConfig
 logger = logging.getLogger("airlock.fast.settings")
 
 # ---------------------------------------------------------------------------
-# Defaults — reproduced verbatim from the existing per-consumer loaders.
-#   provider budgets: router._DEFAULT_PROVIDER_BUDGETS
+# Defaults.
 #   cost tiers:       router._DEFAULT_COST_TIERS
 #   session ttl:      router._DEFAULT_SESSION_TTL
 #   smart thresholds: router._DEFAULT_SMART_THRESHOLDS
-#   failover map:     circuit_breaker._DEFAULT_FAILOVER_MAP
 #   warn ratio:       monitor._DEFAULT_BUDGET_WARN_RATIO
-# (SET-unify deletes the now-duplicated source-of-truth copies; this pack does NOT.)
+#
+# Provider budgets and the failover map have NO hidden value-carrying default
+# (operator-confirmed behavior change, SET-unify): with no config and no env
+# override they are empty, which means no proactive swap / no warn / no failover
+# (the falsy short-circuit, consistent with the `0 => no enforcement` contract).
 # ---------------------------------------------------------------------------
-_DEFAULT_PROVIDER_BUDGETS: dict[str, float] = {
-    "anthropic": 50.0,
-    "openai": 50.0,
-    "gemini": 0.0,  # 0 = no budget-aware swap (falsy short-circuits enforcement)
-    "mistral": 25.0,
-    "perplexity": 25.0,
-}
+_DEFAULT_PROVIDER_BUDGETS: dict[str, float] = {}
 
 _DEFAULT_COST_TIERS: dict[str, list[str]] = {
     "low": [
@@ -70,13 +67,7 @@ _DEFAULT_COST_TIERS: dict[str, list[str]] = {
     ],
 }
 
-_DEFAULT_FAILOVER_MAP: dict[str, list[str]] = {
-    "claude-sonnet": ["claude-haiku", "gpt-4o"],
-    "claude-haiku": ["claude-sonnet", "gpt-4o-mini"],
-    "claude-opus": ["claude-sonnet", "gpt-4o"],
-    "gpt-4o": ["claude-sonnet", "gpt-4o-mini"],
-    "gpt-4o-mini": ["claude-haiku", "gpt-4o"],
-}
+_DEFAULT_FAILOVER_MAP: dict[str, list[str]] = {}
 
 _DEFAULT_SESSION_TTL = 3600  # 1 hour
 _DEFAULT_SMART_THRESHOLDS = (0.30, 0.60)
@@ -94,13 +85,9 @@ class AirlockSettings:
     enforcement window in seconds (parsed from ``time_period``; default 86400).
     """
 
-    provider_budgets: dict[str, float] = field(
-        default_factory=lambda: dict(_DEFAULT_PROVIDER_BUDGETS)
-    )
+    provider_budgets: dict[str, float] = field(default_factory=dict)
     budget_windows: dict[str, float] = field(default_factory=dict)
-    failover_map: dict[str, list[str]] = field(
-        default_factory=lambda: dict(_DEFAULT_FAILOVER_MAP)
-    )
+    failover_map: dict[str, list[str]] = field(default_factory=dict)
     cost_tiers: dict[str, list[str]] = field(
         default_factory=lambda: dict(_DEFAULT_COST_TIERS)
     )
@@ -367,9 +354,10 @@ def get_settings() -> AirlockSettings:
     """Return the configured settings, or safe defaults if never configured.
 
     When unconfigured we build via ``load_airlock_settings({})`` (not a bare
-    ``AirlockSettings()``) so every field gets its real default — notably
-    ``budget_windows`` is keyed for every entry in the default ``provider_budgets``
-    map rather than being an empty dict.
+    ``AirlockSettings()``) so every field gets its real default — including the
+    non-budget defaults (cost tiers, session TTL, smart thresholds, warn ratio).
+    Provider budgets and the failover map have no hidden default, so they are empty
+    unless config or an env override supplies them.
     """
     if _configured is None:
         return load_airlock_settings({})

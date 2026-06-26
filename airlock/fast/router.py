@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 
 from airlock.transparency import record_mutation
 
+from .settings import get_settings
 from .state import store
 
 logger = logging.getLogger("airlock.fast.router")
@@ -64,14 +65,6 @@ _DEFAULT_COST_TIERS: dict[str, list[str]] = {
 }
 
 _DEFAULT_SESSION_TTL = 3600  # 1 hour
-
-_DEFAULT_PROVIDER_BUDGETS: dict[str, float] = {
-    "anthropic": 50.0,
-    "openai": 50.0,
-    "gemini": 0.0,  # 0 = no budget-aware swap (falsy short-circuits _apply_budget_awareness); matches provider_budget_config gemini:0 in config.yaml
-    "mistral": 25.0,
-    "perplexity": 25.0,
-}
 
 _BUDGET_WARN_THRESHOLD = 0.9  # 90% of budget triggers proactive swap
 
@@ -363,17 +356,6 @@ def _load_session_ttl() -> int:
     return _DEFAULT_SESSION_TTL
 
 
-def _load_provider_budgets() -> dict[str, float]:
-    raw = os.environ.get("AIRLOCK_PROVIDER_BUDGETS")
-    if not raw:
-        return dict(_DEFAULT_PROVIDER_BUDGETS)
-    try:
-        return json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        logger.warning("Invalid AIRLOCK_PROVIDER_BUDGETS JSON, using defaults")
-        return dict(_DEFAULT_PROVIDER_BUDGETS)
-
-
 # ---------------------------------------------------------------------------
 # Provider inference
 # ---------------------------------------------------------------------------
@@ -453,7 +435,7 @@ def _apply_budget_awareness(
     if not provider:
         return model, None
 
-    budgets = _load_provider_budgets()
+    budgets = get_settings().provider_budgets
     budget_limit = budgets.get(provider)
     if not budget_limit:
         return model, None

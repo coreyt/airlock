@@ -314,8 +314,21 @@ class TestGuardianPreCallHook:
         assert written[0]["error_type"] == "RateLimitError"
 
     async def test_unpinned_request_fails_over_and_sets_override_metadata(
-        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+        self,
+        guardian,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
+        monkeypatch,
     ):
+        # Failover is config-driven now (SET-unify) — no hidden default map. Supply a
+        # map that fails the quarantined anthropic model over to a healthy provider.
+        import json
+
+        monkeypatch.setenv(
+            "AIRLOCK_FAILOVER_MAP",
+            json.dumps({"claude-haiku": ["gpt-5-mini", "gemini-flash"]}),
+        )
         client_id = _extract_client_id(mock_user_api_key_dict)
         now = time.time()
         fresh_state_store.record_provider_rate_limit(
