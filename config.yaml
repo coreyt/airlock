@@ -355,19 +355,19 @@ router_settings:
   routing_strategy: cost-based-routing
   provider_budget_config:
     anthropic:
-      budget_limit: 50.0
+      budget_limit: 0          # 0 = no enforcement (unlimited); LiteLLM skips the check on falsy max_budget
       time_period: "1d"
     openai:
-      budget_limit: 50.0
+      budget_limit: 0          # 0 = no enforcement (unlimited)
       time_period: "1d"
     gemini:
-      budget_limit: 25.0
+      budget_limit: 0          # 0 = no enforcement (unlimited)
       time_period: "1d"
     mistral:
-      budget_limit: 25.0
+      budget_limit: 0          # 0 = no enforcement (unlimited)
       time_period: "1d"
     perplexity:
-      budget_limit: 25.0
+      budget_limit: 0          # 0 = no enforcement (unlimited)
       time_period: "1d"
   fallbacks:
     - claude-opus: [claude-sonnet, gpt-5-pro, gemini-3.1-pro]
