@@ -1,0 +1,72 @@
+{
+  "pack": "0.5.1-SET-unify",
+  "baseline_sha": "6af83f7445f77a7b11e6a97d929b1b0ebfc32130",
+  "branch": "feat/0.5.1-SET-unify",
+  "head_sha": "424f2788da06dd4532e4bc8594b9ea9204a77543",
+  "commits": [
+    "eb7f268: docs(0.5.1-SET-unify): design memo — migration map, R6/R2/AC-0, test plan",
+    "4883592: test(0.5.1-SET-unify): RED — budgets/failover via get_settings(), R6/R2/AC-0",
+    "424f278: feat(0.5.1-SET-unify): GREEN — budgets/failover via get_settings(); delete hidden defaults"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "4883592b52fec4a3fac54c830d5d1040623cc0dd",
+    "test_files": [
+      "tests/test_fast_settings.py",
+      "tests/test_fast_router.py",
+      "tests/test_fast_circuit_breaker.py",
+      "tests/test_fast_monitor.py"
+    ]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_fast_settings.py",
+      "tests/test_fast_router.py",
+      "tests/test_fast_circuit_breaker.py",
+      "tests/test_fast_monitor.py",
+      "tests/test_circuit_breaker.py",
+      "tests/test_routing_guardrails.py",
+      "tests/test_config_consistency.py",
+      "tests/test_fast_guardian.py",
+      "tests/harness/test_phase3_routing.py"
+    ],
+    "passed": 267,
+    "failed": 0,
+    "failing_ids": [],
+    "note": "RED was 16 failing across the four target files (7 settings defaults, 3 router no-swap, 5 circuit-breaker config-driven, 1 monitor R6). Full non-live suite: 2156 passed; the only suite failure is tests/test_fathom_init.py::test_init_engine_with_fathomdb, a PRE-EXISTING unrelated WIP failure (fathomdb not installed; confirmed failing on the clean baseline) and out of scope. 1 pre-existing xpass (TestAliasTableCoverage gemini alias collision)."
+  },
+  "files_changed": [
+    "airlock/fast/settings.py",
+    "airlock/fast/router.py",
+    "airlock/fast/monitor.py",
+    "airlock/fast/circuit_breaker.py",
+    "airlock/proxy.py",
+    "config.yaml",
+    "airlock/cli/templates/config.yaml",
+    "tests/test_fast_settings.py",
+    "tests/test_fast_router.py",
+    "tests/test_fast_circuit_breaker.py",
+    "tests/test_circuit_breaker.py",
+    "tests/test_fast_monitor.py",
+    "tests/test_routing_guardrails.py",
+    "tests/test_config_consistency.py",
+    "tests/test_fast_guardian.py",
+    "tests/harness/test_phase3_routing.py",
+    "dev/notes/0.5.1-SET-unify-design.md"
+  ],
+  "blockers_encountered": [
+    {
+      "id": "DEP-tui-failover-shim",
+      "description": "airlock/tui/screens/overview.py (out-of-MODIFY) lazily imports circuit_breaker._load_failover_map. The spec said DELETE that loader; a hard delete would silently disable the TUI failover-column display (the import is try/except-guarded so it degrades to no-op rather than crashing).",
+      "resolution": "Kept _load_failover_map as a THIN shim returning get_settings().failover_map (env override + list-of-dicts conversion handled inside get_settings). The stale value-carrying _DEFAULT_FAILOVER_MAP and the env-cached loader body are deleted; the shim keeps the TUI consumer working without touching overview.py. DoD #1 (no hidden value-carrying default) is met."
+    }
+  ],
+  "additional_changes_made_in_scope": [
+    "Removed monitor.configure_budgets + _configured_budgets and dropped its call+import in proxy.py startup wiring (proxy already calls configure_settings(config) immediately above). _explicit_budget_for kept as a thin get_settings().provider_budgets accessor.",
+    "circuit_breaker._load_failover_map kept as a thin get_settings() shim for the TUI overview consumer (see blocker DEP-tui-failover-shim); deleted the stale gpt-4o/gpt-4o-mini default map + env cache.",
+    "Adjacent test fixups required by the deletions (all in tests/, in scope): tests/test_circuit_breaker.py rewritten to test the shim (old env-cache tests obsolete); tests/test_config_consistency.py test_default_budgets_cover_tier_providers replaced with a no-hidden-default assertion; tests/test_routing_guardrails.py budget-warn tests migrated off configure_budgets/_configured_budgets onto configure_settings/get_settings; tests/harness/test_phase3_routing.py reads get_settings().provider_budgets; tests/test_fast_guardian.py failover test now supplies AIRLOCK_FAILOVER_MAP (no hidden default).",
+    "Updated now-stale docstrings/comments in settings.py (module note, AirlockSettings/get_settings) and circuit_breaker.py module docstring to reflect the removed defaults; simplified AirlockSettings provider_budgets/failover_map field default_factories to plain dict.",
+    "Behavior note for orchestrator HITL: the TUI overview failover column is now empty unless the TUI process configures settings (it currently runs get_settings() unconfigured) — consistent with the operator-confirmed no-hidden-defaults decision; display-only, no routing impact."
+  ],
+  "agent_verify_result": "pass — 267 passed across targeted files (incl. regression sweep over fast/ router/monitor/circuit_breaker/settings + guardian + routing_guardrails + config_consistency + phase3 harness); ruff check + format clean on all changed files; smoke import OK (TUI shim resolves, removed symbols absent).",
+  "next_step_for_orchestrator": "Pack 0.5.1-SET-unify on branch feat/0.5.1-SET-unify at 424f2788da06dd4532e4bc8594b9ea9204a77543; review (esp. HITL on the operator-confirmed behavior change: no config budget => no swap/warn, and the TUI failover-display note + the kept _load_failover_map shim), verify, merge. Warn-ratio collapse remains for SET-warnratio; state.py untouched."
+}
