@@ -66,8 +66,6 @@ _DEFAULT_COST_TIERS: dict[str, list[str]] = {
 
 _DEFAULT_SESSION_TTL = 3600  # 1 hour
 
-_BUDGET_WARN_THRESHOLD = 0.9  # 90% of budget triggers proactive swap
-
 # ---------------------------------------------------------------------------
 # Smart complexity classifier — all O(n) string ops, no ML, no dependencies
 # ---------------------------------------------------------------------------
@@ -446,13 +444,15 @@ def _apply_budget_awareness(
     if not provider:
         return model, None
 
-    budgets = get_settings().provider_budgets
+    settings = get_settings()
+    budgets = settings.provider_budgets
+    warn_ratio = settings.budget_warn_ratio
     budget_limit = budgets.get(provider)
     if not budget_limit:
         return model, None
 
     spend = store.get_provider_spend(provider).recent_spend()
-    if spend < budget_limit * _BUDGET_WARN_THRESHOLD:
+    if spend < budget_limit * warn_ratio:
         return model, None
 
     # Current provider is near budget — find an alternative
@@ -469,7 +469,7 @@ def _apply_budget_awareness(
                 f"budget({provider}@{spend:.1f}/{budget_limit:.1f}\u2192{candidate})",
             )
         alt_spend = store.get_provider_spend(alt_provider).recent_spend()
-        if alt_spend < alt_budget * _BUDGET_WARN_THRESHOLD:
+        if alt_spend < alt_budget * warn_ratio:
             return (
                 candidate,
                 f"budget({provider}@{spend:.1f}/{budget_limit:.1f}\u2192{candidate})",

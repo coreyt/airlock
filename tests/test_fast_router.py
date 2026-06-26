@@ -371,9 +371,7 @@ class TestBudgetAwareness:
         assert model == "claude-sonnet"
         assert reason is None
 
-    def test_default_swap_point_is_warn_ratio_080(
-        self, fresh_state_store, monkeypatch
-    ):
+    def test_default_swap_point_is_warn_ratio_080(self, fresh_state_store, monkeypatch):
         """Behavior-change #2: the proactive swap point is now the configured
         budget_warn_ratio (default 0.8), NOT the old hardcoded 0.9. A spend at 84%
         of budget — between 0.8 and 0.9 — now swaps (it would not have at 0.9)."""

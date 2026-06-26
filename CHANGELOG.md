@@ -98,6 +98,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Single configurable budget warn ratio** — the "near budget" threshold is now one
+  value, `airlock_settings.budget_warn_ratio` (env `AIRLOCK_BUDGET_WARN_RATIO`,
+  default `0.8`), read from `AirlockSettings` by **both** the monitor near-limit warn
+  (`X-Airlock-Budget-State: near_limit`) and the router proactive swap. Previously these
+  diverged: the monitor warned at `0.8` while the router only swapped at a hardcoded,
+  non-overridable `0.9`. **Behavior change:** the router's proactive-swap point moves from
+  `0.9` to the configured ratio (default `0.8`), so `X-Airlock-Model-Override` and
+  `near_limit` now fire at the same, tunable point. A `0`/absent provider budget still
+  short-circuits to no-warn/no-swap (unchanged).
 - **CI hardening**: upgraded GitHub Actions to Node.js 24-compatible
   versions, pinned `astral-sh/setup-uv` to `v8.0.0`, and rewrote
   `preflight.sh` to mirror CI exactly.
