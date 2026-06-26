@@ -1,0 +1,62 @@
+{
+  "pack": "0.5.1-SET-warnratio",
+  "baseline_sha": "f2706e9",
+  "branch": "feat/0.5.1-SET-warnratio",
+  "head_sha": "a410abd39346d60605e4538d465d3e95545158a3",
+  "commits": [
+    "723c8c9: docs(0.5.1-SET-warnratio): design memo — single budget_warn_ratio + isolation fix",
+    "2251289: test(0.5.1-SET-warnratio): RED — single budget_warn_ratio drives monitor warn + router swap",
+    "3191c3c: feat(0.5.1-SET-warnratio): GREEN — single configurable budget_warn_ratio",
+    "a410abd: test(0.5.1): autouse conftest fixture resets router catalog for test isolation"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "2251289b373305f6644c676c89bc4911376741e8",
+    "green_commit_sha": "3191c3cd1a3aea9f4e4f250cfd3ad565228276f6",
+    "isolation_fix_commit_sha": "a410abd39346d60605e4538d465d3e95545158a3",
+    "test_files": ["tests/test_fast_router.py", "tests/test_fast_monitor.py", "tests/conftest.py"]
+  },
+  "monitor_already_done_by_set_unify": false,
+  "monitor_note": "SET-unify did NOT move the monitor warn-ratio read onto get_settings(). At base f2706e9 the monitor still owned _DEFAULT_BUDGET_WARN_RATIO=0.8 + _budget_warn_ratio() (env-only override, ignored airlock_settings.budget_warn_ratio). Both the monitor side AND the router side were unified in this pack.",
+  "behavior_change_2": "Router proactive-swap point moved from hardcoded 0.9 to the configured budget_warn_ratio (default 0.8). Recorded in CHANGELOG.md Unreleased/Changed. X-Airlock-Model-Override and X-Airlock-Budget-State: near_limit now fire at the same tunable point.",
+  "smoketest_scenario_added": "dev/smoketest/README.md — new '## Scenario — budget warn-ratio (0.5.1 SET-warnratio)' section: stand up isolated instance with low AIRLOCK_PROVIDER_BUDGETS + AIRLOCK_BUDGET_WARN_RATIO, drive billed calls, assert X-Airlock-Budget-State: near_limit and X-Airlock-Model-Override fire at the configured ratio. Marked 'agent did NOT run this' — operator runs at sign-off on a separate dir+port.",
+  "changelog_updated": "CHANGELOG.md [Unreleased] > Changed — single configurable budget_warn_ratio + behavior-change #2 documented.",
+  "tests": {
+    "targeted": [
+      "tests/test_fast_router.py::TestBudgetAwareness::test_default_swap_point_is_warn_ratio_080",
+      "tests/test_fast_router.py::TestBudgetAwareness::test_swap_point_honors_configured_ratio",
+      "tests/test_fast_router.py::TestBudgetAwareness::test_no_legacy_warn_threshold_constant",
+      "tests/test_fast_monitor.py::TestBudgetWarn::test_warn_honors_configured_ratio",
+      "tests/test_fast_monitor.py::TestBudgetWarn::test_no_legacy_monitor_ratio_helpers"
+    ],
+    "combined_order_check": "uv run --extra test python -m pytest tests/test_fast_router.py tests/test_fast_guardian.py -q => 120 passed (both guardian failover tests green); a catalog-populating-probe + tests/test_fast_guardian.py => 39 passed (FAILED 2 before the conftest fix).",
+    "fast_subsystem_sweep": "tests/test_fast_router.py test_fast_monitor.py test_fast_settings.py test_fast_guardian.py test_fast_circuit_breaker.py test_fast_spend_store.py => 233 passed",
+    "full_suite": "2181 passed, 73 skipped, 4 deselected, 1 xpassed, 1 failed",
+    "passed": 2181,
+    "failed": 1,
+    "failing_ids": ["tests/test_fathom_init.py::test_init_engine_with_fathomdb"]
+  },
+  "files_changed": [
+    "dev/notes/0.5.1-SET-warnratio-design.md",
+    "airlock/fast/router.py",
+    "airlock/fast/monitor.py",
+    "tests/test_fast_router.py",
+    "tests/test_fast_monitor.py",
+    "tests/conftest.py",
+    "CHANGELOG.md",
+    "dev/smoketest/README.md"
+  ],
+  "blockers_encountered": [
+    {
+      "id": "RED-command-passes-at-base",
+      "description": "The prompt's exact RED command (pytest tests/test_fast_router.py tests/test_fast_guardian.py) PASSES at base f2706e9 because test_fast_router.py has a local _reset_router_config autouse teardown that clears the catalog, masking the order-dependence.",
+      "resolution": "Confirmed the order-dependence is real via a catalog-populating probe (a test that calls set_router_config with a model_list and does NOT clean up) placed before tests/test_fast_guardian.py: that reproduced the 2 guardian failover FAILURES ('skipping failover=... not in model_list catalog'). Added the robust global fix (autouse conftest catalog reset); the probe now passes 39, and the prompt's command passes 120. Documented in the design memo."
+    }
+  ],
+  "additional_changes_made_in_scope": [
+    "Reformatted one test method signature in tests/test_fast_router.py (ruff format) — included in the GREEN commit.",
+    "Kept settings._DEFAULT_BUDGET_WARN_RATIO (canonical, DO NOT TOUCH) and only deleted the monitor/router duplicates."
+  ],
+  "preexisting_unrelated_failure": "tests/test_fathom_init.py::test_init_engine_with_fathomdb FAILS in isolation (init_engine returns None when the fathomdb optional dep is not installed under the --extra test env). Not order-dependent on the conftest fixture, does not touch router/monitor/conftest catalog — pre-existing/environmental, NOT caused by this pack.",
+  "agent_verify_result": "pass (warn-ratio + isolation targets green; fast sweep 233 passed; full suite 2181 passed with 1 pre-existing unrelated fathomdb failure)",
+  "next_step_for_orchestrator": "Pack 0.5.1-SET-warnratio on branch feat/0.5.1-SET-warnratio at a410abd; review the two separate commits (warn-ratio 3191c3c, isolation fix a410abd), run the dev/smoketest warn-ratio scenario on a separate dir+port at sign-off, verify, merge."
+}
