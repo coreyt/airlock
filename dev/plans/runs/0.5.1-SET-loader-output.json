@@ -1,0 +1,62 @@
+{
+  "pack": "0.5.1-SET-loader",
+  "baseline_sha": "1068125",
+  "branch": "feat/0.5.1-SET-loader",
+  "head_sha": "6f9a5d65a6c15719876986c5fecbe9d8c2d8452e",
+  "head_sha_note": "6f9a5d6 is the codex-review fix commit (final code/test commit). An additional chore commit carrying this updated closure artifact sits on top as the actual branch HEAD (its sha self-references and so is not pinned here).",
+  "commits": [
+    "c79ccf9: docs(0.5.1-SET-loader): design memo — AirlockSettings fields, precedence, test matrix",
+    "38ed297: test(0.5.1-SET-loader): RED precedence matrix for AirlockSettings loader",
+    "a0b20c6: feat(0.5.1-SET-loader): AirlockSettings loader + proxy startup wiring",
+    "be8e21f: test(0.5.1-SET-loader): RED for codex review findings — windows/budgets consistency + failover inner-shape",
+    "6f9a5d6: fix(0.5.1-SET-loader): codex review — consistent unconfigured defaults + failover inner-shape validation",
+    "chore(0.5.1-SET-loader): closure artifact + design memo (branch HEAD)"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "38ed29753818f75cb0c0745e410935fa707505d1",
+    "review_fix_red_commit_sha": "be8e21f64a37266c35d0f61b7221676d81e5b5d9",
+    "review_fix_commit_sha": "6f9a5d65a6c15719876986c5fecbe9d8c2d8452e",
+    "test_files": ["tests/test_fast_settings.py"]
+  },
+  "tests": {
+    "targeted": ["tests/test_fast_settings.py"],
+    "passed": 37,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/fast/settings.py",
+    "airlock/proxy.py",
+    "tests/test_fast_settings.py",
+    "dev/notes/0.5.1-SET-loader-design.md"
+  ],
+  "review_findings_addressed": [
+    {
+      "id": "FINDING-1",
+      "severity": "medium",
+      "description": "Unconfigured get_settings() returned AirlockSettings() with budget_windows={} while provider_budgets held the full 50/50/25/25 default map — internally inconsistent.",
+      "fix": "get_settings() now returns load_airlock_settings({}) when _configured is None, so budget_windows is keyed for every default provider_budgets entry (each window 86400).",
+      "test": "test_get_settings_unconfigured_windows_match_budgets"
+    },
+    {
+      "id": "FINDING-2",
+      "severity": "medium",
+      "description": "_load_failover_map iterated a string AIRLOCK_FAILOVER_MAP value char-by-char, e.g. {\"a\": \"bc\"} -> {\"a\": [\"b\",\"c\"]}.",
+      "fix": "Validate every value is a list before coercing; on wrong inner shape, warn and fall back to config then default.",
+      "test": "test_failover_map_env_wrong_inner_shape_falls_back_to_config, test_failover_map_env_wrong_inner_shape_falls_back_to_default"
+    }
+  ],
+  "blockers_encountered": [
+    {
+      "id": "PYTEST-RUNNER",
+      "description": "`uv run pytest` resolved a user-site pytest 9.1.0 on Python 3.12 where litellm is not importable; the project venv is Python 3.10 and pytest lives in the optional `test` extra, not the default sync.",
+      "resolution": "Ran the suite via the venv interpreter with the test extra: `uv run --extra test python -m pytest`. No source change required; reported to orchestrator as the correct local test invocation for this worktree."
+    }
+  ],
+  "additional_changes_made_in_scope": [
+    "Added an optional injectable `env` parameter to `load_airlock_settings(config, env=None)` (defaults to os.environ) purely to keep the precedence-matrix tests deterministic without mutating process env. Singleton seam `configure_settings`/`get_settings` reads os.environ as specified.",
+    "Codex review CONCERN addressed (2 medium findings) TDD-style: RED commit be8e21f, fix commit 6f9a5d6. Test count 34 -> 37."
+  ],
+  "agent_verify_result": "pass (37 passed in test_fast_settings.py; regression: 122 passed across test_fast_router.py + test_fast_monitor.py + test_transparency_config.py; ruff check + format clean on all modified files)",
+  "next_step_for_orchestrator": "Pack 0.5.1-SET-loader on branch feat/0.5.1-SET-loader at 6f9a5d6 (+ closure chore on top); review, verify, merge. Loader is constructed at startup but intentionally not yet consumed — SET-unify migrates router/monitor/breaker consumers and fixes the R6 provider_budget_config nesting bug; SET-warnratio collapses the two warn-ratio constants. Note local tests must run via `uv run --extra test python -m pytest`."
+}
