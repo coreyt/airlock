@@ -14,12 +14,16 @@ Audit source-of-record: `dev/notes/architecture-audit-0.5.0-2026-06.md`.
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** `SET-unify` **MERGED** (`abb6194`; codex CONCERN→fixed, behavior-change HITL
-  ACCEPTED). Post-merge: a release-introduced **test-isolation fragility** found — the new
-  `known_model_aliases()` failover filter reads a module-global router catalog; the guardian
-  failover tests assume it empty but don't enforce it, so they fail if a catalog-populating
-  test ran earlier. Full suite passes in default (alphabetical) order (running to confirm);
-  **fix pending: a conftest autouse catalog reset so order never matters.** Then spawn `SET-warnratio`.
+- **ALL 4 PACKS CLOSED + MERGED** on `feat/0.5.1-settings` (HEAD `845c84f`): SET-loader
+  `6af83f7`, STORE-seam `93e15a2`, SET-unify `abb6194`, SET-warnratio `845c84f`. Each codex
+  PASS/PASS-after-fix (CONCERNs fixed; one LOW metadata note overridden-with-rationale; no
+  overridden BLOCK). Test-isolation fragility fixed (conftest autouse catalog reset).
+  Behavior-change register (all 4) shipped in CHANGELOG. Earlier full no-network suite: 2177
+  passed/0 failed (default order); final 4-pack suite re-running to reconfirm.
+- **Remaining for sign-off:** (1) reconfirm full no-network suite on `845c84f`; (2) **operator
+  HITL** — run the live restart-durability + warn-ratio/budget-state/model-override smoke on a
+  separate dir+port (copied config, never `:4000`) via `dev/smoketest/run_isolated_instance.sh`
+  (billed calls + credentials → operator-run by design); (3) write the DoD sign-off line.
 - **Done:** kickoff cleared; Phase A (UN-25/26); Phase D PASS. **`SET-loader` CLOSED**
   (`6af83f7`). **`STORE-seam` CLOSED** (merged `93e15a2`; codex CONCERN→fixed; post-merge
   affected suites 230 green, proxy.py auto-merge verified). UN-26 engineering-complete
@@ -35,7 +39,7 @@ Audit source-of-record: `dev/notes/architecture-audit-0.5.0-2026-06.md`.
 |------|---------------|------------|-------|---------|
 | `SET-loader` | One typed `AirlockSettings` read in place; uniform `env>config>default` (additive) | — | **CLOSED** (merged `6af83f7`; codex CONCERN→fixed) | `dev/plans/runs/0.5.1-SET-loader-output.json` |
 | `SET-unify` | Delete hidden budget/failover defaults; fix R6; derive from config; budget-doc note | SET-loader ✅ | **CLOSED** (merged `abb6194`; codex CONCERN→fixed; HITL ACCEPTED) | `dev/plans/runs/0.5.1-SET-unify-output.json` |
-| `SET-warnratio` | Collapse 0.8/0.9 into one configurable warn ratio | SET-unify | NOT_STARTED (prompt drafted) | `dev/plans/runs/0.5.1-SET-warnratio-output.json` |
+| `SET-warnratio` | Collapse 0.8/0.9 into one configurable warn ratio | SET-unify ✅ | **CLOSED** (merged `845c84f`; codex 1 LOW overridden) | `dev/plans/runs/0.5.1-SET-warnratio-output.json` |
 | `STORE-seam` | DualCache-backed store; rolling-window spend (R5); checkpoint-in-child (FIX-1) | — (∥) | **CLOSED** (merged `93e15a2`; codex CONCERN→fixed) | `dev/plans/runs/0.5.1-STORE-seam-output.json` |
 
 States (furthest witnessed wins): `WORKTREE_CREATED` → `IMPLEMENTING` →
@@ -46,7 +50,7 @@ with a `## Verdict:`) → `MERGED` → `CLOSED` → `CLEANED`.
 
 | Requirement | Pack(s) | Status |
 |-------------|---------|--------|
-| UN-25 — unified settings precedence (no hidden defaults) | SET-loader, SET-unify, SET-warnratio | ⏳ (defined in `dev/user-needs.md`) |
+| UN-25 — unified settings precedence (no hidden defaults) | SET-loader, SET-unify, SET-warnratio | ✅ (all 3 packs merged; precedence matrix + AC tests green) |
 | UN-26 — accurate + durable spend (R5 + restart survival, FIX-1) | STORE-seam | ✅ eng-complete (no-network round-trip green; live smoke @ sign-off) |
 | AC-R6 — monitor reads `router_settings` nesting | SET-unify | ✅ (regression test green) |
 | AC-R2 — failover targets exist in `model_list` | SET-unify | ✅ (defaults removed + catalog-filtered) |
