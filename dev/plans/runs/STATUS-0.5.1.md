@@ -14,23 +14,22 @@ Audit source-of-record: `dev/notes/architecture-audit-0.5.0-2026-06.md`.
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** none yet — **Phase E ready to start.**
-- **Done:** HITL kickoff answered (§6, all recommendations confirmed); branch
-  `feat/0.5.1-settings` cut from `main` @ 91eabf7; config.yaml budgets→0 baseline
-  committed (`227a6b0`); **Phase A complete** — UN-25/UN-26 added to
-  `dev/user-needs.md`. Phase D was already PASS (`0.5.1-design-review-20260625T004647Z-r2.md`).
-- **Next action:** **Phase E** — author + spawn `SET-loader` (critical-path head)
-  and `STORE-seam` (∥, disjoint files) implementers in isolated worktrees.
-  Critical path then continues `SET-loader → SET-unify → SET-warnratio`.
+- **In flight:** `SET-unify` IMPLEMENTING (off 6af83f7); `STORE-seam` REVIEWING (codex running).
+- **Done:** kickoff cleared; Phase A (UN-25/26); Phase D PASS. **`SET-loader` MERGED+CLOSED**
+  (`6af83f7`; codex CONCERN→fixed, 37+122 tests green). `STORE-seam` IMPLEMENTED
+  (`4797d5f`; full suite 2125 green, 1 pre-existing unrelated `fathomdb` skip-fail).
+- **Next action:** (1) when `STORE-seam` codex verdict lands → triage → **HITL** smoke
+  restart-durability at sign-off; (2) when `SET-unify` lands → codex review → **HITL
+  confirm the auto-swap-off behavior change before merge** → merge → spawn `SET-warnratio`.
 
 ## 2. Pack scoreboard
 
 | Pack | Goal (1 line) | Depends on | State | Witness |
 |------|---------------|------------|-------|---------|
-| `SET-loader` | One typed `AirlockSettings` read in place; uniform `env>config>default` (additive: new module + proxy wiring + precedence tests; behavior changes deferred to SET-unify) | — | REVIEWED (codex CONCERN → fixing 2 mediums) | `dev/plans/runs/0.5.1-SET-loader-output.json` |
-| `SET-unify` | Delete hidden budget/failover defaults; fix R6; derive from config; budget-doc note | SET-loader | NOT_STARTED | `dev/plans/runs/0.5.1-SET-unify-output.json` |
-| `SET-warnratio` | Collapse 0.8/0.9 into one configurable warn ratio | SET-loader | NOT_STARTED | `dev/plans/runs/0.5.1-SET-warnratio-output.json` |
-| `STORE-seam` | DualCache-backed store; rolling-window spend (R5); checkpoint-in-child (FIX-1) | — (∥) | IMPLEMENTING | `dev/plans/runs/0.5.1-STORE-seam-output.json` |
+| `SET-loader` | One typed `AirlockSettings` read in place; uniform `env>config>default` (additive) | — | **CLOSED** (merged `6af83f7`; codex CONCERN→fixed) | `dev/plans/runs/0.5.1-SET-loader-output.json` |
+| `SET-unify` | Delete hidden budget/failover defaults; fix R6; derive from config; budget-doc note | SET-loader ✅ | IMPLEMENTING (off 6af83f7) | `dev/plans/runs/0.5.1-SET-unify-output.json` |
+| `SET-warnratio` | Collapse 0.8/0.9 into one configurable warn ratio | SET-unify | NOT_STARTED (prompt drafted) | `dev/plans/runs/0.5.1-SET-warnratio-output.json` |
+| `STORE-seam` | DualCache-backed store; rolling-window spend (R5); checkpoint-in-child (FIX-1) | — (∥) | IMPLEMENTED (`4797d5f`) → REVIEWING | `dev/plans/runs/0.5.1-STORE-seam-output.json` |
 
 States (furthest witnessed wins): `WORKTREE_CREATED` → `IMPLEMENTING` →
 `IMPLEMENTED` (`output.json` + head past baseline) → `REVIEWED` (`*-review-*.md`
@@ -56,8 +55,9 @@ with a `## Verdict:`) → `MERGED` → `CLOSED` → `CLEANED`.
 
 | Worktree path | Branch | Pack | State |
 |---------------|--------|------|-------|
-| `.claude/worktrees/0.5.1-SET-loader` | `feat/0.5.1-SET-loader` | SET-loader | IMPLEMENTING (off 1068125) |
-| `.claude/worktrees/0.5.1-STORE-seam` | `feat/0.5.1-STORE-seam` | STORE-seam | IMPLEMENTING (off 1068125) |
+| `.claude/worktrees/0.5.1-SET-loader` | `feat/0.5.1-SET-loader` | SET-loader | MERGED — pending cleanup |
+| `.claude/worktrees/0.5.1-STORE-seam` | `feat/0.5.1-STORE-seam` | STORE-seam | IMPLEMENTED (4797d5f) → reviewing |
+| `.claude/worktrees/0.5.1-SET-unify` | `feat/0.5.1-SET-unify` | SET-unify | IMPLEMENTING (off 6af83f7) |
 
 ## 6. HITL questions — ANSWERED at kickoff (2026-06-26)
 
