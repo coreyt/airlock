@@ -21,11 +21,13 @@ Audit source-of-record: `dev/notes/architecture-audit-0.5.0-2026-06.md`.
   Behavior-change register (all 4) shipped in CHANGELOG. **Final 4-pack no-network suite
   (HEAD `845c84f`): 2182 passed, 73 skipped, 4 deselected, 0 failed (267s)** — incl. the e2e
   subprocess restart durability test.
-- **Remaining for sign-off (engineering DONE):** **operator HITL** — run the live
-  restart-durability + warn-ratio/budget-state/model-override smoke on a separate dir+port
-  (copied config, never `:4000`) via `dev/smoketest/run_isolated_instance.sh` (billed calls +
-  credentials → operator-run by design); then the DoD sign-off line + push/tag decision (needs
-  explicit approval — nothing pushed/tagged yet).
+- **Remaining for sign-off (engineering DONE) — AWAITING OPERATOR SMOKE:** operator elected
+  (2026-06-26) to **run the live smoke themselves**, then I write the final sign-off. Smoke =
+  isolated instance on a spare port (`PORT=4137 dev/smoketest/run_isolated_instance.sh start`),
+  a few billed calls via `served_header_client.py`, `restart`, confirm **spend persists** (not
+  reset) + (with a configured budget) `X-Airlock-Budget-State: near_limit`/`X-Airlock-Model-Override`
+  fire at the warn ratio; `:4000` untouched. **On operator PASS:** write DoD sign-off line, then
+  **merge `feat/0.5.1-settings` → local `main` + tag `v0.5.1` locally (operator-approved; NO push).**
 
 ## 0. Definition-of-Done checklist (release sign-off)
 
