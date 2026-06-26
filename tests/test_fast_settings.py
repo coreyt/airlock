@@ -214,6 +214,20 @@ def test_failover_map_default_when_absent() -> None:
     assert "claude-sonnet" in s.failover_map
 
 
+def test_failover_map_env_wrong_inner_shape_falls_back_to_config() -> None:
+    # A string value must NOT be iterated char-by-char into ["b", "c"].
+    cfg = {"router_settings": {"fallbacks": [{"x": ["y"]}]}}
+    s = load_airlock_settings(cfg, env={"AIRLOCK_FAILOVER_MAP": '{"a": "bc"}'})
+    assert s.failover_map == {"x": ["y"]}
+    assert "a" not in s.failover_map
+
+
+def test_failover_map_env_wrong_inner_shape_falls_back_to_default() -> None:
+    s = load_airlock_settings({}, env={"AIRLOCK_FAILOVER_MAP": '{"a": "bc"}'})
+    assert s.failover_map.get("a") != ["b", "c"]
+    assert "claude-sonnet" in s.failover_map
+
+
 # ---------------------------------------------------------------------------
 # cost_tiers
 # ---------------------------------------------------------------------------
@@ -349,6 +363,16 @@ def test_get_settings_returns_defaults_when_unconfigured() -> None:
     settings_mod._configured = None
     s = get_settings()
     assert s.session_ttl == _EXPECTED_DEFAULT_SESSION_TTL
+
+
+def test_get_settings_unconfigured_windows_match_budgets() -> None:
+    # The unconfigured accessor must be internally consistent: every provider in
+    # provider_budgets must have a matching budget_windows entry.
+    settings_mod._configured = None
+    s = get_settings()
+    assert set(s.budget_windows) == set(s.provider_budgets)
+    assert s.budget_windows  # non-empty for the default budget map
+    assert all(w == 86400 for w in s.budget_windows.values())
 
 
 def test_configure_then_get_round_trip() -> None:
