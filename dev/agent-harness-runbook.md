@@ -98,6 +98,28 @@ duplicate live pack state into it.
 
 ---
 
+## 1.6 Kickoff HITL — settle the foreseeable cross-cutting questions FIRST
+
+After `/goal implement x.y.z` (or any release kickoff), the **first** HITL batch must
+cover the cross-cutting decisions that are *foreseeable from the start* — not just the
+release-specific design questions. The point is to avoid stalling at the finish line on
+something that could have been asked up front. Ask these together, in one batch, before
+Phase A, **with a recommended default** (so the human can one-click approve):
+
+| # | Always-ask kickoff question | Default (unless the human says otherwise) |
+|---|------------------------------|--------------------------------------------|
+| K1 | **Working branch** — stack on the current train, or cut a fresh `feat/x.y.z-*`? | Fresh `feat/x.y.z-*` cut from the most-advanced integrated branch (usually `main`). Re-verify which branch actually contains the prior train. |
+| K2 | **Who runs the live/integration smoke at sign-off** — the agent, or the operator? | **The agent runs it.** The `dev/smoketest/` isolated-instance harness is production-safe *by construction* (separate dir+port, copied config, refuses `:4000`/`:8090`, `/health/liveliness` only) — see [[airlock-production-safety]]. The agent may make a few cheap billed calls on the spare port unless the human reserves that. |
+| K3 | **Release finalization policy** — at sign-off, bump the version + cut the CHANGELOG section + tag? And push, or local-only? | **Bump `pyproject.toml` + `airlock/__init__.py`, rename CHANGELOG `[Unreleased]` → `[x.y.z] — <date>`, create the annotated tag — all LOCAL. Push + PyPI publish need a separate explicit approval** (never auto-push; see §1 Do-NOT). Confirm the *target version string*, since it has historically lagged (e.g. 0.4.0/0.5.0 shipped while the version stayed `0.3.1` and were never tagged). |
+| K4 | The release's own open design questions (from `dev/plans/<release>-plan.md` "Open questions"). | Per the plan's recommendations. |
+
+Record every answer in the STATUS board's "HITL questions — answered at kickoff" table.
+**Lesson (0.5.1):** K2 and K3 were *not* asked at kickoff and surfaced as friction at
+sign-off (operator wanted the agent to run the smoke; the version string was `0.3.1` with
+no `v0.4.0`/`v0.5.0` tags). Both were foreseeable — they are now standing kickoff items.
+
+---
+
 ## 2. Pre-Flight
 
 Run `scripts/preflight.sh` before every agent launch — not just at
@@ -284,6 +306,28 @@ Phases execute sequentially. Within a phase, agents run in parallel.
 | Phase N → N+1 (reviews) | Reviews can still be in flight. They gate merge, not next-phase launches. |
 | Pack → Merge | Agent reports tests pass. If review ran, verdict is not NEEDS_FIXES. Main is clean. |
 | All phases → Done | Full regression (`uv run pytest --cov=airlock -q`). Document remaining failures. |
+| Done → Signed off | Release finalization (§6.1) complete and recorded on the STATUS board. |
+
+### 6.1 Release finalization (sign-off)
+
+Once all packs are CLOSED and the suite is green, finalize per the **K2/K3 kickoff
+answers** (§1.6) — don't re-litigate them here:
+
+1. **Live smoke** (per K2). If agent-run: stand up the isolated instance
+   (`PORT=<spare> dev/smoketest/run_isolated_instance.sh start`), exercise the
+   release's client-facing surfaces + any durability/restart scenario, then `stop`.
+   Production-safe by construction; `/health/liveliness` only, never `/health`. Write
+   the results to `dev/plans/runs/<release>-SIGNOFF-smoke-<date>.md`. Findings that are
+   **pre-existing** (not introduced by this release) are logged as follow-ups, not blockers.
+2. **Version + CHANGELOG** (per K3). Bump `pyproject.toml` + `airlock/__init__.py` to
+   the confirmed `x.y.z`; rename CHANGELOG `[Unreleased]` → `[x.y.z] — <date>`. These are
+   release docs/config the orchestrator may edit directly. Verify `import airlock;
+   airlock.__version__` reflects the bump.
+3. **Merge + tag, LOCAL** (per K3). Merge `feat/x.y.z-*` → local `main` (`--no-ff`),
+   create the annotated `vx.y.z` tag. **Do not push or publish** — that is a separate
+   explicit approval (§1 Do-NOT; §11 anti-patterns).
+4. **Sign-off line** on the STATUS board: DoD checklist all-green, the smoke verdict,
+   the merge/release/tag shas, and the follow-ups list. Save durable follow-ups to memory.
 
 ---
 
@@ -564,6 +608,8 @@ work that has higher impact (e.g., dispatching the next planned phase).
 | Topic | Location |
 |---|---|
 | State spine + cold-start resume + STATUS board | [runbook §1.5](#15-state-spine--derive-position-from-disk-not-memory) |
+| Kickoff HITL — always-ask cross-cutting questions (branch / smoke-runner / version+tag+push) | [runbook §1.6](#16-kickoff-hitl--settle-the-foreseeable-cross-cutting-questions-first) |
+| Release finalization (smoke → version+CHANGELOG → local merge+tag → sign-off) | [runbook §6.1](#61-release-finalization-sign-off) |
 | On-disk layout (plans/runs/prompts) | [dev/plans/README.md](plans/README.md) |
 | Pack prompt template (fill-in) | [dev/plans/prompts/SLICE-TEMPLATE.md](plans/prompts/SLICE-TEMPLATE.md) |
 | codex reviewer (primary) + verdict promotion | [reference.md §3.1](agent-harness-reference.md#31-codex-reviewer-primary) |

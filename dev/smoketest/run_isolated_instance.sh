@@ -17,7 +17,11 @@
 #     writes its logs / sqlite DB / circuit-breaker checkpoint into the runtime
 #     dir only — and neutralizes remote sinks (S3 / SQL / FathomDB).
 #
-# THE AGENT THAT WROTE THIS DID NOT RUN IT. A human operator runs it.
+# WHO RUNS THIS: the orchestrating agent MAY run this when directed (it is production-safe
+# BY CONSTRUCTION — isolated dir+port, copied config, refuses 4000/8090, /health/liveliness
+# only). This is the approved channel for agent-run live validation (runbook §1.6 K2 +
+# [[airlock-production-safety]]). Settle "agent vs operator runs the smoke" at kickoff; a few
+# cheap billed calls on the spare port are expected for spend/durability scenarios.
 #
 # USAGE
 #   ./dev/smoketest/run_isolated_instance.sh prepare   # copy + rewrite env, validate port
@@ -28,7 +32,7 @@
 #
 #   PORT=4137 ./dev/smoketest/run_isolated_instance.sh start   # override port
 #
-# RESTART-DURABILITY SCENARIO (0.5.1 STORE-seam — operator runs this, not the agent):
+# RESTART-DURABILITY SCENARIO (0.5.1 STORE-seam — agent or operator per the K2 kickoff answer):
 #   1. start
 #   2. drive a few BILLED calls through the test instance, e.g.
 #        python dev/smoketest/served_header_client.py \
