@@ -12,6 +12,7 @@ from airlock.fast.circuit_breaker import (
     _load_failover_map,
     check_model,
 )
+from airlock.fast.router import set_router_config
 from airlock.fast.settings import configure_settings
 from airlock.fast.state import CircuitState
 
@@ -19,10 +20,14 @@ from airlock.fast.state import CircuitState
 @pytest.fixture(autouse=True)
 def _reset_settings():
     """Failover now derives from get_settings().failover_map (SET-unify); start each
-    test unconfigured so env / configure_settings is honoured deterministically."""
+    test unconfigured so env / configure_settings is honoured deterministically. The
+    router catalog (alias->provider map) is also cleared so the default state is an
+    EMPTY catalog (failover-target filtering disabled — the safe fallback)."""
     settings_mod._configured = None
+    set_router_config(None)
     yield
     settings_mod._configured = None
+    set_router_config(None)
 
 
 # Representative fallbacks block (real model_name aliases, mirrors config.yaml). Used
@@ -34,6 +39,26 @@ _FALLBACK_CONFIG = {
             {"claude-haiku": ["gemini-flash", "gpt-5-nano"]},
         ]
     }
+}
+
+# A loaded model_list catalog (alias->provider via litellm_params.model prefix). When
+# present, failover targets are constrained to these known aliases.
+_CATALOG = {
+    "model_list": [
+        {
+            "model_name": "claude-sonnet",
+            "litellm_params": {"model": "anthropic/claude-sonnet-4"},
+        },
+        {
+            "model_name": "claude-haiku",
+            "litellm_params": {"model": "anthropic/claude-haiku"},
+        },
+        {"model_name": "gpt-5-mini", "litellm_params": {"model": "openai/gpt-5-mini"}},
+        {
+            "model_name": "gemini-flash",
+            "litellm_params": {"model": "gemini/gemini-flash"},
+        },
+    ]
 }
 
 
@@ -134,11 +159,79 @@ class TestCheckModel:
         assert result.allowed is True
         assert result.circuit_state == "closed"
 
-    def test_custom_failover_map_used(self, fresh_state_store, monkeypatch):
-        custom = {"model-a": ["model-b"]}
-        monkeypatch.setenv("AIRLOCK_FAILOVER_MAP", json.dumps(custom))
+    def test_unknown_failover_target_skipped_when_catalog_known(
+        self, fresh_state_store, monkeypatch
+    ):
+        """With a loaded model_list catalog, an env-override failover target that is
+        not a known alias (typo/mistake) is skipped; selection lands on a real
+        model_name that is actually served."""
+        set_router_config(_CATALOG)
+        monkeypatch.setenv(
+            "AIRLOCK_FAILOVER_MAP",
+            json.dumps({"claude-sonnet": ["typo-model", "claude-haiku"]}),
+        )
 
-        # Break model-a
+        model = fresh_state_store.get_model("claude-sonnet")
+        now = time.time()
+        for _ in range(5):
+            model.record_failure(now)
+
+        result = check_model("claude-sonnet")
+        assert result.failover_model == "claude-haiku"  # typo-model skipped
+
+    def test_all_unknown_targets_filtered_when_catalog_known(
+        self, fresh_state_store, monkeypatch
+    ):
+        """If every failover target is unknown to the catalog, none is selected."""
+        set_router_config(_CATALOG)
+        monkeypatch.setenv(
+            "AIRLOCK_FAILOVER_MAP",
+            json.dumps({"claude-sonnet": ["model-x", "model-y"]}),
+        )
+
+        model = fresh_state_store.get_model("claude-sonnet")
+        now = time.time()
+        for _ in range(5):
+            model.record_failure(now)
+
+        result = check_model("claude-sonnet")
+        assert result.failover_model is None
+        assert result.reason == "all_models_unavailable"
+
+    def test_config_fallback_unknown_target_skipped_when_catalog_known(
+        self, fresh_state_store, monkeypatch
+    ):
+        """Filtering covers the config-fallbacks-derived map too, not just the env
+        override: a typo'd config fallback is skipped, real one is kept."""
+        monkeypatch.delenv("AIRLOCK_FAILOVER_MAP", raising=False)
+        set_router_config(_CATALOG)
+        configure_settings(
+            {
+                "router_settings": {
+                    "fallbacks": [
+                        {"claude-sonnet": ["typo-model", "gpt-5-mini"]},
+                    ]
+                }
+            }
+        )
+
+        model = fresh_state_store.get_model("claude-sonnet")
+        now = time.time()
+        for _ in range(5):
+            model.record_failure(now)
+
+        result = check_model("claude-sonnet")
+        assert result.failover_model == "gpt-5-mini"
+
+    def test_unknown_target_allowed_when_catalog_empty(
+        self, fresh_state_store, monkeypatch
+    ):
+        """SAFE FALLBACK: with an empty/unconfigured catalog, target filtering is
+        disabled — arbitrary failover targets pass through (preserves prior behavior
+        and avoids suppressing ALL failover when the catalog simply is not loaded)."""
+        set_router_config(None)  # empty catalog
+        monkeypatch.setenv("AIRLOCK_FAILOVER_MAP", json.dumps({"model-a": ["model-b"]}))
+
         model = fresh_state_store.get_model("model-a")
         now = time.time()
         for _ in range(5):
