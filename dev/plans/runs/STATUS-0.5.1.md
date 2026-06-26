@@ -14,7 +14,7 @@ Audit source-of-record: `dev/notes/architecture-audit-0.5.0-2026-06.md`.
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** `SET-unify` IMPLEMENTING (worktree at 4883592, off 6af83f7).
+- **In flight:** `SET-unify` REVIEWED → fixing 1 codex CONCERN (failover targets not validated vs model_list). **Behavior-change HITL gate ACCEPTED** (operator, 2026-06-26) — cleared to merge once the fix re-verifies.
 - **Done:** kickoff cleared; Phase A (UN-25/26); Phase D PASS. **`SET-loader` CLOSED**
   (`6af83f7`). **`STORE-seam` CLOSED** (merged `93e15a2`; codex CONCERN→fixed; post-merge
   affected suites 230 green, proxy.py auto-merge verified — both `configure_settings` and
@@ -28,7 +28,7 @@ Audit source-of-record: `dev/notes/architecture-audit-0.5.0-2026-06.md`.
 | Pack | Goal (1 line) | Depends on | State | Witness |
 |------|---------------|------------|-------|---------|
 | `SET-loader` | One typed `AirlockSettings` read in place; uniform `env>config>default` (additive) | — | **CLOSED** (merged `6af83f7`; codex CONCERN→fixed) | `dev/plans/runs/0.5.1-SET-loader-output.json` |
-| `SET-unify` | Delete hidden budget/failover defaults; fix R6; derive from config; budget-doc note | SET-loader ✅ | IMPLEMENTING (off 6af83f7) | `dev/plans/runs/0.5.1-SET-unify-output.json` |
+| `SET-unify` | Delete hidden budget/failover defaults; fix R6; derive from config; budget-doc note | SET-loader ✅ | REVIEWED (codex CONCERN: 1 med → fixing; behavior-change HITL ACCEPTED) | `dev/plans/runs/0.5.1-SET-unify-output.json` |
 | `SET-warnratio` | Collapse 0.8/0.9 into one configurable warn ratio | SET-unify | NOT_STARTED (prompt drafted) | `dev/plans/runs/0.5.1-SET-warnratio-output.json` |
 | `STORE-seam` | DualCache-backed store; rolling-window spend (R5); checkpoint-in-child (FIX-1) | — (∥) | **CLOSED** (merged `93e15a2`; codex CONCERN→fixed) | `dev/plans/runs/0.5.1-STORE-seam-output.json` |
 
@@ -68,10 +68,9 @@ with a `## Verdict:`) → `MERGED` → `CLOSED` → `CLEANED`.
 | 3 | Restore LiteLLM's hard-budget cache on restart if budgets>0 (FIX-2)? | **Accept reset while budgets are 0.** Scope restart-durability to Airlock warn/swap spend; LiteLLM-cache restore is a tracked follow-up if hard budgets return. |
 | 4 | Working branch: stack on the train vs fresh branch? | **Fresh `feat/0.5.1-settings` off `main`** (`main` now fully contains `feat/0.5.0-resilience-admin`). |
 
-The kickoff HITL gate is **CLEARED**. Remaining HITL gates: (a) before `SET-unify`
-merges — confirm the operator accepts the documented auto-swap-off behavior change
-(Q1/Behavior-change #1); (b) release sign-off — DoD met + green isolated-instance
-smoke-test on a separate dir+port.
+Kickoff HITL gate **CLEARED**. Pre-`SET-unify`-merge behavior-change gate **CLEARED**
+(operator accepted auto-swap-off, 2026-06-26). Remaining HITL gate: release sign-off — DoD
+met + green isolated-instance smoke-test (incl. spend-survives-restart) on a separate dir+port.
 
 ## 7. Recent decisions (newest on top)
 
