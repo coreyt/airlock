@@ -310,6 +310,17 @@ def set_router_config(config: dict | None) -> None:
     _alias_provider_map = alias_map
 
 
+def known_model_aliases() -> set[str]:
+    """Aliases present in the loaded ``config.yaml`` ``model_list`` catalog.
+
+    Read-only view of the alias->provider map cached by :func:`set_router_config`.
+    Empty when the catalog is unconfigured (``set_router_config`` never called, or no
+    ``model_list``) — callers must treat an empty set as "catalog unknown" and skip
+    catalog-based filtering rather than reject everything.
+    """
+    return set(_alias_provider_map)
+
+
 def _validate_cost_tiers(value: object) -> dict[str, list[str]] | None:
     """Return ``value`` if it is a well-formed cost-tier mapping, else None."""
     if not isinstance(value, dict) or not value:

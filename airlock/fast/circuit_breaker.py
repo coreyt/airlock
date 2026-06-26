@@ -7,6 +7,9 @@ exceed a threshold) and transparently re-routes to a healthy fallback.
 The failover map derives from ``router_settings.fallbacks`` in config.yaml (via
 ``get_settings()``), with an optional ``AIRLOCK_FAILOVER_MAP`` environment override.
 There is no hidden default: an unconfigured deployment has no failover targets.
+Failover targets are constrained to aliases present in the loaded ``model_list``
+catalog (``router.known_model_aliases``) so a typo or override can't reroute to a
+non-existent alias; when the catalog is empty/unconfigured, filtering is disabled.
 
 Env vars:
     AIRLOCK_FAILOVER_MAP — JSON mapping of model → fallback list, e.g.
@@ -18,7 +21,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from .router import infer_provider
+from .router import infer_provider, known_model_aliases
 from .settings import get_settings
 from .state import store
 
@@ -85,9 +88,21 @@ def check_model_with_filters(
     else:
         reason = f"circuit_open(failures={model_state.consecutive_failures})"
 
-    # Circuit is open — look for a healthy fallback
+    # Circuit is open — look for a healthy fallback. Constrain candidates to aliases
+    # that actually exist in the loaded model_list catalog so a typo'd config fallback
+    # or AIRLOCK_FAILOVER_MAP override can't reroute to a non-existent LiteLLM alias
+    # (unknown models are healthy-by-default in the state store). Safe fallback: when
+    # the catalog is empty/unconfigured we cannot validate, so we do NOT filter.
+    catalog = known_model_aliases()
     for fallback in failover_map.get(model_name, []):
         if fallback in blocked_models:
+            continue
+        if catalog and fallback not in catalog:
+            logger.warning(
+                "circuit_open model=%s skipping failover=%s not in model_list catalog",
+                model_name,
+                fallback,
+            )
             continue
         provider = infer_provider(fallback)
         if provider and provider in blocked_providers:
