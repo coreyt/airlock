@@ -14,21 +14,27 @@ Audit source-of-record: `dev/notes/architecture-audit-0.5.0-2026-06.md`.
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** `SET-unify` REVIEWED → fixing 1 codex CONCERN (failover targets not validated vs model_list). **Behavior-change HITL gate ACCEPTED** (operator, 2026-06-26) — cleared to merge once the fix re-verifies.
+- **In flight:** `SET-unify` **MERGED** (`abb6194`; codex CONCERN→fixed, behavior-change HITL
+  ACCEPTED). Post-merge: a release-introduced **test-isolation fragility** found — the new
+  `known_model_aliases()` failover filter reads a module-global router catalog; the guardian
+  failover tests assume it empty but don't enforce it, so they fail if a catalog-populating
+  test ran earlier. Full suite passes in default (alphabetical) order (running to confirm);
+  **fix pending: a conftest autouse catalog reset so order never matters.** Then spawn `SET-warnratio`.
 - **Done:** kickoff cleared; Phase A (UN-25/26); Phase D PASS. **`SET-loader` CLOSED**
   (`6af83f7`). **`STORE-seam` CLOSED** (merged `93e15a2`; codex CONCERN→fixed; post-merge
-  affected suites 230 green, proxy.py auto-merge verified — both `configure_settings` and
-  the `AIRLOCK_LITELLM_CHILD` child-gate coexist). UN-26 engineering-complete (no-network
-  subprocess round-trip durability passes); **live restart-durability smoke is a sign-off gate.**
-- **Next action:** when `SET-unify` lands → codex review → **HITL confirm the auto-swap-off
-  behavior change before merge** → merge → spawn `SET-warnratio` (last critical-path pack).
+  affected suites 230 green, proxy.py auto-merge verified). UN-26 engineering-complete
+  (no-network subprocess round-trip durability passes); **live restart-durability smoke is a
+  sign-off gate.** **`SET-unify` CLOSED** (R6/R2/AC-0 + budget-doc note; 27 shipped fallbacks
+  all resolve to real model_list aliases).
+- **Next action:** confirm full-suite green → dispatch the conftest test-isolation fix →
+  spawn `SET-warnratio` (last critical-path pack) → release sign-off (smoke on separate port).
 
 ## 2. Pack scoreboard
 
 | Pack | Goal (1 line) | Depends on | State | Witness |
 |------|---------------|------------|-------|---------|
 | `SET-loader` | One typed `AirlockSettings` read in place; uniform `env>config>default` (additive) | — | **CLOSED** (merged `6af83f7`; codex CONCERN→fixed) | `dev/plans/runs/0.5.1-SET-loader-output.json` |
-| `SET-unify` | Delete hidden budget/failover defaults; fix R6; derive from config; budget-doc note | SET-loader ✅ | REVIEWED (codex CONCERN: 1 med → fixing; behavior-change HITL ACCEPTED) | `dev/plans/runs/0.5.1-SET-unify-output.json` |
+| `SET-unify` | Delete hidden budget/failover defaults; fix R6; derive from config; budget-doc note | SET-loader ✅ | **CLOSED** (merged `abb6194`; codex CONCERN→fixed; HITL ACCEPTED) | `dev/plans/runs/0.5.1-SET-unify-output.json` |
 | `SET-warnratio` | Collapse 0.8/0.9 into one configurable warn ratio | SET-unify | NOT_STARTED (prompt drafted) | `dev/plans/runs/0.5.1-SET-warnratio-output.json` |
 | `STORE-seam` | DualCache-backed store; rolling-window spend (R5); checkpoint-in-child (FIX-1) | — (∥) | **CLOSED** (merged `93e15a2`; codex CONCERN→fixed) | `dev/plans/runs/0.5.1-STORE-seam-output.json` |
 
@@ -42,9 +48,9 @@ with a `## Verdict:`) → `MERGED` → `CLOSED` → `CLEANED`.
 |-------------|---------|--------|
 | UN-25 — unified settings precedence (no hidden defaults) | SET-loader, SET-unify, SET-warnratio | ⏳ (defined in `dev/user-needs.md`) |
 | UN-26 — accurate + durable spend (R5 + restart survival, FIX-1) | STORE-seam | ✅ eng-complete (no-network round-trip green; live smoke @ sign-off) |
-| AC-R6 — monitor reads `router_settings` nesting | SET-unify | ⏳ |
-| AC-R2 — failover targets exist in `model_list` | SET-unify | ⏳ |
-| AC-0 — `0 ⇒ no enforcement` across all three layers | SET-unify | ⏳ |
+| AC-R6 — monitor reads `router_settings` nesting | SET-unify | ✅ (regression test green) |
+| AC-R2 — failover targets exist in `model_list` | SET-unify | ✅ (defaults removed + catalog-filtered) |
+| AC-0 — `0 ⇒ no enforcement` across all three layers | SET-unify | ✅ (test + documented) |
 
 ## 4. Parallelization plan
 
@@ -56,8 +62,7 @@ with a `## Verdict:`) → `MERGED` → `CLOSED` → `CLEANED`.
 
 | Worktree path | Branch | Pack | State |
 |---------------|--------|------|-------|
-| `.claude/worktrees/0.5.1-SET-unify` | `feat/0.5.1-SET-unify` | SET-unify | IMPLEMENTING (off 6af83f7) |
-| _(SET-loader, STORE-seam worktrees removed — merged + cleaned)_ | | | |
+| _(SET-loader, STORE-seam, SET-unify all merged + cleaned)_ | | | |
 
 ## 6. HITL questions — ANSWERED at kickoff (2026-06-26)
 
