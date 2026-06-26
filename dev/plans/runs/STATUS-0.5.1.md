@@ -18,12 +18,27 @@ Audit source-of-record: `dev/notes/architecture-audit-0.5.0-2026-06.md`.
   `6af83f7`, STORE-seam `93e15a2`, SET-unify `abb6194`, SET-warnratio `845c84f`. Each codex
   PASS/PASS-after-fix (CONCERNs fixed; one LOW metadata note overridden-with-rationale; no
   overridden BLOCK). Test-isolation fragility fixed (conftest autouse catalog reset).
-  Behavior-change register (all 4) shipped in CHANGELOG. Earlier full no-network suite: 2177
-  passed/0 failed (default order); final 4-pack suite re-running to reconfirm.
-- **Remaining for sign-off:** (1) reconfirm full no-network suite on `845c84f`; (2) **operator
-  HITL** — run the live restart-durability + warn-ratio/budget-state/model-override smoke on a
-  separate dir+port (copied config, never `:4000`) via `dev/smoketest/run_isolated_instance.sh`
-  (billed calls + credentials → operator-run by design); (3) write the DoD sign-off line.
+  Behavior-change register (all 4) shipped in CHANGELOG. **Final 4-pack no-network suite
+  (HEAD `845c84f`): 2182 passed, 73 skipped, 4 deselected, 0 failed (267s)** — incl. the e2e
+  subprocess restart durability test.
+- **Remaining for sign-off (engineering DONE):** **operator HITL** — run the live
+  restart-durability + warn-ratio/budget-state/model-override smoke on a separate dir+port
+  (copied config, never `:4000`) via `dev/smoketest/run_isolated_instance.sh` (billed calls +
+  credentials → operator-run by design); then the DoD sign-off line + push/tag decision (needs
+  explicit approval — nothing pushed/tagged yet).
+
+## 0. Definition-of-Done checklist (release sign-off)
+
+| # | DoD item | Status |
+|---|----------|--------|
+| 1 | All 4 packs CLOSED w/ promoted codex PASS (CONCERN fixed or overridden-with-rationale; no overridden BLOCK) | ✅ |
+| 2 | Acceptance: UN-25, UN-26, AC-R6, AC-R2, AC-0 all green | ✅ |
+| 3 | Full no-network suite green on the target branch | ✅ 2182 passed / 0 failed (`845c84f`) |
+| 4 | Durability proven by the e2e subprocess restart test (FIX-1 + Q3) | ✅ (no-network round-trip in `test_fast_spend_store.py`) |
+| 5 | Behavior-change register shipped (4 entries) + config.yaml/template budget-doc note | ✅ (CHANGELOG #1–#4; note in SET-unify) |
+| 6 | HITL kickoff questions answered + recorded | ✅ (§6) |
+| 7 | `dev/smoketest/` extended + green on a separate dir+port (incl. spend-survives-restart); live `:4000` untouched | ⏳ **OPERATOR-RUN** (scenarios added; awaiting operator smoke) |
+| 8 | Nothing pushed/tagged without approval; branch advanced locally; sign-off line written | ⏳ (branch local @ `845c84f`+docs; sign-off pending #7) |
 - **Done:** kickoff cleared; Phase A (UN-25/26); Phase D PASS. **`SET-loader` CLOSED**
   (`6af83f7`). **`STORE-seam` CLOSED** (merged `93e15a2`; codex CONCERN→fixed; post-merge
   affected suites 230 green, proxy.py auto-merge verified). UN-26 engineering-complete
