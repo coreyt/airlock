@@ -6,7 +6,7 @@
 > witnesses (worktree list, `output.json`, `*-review-*.md`, merge commits) and
 > trust the witnesses over this file on any conflict.
 
-_Last updated: 2026-06-26 (kickoff scaffold) · base branch: `feat/0.5.0-resilience-admin`_
+_Last updated: 2026-06-26 (HITL kickoff answered; Phase A complete) · base branch: `feat/0.5.1-settings` (cut from `main` @ 91eabf7; `main` already contains the 0.5.0 train)_
 
 Release: **settings coherence + the in-memory DualCache STORE-seam.** Plan:
 `dev/plans/0.5.1-plan.md`. Orchestrator: `dev/plans/prompts/0.5.1-ORCHESTRATOR.md`.
@@ -14,11 +14,14 @@ Audit source-of-record: `dev/notes/architecture-audit-0.5.0-2026-06.md`.
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** none — release not yet started.
-- **Next action:** **HITL kickoff** — answer the three open questions (§6) + confirm
-  the working branch. Then Phase A (add UN-25/UN-26 to `dev/user-needs.md`) and,
-  since **Phase D is already PASS** (`0.5.1-design-review-20260625T004647Z-r2.md`),
-  go straight to Phase E starting with `SET-loader` (and `STORE-seam` in parallel).
+- **In flight:** none yet — **Phase E ready to start.**
+- **Done:** HITL kickoff answered (§6, all recommendations confirmed); branch
+  `feat/0.5.1-settings` cut from `main` @ 91eabf7; config.yaml budgets→0 baseline
+  committed (`227a6b0`); **Phase A complete** — UN-25/UN-26 added to
+  `dev/user-needs.md`. Phase D was already PASS (`0.5.1-design-review-20260625T004647Z-r2.md`).
+- **Next action:** **Phase E** — author + spawn `SET-loader` (critical-path head)
+  and `STORE-seam` (∥, disjoint files) implementers in isolated worktrees.
+  Critical path then continues `SET-loader → SET-unify → SET-warnratio`.
 
 ## 2. Pack scoreboard
 
@@ -37,8 +40,8 @@ with a `## Verdict:`) → `MERGED` → `CLOSED` → `CLEANED`.
 
 | Requirement | Pack(s) | Status |
 |-------------|---------|--------|
-| UN-25 — unified settings precedence (no hidden defaults) | SET-loader, SET-unify, SET-warnratio | ⏳ |
-| UN-26 — accurate + durable spend (R5 + restart survival, FIX-1) | STORE-seam | ⏳ |
+| UN-25 — unified settings precedence (no hidden defaults) | SET-loader, SET-unify, SET-warnratio | ⏳ (defined in `dev/user-needs.md`) |
+| UN-26 — accurate + durable spend (R5 + restart survival, FIX-1) | STORE-seam | ⏳ (defined in `dev/user-needs.md`) |
 | AC-R6 — monitor reads `router_settings` nesting | SET-unify | ⏳ |
 | AC-R2 — failover targets exist in `model_list` | SET-unify | ⏳ |
 | AC-0 — `0 ⇒ no enforcement` across all three layers | SET-unify | ⏳ |
@@ -55,17 +58,28 @@ with a `## Verdict:`) → `MERGED` → `CLOSED` → `CLEANED`.
 |---------------|--------|------|-------|
 | _(none yet)_ | | | |
 
-## 6. Open HITL questions
+## 6. HITL questions — ANSWERED at kickoff (2026-06-26)
 
-| # | Question | Recommendation | Blocking? |
-|---|----------|----------------|-----------|
-| 1 | Keep both pre-call swap + LiteLLM `fallbacks`, or converge on one? | keep both sharing one target map for now | kickoff |
-| 2 | Is multi-worker / horizontal scaling actually anticipated? | defer (decides how far the seam reaches) | kickoff |
-| 3 | Restore LiteLLM's hard-budget cache on restart if budgets>0 (FIX-2)? | accept reset while budgets are 0; revisit if reintroduced | kickoff |
-| 4 | Working branch: stack on the train vs fresh `feat/0.5.1-settings`? | stack on `feat/0.5.0-resilience-admin` | kickoff |
+| # | Question | Decision (operator) |
+|---|----------|---------------------|
+| 1 | Keep both pre-call swap + LiteLLM `fallbacks`, or converge on one? | **Keep both, one shared target map** (both derive from `router_settings.fallbacks`). |
+| 2 | Is multi-worker / horizontal scaling actually anticipated? | **Defer — not anticipated soon.** Build the seam in-memory + file-checkpoint; keep Redis a clean future config-flip, don't over-build. |
+| 3 | Restore LiteLLM's hard-budget cache on restart if budgets>0 (FIX-2)? | **Accept reset while budgets are 0.** Scope restart-durability to Airlock warn/swap spend; LiteLLM-cache restore is a tracked follow-up if hard budgets return. |
+| 4 | Working branch: stack on the train vs fresh branch? | **Fresh `feat/0.5.1-settings` off `main`** (`main` now fully contains `feat/0.5.0-resilience-admin`). |
+
+The kickoff HITL gate is **CLEARED**. Remaining HITL gates: (a) before `SET-unify`
+merges — confirm the operator accepts the documented auto-swap-off behavior change
+(Q1/Behavior-change #1); (b) release sign-off — DoD met + green isolated-instance
+smoke-test on a separate dir+port.
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-26 — **HITL kickoff cleared + Phase A complete.** All four kickoff
+  questions answered with the recommended options (§6). Cut `feat/0.5.1-settings`
+  from `main` @ 91eabf7 (`main` supersedes the stale `feat/0.5.0` base). Committed
+  the config.yaml budgets→0 baseline (`227a6b0`). Added **UN-25** (unified settings
+  precedence) and **UN-26** (accurate + durable spend) to `dev/user-needs.md`.
+  Next: Phase E — `SET-loader` + `STORE-seam` in parallel.
 - 2026-06-26 — **Scaffolded for `/goal complete 0.5.1`:** added the lifecycle map,
   UN-25/UN-26 acceptance scoreboard, and production-ready DoD to the plan; authored
   this board + the orchestrator prompt. Phase D witnessed PASS (round 2) → release

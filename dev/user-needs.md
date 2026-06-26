@@ -623,3 +623,89 @@ visible rather than hidden.
    (it is a prediction) but is no longer treated as the authoritative record of
    what served the request. Where served truth is unavailable (errors before a
    response), the record is explicitly marked as inferred-only.
+
+---
+
+## UN-25: Unified Settings Precedence
+
+**As an** operator configuring Airlock,
+**I need** every `fast/` runtime setting to have one typed home and one uniform
+`env > config > default` precedence rule, with no hidden hardcoded defaults that
+silently override `config.yaml`,
+**so that** what I write in `config.yaml` is what the proxy actually does — one
+concept never reads from three disagreeing sources.
+
+> Traces to `dev/plans/0.5.1-plan.md` (register R1–R6) and
+> `dev/notes/architecture-audit-0.5.0-2026-06.md` (Part 1, budget triple-source).
+> Motivating incident (2026-06-24): `provider_budget_config: 0` silenced LiteLLM's
+> hard block and the monitor warn, but the fast router kept swapping Gemini away at
+> a hardcoded `$25/day` it read from `_DEFAULT_PROVIDER_BUDGETS` — three subsystems,
+> one concept, three sources.
+
+### Stakeholders
+
+- Operators (config is authoritative and predictable)
+- Finance (budget behavior matches the configured numbers)
+- Developers (one precedence rule to reason about)
+
+### Acceptance Criteria
+
+1. A single typed settings object (modeled on `transparency.py` `TransparencyConfig`)
+   reads each `fast/` setting in place with uniform `env > config > default`
+   precedence, including malformed-input fallback.
+2. The hardcoded `_DEFAULT_PROVIDER_BUDGETS`, `_DEFAULT_FAILOVER_MAP`, and the dual
+   `0.8`/`0.9` warn-ratio constants are removed; budgets and failover derive from
+   `config.yaml` (`router_settings.provider_budget_config` / `router_settings.fallbacks`).
+3. The monitor reads budgets from the correct `router_settings` nesting (R6 fix);
+   a budget set there is captured by `configure_budgets` (today it reads top-level
+   and is always empty).
+4. A circuit-open failover lands on a model that actually exists in `model_list`
+   (R2 fix; today the stale `gpt-4o` default targets a model the proxy doesn't serve).
+5. `0 ⇒ no enforcement` is preserved and documented identically across all three
+   layers (LiteLLM hard block, monitor warn, router proactive swap).
+6. An empty `airlock_settings:` reproduces today's behavior for the **non-budget**
+   settings (`session_ttl`, `smart_thresholds`, `cost_tiers`, warn-ratio); provider
+   budget auto-swap defaults are intentionally **not** preserved (documented behavior
+   change — auto-swap now requires an explicit `provider_budget_config`).
+
+---
+
+## UN-26: Accurate, Durable Provider-Spend Accounting
+
+**As an** operator relying on budget warnings and proactive cost-swaps,
+**I need** provider spend accounted accurately regardless of call volume and
+preserved across a proxy restart,
+**so that** the busy providers budgets exist to protect are not silently
+undercounted, and a restart does not zero an accumulated daily spend total.
+
+> Traces to `dev/plans/0.5.1-plan.md` (register R5, STORE-seam FIX-1…FIX-7) and
+> the architecture audit. The pre-0.5.1 `deque(maxlen=1000)` was a true sliding
+> 24h window but count-capped — a provider doing >1000 billed calls/day dropped
+> in-window records and undercounted exactly where budgets matter — and it zeroed
+> on restart.
+
+### Stakeholders
+
+- Operators (accurate spend visibility and durable counters)
+- Finance (no undercount on high-volume providers)
+
+### Acceptance Criteria
+
+1. Spend is tracked in a rolling, time-windowed accumulator (timestamped buckets
+   pruned by age), so trailing-24h spend is accurate regardless of call volume —
+   a >1000-call/day provider no longer undercounts (R5 fix).
+2. Spend survives a proxy restart: it is checkpointed to disk and rehydrated on
+   start, proven by an **end-to-end subprocess restart test** (start → record spend
+   → stop → start → assert restored), not only an in-process unit test.
+3. Checkpoint/restore runs in the **litellm child process** where the store is
+   actually mutated (FIX-1), not in the launcher process (which checkpoints an
+   empty store today).
+4. The checkpoint has defined semantics: versioned schema, atomic write
+   (temp + `os.replace`), prune-before-checkpoint, and idempotent replace-not-append
+   restore bounded by record age (only in-window records rehydrated).
+5. The store sits behind an Airlock-owned interface backed by an in-memory
+   `DualCache` (single-process; spend stored as integer µ$ for `INCR`/Redis-flip
+   compatibility; explicit per-key TTL ≥ the rolling window; `_lock` held around
+   read-modify-write). Redis backend and `--num_workers` are deliberately deferred.
+6. `cb_state.json` circuit-breaker recovery still round-trips on the same
+   (now correctly process-located) checkpoint path.
