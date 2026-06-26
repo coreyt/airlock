@@ -6,7 +6,7 @@
 > witnesses (worktree list, `output.json`, `*-review-*.md`, merge commits) and
 > trust the witnesses over this file on any conflict.
 
-_Last updated: 2026-06-26 (kickoff scaffold) · base branch: `feat/0.5.0-resilience-admin`_
+_Last updated: 2026-06-26 (HITL kickoff answered; Phase A complete) · base branch: `feat/0.5.1-settings` (cut from `main` @ 91eabf7; `main` already contains the 0.5.0 train)_
 
 Release: **settings coherence + the in-memory DualCache STORE-seam.** Plan:
 `dev/plans/0.5.1-plan.md`. Orchestrator: `dev/plans/prompts/0.5.1-ORCHESTRATOR.md`.
@@ -14,20 +14,54 @@ Audit source-of-record: `dev/notes/architecture-audit-0.5.0-2026-06.md`.
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** none — release not yet started.
-- **Next action:** **HITL kickoff** — answer the three open questions (§6) + confirm
-  the working branch. Then Phase A (add UN-25/UN-26 to `dev/user-needs.md`) and,
-  since **Phase D is already PASS** (`0.5.1-design-review-20260625T004647Z-r2.md`),
-  go straight to Phase E starting with `SET-loader` (and `STORE-seam` in parallel).
+- **ALL 4 PACKS CLOSED + MERGED** on `feat/0.5.1-settings` (HEAD `845c84f`): SET-loader
+  `6af83f7`, STORE-seam `93e15a2`, SET-unify `abb6194`, SET-warnratio `845c84f`. Each codex
+  PASS/PASS-after-fix (CONCERNs fixed; one LOW metadata note overridden-with-rationale; no
+  overridden BLOCK). Test-isolation fragility fixed (conftest autouse catalog reset).
+  Behavior-change register (all 4) shipped in CHANGELOG. **Final 4-pack no-network suite
+  (HEAD `845c84f`): 2182 passed, 73 skipped, 4 deselected, 0 failed (267s)** — incl. the e2e
+  subprocess restart durability test.
+## ✅ 0.5.1 SIGNED OFF (2026-06-26)
+
+All 8 DoD items met. Live smoke PASS (orchestrator-run on isolated port 4137 at operator
+direction): spend survived restart (62µ$ → restore → 128µ$), unified warn ratio fired at the
+configured ratio, clean boot, production untouched. 3 pre-existing non-blocking findings logged
+as follow-ups (`0.5.1-SIGNOFF-smoke-20260626.md`: F-B near_limit response-header surfacing;
+F-C proactive-swap needs a candidate pool; F-D AIRLOCK_STATE_DIR via .env). Per operator: merged
+`feat/0.5.1-settings` → local `main` + tagged `v0.5.1` **locally (NOT pushed)**.
+
+**Follow-ups for a later release:** F-B, F-C, F-D above; the stale `configure_budgets` comment
+at `monitor.py:~399`; and the deferred Redis backend + `--num_workers` (Q2).
+
+## 0. Definition-of-Done checklist (release sign-off)
+
+| # | DoD item | Status |
+|---|----------|--------|
+| 1 | All 4 packs CLOSED w/ promoted codex PASS (CONCERN fixed or overridden-with-rationale; no overridden BLOCK) | ✅ |
+| 2 | Acceptance: UN-25, UN-26, AC-R6, AC-R2, AC-0 all green | ✅ |
+| 3 | Full no-network suite green on the target branch | ✅ 2182 passed / 0 failed (`845c84f`) |
+| 4 | Durability proven by the e2e subprocess restart test (FIX-1 + Q3) | ✅ (no-network round-trip in `test_fast_spend_store.py`) |
+| 5 | Behavior-change register shipped (4 entries) + config.yaml/template budget-doc note | ✅ (CHANGELOG #1–#4; note in SET-unify) |
+| 6 | HITL kickoff questions answered + recorded | ✅ (§6) |
+| 7 | `dev/smoketest/` extended + green on a separate dir+port (incl. spend-survives-restart); live `:4000` untouched | ✅ **PASS** (orchestrator-run 2026-06-26, isolated port 4137 — spend 62µ$→restore→128µ$; warn fires at configured ratio; boot clean. 3 pre-existing non-blocking findings F-B/F-C/F-D. See `0.5.1-SIGNOFF-smoke-20260626.md`) |
+| 8 | Nothing pushed/tagged without approval; branch advanced locally; sign-off line written | ✅ branch local; operator-approved local merge→main + tag `v0.5.1` (NO push); sign-off below |
+- **Done:** kickoff cleared; Phase A (UN-25/26); Phase D PASS. **`SET-loader` CLOSED**
+  (`6af83f7`). **`STORE-seam` CLOSED** (merged `93e15a2`; codex CONCERN→fixed; post-merge
+  affected suites 230 green, proxy.py auto-merge verified). UN-26 engineering-complete
+  (no-network subprocess round-trip durability passes); **live restart-durability smoke is a
+  sign-off gate.** **`SET-unify` CLOSED** (R6/R2/AC-0 + budget-doc note; 27 shipped fallbacks
+  all resolve to real model_list aliases).
+- **Next action:** confirm full-suite green → dispatch the conftest test-isolation fix →
+  spawn `SET-warnratio` (last critical-path pack) → release sign-off (smoke on separate port).
 
 ## 2. Pack scoreboard
 
 | Pack | Goal (1 line) | Depends on | State | Witness |
 |------|---------------|------------|-------|---------|
-| `SET-loader` | One typed `AirlockSettings` read in place; uniform `env>config>default` | — | NOT_STARTED | `dev/plans/runs/0.5.1-SET-loader-output.json` |
-| `SET-unify` | Delete hidden budget/failover defaults; fix R6; derive from config; budget-doc note | SET-loader | NOT_STARTED | `dev/plans/runs/0.5.1-SET-unify-output.json` |
-| `SET-warnratio` | Collapse 0.8/0.9 into one configurable warn ratio | SET-loader | NOT_STARTED | `dev/plans/runs/0.5.1-SET-warnratio-output.json` |
-| `STORE-seam` | DualCache-backed store; rolling-window spend (R5); checkpoint-in-child (FIX-1) | — (∥) | NOT_STARTED | `dev/plans/runs/0.5.1-STORE-seam-output.json` |
+| `SET-loader` | One typed `AirlockSettings` read in place; uniform `env>config>default` (additive) | — | **CLOSED** (merged `6af83f7`; codex CONCERN→fixed) | `dev/plans/runs/0.5.1-SET-loader-output.json` |
+| `SET-unify` | Delete hidden budget/failover defaults; fix R6; derive from config; budget-doc note | SET-loader ✅ | **CLOSED** (merged `abb6194`; codex CONCERN→fixed; HITL ACCEPTED) | `dev/plans/runs/0.5.1-SET-unify-output.json` |
+| `SET-warnratio` | Collapse 0.8/0.9 into one configurable warn ratio | SET-unify ✅ | **CLOSED** (merged `845c84f`; codex 1 LOW overridden) | `dev/plans/runs/0.5.1-SET-warnratio-output.json` |
+| `STORE-seam` | DualCache-backed store; rolling-window spend (R5); checkpoint-in-child (FIX-1) | — (∥) | **CLOSED** (merged `93e15a2`; codex CONCERN→fixed) | `dev/plans/runs/0.5.1-STORE-seam-output.json` |
 
 States (furthest witnessed wins): `WORKTREE_CREATED` → `IMPLEMENTING` →
 `IMPLEMENTED` (`output.json` + head past baseline) → `REVIEWED` (`*-review-*.md`
@@ -37,11 +71,11 @@ with a `## Verdict:`) → `MERGED` → `CLOSED` → `CLEANED`.
 
 | Requirement | Pack(s) | Status |
 |-------------|---------|--------|
-| UN-25 — unified settings precedence (no hidden defaults) | SET-loader, SET-unify, SET-warnratio | ⏳ |
-| UN-26 — accurate + durable spend (R5 + restart survival, FIX-1) | STORE-seam | ⏳ |
-| AC-R6 — monitor reads `router_settings` nesting | SET-unify | ⏳ |
-| AC-R2 — failover targets exist in `model_list` | SET-unify | ⏳ |
-| AC-0 — `0 ⇒ no enforcement` across all three layers | SET-unify | ⏳ |
+| UN-25 — unified settings precedence (no hidden defaults) | SET-loader, SET-unify, SET-warnratio | ✅ (all 3 packs merged; precedence matrix + AC tests green) |
+| UN-26 — accurate + durable spend (R5 + restart survival, FIX-1) | STORE-seam | ✅ eng-complete (no-network round-trip green; live smoke @ sign-off) |
+| AC-R6 — monitor reads `router_settings` nesting | SET-unify | ✅ (regression test green) |
+| AC-R2 — failover targets exist in `model_list` | SET-unify | ✅ (defaults removed + catalog-filtered) |
+| AC-0 — `0 ⇒ no enforcement` across all three layers | SET-unify | ✅ (test + documented) |
 
 ## 4. Parallelization plan
 
@@ -53,19 +87,29 @@ with a `## Verdict:`) → `MERGED` → `CLOSED` → `CLEANED`.
 
 | Worktree path | Branch | Pack | State |
 |---------------|--------|------|-------|
-| _(none yet)_ | | | |
+| _(SET-loader, STORE-seam, SET-unify all merged + cleaned)_ | | | |
 
-## 6. Open HITL questions
+## 6. HITL questions — ANSWERED at kickoff (2026-06-26)
 
-| # | Question | Recommendation | Blocking? |
-|---|----------|----------------|-----------|
-| 1 | Keep both pre-call swap + LiteLLM `fallbacks`, or converge on one? | keep both sharing one target map for now | kickoff |
-| 2 | Is multi-worker / horizontal scaling actually anticipated? | defer (decides how far the seam reaches) | kickoff |
-| 3 | Restore LiteLLM's hard-budget cache on restart if budgets>0 (FIX-2)? | accept reset while budgets are 0; revisit if reintroduced | kickoff |
-| 4 | Working branch: stack on the train vs fresh `feat/0.5.1-settings`? | stack on `feat/0.5.0-resilience-admin` | kickoff |
+| # | Question | Decision (operator) |
+|---|----------|---------------------|
+| 1 | Keep both pre-call swap + LiteLLM `fallbacks`, or converge on one? | **Keep both, one shared target map** (both derive from `router_settings.fallbacks`). |
+| 2 | Is multi-worker / horizontal scaling actually anticipated? | **Defer — not anticipated soon.** Build the seam in-memory + file-checkpoint; keep Redis a clean future config-flip, don't over-build. |
+| 3 | Restore LiteLLM's hard-budget cache on restart if budgets>0 (FIX-2)? | **Accept reset while budgets are 0.** Scope restart-durability to Airlock warn/swap spend; LiteLLM-cache restore is a tracked follow-up if hard budgets return. |
+| 4 | Working branch: stack on the train vs fresh branch? | **Fresh `feat/0.5.1-settings` off `main`** (`main` now fully contains `feat/0.5.0-resilience-admin`). |
+
+Kickoff HITL gate **CLEARED**. Pre-`SET-unify`-merge behavior-change gate **CLEARED**
+(operator accepted auto-swap-off, 2026-06-26). Remaining HITL gate: release sign-off — DoD
+met + green isolated-instance smoke-test (incl. spend-survives-restart) on a separate dir+port.
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-26 — **HITL kickoff cleared + Phase A complete.** All four kickoff
+  questions answered with the recommended options (§6). Cut `feat/0.5.1-settings`
+  from `main` @ 91eabf7 (`main` supersedes the stale `feat/0.5.0` base). Committed
+  the config.yaml budgets→0 baseline (`227a6b0`). Added **UN-25** (unified settings
+  precedence) and **UN-26** (accurate + durable spend) to `dev/user-needs.md`.
+  Next: Phase E — `SET-loader` + `STORE-seam` in parallel.
 - 2026-06-26 — **Scaffolded for `/goal complete 0.5.1`:** added the lifecycle map,
   UN-25/UN-26 acceptance scoreboard, and production-ready DoD to the plan; authored
   this board + the orchestrator prompt. Phase D witnessed PASS (round 2) → release

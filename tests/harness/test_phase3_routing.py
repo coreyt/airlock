@@ -79,9 +79,9 @@ class TestCostBasedRouting:
             assert len(tier_models) > 0
 
     def test_provider_budget_config(self, monkeypatch):
-        from airlock.fast.router import _load_provider_budgets
+        from airlock.fast.settings import get_settings
 
-        budgets = _load_provider_budgets()
+        budgets = get_settings().provider_budgets
         assert isinstance(budgets, dict)
 
 

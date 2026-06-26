@@ -98,6 +98,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Unified settings precedence + no hidden budget defaults (UN-25)** — every `fast/`
+  setting now reads through one typed `AirlockSettings` loader (`airlock/fast/settings.py`)
+  with uniform `env > config > default` precedence and malformed-input fallback. **Behavior
+  change:** the hidden hardcoded provider-budget defaults (`anthropic`/`openai` ≈ $50,
+  `gemini`/`mistral`/`perplexity` ≈ $25) the fast router previously read regardless of
+  `config.yaml` are **removed**. With no explicit `router_settings.provider_budget_config`,
+  there is now **no proactive cost-swap and no monitor budget warn** — budgets are purely
+  config-driven (`0`/absent ⇒ no enforcement, identically across LiteLLM's hard block, the
+  monitor warn, and the router swap; documented in `config.yaml`). The monitor also now reads
+  budgets from the correct `router_settings.provider_budget_config` nesting (R6 fix — it
+  previously read a top-level key that was always empty).
+- **Failover derives from `router_settings.fallbacks` and is constrained to `model_list`
+  (R2)** — the circuit-breaker pre-call failover map is now built from the same `fallbacks`
+  config LiteLLM uses (no separate hardcoded map). **Behavior change:** the stale default
+  targets (`gpt-4o`/`gpt-4o-mini`, which were not served `model_name`s) are gone — a
+  circuit-open now routes to a real served alias. Failover candidates are additionally
+  filtered against the loaded `model_list` catalog (an unknown/typo'd target, incl. via
+  `AIRLOCK_FAILOVER_MAP`, is skipped), with a safe fallback that disables filtering when the
+  catalog is not loaded.
+- **Provider spend is accurate at any volume and survives restart (UN-26)** — per-provider
+  spend is now a rolling, time-windowed integer-µ$ accumulator behind a `DualCache`-backed
+  store seam, replacing the `deque(maxlen=1000)` that **undercounted** providers doing
+  >1000 billed calls/day (R5). **Behavior change:** a proxy restart **no longer zeroes
+  captured provider spend** — it is checkpointed to disk (versioned, atomic, prune-before-
+  checkpoint, idempotent age-bounded restore) and rehydrated on startup, now correctly run
+  in the litellm **child** process where spend is recorded (FIX-1). `cb_state.json` circuit-
+  breaker recovery rides the same (now correctly-located) path. (In-memory/single-process;
+  Redis backend + multi-worker remain deferred.)
+- **Single configurable budget warn ratio** — the "near budget" threshold is now one
+  value, `airlock_settings.budget_warn_ratio` (env `AIRLOCK_BUDGET_WARN_RATIO`,
+  default `0.8`), read from `AirlockSettings` by **both** the monitor near-limit warn
+  (`X-Airlock-Budget-State: near_limit`) and the router proactive swap. Previously these
+  diverged: the monitor warned at `0.8` while the router only swapped at a hardcoded,
+  non-overridable `0.9`. **Behavior change:** the router's proactive-swap point moves from
+  `0.9` to the configured ratio (default `0.8`), so `X-Airlock-Model-Override` and
+  `near_limit` now fire at the same, tunable point. A `0`/absent provider budget still
+  short-circuits to no-warn/no-swap (unchanged).
 - **CI hardening**: upgraded GitHub Actions to Node.js 24-compatible
   versions, pinned `astral-sh/setup-uv` to `v8.0.0`, and rewrote
   `preflight.sh` to mirror CI exactly.

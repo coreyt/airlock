@@ -23,9 +23,22 @@
 #   ./dev/smoketest/run_isolated_instance.sh prepare   # copy + rewrite env, validate port
 #   ./dev/smoketest/run_isolated_instance.sh start     # prepare (if needed) + launch in background
 #   ./dev/smoketest/run_isolated_instance.sh stop      # kill ONLY the test PID
+#   ./dev/smoketest/run_isolated_instance.sh restart   # stop, then relaunch PRESERVING state
 #   ./dev/smoketest/run_isolated_instance.sh status    # show PID / port / runtime dir
 #
 #   PORT=4137 ./dev/smoketest/run_isolated_instance.sh start   # override port
+#
+# RESTART-DURABILITY SCENARIO (0.5.1 STORE-seam — operator runs this, not the agent):
+#   1. start
+#   2. drive a few BILLED calls through the test instance, e.g.
+#        python dev/smoketest/served_header_client.py \
+#          --base-url http://127.0.0.1:$PORT --model <real-alias> \
+#          --api-key "$AIRLOCK_MASTER_KEY" --prompt "ping"   # repeat a handful
+#   3. note the rolling provider spend (advisor / admin / logs).
+#   4. restart   # stops the launcher+child and relaunches against the SAME state dir
+#   5. confirm the provider spend is still present (NOT reset to 0) — the litellm
+#      child restored spend_state.json on startup (FIX-1 + R5). cb_state.json breaker
+#      recovery rides the same restart.
 #
 set -euo pipefail
 
@@ -154,6 +167,38 @@ stop() {
     echo "PID $pid not running."
   fi
   rm -f "$PID_FILE"
+  # The litellm child is a descendant of the launcher and may outlive it as an
+  # orphan still holding $PORT. Reap any leftover listener on the (isolated, never
+  # 4000/8090) test port so a restart can rebind. Best-effort.
+  reap_port_listeners
+}
+
+reap_port_listeners() {
+  refuse_forbidden_port   # never act on a production port
+  local pids
+  pids="$(ss -tlnpH "sport = :$PORT" 2>/dev/null \
+            | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u || true)"
+  [[ -n "$pids" ]] || return 0
+  echo "Reaping leftover listener(s) on :$PORT -> $pids"
+  # shellcheck disable=SC2086
+  kill $pids 2>/dev/null || true
+  sleep 2
+  # shellcheck disable=SC2086
+  kill -9 $pids 2>/dev/null || true
+}
+
+restart() {
+  # Restart PRESERVING the runtime state dir (cb_state.json + spend_state.json) so
+  # the restart-durability scenario can confirm spend survives. stop() reaps the
+  # orphaned child; start() re-prepares the COPIED config/.env (the state dir is
+  # never deleted by prepare) and relaunches.
+  if [[ -f "$PID_FILE" ]]; then
+    stop
+  else
+    echo "No PID file; reaping any leftover listener before relaunch."
+    reap_port_listeners
+  fi
+  start
 }
 
 status() {
@@ -180,6 +225,7 @@ case "$cmd" in
   prepare) prepare ;;
   start)   start ;;
   stop)    stop ;;
+  restart) restart ;;
   status)  status ;;
-  *) die "unknown command: $cmd (use: prepare | start | stop | status)" ;;
+  *) die "unknown command: $cmd (use: prepare | start | stop | restart | status)" ;;
 esac

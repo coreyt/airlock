@@ -2,11 +2,40 @@
 
 from __future__ import annotations
 
+import json
 
 import pytest
 from litellm.exceptions import RateLimitError
 
-from airlock.fast.monitor import AirlockFastMonitor, _extract_client_id
+import airlock.fast.monitor as monitor_mod
+import airlock.fast.settings as settings_mod
+from airlock.fast.monitor import (
+    AirlockFastMonitor,
+    _extract_client_id,
+    _maybe_warn_budget,
+)
+from airlock.fast.settings import configure_settings
+
+
+@pytest.fixture(autouse=True)
+def _reset_monitor_budget_state():
+    """Budget source is get_settings().provider_budgets (SET-unify); start each test
+    unconfigured and with the once-per-process warn set cleared."""
+    settings_mod._configured = None
+    monitor_mod._budget_warned.clear()
+    yield
+    settings_mod._configured = None
+    monitor_mod._budget_warned.clear()
+
+
+class _FakeSpend:
+    """Minimal provider-spend stub exposing recent_spend()."""
+
+    def __init__(self, amount: float) -> None:
+        self._amount = amount
+
+    def recent_spend(self) -> float:
+        return self._amount
 
 
 # ---------------------------------------------------------------------------
@@ -686,3 +715,98 @@ class TestServedAccounting:
             "Expected a WARNING log from served-backend attribution failure, got none. "
             f"All caplog records: {[(r.levelno, r.message) for r in caplog.records]}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Budget warn (A3) — now sourced from get_settings().provider_budgets (SET-unify)
+# ---------------------------------------------------------------------------
+class TestBudgetWarn:
+    def test_r6_warns_from_router_settings_nesting(self):
+        """R6 regression: a budget set under router_settings.provider_budget_config is
+        honoured by the monitor warn path (the old top-level read was always empty)."""
+        configure_settings(
+            {
+                "router_settings": {
+                    "provider_budget_config": {
+                        "anthropic": {"budget_limit": 50.0, "time_period": "1d"},
+                    }
+                }
+            }
+        )
+        kwargs = {"litellm_params": {"metadata": {}}}
+        near = _maybe_warn_budget("anthropic", _FakeSpend(45.0), kwargs)  # 45 >= 40
+        assert near is True
+        headers = kwargs["litellm_params"]["metadata"]["airlock_response_headers"]
+        assert headers["X-Airlock-Budget-State"] == "near_limit"
+
+    def test_under_warn_ratio_no_warn(self):
+        configure_settings(
+            {
+                "router_settings": {
+                    "provider_budget_config": {
+                        "anthropic": {"budget_limit": 50.0, "time_period": "1d"},
+                    }
+                }
+            }
+        )
+        kwargs = {"litellm_params": {"metadata": {}}}
+        near = _maybe_warn_budget("anthropic", _FakeSpend(10.0), kwargs)  # 10 < 40
+        assert near is False
+        assert "airlock_response_headers" not in kwargs["litellm_params"]["metadata"]
+
+    def test_zero_budget_no_warn(self):
+        """AC-0 (monitor layer): a 0-configured budget => no warn, even at huge spend."""
+        configure_settings(
+            {
+                "router_settings": {
+                    "provider_budget_config": {
+                        "anthropic": {"budget_limit": 0, "time_period": "1d"},
+                    }
+                }
+            }
+        )
+        kwargs = {"litellm_params": {"metadata": {}}}
+        near = _maybe_warn_budget("anthropic", _FakeSpend(10_000.0), kwargs)
+        assert near is False
+        assert "airlock_response_headers" not in kwargs["litellm_params"]["metadata"]
+
+    def test_no_provider_budget_config_no_warn(self):
+        """Behavior-change #1: no provider_budget_config => no hidden default => no warn."""
+        configure_settings({"router_settings": {}})
+        kwargs = {"litellm_params": {"metadata": {}}}
+        near = _maybe_warn_budget("anthropic", _FakeSpend(10_000.0), kwargs)
+        assert near is False
+
+    def test_env_override_budget_warns(self, monkeypatch):
+        """AIRLOCK_PROVIDER_BUDGETS still drives the warn (now via get_settings)."""
+        monkeypatch.setenv("AIRLOCK_PROVIDER_BUDGETS", json.dumps({"openai": 20.0}))
+        kwargs = {"litellm_params": {"metadata": {}}}
+        near = _maybe_warn_budget("openai", _FakeSpend(18.0), kwargs)  # 18 >= 16
+        assert near is True
+
+    def test_warn_honors_configured_ratio(self):
+        """R3 single source: the monitor warn reads get_settings().budget_warn_ratio,
+        so a config-set ratio (not just the env var) moves the warn point. With ratio
+        0.5 and a 50 budget, a 30 spend (0.6) warns — it would NOT at the 0.8 default."""
+        configure_settings(
+            {
+                "router_settings": {
+                    "provider_budget_config": {
+                        "anthropic": {"budget_limit": 50.0, "time_period": "1d"},
+                    }
+                },
+                "airlock_settings": {"budget_warn_ratio": 0.5},
+            }
+        )
+        kwargs = {"litellm_params": {"metadata": {}}}
+        near = _maybe_warn_budget("anthropic", _FakeSpend(30.0), kwargs)  # 30 >= 25
+        assert near is True
+        headers = kwargs["litellm_params"]["metadata"]["airlock_response_headers"]
+        assert headers["X-Airlock-Budget-State"] == "near_limit"
+
+    def test_no_legacy_monitor_ratio_helpers(self):
+        """R3: the monitor's duplicate ratio constant/helper are gone — single source."""
+        import airlock.fast.monitor as monitor_mod
+
+        assert not hasattr(monitor_mod, "_DEFAULT_BUDGET_WARN_RATIO")
+        assert not hasattr(monitor_mod, "_budget_warn_ratio")

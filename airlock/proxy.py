@@ -302,17 +302,10 @@ def _register_shutdown_handlers() -> None:
         except Exception:
             pass  # best-effort on shutdown
 
-        # Checkpoint circuit breaker state for restart recovery
-        try:
-            from airlock.fast.state import checkpoint_state, store
-
-            state_dir = os.getenv(
-                "AIRLOCK_STATE_DIR", os.getenv("AIRLOCK_LOG_DIR", "./logs")
-            )
-            state_path = os.path.join(state_dir, "cb_state.json")
-            checkpoint_state(store, state_path)
-        except Exception:
-            pass  # best-effort on shutdown
+        # FIX-1: state checkpoint/restore now runs in the litellm CHILD process
+        # (airlock.fast.monitor), where spend + breaker state are actually mutated.
+        # The launcher must NOT checkpoint here — it holds an empty store and would
+        # race the child as a second writer of cb_state.json.
 
         sys.exit(0)  # triggers atexit handlers too
 
@@ -377,17 +370,21 @@ def main() -> None:
     with open(config_path) as f:
         config = yaml.safe_load(f) or {}
     from airlock.admin.policy import configure_admin
-    from airlock.fast.monitor import configure_budgets
     from airlock.fast.router import set_router_config
+    from airlock.fast.settings import configure_settings
     from airlock.fast.state import configure_breaker
     from airlock.guardrails.overrides import configure_guardrail_overrides
     from airlock.transparency import configure_transparency
 
     set_router_config(config)
-    # Load per-client circuit-breaker policy + explicit budget caps once at
-    # startup (CC-2); both default to no-op when unconfigured (CC-3).
+    # Build the typed AirlockSettings snapshot once at startup. The router (budget-aware
+    # swap), monitor (near-limit warn) and circuit-breaker (failover) consumers read
+    # their budgets/failover map from this snapshot via get_settings() (0.5.1-SET-unify).
+    configure_settings(config)
+    # Load per-client circuit-breaker policy once at startup (CC-2); defaults to a
+    # no-op when unconfigured (CC-3). Provider budget caps now flow through
+    # configure_settings above (the monitor reads get_settings().provider_budgets).
     configure_breaker(config)
-    configure_budgets(config)
     # Admin control plane (off by default). The fail-closed check (CC-12) refuses
     # bearer-token admin over plaintext on a non-loopback bind.
     configure_admin(config, host=host, tls_enabled=bool(_ssl_cli_args()))
@@ -430,20 +427,16 @@ def main() -> None:
         if existing_pythonpath
         else repo_pythonpath
     )
+    # FIX-1: mark the litellm subprocess so airlock.fast.monitor restores spend +
+    # breaker state on startup and checkpoints them periodically/on shutdown there —
+    # in the process that actually mutates the store.
+    env["AIRLOCK_LITELLM_CHILD"] = "1"
 
     _register_shutdown_handlers()
 
-    # Restore circuit breaker state from previous run if recent
-    try:
-        from airlock.fast.state import restore_state, store
-
-        state_dir = os.getenv(
-            "AIRLOCK_STATE_DIR", os.getenv("AIRLOCK_LOG_DIR", "./logs")
-        )
-        state_path = os.path.join(state_dir, "cb_state.json")
-        restore_state(store, state_path)
-    except Exception:
-        pass  # best-effort
+    # FIX-1: state restore now happens in the litellm child (airlock.fast.monitor),
+    # not here — the launcher's store is empty, so a launcher-side restore was a no-op
+    # that defeated restart recovery.
 
     print(f"Airlock starting on {host}:{port}")
     try:

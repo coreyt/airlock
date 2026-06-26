@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 
 from airlock.transparency import record_mutation
 
+from .settings import get_settings
 from .state import store
 
 logger = logging.getLogger("airlock.fast.router")
@@ -64,16 +65,6 @@ _DEFAULT_COST_TIERS: dict[str, list[str]] = {
 }
 
 _DEFAULT_SESSION_TTL = 3600  # 1 hour
-
-_DEFAULT_PROVIDER_BUDGETS: dict[str, float] = {
-    "anthropic": 50.0,
-    "openai": 50.0,
-    "gemini": 0.0,  # 0 = no budget-aware swap (falsy short-circuits _apply_budget_awareness); matches provider_budget_config gemini:0 in config.yaml
-    "mistral": 25.0,
-    "perplexity": 25.0,
-}
-
-_BUDGET_WARN_THRESHOLD = 0.9  # 90% of budget triggers proactive swap
 
 # ---------------------------------------------------------------------------
 # Smart complexity classifier — all O(n) string ops, no ML, no dependencies
@@ -317,6 +308,17 @@ def set_router_config(config: dict | None) -> None:
     _alias_provider_map = alias_map
 
 
+def known_model_aliases() -> set[str]:
+    """Aliases present in the loaded ``config.yaml`` ``model_list`` catalog.
+
+    Read-only view of the alias->provider map cached by :func:`set_router_config`.
+    Empty when the catalog is unconfigured (``set_router_config`` never called, or no
+    ``model_list``) — callers must treat an empty set as "catalog unknown" and skip
+    catalog-based filtering rather than reject everything.
+    """
+    return set(_alias_provider_map)
+
+
 def _validate_cost_tiers(value: object) -> dict[str, list[str]] | None:
     """Return ``value`` if it is a well-formed cost-tier mapping, else None."""
     if not isinstance(value, dict) or not value:
@@ -361,17 +363,6 @@ def _load_session_ttl() -> int:
         except ValueError:
             pass
     return _DEFAULT_SESSION_TTL
-
-
-def _load_provider_budgets() -> dict[str, float]:
-    raw = os.environ.get("AIRLOCK_PROVIDER_BUDGETS")
-    if not raw:
-        return dict(_DEFAULT_PROVIDER_BUDGETS)
-    try:
-        return json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        logger.warning("Invalid AIRLOCK_PROVIDER_BUDGETS JSON, using defaults")
-        return dict(_DEFAULT_PROVIDER_BUDGETS)
 
 
 # ---------------------------------------------------------------------------
@@ -453,13 +444,15 @@ def _apply_budget_awareness(
     if not provider:
         return model, None
 
-    budgets = _load_provider_budgets()
+    settings = get_settings()
+    budgets = settings.provider_budgets
+    warn_ratio = settings.budget_warn_ratio
     budget_limit = budgets.get(provider)
     if not budget_limit:
         return model, None
 
     spend = store.get_provider_spend(provider).recent_spend()
-    if spend < budget_limit * _BUDGET_WARN_THRESHOLD:
+    if spend < budget_limit * warn_ratio:
         return model, None
 
     # Current provider is near budget — find an alternative
@@ -476,7 +469,7 @@ def _apply_budget_awareness(
                 f"budget({provider}@{spend:.1f}/{budget_limit:.1f}\u2192{candidate})",
             )
         alt_spend = store.get_provider_spend(alt_provider).recent_spend()
-        if alt_spend < alt_budget * _BUDGET_WARN_THRESHOLD:
+        if alt_spend < alt_budget * warn_ratio:
             return (
                 candidate,
                 f"budget({provider}@{spend:.1f}/{budget_limit:.1f}\u2192{candidate})",

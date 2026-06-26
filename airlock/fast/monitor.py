@@ -15,7 +15,6 @@ Registered in config.yaml alongside the enterprise logger:
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import time
@@ -30,59 +29,25 @@ from airlock.transparency import attribute_served_backend, get_transparency_conf
 from litellm.exceptions import APIError, RateLimitError
 from litellm.integrations.custom_logger import CustomLogger
 
+from .settings import get_settings
 from .state import normalize_client_id, store
 
 logger = logging.getLogger("airlock.fast.monitor")
 
 from .router import infer_provider as _infer_provider
 
-_DEFAULT_BUDGET_WARN_RATIO = 0.8
 _budget_warned: set[str] = set()  # warn once per provider per process (anti-spam)
-# Explicit per-provider daily caps from provider_budget_config, captured at
-# startup. A3 warns ONLY for providers with an explicit cap here or in
-# AIRLOCK_PROVIDER_BUDGETS — never the router's internal routing defaults, so a
-# deploy that configures no budget gets no warn (CC-3).
-_configured_budgets: dict[str, float] = {}
-
-
-def configure_budgets(config: dict | None) -> None:
-    """Capture explicit provider_budget_config caps at startup (CC-2/CC-3)."""
-    global _configured_budgets
-    budgets: dict[str, float] = {}
-    block = (config or {}).get("provider_budget_config") or {}
-    if isinstance(block, dict):
-        for prov, cfg in block.items():
-            limit = cfg.get("budget_limit") if isinstance(cfg, dict) else None
-            if isinstance(limit, (int, float)):
-                budgets[str(prov)] = float(limit)
-    _configured_budgets = budgets
-
-
-def _budget_warn_ratio() -> float:
-    raw = os.getenv("AIRLOCK_BUDGET_WARN_RATIO")
-    if raw:
-        try:
-            return float(raw)
-        except ValueError:
-            pass
-    return _DEFAULT_BUDGET_WARN_RATIO
 
 
 def _explicit_budget_for(provider: str) -> float | None:
     """Explicit daily cap for a provider, or None if none is configured.
 
-    AIRLOCK_PROVIDER_BUDGETS (env, explicit) overrides the captured
-    provider_budget_config. Never falls back to the router's routing defaults.
+    Sourced from ``get_settings().provider_budgets`` (R6 fix: reads the
+    ``router_settings.provider_budget_config`` nesting; the ``AIRLOCK_PROVIDER_BUDGETS``
+    env override is handled inside ``get_settings``). There is no hidden default — an
+    unconfigured provider returns ``None`` (no warn).
     """
-    raw = os.getenv("AIRLOCK_PROVIDER_BUDGETS")
-    if raw:
-        try:
-            env_budgets = json.loads(raw)
-            if isinstance(env_budgets, dict) and provider in env_budgets:
-                return float(env_budgets[provider])
-        except (json.JSONDecodeError, TypeError, ValueError):
-            pass
-    return _configured_budgets.get(provider)
+    return get_settings().provider_budgets.get(provider)
 
 
 def _maybe_warn_budget(provider: str, spend_state, kwargs: dict) -> bool:
@@ -90,13 +55,14 @@ def _maybe_warn_budget(provider: str, spend_state, kwargs: dict) -> bool:
 
     Sets ``airlock_budget_state=near_limit`` in response metadata and logs once
     per provider per process. Returns whether the provider is near its limit.
-    Only fires for providers with an *explicitly configured* budget (CC-3).
+    Only fires for providers with an *explicitly configured* budget (CC-3); a ``0``
+    or absent budget short-circuits to no-warn (AC-0).
     """
     limit = _explicit_budget_for(provider)
     if not limit:
         return False
     spent = spend_state.recent_spend()
-    near = spent >= limit * _budget_warn_ratio()
+    near = spent >= limit * get_settings().budget_warn_ratio
     if near:
         metadata = (kwargs.get("litellm_params", {}) or {}).get("metadata")
         if isinstance(metadata, dict):
@@ -427,4 +393,111 @@ def _self_register() -> None:
         logger.warning("monitor self-registration deferred — litellm not fully loaded")
 
 
+# ---------------------------------------------------------------------------
+# FIX-1 — checkpoint/restore run in the litellm CHILD process, where spend is
+# actually mutated. The monitor module is imported in BOTH the launcher (for
+# configure_budgets) and the child (as the callback); the AIRLOCK_LITELLM_CHILD
+# env var (set by proxy.py on the subprocess env) gates this glue to the child
+# only, so the launcher is no longer a second writer.
+# ---------------------------------------------------------------------------
+_DEFAULT_CHECKPOINT_INTERVAL = 60.0  # seconds between periodic child checkpoints
+_checkpoint_stop = None  # type: ignore[var-annotated]
+
+
+def _state_paths() -> tuple[str, str]:
+    state_dir = os.getenv("AIRLOCK_STATE_DIR", os.getenv("AIRLOCK_LOG_DIR", "./logs"))
+    return (
+        os.path.join(state_dir, "cb_state.json"),
+        os.path.join(state_dir, "spend_state.json"),
+    )
+
+
+def _checkpoint_child_state() -> None:
+    """Persist breaker + spend state from the child (best-effort)."""
+    from .state import checkpoint_spend, checkpoint_state
+
+    cb_path, spend_path = _state_paths()
+    try:
+        checkpoint_state(store, cb_path)
+    except Exception:
+        logger.warning("breaker checkpoint failed", exc_info=True)
+    try:
+        checkpoint_spend(store, spend_path)
+    except Exception:
+        logger.warning("spend checkpoint failed", exc_info=True)
+
+
+def _restore_child_state() -> None:
+    """Rehydrate breaker (5-min gated) + spend (age-bounded) on child startup."""
+    from .state import restore_spend, restore_state
+
+    cb_path, spend_path = _state_paths()
+    try:
+        restore_state(store, cb_path)
+    except Exception:
+        logger.warning("breaker restore failed", exc_info=True)
+    try:
+        restore_spend(store, spend_path)
+    except Exception:
+        logger.warning("spend restore failed", exc_info=True)
+
+
+def _checkpoint_interval() -> float:
+    raw = os.getenv("AIRLOCK_SPEND_CHECKPOINT_INTERVAL")
+    if raw:
+        try:
+            return max(1.0, float(raw))
+        except ValueError:
+            pass
+    return _DEFAULT_CHECKPOINT_INTERVAL
+
+
+def _init_child_state() -> None:
+    """Wire FIX-1 in the litellm child: restore-on-start + periodic/shutdown save."""
+    import atexit
+    import signal
+    import threading
+
+    global _checkpoint_stop
+
+    _restore_child_state()
+
+    # Periodic checkpoint so durability does not depend on the shutdown signal
+    # actually reaching the (possibly orphaned) child.
+    _checkpoint_stop = threading.Event()
+    interval = _checkpoint_interval()
+
+    def _loop() -> None:
+        while not _checkpoint_stop.wait(interval):
+            _checkpoint_child_state()
+
+    threading.Thread(target=_loop, name="airlock-spend-checkpoint", daemon=True).start()
+
+    # Shutdown checkpoint: atexit (normal exit) + a SIGTERM handler that chains to
+    # any previously installed handler so we do not break litellm/uvicorn shutdown.
+    atexit.register(_checkpoint_child_state)
+
+    _prev_handler = signal.getsignal(signal.SIGTERM)
+
+    def _on_sigterm(signum, frame):
+        if _checkpoint_stop is not None:
+            _checkpoint_stop.set()
+        _checkpoint_child_state()
+        if callable(_prev_handler):
+            _prev_handler(signum, frame)
+        elif _prev_handler == signal.SIG_DFL:
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            os.kill(os.getpid(), signal.SIGTERM)
+
+    try:
+        signal.signal(signal.SIGTERM, _on_sigterm)
+    except ValueError:
+        # signal.signal only works in the main thread; if the monitor imports off
+        # the main thread, the periodic + atexit paths still guarantee durability.
+        logger.debug("SIGTERM handler not installed (monitor imported off main thread)")
+
+
 _self_register()
+
+if os.getenv("AIRLOCK_LITELLM_CHILD") == "1":
+    _init_child_state()

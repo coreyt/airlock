@@ -36,6 +36,24 @@ def clean_env(monkeypatch):
     monkeypatch.setattr("airlock.cli.main.load_dotenv", lambda *a, **kw: None)
 
 
+@pytest.fixture(autouse=True)
+def _reset_router_catalog():
+    """Reset the router's module-global alias->provider catalog before each test.
+
+    SET-unify added failover-target filtering against ``router.known_model_aliases()``,
+    which reads the module-global ``router._alias_provider_map`` populated by
+    ``set_router_config``. Tests that assume an empty catalog (e.g. the guardian failover
+    tests) would otherwise be order-dependent — they pass in alphabetical collection order
+    but FAIL once a catalog-populating test runs earlier in the same session. Clearing the
+    catalog here (``set_router_config(None)`` empties the map) makes them order-independent.
+    """
+    from airlock.fast.router import set_router_config
+
+    set_router_config(None)
+    yield
+    set_router_config(None)
+
+
 # ---------------------------------------------------------------------------
 # Harness 2: LLM Provider Mock (Anthropic, OpenAI)
 # ---------------------------------------------------------------------------
