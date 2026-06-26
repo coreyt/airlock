@@ -107,6 +107,28 @@ class TestRollingWindow:
         spend.record_spend(now - 90000.0, 5.0)  # > 24h + bucket ago → excluded
         assert spend.recent_spend() == pytest.approx(1.0)
 
+    def test_trailing_edge_is_conservative_within_one_bucket(self):
+        # Pins the documented semantic: recent_spend is accurate to within one
+        # bucket width at the trailing edge and rounds UP (counts the boundary
+        # bucket), so budget warns/swaps fire slightly EARLY rather than late —
+        # the safe direction for budget protection.
+        bucket_width = 3600.0
+        window = 86400.0
+        ss = SpendStore(window_seconds=window, bucket_width_seconds=bucket_width)
+        now = 1_000_000_000.0
+        min_bucket = int((now - window) // bucket_width)
+        boundary_bucket_start = min_bucket * bucket_width
+        # This timestamp is genuinely OLDER than the window edge (now - window) but
+        # falls inside the cutoff bucket.
+        assert boundary_bucket_start < (now - window)
+        ss.record_spend("openai", boundary_bucket_start, 2.0)
+        # Conservative: still counted.
+        assert ss.recent_spend("openai", window, now=now) == pytest.approx(2.0)
+
+        # Spend two full buckets older than the cutoff bucket is excluded.
+        ss.record_spend("openai", boundary_bucket_start - 2 * bucket_width, 9.0)
+        assert ss.recent_spend("openai", window, now=now) == pytest.approx(2.0)
+
 
 # ---------------------------------------------------------------------------
 # Checkpoint semantics (FIX-7)

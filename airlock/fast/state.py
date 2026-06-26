@@ -269,6 +269,14 @@ class SpendStore:
     FIX-3: every key carries an **explicit TTL strictly greater than the window** so
     spend never expires early off the ~600s DualCache/InMemoryCache default, and the
     caller's lock is held around the compound read-modify-write.
+
+    Trailing-edge semantic: because whole buckets are summed/pruned, ``recent_spend``
+    (and ``export_buckets``) are accurate to within **one bucket width** at the
+    trailing edge and round **UP** — the bucket that straddles ``now - window`` is
+    counted in full even though part of it predates the window. This is the SAFE
+    direction for budget protection: budget warns/swaps fire slightly EARLY, never
+    late, so real spend can never silently exceed a budget by more than one bucket.
+    A smaller ``bucket_width_seconds`` tightens the worst-case overage.
     """
 
     def __init__(
@@ -328,9 +336,18 @@ class SpendStore:
         window_seconds: float | None = None,
         now: float | None = None,
     ) -> float:
-        """Sum in-window buckets and return **float USD** (µ$ / 1e6)."""
+        """Sum in-window buckets and return **float USD** (µ$ / 1e6).
+
+        Conservative trailing edge: the bucket containing ``now - window`` is
+        included in full, so the result is accurate to within one bucket width and
+        rounds UP. Counting that boundary bucket means budget warns/swaps fire
+        slightly early rather than late — the safe direction (real spend can never
+        exceed budget by more than one bucket without warning).
+        """
         window = self._window if window_seconds is None else float(window_seconds)
         now = time.time() if now is None else now
+        # floor() => buckets with index >= min_bucket are kept, which INCLUDES the
+        # bucket straddling (now - window). Conservative by design (see docstring).
         min_bucket = int((now - window) // self._bucket_width)
         total_micro = 0
         with self._lock:
