@@ -279,15 +279,18 @@ class TestShutdownHandlers:
         assert exc_info.value.code == 0
         mock_flush.assert_called_once()
 
-    def test_sigterm_handler_checkpoints_circuit_breaker_state(
-        self, monkeypatch, tmp_path
-    ):
-        """Shutdown handler should checkpoint circuit breaker state."""
+    def test_sigterm_handler_does_not_checkpoint_state(self, monkeypatch, tmp_path):
+        """FIX-1: the launcher must NOT checkpoint — that runs in the litellm child.
+
+        The launcher's store is empty (spend/breaker are mutated only in the child),
+        so a launcher-side checkpoint wrote an empty file and raced the child as a
+        second writer of cb_state.json. The launcher shutdown handler now only flushes
+        the S3 logger.
+        """
         from unittest.mock import MagicMock
 
-        monkeypatch.setattr(
-            "airlock.callbacks.s3_logger.proxy_s3_logger.flush", MagicMock()
-        )
+        flush = MagicMock()
+        monkeypatch.setattr("airlock.callbacks.s3_logger.proxy_s3_logger.flush", flush)
         monkeypatch.setenv("AIRLOCK_STATE_DIR", str(tmp_path))
 
         _register_shutdown_handlers()
@@ -297,8 +300,9 @@ class TestShutdownHandlers:
         with pytest.raises(SystemExit):
             handler(signal.SIGTERM, None)
 
-        # Checkpoint file should exist after shutdown handler ran.
-        assert (tmp_path / "cb_state.json").exists()
+        flush.assert_called_once()
+        # The launcher must not write the checkpoint (child owns it now).
+        assert not (tmp_path / "cb_state.json").exists()
 
 
 # ---------------------------------------------------------------------------

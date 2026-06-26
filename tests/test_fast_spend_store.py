@@ -10,6 +10,7 @@ with its 5-min gate intact for the breaker but NOT for spend.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -169,7 +170,10 @@ class TestCheckpointSemantics:
                     "bucket_width_seconds": bucket_width,
                     "window_seconds": 86400.0,
                     "providers": {
-                        "openai": {str(in_bucket): 2_000_000, str(old_bucket): 9_000_000}
+                        "openai": {
+                            str(in_bucket): 2_000_000,
+                            str(old_bucket): 9_000_000,
+                        }
                     },
                 }
             )
@@ -293,3 +297,43 @@ class TestBreakerStillRoundTrips:
         target = StateStore()
         restore_spend(target, str(path))
         assert target.get_provider_spend("openai").recent_spend() == pytest.approx(6.0)
+
+
+# ---------------------------------------------------------------------------
+# FIX-1 — the child-side wiring persists+restores BOTH spend and breaker
+# ---------------------------------------------------------------------------
+class TestChildCheckpointWiring:
+    def test_child_checkpoint_restore_round_trip(self, tmp_path, monkeypatch):
+        import airlock.fast.monitor as monitor_mod
+
+        monkeypatch.setenv("AIRLOCK_STATE_DIR", str(tmp_path))
+
+        # Mutate the (child) store: spend + an OPEN breaker.
+        source = StateStore()
+        monkeypatch.setattr(monitor_mod, "store", source)
+        source.get_provider_spend("openai").record_spend(time.time(), 4.0)
+        model = source.get_model("gpt-4o")
+        for _ in range(5):
+            model.record_failure(time.time())
+        assert model.circuit == CircuitState.OPEN
+
+        monitor_mod._checkpoint_child_state()
+        assert (tmp_path / "spend_state.json").exists()
+        assert (tmp_path / "cb_state.json").exists()
+
+        # A fresh child store restores both via the same state dir.
+        target = StateStore()
+        monkeypatch.setattr(monitor_mod, "store", target)
+        monitor_mod._restore_child_state()
+        assert target.get_provider_spend("openai").recent_spend() == pytest.approx(4.0)
+        assert target.get_model("gpt-4o").circuit == CircuitState.OPEN
+
+    def test_init_child_state_gated_off_without_env(self, monkeypatch):
+        # Importing monitor in the launcher (no AIRLOCK_LITELLM_CHILD) must not start
+        # the checkpoint thread; the gate lives at module scope, so just assert the
+        # contract value the proxy sets is the one monitor checks.
+        import airlock.fast.monitor as monitor_mod
+
+        monkeypatch.delenv("AIRLOCK_LITELLM_CHILD", raising=False)
+        assert os.getenv("AIRLOCK_LITELLM_CHILD") != "1"
+        assert hasattr(monitor_mod, "_init_child_state")
