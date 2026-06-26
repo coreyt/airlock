@@ -14,13 +14,14 @@ Audit source-of-record: `dev/notes/architecture-audit-0.5.0-2026-06.md`.
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** `SET-unify` IMPLEMENTING (off 6af83f7); `STORE-seam` REVIEWING (codex running).
-- **Done:** kickoff cleared; Phase A (UN-25/26); Phase D PASS. **`SET-loader` MERGED+CLOSED**
-  (`6af83f7`; codex CONCERN→fixed, 37+122 tests green). `STORE-seam` IMPLEMENTED
-  (`4797d5f`; full suite 2125 green, 1 pre-existing unrelated `fathomdb` skip-fail).
-- **Next action:** (1) when `STORE-seam` codex verdict lands → triage → **HITL** smoke
-  restart-durability at sign-off; (2) when `SET-unify` lands → codex review → **HITL
-  confirm the auto-swap-off behavior change before merge** → merge → spawn `SET-warnratio`.
+- **In flight:** `SET-unify` IMPLEMENTING (worktree at 4883592, off 6af83f7).
+- **Done:** kickoff cleared; Phase A (UN-25/26); Phase D PASS. **`SET-loader` CLOSED**
+  (`6af83f7`). **`STORE-seam` CLOSED** (merged `93e15a2`; codex CONCERN→fixed; post-merge
+  affected suites 230 green, proxy.py auto-merge verified — both `configure_settings` and
+  the `AIRLOCK_LITELLM_CHILD` child-gate coexist). UN-26 engineering-complete (no-network
+  subprocess round-trip durability passes); **live restart-durability smoke is a sign-off gate.**
+- **Next action:** when `SET-unify` lands → codex review → **HITL confirm the auto-swap-off
+  behavior change before merge** → merge → spawn `SET-warnratio` (last critical-path pack).
 
 ## 2. Pack scoreboard
 
@@ -29,7 +30,7 @@ Audit source-of-record: `dev/notes/architecture-audit-0.5.0-2026-06.md`.
 | `SET-loader` | One typed `AirlockSettings` read in place; uniform `env>config>default` (additive) | — | **CLOSED** (merged `6af83f7`; codex CONCERN→fixed) | `dev/plans/runs/0.5.1-SET-loader-output.json` |
 | `SET-unify` | Delete hidden budget/failover defaults; fix R6; derive from config; budget-doc note | SET-loader ✅ | IMPLEMENTING (off 6af83f7) | `dev/plans/runs/0.5.1-SET-unify-output.json` |
 | `SET-warnratio` | Collapse 0.8/0.9 into one configurable warn ratio | SET-unify | NOT_STARTED (prompt drafted) | `dev/plans/runs/0.5.1-SET-warnratio-output.json` |
-| `STORE-seam` | DualCache-backed store; rolling-window spend (R5); checkpoint-in-child (FIX-1) | — (∥) | REVIEWED (codex CONCERN: 1 med + 1 low → fixing) | `dev/plans/runs/0.5.1-STORE-seam-output.json` |
+| `STORE-seam` | DualCache-backed store; rolling-window spend (R5); checkpoint-in-child (FIX-1) | — (∥) | **CLOSED** (merged `93e15a2`; codex CONCERN→fixed) | `dev/plans/runs/0.5.1-STORE-seam-output.json` |
 
 States (furthest witnessed wins): `WORKTREE_CREATED` → `IMPLEMENTING` →
 `IMPLEMENTED` (`output.json` + head past baseline) → `REVIEWED` (`*-review-*.md`
@@ -40,7 +41,7 @@ with a `## Verdict:`) → `MERGED` → `CLOSED` → `CLEANED`.
 | Requirement | Pack(s) | Status |
 |-------------|---------|--------|
 | UN-25 — unified settings precedence (no hidden defaults) | SET-loader, SET-unify, SET-warnratio | ⏳ (defined in `dev/user-needs.md`) |
-| UN-26 — accurate + durable spend (R5 + restart survival, FIX-1) | STORE-seam | ⏳ (defined in `dev/user-needs.md`) |
+| UN-26 — accurate + durable spend (R5 + restart survival, FIX-1) | STORE-seam | ✅ eng-complete (no-network round-trip green; live smoke @ sign-off) |
 | AC-R6 — monitor reads `router_settings` nesting | SET-unify | ⏳ |
 | AC-R2 — failover targets exist in `model_list` | SET-unify | ⏳ |
 | AC-0 — `0 ⇒ no enforcement` across all three layers | SET-unify | ⏳ |
@@ -55,9 +56,8 @@ with a `## Verdict:`) → `MERGED` → `CLOSED` → `CLEANED`.
 
 | Worktree path | Branch | Pack | State |
 |---------------|--------|------|-------|
-| `.claude/worktrees/0.5.1-SET-loader` | `feat/0.5.1-SET-loader` | SET-loader | MERGED — pending cleanup |
-| `.claude/worktrees/0.5.1-STORE-seam` | `feat/0.5.1-STORE-seam` | STORE-seam | IMPLEMENTED (4797d5f) → reviewing |
 | `.claude/worktrees/0.5.1-SET-unify` | `feat/0.5.1-SET-unify` | SET-unify | IMPLEMENTING (off 6af83f7) |
+| _(SET-loader, STORE-seam worktrees removed — merged + cleaned)_ | | | |
 
 ## 6. HITL questions — ANSWERED at kickoff (2026-06-26)
 
