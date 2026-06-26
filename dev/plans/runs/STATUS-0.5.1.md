@@ -27,8 +27,12 @@ All 8 DoD items met. Live smoke PASS (orchestrator-run on isolated port 4137 at 
 direction): spend survived restart (62µ$ → restore → 128µ$), unified warn ratio fired at the
 configured ratio, clean boot, production untouched. 3 pre-existing non-blocking findings logged
 as follow-ups (`0.5.1-SIGNOFF-smoke-20260626.md`: F-B near_limit response-header surfacing;
-F-C proactive-swap needs a candidate pool; F-D AIRLOCK_STATE_DIR via .env). Per operator: merged
-`feat/0.5.1-settings` → local `main` + tagged `v0.5.1` **locally (NOT pushed)**.
+F-C proactive-swap needs a candidate pool; F-D AIRLOCK_STATE_DIR via .env).
+
+**Shipped (LOCAL ONLY — nothing pushed):** merged `feat/0.5.1-settings` → `main` (`7fad3b3`);
+bumped version 0.3.1 → **0.5.1** + cut CHANGELOG `[0.5.1]` (`ae9c9a6`); annotated tag **`v0.5.1`**
+at `ae9c9a6`. `main` is 45 commits ahead of `origin/main`; push + PyPI publish are the operator's
+call (per the no-push guardrail).
 
 **Follow-ups for a later release:** F-B, F-C, F-D above; the stale `configure_budgets` comment
 at `monitor.py:~399`; and the deferred Redis backend + `--num_workers` (Q2).
