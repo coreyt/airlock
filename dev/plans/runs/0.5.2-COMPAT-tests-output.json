@@ -1,0 +1,45 @@
+{
+  "pack": "0.5.2-COMPAT-tests",
+  "baseline_sha": "dd58bda16d1f260051b886bbeceb21b9b46c3a54",
+  "branch": "feat/0.5.2-COMPAT-tests",
+  "head_sha": "da70a3c79b4140236164dcf94c2c5ff7645976e3",
+  "commits": [
+    "d7bbea6: test(0.5.2-COMPAT): design memo for cross-cutting capability-compat suite",
+    "da70a3c: test(0.5.2-COMPAT): lock cross-cutting capability/naming contract vs real config"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": null,
+    "note": "Regression-lock pack against already-shipped code: the suite is GREEN on first write, so there is no separate RED tests-only commit. Each load-bearing assertion was proven able to go RED by temporarily inverting the expected value and confirming failure, then restoring (no product change). Inversion evidence: (1) collision-safety resolve('gemini-3.1-pro-preview') real=None, inverted assert ==\"x\" FAILS; (2) old<->new parity infer_provider('vertex/gemini-3.5-flash') real='vertex_ai', inverted assert =='gemini' FAILS; (3) capability<->wiring forcing every entry to expect batch yields 63 mismatches over 73 entries (assert FAILS), confirming endpoints_for matches the rule exactly (0 mismatches when correct).",
+    "test_files": ["tests/test_0_5_2_capability_compat.py"]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_0_5_2_capability_compat.py::TestAliasParity",
+      "tests/test_0_5_2_capability_compat.py::TestCollisionSafety",
+      "tests/test_0_5_2_capability_compat.py::TestBatchBackendParity",
+      "tests/test_0_5_2_capability_compat.py::TestCapabilityWiringConsistency",
+      "tests/test_0_5_2_capability_compat.py::TestSurfacesAgree",
+      "tests/test_0_5_2_capability_compat.py::TestV1ModelsSeam",
+      "tests/test_0_5_2_capability_compat.py::TestReferenceIntegrity"
+    ],
+    "passed": 43,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "tests/test_0_5_2_capability_compat.py",
+    "dev/notes/0.5.2-COMPAT-tests-design.md"
+  ],
+  "blockers_encountered": [
+    {
+      "id": "DETECT-1-router-catalog-autouse-reset",
+      "description": "First run: 4 TestAliasParity cases failed with infer_provider(...) == None for anthropic/, vertex/, vllm/, and aistudio-prefixed aliases. Root cause: the autouse conftest fixture tests/conftest.py::_reset_router_catalog calls set_router_config(None) before every test function, emptying router._alias_provider_map AFTER my originally module-scoped 'wired' fixture had populated it. infer_provider then fell back to the prefix-only heuristic (_PROVIDER_PREFIXES), which covers mistral but not anthropic/vertex_ai/openai-via-vllm. This is a test-harness ordering interaction, NOT a product bug (alias_table.resolve assertions passed because the autouse reset only touches the router catalog, not the alias table).",
+      "resolution": "Made the 'wired' fixture function-scoped so it re-applies set_router_config(cfg) AFTER the autouse reset runs for each test. Suite went 43/43 green; no product/config change."
+    }
+  ],
+  "additional_changes_made_in_scope": [
+    "wired fixture scope changed from module to function (see DETECT-1) — test-internal only, keeps catalog-first infer_provider lookups order-independent against the autouse router-reset conftest fixture."
+  ],
+  "agent_verify_result": "pass — uv run --extra test python -m pytest tests/test_0_5_2_capability_compat.py -q => 43 passed. Neighbor sanity run (test_model_alias, test_capability, test_models_seam, test_batch_gateway) => 248 passed, no interference. ruff check + ruff format --check clean.",
+  "next_step_for_orchestrator": "Pack 0.5.2-COMPAT-tests on branch feat/0.5.2-COMPAT-tests at da70a3c; review, verify, merge. Tests-only, zero product/config changes."
+}
