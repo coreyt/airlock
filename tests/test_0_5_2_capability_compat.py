@@ -69,10 +69,23 @@ def wired(cfg: dict):
     fixture empties the router catalog before every test, so the wiring must be
     (re)applied per test — AFTER that reset runs — for ``infer_provider`` to use
     the catalog-first path instead of the prefix-only fallback.
+
+    Yield fixture: on teardown it restores BOTH global singletons to their
+    pristine state so no catalog/alias-table state leaks into later tests in the
+    session — ``set_router_config(None)`` empties the router map (matching the
+    conftest baseline) and the alias-table singleton is reset to its freshly
+    constructed (unloaded) form.
     """
     set_router_config(cfg)
     alias_table.load_from_config(CONFIG_PATH)
-    return True
+    yield True
+    set_router_config(None)
+    alias_table._entries = []
+    alias_table._exact = {}
+    alias_table._provider_body_alias = {}
+    alias_table._body_providers = {}
+    alias_table._ambiguous_variants = set()
+    alias_table._loaded = False
 
 
 def _underlying(entry_by_name: dict[str, dict], alias: str | None) -> str | None:
@@ -103,6 +116,35 @@ class TestAliasParity:
         assert infer_provider(consolidated) == provider
         assert infer_provider(legacy) == provider
         assert infer_provider(legacy) == infer_provider(consolidated)
+
+    @pytest.mark.parametrize(
+        ("legacy", "consolidated"),
+        [
+            ("gemini-3.5-flash-aistudio", "aistudio/gemini-3.5-flash"),
+            ("gemini-3.5-flash-vertex", "vertex/gemini-3.5-flash"),
+            ("mistral-large-batch", "mistral/mistral-large"),
+            ("qwen36-27b-vllm-batch", "vllm/qwen3.6-27b"),
+            ("claude-haiku", "anthropic/claude-haiku"),
+        ],
+    )
+    def test_legacy_and_consolidated_resolve_to_same_underlying(
+        self,
+        wired,
+        entry_by_name: dict[str, dict],
+        legacy: str,
+        consolidated: str,
+    ):
+        # Both alias forms must RESOLVE through alias_table (not just infer a
+        # provider) and land on the SAME underlying litellm deployment — that is
+        # the real "no client break" guarantee.
+        resolved_legacy = alias_table.resolve(legacy)
+        resolved_consolidated = alias_table.resolve(consolidated)
+        assert resolved_legacy is not None
+        assert resolved_consolidated is not None
+        under_legacy = _underlying(entry_by_name, resolved_legacy)
+        under_consolidated = _underlying(entry_by_name, resolved_consolidated)
+        assert under_legacy is not None
+        assert under_legacy == under_consolidated
 
     def test_every_legacy_suffix_twin_resolves_non_none(self, wired, names: set[str]):
         legacy = sorted(
@@ -205,11 +247,14 @@ def _expects_batch(entry: dict) -> bool:
 
 class TestCapabilityWiringConsistency:
     def test_no_entry_over_or_under_claims_batch(self, model_list: list[dict]):
+        # Assert the FULL endpoints list for every entry — an entry returning
+        # extra/garbage endpoints (e.g. ["chat","embeddings"]) must NOT pass.
         mismatches = []
         for entry in model_list:
-            has_batch = "batch" in endpoints_for(entry)
-            if has_batch != _expects_batch(entry):
-                mismatches.append((entry.get("model_name"), endpoints_for(entry)))
+            expected = ["chat", "batch"] if _expects_batch(entry) else ["chat"]
+            actual = endpoints_for(entry)
+            if actual != expected:
+                mismatches.append((entry.get("model_name"), actual, expected))
         assert mismatches == [], f"endpoints<->wiring mismatch: {mismatches}"
 
     def test_vertex_global_entries_are_chat_only(self, model_list: list[dict]):
@@ -253,7 +298,49 @@ _REPRESENTATIVE = [
     "mistral/mistral-large",
     "mistral-large-batch",
     "vllm/qwen3.6-27b",
+    "anthropic/claude-haiku",
 ]
+
+# Hard-coded ORACLE of full capability records for representative entries.
+# This breaks the circularity of using ``capability_record`` to validate the two
+# product surfaces that are THEMSELVES built from ``capability_record``: a
+# regression INSIDE ``capability_record`` (dropping ``deprecated``, flipping
+# ``airlock_provider``, mangling ``underlying``) is now caught because the
+# four-way equality includes this independent literal.
+_EXPECTED_CAP: dict[str, dict] = {
+    # consolidated batch alias: gemini-served, chat+batch, not deprecated
+    "aistudio/gemini-3.5-flash": {
+        "airlock_provider": "gemini",
+        "endpoints": ["chat", "batch"],
+        "underlying": "gemini/gemini-3.5-flash",
+        "region": None,
+        "deprecated": False,
+    },
+    # vertex-at-global: vertex_ai-served, chat-only (anti-overclaim), region set
+    "vertex/gemini-3.5-flash": {
+        "airlock_provider": "vertex_ai",
+        "endpoints": ["chat"],
+        "underlying": "vertex_ai/gemini-3.5-flash",
+        "region": "global",
+        "deprecated": False,
+    },
+    # legacy suffix twin: same underlying as the consolidated form, deprecated
+    "gemini-3.5-flash-aistudio": {
+        "airlock_provider": "gemini",
+        "endpoints": ["chat", "batch"],
+        "underlying": "gemini/gemini-3.5-flash",
+        "region": None,
+        "deprecated": True,
+    },
+    # plain chat-only anthropic entry
+    "anthropic/claude-haiku": {
+        "airlock_provider": "anthropic",
+        "endpoints": ["chat"],
+        "underlying": "anthropic/claude-haiku-4-5-20251001",
+        "region": None,
+        "deprecated": False,
+    },
+}
 
 
 class TestSurfacesAgree:
@@ -279,12 +366,9 @@ class TestSurfacesAgree:
         entry_by_name: dict[str, dict],
         injected_model_info: dict[str, dict],
     ):
-        expected = capability_record(entry_by_name[name])
-        injected = injected_model_info[name]
-        # model_info carries exactly the capability record (it may pre-exist
-        # empty; _prepare_runtime_config .update()s the record onto it).
-        for key, value in expected.items():
-            assert injected[key] == value, (name, key)
+        # EXACT whole-dict equality — a stale/extra key in the injected model_info
+        # must fail, not be silently ignored.
+        assert injected_model_info[name] == capability_record(entry_by_name[name])
 
     @pytest.mark.parametrize("name", _REPRESENTATIVE)
     def test_v1models_surface_equals_capability_record(
@@ -292,6 +376,24 @@ class TestSurfacesAgree:
     ):
         cap_map = _build_capability_map()
         assert cap_map[name] == capability_record(entry_by_name[name])
+
+    @pytest.mark.parametrize("name", sorted(_EXPECTED_CAP))
+    def test_four_way_agreement_against_independent_oracle(
+        self,
+        name: str,
+        entry_by_name: dict[str, dict],
+        injected_model_info: dict[str, dict],
+    ):
+        # Both product surfaces, the helper, AND a hand-written literal must all
+        # agree — this is what makes the lock non-circular: a regression inside
+        # capability_record can no longer hide behind itself.
+        cap_map = _build_capability_map()
+        injected = injected_model_info[name]
+        record = capability_record(entry_by_name[name])
+        expected = _EXPECTED_CAP[name]
+        assert injected == expected
+        assert cap_map[name] == expected
+        assert record == expected
 
 
 # ---------------------------------------------------------------------------
