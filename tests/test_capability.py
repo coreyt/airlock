@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from airlock.capability import airlock_provider_for, normalize_provider_token
+from airlock.capability import (
+    airlock_provider_for,
+    capability_record,
+    endpoints_for,
+    normalize_provider_token,
+)
 
 
 def _entry(model: str, **params) -> dict:
@@ -104,3 +109,159 @@ class TestAirlockProviderFor:
     def test_missing_model_returns_none(self):
         assert airlock_provider_for({"litellm_params": {}}) is None
         assert airlock_provider_for({}) is None
+
+
+class TestEndpointsFor:
+    def test_plain_entry_chat_only(self):
+        assert endpoints_for(_entry("gemini/gemini-3.5-flash")) == ["chat"]
+
+    def test_anthropic_chat_only(self):
+        assert endpoints_for(_entry("anthropic/claude-opus-4-8")) == ["chat"]
+
+    def test_airlock_batch_marker_aistudio(self):
+        entry = {
+            "model_name": "aistudio/gemini-3.5-flash",
+            "litellm_params": {"model": "gemini/gemini-3.5-flash"},
+            "airlock_batch": {"backend": "aistudio", "provider_model": "x"},
+        }
+        assert endpoints_for(entry) == ["chat", "batch"]
+
+    def test_airlock_batch_marker_mistral(self):
+        entry = {
+            "litellm_params": {"model": "mistral/mistral-large-latest"},
+            "airlock_batch": {"backend": "mistral"},
+        }
+        assert endpoints_for(entry) == ["chat", "batch"]
+
+    def test_airlock_batch_marker_vllm(self):
+        entry = {
+            "litellm_params": {"model": "openai/qwen3.6-27b"},
+            "airlock_batch": {"backend": "vllm"},
+        }
+        assert endpoints_for(entry) == ["chat", "batch"]
+
+    def test_vertex_global_is_chat_only(self):
+        entry = _entry("vertex_ai/gemini-3.5-flash", vertex_location="global")
+        assert endpoints_for(entry) == ["chat"]
+
+    def test_vertex_global_uppercase_is_chat_only(self):
+        entry = _entry("vertex_ai/gemini-3.5-flash", vertex_location="GLOBAL")
+        assert endpoints_for(entry) == ["chat"]
+
+    def test_vertex_regional_gets_batch(self):
+        entry = _entry("vertex_ai/gemini-3.5-flash", vertex_location="us-central1")
+        assert endpoints_for(entry) == ["chat", "batch"]
+
+    def test_vertex_no_location_chat_only(self):
+        assert endpoints_for(_entry("vertex_ai/gemini-3.5-flash")) == ["chat"]
+
+    def test_falsy_airlock_batch_chat_only(self):
+        entry = {
+            "litellm_params": {"model": "gemini/gemini-3.5-flash"},
+            "airlock_batch": None,
+        }
+        assert endpoints_for(entry) == ["chat"]
+
+    def test_empty_model_chat_only(self):
+        assert endpoints_for({"litellm_params": {}}) == ["chat"]
+        assert endpoints_for({}) == ["chat"]
+
+
+class TestCapabilityRecord:
+    def test_anthropic_bare(self):
+        entry = {
+            "model_name": "claude-opus",
+            "litellm_params": {"model": "anthropic/claude-opus-4-8"},
+        }
+        rec = capability_record(entry)
+        assert rec == {
+            "airlock_provider": "anthropic",
+            "endpoints": ["chat"],
+            "underlying": "anthropic/claude-opus-4-8",
+            "region": None,
+            "deprecated": False,
+        }
+
+    def test_aistudio_batch_marker(self):
+        entry = {
+            "model_name": "aistudio/gemini-3.5-flash",
+            "litellm_params": {"model": "gemini/gemini-3.5-flash"},
+            "airlock_batch": {"backend": "aistudio"},
+        }
+        rec = capability_record(entry)
+        assert rec["airlock_provider"] == airlock_provider_for(entry)
+        assert rec["airlock_provider"] == "gemini"
+        assert rec["underlying"] == "gemini/gemini-3.5-flash"
+        assert rec["endpoints"] == endpoints_for(entry)
+        assert rec["endpoints"] == ["chat", "batch"]
+        assert rec["region"] is None
+        assert rec["deprecated"] is False
+
+    def test_vertex_global_region_and_chat_only(self):
+        entry = {
+            "model_name": "gemini-3.5-flash-vertex",
+            "litellm_params": {
+                "model": "vertex_ai/gemini-3.5-flash",
+                "vertex_location": "global",
+            },
+        }
+        rec = capability_record(entry)
+        assert rec["airlock_provider"] == "vertex_ai"
+        assert rec["region"] == "global"
+        assert rec["endpoints"] == ["chat"]
+        assert rec["deprecated"] is True
+
+    @pytest.mark.parametrize(
+        "model_name",
+        [
+            "gemini-3.5-flash-aistudio",
+            "gemini-3.1-pro-aistudio",
+            "gemini-3.5-flash-vertex",
+            "gemini-3.1-pro-vertex",
+            "mistral-large-batch",
+            "mistral-small-batch",
+            "qwen36-27b-vllm-batch",
+        ],
+    )
+    def test_suffix_twins_deprecated(self, model_name):
+        entry = {
+            "model_name": model_name,
+            "litellm_params": {"model": "gemini/gemini-3.5-flash"},
+        }
+        assert capability_record(entry)["deprecated"] is True
+
+    @pytest.mark.parametrize(
+        "model_name",
+        [
+            "gemini-3.5-flash",
+            "aistudio/gemini-3.5-flash",
+            "mistral/mistral-large",
+            "vertex/gemini-3.1-pro",
+        ],
+    )
+    def test_bare_and_provider_aliases_not_deprecated(self, model_name):
+        entry = {
+            "model_name": model_name,
+            "litellm_params": {"model": "gemini/gemini-3.5-flash"},
+        }
+        assert capability_record(entry)["deprecated"] is False
+
+    def test_empty_litellm_params_safe(self):
+        rec = capability_record({"model_name": "weird"})
+        assert rec["airlock_provider"] is None
+        assert rec["endpoints"] == ["chat"]
+        assert rec["underlying"] is None
+        assert rec["region"] is None
+        assert rec["deprecated"] is False
+
+    def test_record_has_exact_keys(self):
+        rec = capability_record(
+            {"model_name": "x", "litellm_params": {"model": "openai/gpt-5.5"}}
+        )
+        assert set(rec) == {
+            "airlock_provider",
+            "endpoints",
+            "underlying",
+            "region",
+            "deprecated",
+        }
