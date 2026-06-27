@@ -103,9 +103,22 @@ unexpectedly, report it — do not "fix" it. Commit the RED tests on their own
 (tests-only commit) and record that sha for `tdd_evidence.red_commit_sha`.
 `echo "[{{PACK_ID}}][RED] tests failing as expected"`.
 
+> **Test invocation.** Run pytest as **`uv run --extra test python -m pytest …`**.
+> Plain `uv run pytest` can resolve a wrong-Python user-site pytest where `litellm`
+> isn't importable — a false RED/ERROR that isn't your pack's fault. Use the same
+> invocation for RED, GREEN, and the regression sweep.
+
 ### 2. READ
 Read ONLY the READ ONLY files above, using the given line ranges. Do NOT read
 entire large files. Do NOT read unlisted files.
+
+**Verify load-bearing test claims (defense-in-depth).** If a step above asserts
+"test X asserts Y" and your GREEN mechanism depends on that being true, open test X
+at the base commit and read the whole assertion. If the claim is false (the test
+doesn't assert what the prompt says), **STOP and escalate** — do not proceed. The
+single most dangerous failure mode is faking a green by silently weakening or
+deleting a real assertion; never make a target test pass by changing what it checks.
+`[{{PACK_ID}}][DETECT]` the discrepancy and report it.
 
 ### 3. GREEN
 {{APPROACH}}

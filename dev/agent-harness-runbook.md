@@ -179,13 +179,17 @@ canary implementer can run foreground since it's <10s.
 
 **Step 1b: Implementation canary.**
 1. Run `./scripts/preflight.sh`. Confirm main is clean.
-2. Create the worktree from the recorded base commit:
+2. Create the worktree from the recorded base commit. **Guard the base first** —
+   assert it is `main`'s HEAD (not a stale ancestor `main` has moved past), the
+   failure mode that silently orphans merged work:
    ```bash
    cd /home/coreyt/projects/airlock
+   ./scripts/check-worktree-base.sh {BASE_COMMIT}   # exits 1 on a stale base
    git worktree add .claude/worktrees/{BRANCH} -b {BRANCH} {BASE_COMMIT}
    ```
    Note the absolute path — this is `{WORKTREE_ABSOLUTE_PATH}` for the
-   prompt template.
+   prompt template. (The implementer prompt's verify-first block is the
+   second line of defense — its fast-forward trap; see SLICE-TEMPLATE.)
 3. Launch 1 implementer with `run_in_background: true`,
    `isolation: "worktree"`. The agent definition MUST grant `Bash` or
    the agent will not be able to run `uv run pytest`, `uv run ruff check`, or
@@ -353,6 +357,7 @@ After each implement + merge cycle, before the next agent:
 [ ] Task tracking updated
 [ ] Status reported to user
 [ ] No stale worktrees: git worktree list
+[ ] No stale-base worktrees: ./scripts/check-worktree-base.sh (survey mode)
 ```
 
 ---
