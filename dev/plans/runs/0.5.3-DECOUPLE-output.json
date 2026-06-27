@@ -1,0 +1,75 @@
+{
+  "pack": "0.5.3-DECOUPLE",
+  "baseline_sha": "6c1e280",
+  "branch": "feat/0.5.3-DECOUPLE",
+  "head_sha": "62a0fdb4f06cacd875334a08ec262e90efc9762f",
+  "commits": [
+    "8898dca: docs(0.5.3-DECOUPLE): relocation map + redirect list + bootstrap/test design",
+    "67e88cc: test(0.5.3-DECOUPLE): RED cycle-guard + bootstrap-order tests (failing)",
+    "62a0fdb: refactor(0.5.3-DECOUPLE): break fast<->guardrails cycle; extract proxy_bootstrap.py"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "67e88ccaff839b3f0b877a2b62dad1f840faa20c",
+    "test_files": [
+      "tests/test_import_layering.py",
+      "tests/test_proxy_bootstrap.py"
+    ]
+  },
+  "relocation_map": {
+    "text_extraction_seam": "real impls (extract_text, extract_text_from_messages, extract_text_from_mcp, is_mcp_call, is_batch_call, _collect_strings, _MAX_DEPTH, _BATCH_CALL_TYPES) moved guardrails/extract.py -> airlock/text_extract.py; guardrails/extract.py is now a re-export shim (from airlock.text_extract import ... + __all__)",
+    "overrides_seam": "real impls (resolve_guardrail_decision, configure_guardrail_overrides, _GuardrailOverrideConfig, _cfg, _DECISION_KEY, _authenticated_client_id, _header_value) moved guardrails/overrides.py -> airlock/guardrail_overrides.py; guardrails/overrides.py is now a re-export shim (exposes _cfg for test introspection)"
+  },
+  "redirected_edges": [
+    "airlock/fast/monitor.py:27 from airlock.guardrails.extract import is_batch_call -> from airlock.text_extract import is_batch_call",
+    "airlock/fast/guardian.py:44 from airlock.guardrails.extract import extract_text, is_batch_call, is_mcp_call -> from airlock.text_extract import ...",
+    "airlock/fast/guardian.py (lazy) from airlock.guardrails.overrides import resolve_guardrail_decision -> from airlock.guardrail_overrides import resolve_guardrail_decision"
+  ],
+  "self_check": {
+    "grep_airlock_guardrails_in_fast": "NONE (good) — fast has zero airlock.guardrails references (module-level or lazy)",
+    "install_callers_outside_proxy_bootstrap": "only the def sites (docs.py, admin/http.py, batch/middleware.py, models_seam.py, health.py, proxy_errors.py); model_override_headers.py no longer calls install_*",
+    "observer_allowed_edge": "airlock/guardrails/observer.py:34 from airlock.fast.state import normalize_client_id, store — UNTOUCHED, still works"
+  },
+  "bootstrap_order_preserved": [
+    "docs",
+    "circuit_health",
+    "error_handlers",
+    "admin",
+    "batch",
+    "models_capability"
+  ],
+  "bootstrap_trigger": "airlock/callbacks/model_override_headers.py imports bootstrap_airlock_proxy and calls it once at module load (import-time trigger preserved via config.yaml); only bootstrap remnant left, header-hook class retained",
+  "tests": {
+    "targeted": [
+      "tests/test_import_layering.py::test_fast_does_not_import_guardrails",
+      "tests/test_proxy_bootstrap.py::test_bootstrap_runs_installs_in_order"
+    ],
+    "passed": 2,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "regression_sweep": {
+    "command": "uv run --extra test python -m pytest (full no-network suite)",
+    "result": "2412 passed, 107 skipped, 1 xpassed, 1 failed",
+    "failing_ids": ["tests/test_fathom_init.py::test_init_engine_with_fathomdb"],
+    "note": "the single failure is the known pre-existing fathom-env failure (documented in commit 582edbd as '1 pre-existing fathom env failure'); unrelated to this pack"
+  },
+  "files_changed": [
+    "airlock/text_extract.py",
+    "airlock/guardrail_overrides.py",
+    "airlock/proxy_bootstrap.py",
+    "airlock/guardrails/extract.py",
+    "airlock/guardrails/overrides.py",
+    "airlock/fast/guardian.py",
+    "airlock/fast/monitor.py",
+    "airlock/callbacks/model_override_headers.py",
+    "tests/test_import_layering.py",
+    "tests/test_proxy_bootstrap.py",
+    "dev/notes/0.5.3-DECOUPLE-design.md"
+  ],
+  "blockers_encountered": [],
+  "additional_changes_made_in_scope": [
+    "Reordered the two adjacent imports in airlock/fast/monitor.py (litellm_adapter before text_extract) to satisfy ruff isort after redirecting line 27"
+  ],
+  "agent_verify_result": "pass — new tests green; scoped ruff check/format clean; full suite 2412 passed with only the known pre-existing fathom-env failure",
+  "next_step_for_orchestrator": "Pack 0.5.3-DECOUPLE on branch feat/0.5.3-DECOUPLE at 62a0fdb4f06cacd875334a08ec262e90efc9762f; review, verify, merge"
+}
