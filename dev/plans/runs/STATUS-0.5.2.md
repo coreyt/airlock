@@ -16,16 +16,14 @@ capabilities.** Plan: `dev/plans/0.5.2-plan.md`. Orchestrator:
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** none — **CAP-v1models CLOSED** (merged `0beed30`; codex CONCERN→fix→PASS;
-  `/v1/models` smoke PASS — 73/73 models carry the additive `airlock` object, standard
-  OpenAI fields intact). **discover→pin→verify proven end-to-end** (`/v1/models` +
-  `/model/info` + `X-Airlock-Served-By`).
-- **Done:** DESIGN, NAME-aliases (+smoke), CAP-modelinfo (+smoke), CAP-v1models (+smoke).
-- **Next action:** **COMPAT-tests** (tests-only; no config edits) — cross-cutting
-  regression locking the whole contract: old+new alias resolve/pin/attribute; collision-
-  safety (bare never repoints; native `vertex_ai/` → vertex); batch create via old+new
-  alias hits same backend; `/model/info`+`/v1/models` capability shape additive. Cut
-  worktree from current HEAD. Then DOCS + release sign-off.
+- **In flight:** **DOCS IMPLEMENTING** (wt `feat-0.5.2-DOCS` @ `4610db0`) — the last pack.
+  UN-21/UN-22, discover→pin→verify recipe, old→new alias map, header catalog, changelog +
+  0.6.0 deprecation notice; gate = `mkdocs build --strict`. Prompt `dev/plans/prompts/0.5.2-DOCS.md`.
+- **Done (5/6):** DESIGN, NAME-aliases (+smoke), CAP-modelinfo (+smoke), CAP-v1models (+smoke),
+  COMPAT-tests (54 tests, non-circular oracle). All code merged; full capability contract proven live.
+- **Next action:** on DOCS completion → codex(docs) review → merge → **release sign-off**
+  (runbook §6.1, K3): final isolated smoke recap, version bump 0.5.1→0.5.2 + CHANGELOG cut +
+  annotated tag **LOCAL** (no push without separate approval).
 
 ## 2. Pack scoreboard
 
@@ -36,7 +34,7 @@ capabilities.** Plan: `dev/plans/0.5.2-plan.md`. Orchestrator:
 | `CAP-modelinfo` | computed `model_info` injected at startup (`proxy._prepare_runtime_config`); `endpoints` region-gated; served natively on `/model/info` | NAME-aliases | **CLOSED ✅** (merged `c26c01a`; codex PASS; /model/info smoke PASS) | `0.5.2-CAP-modelinfo-output.json` + `-review-20260627T133638Z.md` + `-smoke-20260627T133749Z.md` |
 | `CAP-v1models` | Additive `airlock:{…}` on `GET /v1/models`+`/models` (ASGI response seam, reuse `capability_record`) | CAP-modelinfo | **CLOSED ✅** (merged `0beed30`; codex CONCERN→fix; /v1/models smoke PASS 73/73) | `0.5.2-CAP-v1models-output.json` + `-review-20260627T135029Z.md` + `-smoke-20260627T135420Z.md` |
 | `COMPAT-tests` | Cross-cutting regression (tests-only) | CAP-v1models | **REVIEW→FIX** (43 tests green @ f8eb4cb; codex CONCERN — 5 assertions too loose/circular; hardening in flight) | `0.5.2-COMPAT-tests-output.json` + `-review-20260627T140849Z.md` |
-| `DOCS` | UN-21/UN-22; design note as-built; user guides; header catalog; changelog + deprecation notice | NAME+CAP merged | NOT_STARTED | `dev/plans/runs/0.5.2-DOCS-output.json` |
+| `DOCS` | UN-21/UN-22; design note as-built; user guides + discover→pin→verify recipe; header catalog; changelog + 0.6.0 deprecation notice; mkdocs --strict | NAME+CAP merged | **IMPLEMENTING** (wt `feat-0.5.2-DOCS` @ 4610db0) | `dev/plans/runs/0.5.2-DOCS-output.json` |
 
 States (furthest witnessed wins):
 `WORKTREE_CREATED` → `IMPLEMENTING` → `IMPLEMENTED` (`output.json` + head past
