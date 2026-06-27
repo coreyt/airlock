@@ -24,6 +24,23 @@ model_list:
       model: anthropic/claude-haiku-4-5-20251001
       api_key: os.environ/ANTHROPIC_API_KEY
 
+  # Provider-prefixed aliases (0.5.2) — stable served-by-explicit names; same
+  # litellm_params as the bare entries above (dual-listed).
+  - model_name: anthropic/claude-opus
+    litellm_params:
+      model: anthropic/claude-opus-4-8
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: anthropic/claude-sonnet
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: anthropic/claude-haiku
+    litellm_params:
+      model: anthropic/claude-haiku-4-5-20251001
+      api_key: os.environ/ANTHROPIC_API_KEY
+
   # --- OpenAI (GPT-5.5 flagship / 5.4 value / 5.4 mini+nano / 5.3 codex) ---
   - model_name: gpt-5-pro
     litellm_params:
@@ -53,6 +70,37 @@ model_list:
       api_key: os.environ/OPENAI_API_KEY
 
   - model_name: gpt-5-codex
+    litellm_params:
+      model: openai/gpt-5.3-codex
+      api_key: os.environ/OPENAI_API_KEY
+
+  # Provider-prefixed OpenAI aliases (0.5.2) — same litellm_params as above.
+  - model_name: openai/gpt-5-pro
+    litellm_params:
+      model: openai/gpt-5.5-pro
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: openai/gpt-5
+    litellm_params:
+      model: openai/gpt-5.5
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: openai/gpt-5.4
+    litellm_params:
+      model: openai/gpt-5.4
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: openai/gpt-5-mini
+    litellm_params:
+      model: openai/gpt-5.4-mini
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: openai/gpt-5-nano
+    litellm_params:
+      model: openai/gpt-5.4-nano
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: openai/gpt-5-codex
     litellm_params:
       model: openai/gpt-5.3-codex
       api_key: os.environ/OPENAI_API_KEY
@@ -113,6 +161,67 @@ model_list:
           thinking: true
           thinking_level: "MEDIUM"
 
+  # Provider-prefixed AI Studio aliases (0.5.2) — same litellm_params (gemini/)
+  # as the bare entries above. The aistudio/gemini-3.5-flash and
+  # aistudio/gemini-3.1-pro aliases carry the airlock_batch marker (consolidating
+  # the legacy -aistudio twins) so the prefixed name serves sync AND batch.
+  - model_name: aistudio/gemini-flash
+    litellm_params:
+      model: gemini/gemini-2.5-flash
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+
+  - model_name: aistudio/gemini-flash-lite
+    litellm_params:
+      model: gemini/gemini-2.5-flash-lite
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+
+  - model_name: aistudio/gemini-pro
+    litellm_params:
+      model: gemini/gemini-2.5-pro
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+
+  - model_name: aistudio/gemini-3.5-flash
+    litellm_params:
+      model: gemini/gemini-3.5-flash
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+    airlock_batch:
+      backend: aistudio
+      provider_model: gemini-3.5-flash
+
+  - model_name: aistudio/gemini-3.1-flash-lite
+    litellm_params:
+      model: gemini/gemini-3.1-flash-lite
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+
+  - model_name: aistudio/gemini-3-flash
+    litellm_params:
+      model: gemini/gemini-3-flash-preview
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+
+  - model_name: aistudio/gemini-3.1-pro
+    litellm_params:
+      model: gemini/gemini-3.1-pro-preview
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+    airlock_batch:
+      backend: aistudio
+      provider_model: gemini-3.1-pro-preview
+
+  - model_name: aistudio/gemini-3.1-pro-tools
+    litellm_params:
+      model: gemini/gemini-3.1-pro-preview-customtools
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+
+  - model_name: aistudio/gemini-coding
+    litellm_params:
+      model: enhanced/gemini-coding
+      api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
+      enhanced_profile:
+        target_model: gemini/gemini-3.1-pro-preview-customtools
+        system_prompt: "CRITICAL: You are operating in a multi-turn tool-calling loop. You must retain and finalize all reasoning pathways. Do not truncate internal thoughts."
+        params:
+          thinking: true
+          thinking_level: "MEDIUM"
+
   # --- Google Vertex AI (Gemini 3.x, BATCH-capable) ---
   # vertex_ai is wired in LiteLLM for the Batch API (/v1/files + /v1/batches);
   # the gemini/ (AI Studio) provider above is not. Also serves sync completions.
@@ -134,6 +243,23 @@ model_list:
       vertex_credentials: os.environ/VERTEX_CREDENTIALS
 
   - model_name: gemini-3.1-pro-vertex
+    litellm_params:
+      model: vertex_ai/gemini-3.1-pro-preview
+      vertex_project: os.environ/VERTEX_PROJECT
+      vertex_location: global
+      vertex_credentials: os.environ/VERTEX_CREDENTIALS
+
+  # Provider-prefixed Vertex aliases (0.5.2) — same litellm_params as the
+  # -vertex entries above. NO airlock_batch marker: vertex batch is region-gated
+  # and vertex_location is `global` (sync/chat-only).
+  - model_name: vertex/gemini-3.5-flash
+    litellm_params:
+      model: vertex_ai/gemini-3.5-flash
+      vertex_project: os.environ/VERTEX_PROJECT
+      vertex_location: global
+      vertex_credentials: os.environ/VERTEX_CREDENTIALS
+
+  - model_name: vertex/gemini-3.1-pro
     litellm_params:
       model: vertex_ai/gemini-3.1-pro-preview
       vertex_project: os.environ/VERTEX_PROJECT
@@ -227,6 +353,40 @@ model_list:
       model: mistral/magistral-medium-latest
       api_key: os.environ/MISTRAL_API_KEY
 
+  # Provider-prefixed Mistral aliases (0.5.2) — same litellm_params as above.
+  # mistral/mistral-large and mistral/mistral-small carry the airlock_batch
+  # marker (consolidating the legacy -batch twins) so they serve sync AND batch.
+  - model_name: mistral/mistral-large
+    litellm_params:
+      model: mistral/mistral-large-latest
+      api_key: os.environ/MISTRAL_API_KEY
+    airlock_batch:
+      backend: mistral
+      provider_model: mistral-large-latest
+
+  - model_name: mistral/mistral-medium
+    litellm_params:
+      model: mistral/mistral-medium-latest
+      api_key: os.environ/MISTRAL_API_KEY
+
+  - model_name: mistral/mistral-small
+    litellm_params:
+      model: mistral/mistral-small-latest
+      api_key: os.environ/MISTRAL_API_KEY
+    airlock_batch:
+      backend: mistral
+      provider_model: mistral-small-latest
+
+  - model_name: mistral/codestral
+    litellm_params:
+      model: mistral/codestral-latest
+      api_key: os.environ/MISTRAL_API_KEY
+
+  - model_name: mistral/magistral-medium
+    litellm_params:
+      model: mistral/magistral-medium-latest
+      api_key: os.environ/MISTRAL_API_KEY
+
   # --- Perplexity Sonar ---
   - model_name: perplexity-sonar
     litellm_params:
@@ -248,8 +408,35 @@ model_list:
       model: perplexity/sonar-deep-research
       api_key: os.environ/PERPLEXITY_API_KEY
 
+  # Provider-prefixed Perplexity aliases (0.5.2) — same litellm_params as above.
+  - model_name: perplexity/sonar
+    litellm_params:
+      model: perplexity/sonar
+      api_key: os.environ/PERPLEXITY_API_KEY
+
+  - model_name: perplexity/sonar-pro
+    litellm_params:
+      model: perplexity/sonar-pro
+      api_key: os.environ/PERPLEXITY_API_KEY
+
+  - model_name: perplexity/sonar-reasoning-pro
+    litellm_params:
+      model: perplexity/sonar-reasoning-pro
+      api_key: os.environ/PERPLEXITY_API_KEY
+
+  - model_name: perplexity/sonar-deep-research
+    litellm_params:
+      model: perplexity/sonar-deep-research
+      api_key: os.environ/PERPLEXITY_API_KEY
+
   # --- Tavily (web search as chat completion) ---
   - model_name: tavily-search
+    litellm_params:
+      model: tavily/web-search
+      api_key: os.environ/TAVILY_API_KEY
+
+  # Provider-prefixed Tavily alias (0.5.2) — == litellm_params.model.
+  - model_name: tavily/web-search
     litellm_params:
       model: tavily/web-search
       api_key: os.environ/TAVILY_API_KEY
@@ -298,6 +485,36 @@ model_list:
       model: openai/qwen3.6-27b
       api_base: http://192.168.1.45:8000/v1
       api_key: os.environ/VLLM_API_KEY
+
+  # Provider-prefixed local-vLLM aliases (0.5.2) — served-by `openai`
+  # (OpenAI-compatible endpoint). vllm/qwen3.6-27b carries the airlock_batch
+  # marker (consolidating qwen36-27b-vllm-batch) so it serves sync AND batch.
+  - model_name: vllm/gemma-4
+    litellm_params:
+      model: openai/gemma4-31b
+      api_base: http://192.168.1.45:8000/v1
+      api_key: os.environ/VLLM_API_KEY
+
+  - model_name: vllm/kimi-dev
+    litellm_params:
+      model: openai/kimi-dev-72b
+      api_base: http://192.168.1.45:8000/v1
+      api_key: os.environ/VLLM_API_KEY
+
+  - model_name: vllm/qwen3-32b
+    litellm_params:
+      model: openai/qwen3-32b
+      api_base: http://192.168.1.45:8000/v1
+      api_key: os.environ/VLLM_API_KEY
+
+  - model_name: vllm/qwen3.6-27b
+    litellm_params:
+      model: openai/qwen3.6-27b
+      api_base: http://192.168.1.45:8000/v1
+      api_key: os.environ/VLLM_API_KEY
+    airlock_batch:
+      backend: vllm
+      provider_model: qwen3.6-27b
 
   # --- Internal RAG (Phase 3 — uncomment when ready) ---
   # - model_name: internal-docs

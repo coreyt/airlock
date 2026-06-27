@@ -25,6 +25,23 @@ _TEMPLATE_PATH = (
     / "config.yaml"
 )
 
+_ROOT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
+
+
+@pytest.fixture(scope="module")
+def root_config() -> dict:
+    """Load the deployed root config.yaml as a dict."""
+    assert _ROOT_CONFIG_PATH.is_file(), f"Root config not found: {_ROOT_CONFIG_PATH}"
+    with open(_ROOT_CONFIG_PATH, encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+@pytest.fixture(scope="module")
+def root_model_names(root_config) -> set[str]:
+    return {
+        e["model_name"] for e in root_config.get("model_list", []) if "model_name" in e
+    }
+
 
 @pytest.fixture(scope="module")
 def template_config() -> dict:
@@ -409,6 +426,80 @@ class TestCustomProviderMap:
 # ---------------------------------------------------------------------------
 # Router cost tier consistency
 # ---------------------------------------------------------------------------
+
+
+class TestRootConfigReferenceIntegrity:
+    """Root config.yaml fallbacks/cost_tiers targets must be live model_names."""
+
+    def test_fallback_sources_and_targets_live(self, root_config, root_model_names):
+        fallbacks = root_config.get("router_settings", {}).get("fallbacks", [])
+        for entry in fallbacks:
+            for source, targets in entry.items():
+                assert source in root_model_names, (
+                    f"Fallback source '{source}' not in root model_list"
+                )
+                for target in targets:
+                    assert target in root_model_names, (
+                        f"Fallback target '{target}' (for {source}) not in root model_list"
+                    )
+
+    def test_cost_tier_members_live(self, root_config, root_model_names):
+        cost_tiers = root_config.get("cost_tiers", {})
+        for tier, models in cost_tiers.items():
+            for model in models:
+                assert model in root_model_names, (
+                    f"cost_tiers['{tier}'] references '{model}' not in root model_list"
+                )
+
+    def test_no_duplicate_root_model_names(self, root_config):
+        names = [
+            e["model_name"]
+            for e in root_config.get("model_list", [])
+            if "model_name" in e
+        ]
+        dupes = [n for n in names if names.count(n) > 1]
+        assert not dupes, f"Duplicate model_names in root config: {set(dupes)}"
+
+
+class TestRootConfigBatchKeys:
+    """Consolidated prefixed batch aliases AND legacy twins both resolve via the
+    Airlock Batch Gateway with the right backend/provider_model."""
+
+    @pytest.fixture
+    def aliases(self, root_config) -> dict:
+        from airlock.batch.gateway import load_batch_aliases
+
+        return load_batch_aliases(root_config)
+
+    @pytest.mark.parametrize(
+        "alias,backend,provider_model",
+        [
+            ("aistudio/gemini-3.5-flash", "aistudio", "gemini-3.5-flash"),
+            ("aistudio/gemini-3.1-pro", "aistudio", "gemini-3.1-pro-preview"),
+            ("mistral/mistral-large", "mistral", "mistral-large-latest"),
+            ("mistral/mistral-small", "mistral", "mistral-small-latest"),
+            ("vllm/qwen3.6-27b", "vllm", "qwen3.6-27b"),
+        ],
+    )
+    def test_consolidated_keys(self, aliases, alias, backend, provider_model):
+        assert alias in aliases, f"Consolidated batch alias '{alias}' missing"
+        assert aliases[alias]["backend"] == backend
+        assert aliases[alias]["provider_model"] == provider_model
+
+    @pytest.mark.parametrize(
+        "alias,backend,provider_model",
+        [
+            ("gemini-3.5-flash-aistudio", "aistudio", "gemini-3.5-flash"),
+            ("gemini-3.1-pro-aistudio", "aistudio", "gemini-3.1-pro-preview"),
+            ("mistral-large-batch", "mistral", "mistral-large-latest"),
+            ("mistral-small-batch", "mistral", "mistral-small-latest"),
+            ("qwen36-27b-vllm-batch", "vllm", "qwen3.6-27b"),
+        ],
+    )
+    def test_legacy_twin_keys(self, aliases, alias, backend, provider_model):
+        assert alias in aliases, f"Legacy batch twin '{alias}' missing"
+        assert aliases[alias]["backend"] == backend
+        assert aliases[alias]["provider_model"] == provider_model
 
 
 class TestCostTierConsistency:
