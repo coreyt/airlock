@@ -368,9 +368,23 @@ state/TUI (`state.py:1417`, `overview.py:665`).
 
 ### 4.4 `/model/info` and the `/v1/models` seam (N4)
 
-- **`/model/info` is LiteLLM-native** and surfaces each entry's config `model_info`
-  block verbatim. ⇒ CAP-modelinfo is *config-only*: add `model_info:` blocks; no
-  airlock route. (`proxy.py:5-6` documents that `/v1/models` is LiteLLM-native too.)
+- **`/model/info` is LiteLLM-native** and surfaces each entry's `model_info` block
+  verbatim (`litellm/proxy/proxy_server.py:12355-12395` `_get_proxy_model_info`
+  reads `model.get("model_info", {})`; `litellm/router.py:8245` pops/stores it per
+  deployment). **Refinement (v4, post-investigation — supersedes "hand-write config
+  blocks"):** with **73** catalog entries, hand-authoring `model_info:` in YAML is a
+  drift magnet and a huge diff. Instead, **compute and inject** it at startup:
+  CAP-modelinfo iterates `model_list` in `airlock/proxy.py:_prepare_runtime_config()`
+  (`:158-218` — the established seam that already mutates the config dict for MCP
+  toggles / health checks / Fathom before writing the temp config the litellm child
+  reads) and does `entry.setdefault("model_info", {}).update(capability_record(entry))`.
+  LiteLLM then serves the computed capability natively on `/model/info` with **no
+  hand-written blocks and no possible drift** (single source = `capability.py`). This
+  is lower-risk than an ASGI response-transform for `/model/info` (no litellm
+  response-format coupling, no per-request cost, an existing airlock pattern). The
+  **single-source consistency** the original design enforced via a "config==helper"
+  test is now structural (the value IS the helper output); the test becomes "injection
+  produces the expected record per entry" + the live `/model/info` smoke.
 - **`/v1/models` augmentation** = new ASGI middleware (e.g. `airlock/models_seam.py`
   + an `install_models_seam_on_proxy_app()` hook) that, for `GET /v1/models`
   responses, joins each `data[].id` (the `model_name`) to the config entry and adds
@@ -534,4 +548,9 @@ Authored per pack; listed here so the design names the surface.
   to the bare AI-Studio entry. → §4.1 v3 adds a **provider-aware** prefix-strip
   (`(provider, bare) → alias` index; contradictory multi-provider prefixes fall
   through, never silently repoint). *NAME-aliases scope.*
-- **v3 → re-review:** see `dev/plans/runs/0.5.2-NAMING-design-review-<ts>.md`.
+- **v3 → PASS:** see `dev/plans/runs/0.5.2-NAMING-design-review-20260627T040523Z.md`.
+- **v4 refinement (post-NAME-aliases, CAP-modelinfo authoring):** `/model/info`
+  capability is **computed and injected** at startup via
+  `proxy.py:_prepare_runtime_config()` rather than hand-written into 73 config
+  `model_info:` blocks (§4.4). Strictly more single-source / less drift; gated by the
+  CAP-modelinfo per-pack codex review rather than a separate design round.
