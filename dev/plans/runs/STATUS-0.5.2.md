@@ -16,16 +16,15 @@ capabilities.** Plan: `dev/plans/0.5.2-plan.md`. Orchestrator:
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** **CAP-modelinfo IMPLEMENTING** (wt `feat-0.5.2-CAP-modelinfo` @
-  `b264b16`). Approach refined (design v4): capability is **computed** by
-  `capability.py` (`endpoints_for` + `capability_record`) and **injected** into the
-  model_list `model_info` at startup via `proxy._prepare_runtime_config` (NOT 73
-  hand-written config blocks) → litellm serves `/model/info` natively. Pack prompt:
-  `dev/plans/prompts/0.5.2-CAP-modelinfo.md`.
-- **Done:** NAME-aliases CLOSED + HITL smoke PASS (merged `4905150`; `aistudio→gemini`,
-  `vertex→vertex_ai` proven live on `:4137`).
-- **Next action:** on implementer completion → witness check → codex review the diff →
-  merge → live `/model/info` smoke (isolated port) → CAP-v1models.
+- **In flight:** none — **CAP-modelinfo CLOSED** (merged `c26c01a`; codex PASS;
+  `/model/info` smoke PASS — 73/73 models carry computed `model_info`; region-gated
+  vertex `[chat]`, `enhanced/`→gemini, `deprecated` twins all correct on the wire).
+- **Done:** DESIGN, NAME-aliases (+HITL smoke), CAP-modelinfo (+/model/info smoke).
+- **Next action:** **CAP-v1models.** Additive ASGI seam that folds
+  `airlock:{airlock_provider,endpoints,underlying,region,deprecated}` into each model on
+  `GET /v1/models` (reuse `capability.capability_record`; mirror the dual pre/post-start
+  install of `batch/middleware.py:546-583`). Purely additive — standard OpenAI fields
+  intact. Cut worktree from current HEAD; codex review; merge; live `/v1/models` smoke.
 
 ## 2. Pack scoreboard
 
@@ -33,8 +32,8 @@ capabilities.** Plan: `dev/plans/0.5.2-plan.md`. Orchestrator:
 |------|---------------|------------|-------|---------|
 | `DESIGN` | Design note covering N1–N6 + codex design-review PASS | — | **CLOSED ✅ (PASS v3)** | `dev/notes/design-provider-naming-and-capability-discovery.md` + `dev/plans/runs/0.5.2-NAMING-design-review-20260627T040523Z.md` |
 | `NAME-aliases` | `provider/model` aliases for whole catalog (Appendix A); legacy dual-listed; collision-safe model_alias + shared classifier; slash-alias resolves, pins, attributes | DESIGN | **CLOSED ✅** (merged `4905150`; codex BLOCK→fix→CONCERN→fix; HITL smoke PASS) | `0.5.2-NAME-aliases-output.json` + `-review-20260627T043448Z.md` + `-HITL-smoke-20260627T131827Z.md` |
-| `CAP-modelinfo` | computed `model_info` injected at startup (`proxy._prepare_runtime_config`); `endpoints` region-gated; served natively on `/model/info` | NAME-aliases | **IMPLEMENTING** (wt `feat-0.5.2-CAP-modelinfo` @ b264b16) | `dev/plans/runs/0.5.2-CAP-modelinfo-output.json` |
-| `CAP-v1models` | Additive `airlock:{provider,endpoints,underlying}` on `GET /v1/models` | CAP-modelinfo | NOT_STARTED | `dev/plans/runs/0.5.2-CAP-v1models-output.json` |
+| `CAP-modelinfo` | computed `model_info` injected at startup (`proxy._prepare_runtime_config`); `endpoints` region-gated; served natively on `/model/info` | NAME-aliases | **CLOSED ✅** (merged `c26c01a`; codex PASS; /model/info smoke PASS) | `0.5.2-CAP-modelinfo-output.json` + `-review-20260627T133638Z.md` + `-smoke-20260627T133749Z.md` |
+| `CAP-v1models` | Additive `airlock:{provider,endpoints,underlying,region,deprecated}` on `GET /v1/models` (ASGI seam, reuse `capability_record`) | CAP-modelinfo | **NEXT** | `dev/plans/runs/0.5.2-CAP-v1models-output.json` |
 | `COMPAT-tests` | Cross-cutting regression: old+new alias resolve/pin/attribute; collision-safety; batch via both | CAP-v1models | NOT_STARTED | `dev/plans/runs/0.5.2-COMPAT-tests-output.json` |
 | `DOCS` | UN-21/UN-22; design note as-built; user guides; header catalog; changelog + deprecation notice | NAME+CAP merged | NOT_STARTED | `dev/plans/runs/0.5.2-DOCS-output.json` |
 
@@ -48,7 +47,7 @@ baseline) → `REVIEWED` (`<pack>-review-<ts>.md` with a `## Verdict:` line) →
 | Requirement | Pack | Status |
 |-------------|------|--------|
 | UN-21 — Discoverable Provider Selection (enumerate provider/region; pin by stable name; verify via header) | NAME-aliases, CAP-*, DOCS | 🟡 pin+verify proven live (aistudio→gemini, vertex→vertex_ai); enumerate via /model/info+/v1/models pending CAP packs |
-| UN-22 — Declared Capabilities (`endpoints` published + provably match routing) | CAP-modelinfo, COMPAT-tests, DOCS | ⏳ |
+| UN-22 — Declared Capabilities (`endpoints` published + provably match routing) | CAP-modelinfo, COMPAT-tests, DOCS | 🟡 published on `/model/info` + proven live (region-gated batch correct); `/v1/models` + cross-cutting pending |
 | No client breaks — legacy aliases still resolve+pin | NAME-aliases, COMPAT-tests | 🟡 legacy resolve+pin covered by NAME-aliases tests; cross-cutting in COMPAT |
 | `/v1/models` augmentation additive (standard fields intact) | CAP-v1models | ⏳ |
 | Slash alias does not collide with native provider parsing | NAME-aliases | ✅ unit (collision-safe loader/resolve) + live smoke (aistudio/vertex route distinctly) |
