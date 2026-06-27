@@ -36,7 +36,7 @@ capabilities.** Plan: `dev/plans/0.5.2-plan.md`. Orchestrator:
 |------|---------------|------------|-------|---------|
 | `DESIGN` | Design note covering N1–N6 + codex design-review PASS | — | **CLOSED ✅ (PASS v3)** | `dev/notes/design-provider-naming-and-capability-discovery.md` + `dev/plans/runs/0.5.2-NAMING-design-review-20260627T040523Z.md` |
 | `NAME-aliases` | `provider/model` aliases for whole catalog (Appendix A); legacy dual-listed; collision-safe model_alias + shared classifier; slash-alias resolves, pins, attributes | DESIGN | **CLOSED ✅** (merged `4905150`; codex BLOCK→fix→CONCERN→fix; HITL smoke PASS) | `0.5.2-NAME-aliases-output.json` + `-review-20260627T043448Z.md` + `-HITL-smoke-20260627T131827Z.md` |
-| `CAP-modelinfo` | `model_info` capability blocks; `endpoints` derived from real wiring; exposed on `/model/info` | NAME-aliases | NOT_STARTED | `dev/plans/runs/0.5.2-CAP-modelinfo-output.json` |
+| `CAP-modelinfo` | computed `model_info` injected at startup (`proxy._prepare_runtime_config`); `endpoints` region-gated; served natively on `/model/info` | NAME-aliases | **IMPLEMENTING** (wt `feat-0.5.2-CAP-modelinfo` @ b264b16) | `dev/plans/runs/0.5.2-CAP-modelinfo-output.json` |
 | `CAP-v1models` | Additive `airlock:{provider,endpoints,underlying}` on `GET /v1/models` | CAP-modelinfo | NOT_STARTED | `dev/plans/runs/0.5.2-CAP-v1models-output.json` |
 | `COMPAT-tests` | Cross-cutting regression: old+new alias resolve/pin/attribute; collision-safety; batch via both | CAP-v1models | NOT_STARTED | `dev/plans/runs/0.5.2-COMPAT-tests-output.json` |
 | `DOCS` | UN-21/UN-22; design note as-built; user guides; header catalog; changelog + deprecation notice | NAME+CAP merged | NOT_STARTED | `dev/plans/runs/0.5.2-DOCS-output.json` |
@@ -68,7 +68,7 @@ runbook; here ≤1 is typically in flight given the shared `config.yaml`.
 
 | Worktree path | Branch | Pack | State |
 |---------------|--------|------|-------|
-| `.claude/worktrees/feat-0.5.2-NAME-aliases` | `feat/0.5.2-NAME-aliases` | NAME-aliases | IMPLEMENTING |
+| `.claude/worktrees/feat-0.5.2-CAP-modelinfo` | `feat/0.5.2-CAP-modelinfo` | CAP-modelinfo | IMPLEMENTING |
 
 (Empty when all packs are CLEANED.)
 
