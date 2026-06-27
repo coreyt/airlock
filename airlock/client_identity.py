@@ -41,14 +41,16 @@ def client_id_from_api_key(user_api_key_dict: Any) -> str:
 
 
 def extract_airlock_client_from_request(
-    data: Mapping[str, Any],
+    data: Mapping[str, Any] | None,
     user_api_key_dict: Any = None,
 ) -> str:
     """Resolve a normalized client id for an inbound request (canonical path).
 
     Prefers the inbound Airlock client identity (metadata then request/metadata
-    headers), falling back to the authenticated API-key derived id.
+    headers), falling back to the authenticated API-key derived id. A ``None``
+    ``data`` resolves to the API-key id (or ``no_client``), never raising.
     """
+    data = data or {}
     metadata = data.get("metadata") or {}
     for value in (
         metadata.get("airlock_client"),

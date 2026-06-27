@@ -196,6 +196,12 @@ class TestExtractAirlockClientFromRequest:
             ({}, {"api_key": "sk-1234567890abcdef"}, "key:90abcdef"),
             ({}, None, NO_CLIENT_ID),
             ({}, _FakeKey("short"), NO_CLIENT_ID),
+            # None data must not raise (closure contract: None -> api-key / no_client)
+            (None, None, NO_CLIENT_ID),
+            (None, _FakeKey("sk-1234567890abcdef"), "key:90abcdef"),
+            # missing-header / empty-mapping variants fall through to the key path
+            ({"headers": {}}, _FakeKey("sk-1234567890abcdef"), "key:90abcdef"),
+            ({"metadata": {"headers": {}}}, None, NO_CLIENT_ID),
             # metadata identity wins over the api-key fallback
             (
                 {"metadata": {"airlock_client": "winner"}},
@@ -216,9 +222,26 @@ class TestExtractAirlockClientFromRequest:
         assert _extract_client_id(key) == "key:90abcdef"
 
     def test_enterprise_logger_parity(self, monkeypatch):
-        """The 3rd legacy path (enterprise_logger) shares the canonical normalize."""
+        """The 3rd legacy path (enterprise_logger) shares the canonical normalize.
+
+        Asserts the representative input set (present / whitespace / missing /
+        client_id fallback) all collapse through the same canonical normalizer as
+        the request extractor — captured-legacy parity, not just two cases.
+        """
         from airlock.callbacks.enterprise_logger import _get_airlock_client
 
         monkeypatch.delenv("AIRLOCK_CLIENT", raising=False)
+        # present (incl. surrounding whitespace stripped by normalize)
         assert _get_airlock_client({"airlock_client": "  x  "}, {}) == "x"
+        assert _get_airlock_client({"airlock_client": "client-a"}, {}) == "client-a"
+        # whitespace-only collapses to no_client (same as normalize_client_id)
+        assert _get_airlock_client({"airlock_client": "   "}, {}) == NO_CLIENT_ID
+        # missing / empty metadata => no_client
         assert _get_airlock_client({}, {}) == NO_CLIENT_ID
+        # legacy client_id fallback key is honored
+        assert _get_airlock_client({"client_id": "legacy-id"}, {}) == "legacy-id"
+        # parity with the canonical normalizer on the same raw inputs
+        for raw in ("  x  ", "client-a", "   ", None):
+            assert _get_airlock_client(
+                {"airlock_client": raw} if raw is not None else {}, {}
+            ) == normalize_client_id(raw)

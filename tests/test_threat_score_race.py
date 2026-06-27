@@ -9,6 +9,7 @@ single outer lock acquisition, and concurrent updates must not be lost.
 from __future__ import annotations
 
 import threading
+import time
 from collections import deque
 
 from airlock.fast.state import ClientState, StateStore
@@ -125,3 +126,63 @@ def test_no_lost_update_concurrent():
     # Upper bound is exactly high (decay<1 keeps prev*decay below it); lower bound
     # is high*decay**(total-1) ~= 0.876 with these counts. No lost update => ~0.9.
     assert 0.8 <= client.threat_score <= 0.9
+
+
+def test_record_threat_score_rmw_is_serialized():
+    """Two concurrent same-client calls must never overlap inside the RMW.
+
+    This is the deterministic counterpart to the stress test above: a duck-typed
+    client whose ``threat_score`` getter widens the read→write window with a sleep
+    and tracks how many threads are inside the RMW at once. Because
+    ``record_threat_score`` holds ``StateStore._lock`` across the whole
+    read-modify-write, the observed concurrency depth can never exceed 1 — an
+    unlocked implementation would deterministically observe 2 (the injected sleep
+    guarantees overlap), so this test would FAIL against the old outside-the-lock
+    RMW rather than merely depend on scheduling.
+    """
+    store = StateStore()
+    depth_lock = threading.Lock()
+    state = {"depth": 0, "max_depth": 0}
+
+    class _Probe:
+        """Minimal duck-typed ClientState exercising the RMW's attribute access."""
+
+        request_times: list = []  # empty => elapsed=1.0 branch
+        backoff_until = 0.0
+
+        def __init__(self):
+            self._score = 0.0
+
+        @property
+        def threat_score(self):
+            # Entering the read side of the read-modify-write.
+            with depth_lock:
+                state["depth"] += 1
+                state["max_depth"] = max(state["max_depth"], state["depth"])
+            time.sleep(0.02)  # widen the window so an unlocked RMW would overlap
+            return self._score
+
+        @threat_score.setter
+        def threat_score(self, value):
+            self._score = value
+            # Exiting the write side of the read-modify-write.
+            with depth_lock:
+                state["depth"] -= 1
+
+    probe = _Probe()
+    barrier = threading.Barrier(2)
+
+    def worker():
+        barrier.wait()  # release both threads simultaneously
+        # score below threshold => not blocked => no backoff_until write needed
+        _call(store, probe, 0.1, now=1_000_000.0)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert state["max_depth"] == 1, (
+        f"threat_score RMW overlapped (depth={state['max_depth']}) — not atomic"
+    )
