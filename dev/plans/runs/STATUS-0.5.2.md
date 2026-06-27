@@ -16,17 +16,16 @@ capabilities.** Plan: `dev/plans/0.5.2-plan.md`. Orchestrator:
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** **CAP-v1models IMPLEMENTING** (wt `feat-0.5.2-CAP-v1models` @ `88656b8`).
-  Additive ASGI response seam folding `airlock:{…}` (= `capability_record`) into each model
-  on `GET /v1/models`+`/models`; mirrors the batch-middleware dual install. Prompt:
-  `dev/plans/prompts/0.5.2-CAP-v1models.md`.
-- **CAP-modelinfo CLOSED** (merged `c26c01a`; codex PASS; `/model/info` smoke PASS — 73/73).
-- **Done:** DESIGN, NAME-aliases (+HITL smoke), CAP-modelinfo (+/model/info smoke).
-- **Next action:** **CAP-v1models.** Additive ASGI seam that folds
-  `airlock:{airlock_provider,endpoints,underlying,region,deprecated}` into each model on
-  `GET /v1/models` (reuse `capability.capability_record`; mirror the dual pre/post-start
-  install of `batch/middleware.py:546-583`). Purely additive — standard OpenAI fields
-  intact. Cut worktree from current HEAD; codex review; merge; live `/v1/models` smoke.
+- **In flight:** none — **CAP-v1models CLOSED** (merged `0beed30`; codex CONCERN→fix→PASS;
+  `/v1/models` smoke PASS — 73/73 models carry the additive `airlock` object, standard
+  OpenAI fields intact). **discover→pin→verify proven end-to-end** (`/v1/models` +
+  `/model/info` + `X-Airlock-Served-By`).
+- **Done:** DESIGN, NAME-aliases (+smoke), CAP-modelinfo (+smoke), CAP-v1models (+smoke).
+- **Next action:** **COMPAT-tests** (tests-only; no config edits) — cross-cutting
+  regression locking the whole contract: old+new alias resolve/pin/attribute; collision-
+  safety (bare never repoints; native `vertex_ai/` → vertex); batch create via old+new
+  alias hits same backend; `/model/info`+`/v1/models` capability shape additive. Cut
+  worktree from current HEAD. Then DOCS + release sign-off.
 
 ## 2. Pack scoreboard
 
@@ -35,8 +34,8 @@ capabilities.** Plan: `dev/plans/0.5.2-plan.md`. Orchestrator:
 | `DESIGN` | Design note covering N1–N6 + codex design-review PASS | — | **CLOSED ✅ (PASS v3)** | `dev/notes/design-provider-naming-and-capability-discovery.md` + `dev/plans/runs/0.5.2-NAMING-design-review-20260627T040523Z.md` |
 | `NAME-aliases` | `provider/model` aliases for whole catalog (Appendix A); legacy dual-listed; collision-safe model_alias + shared classifier; slash-alias resolves, pins, attributes | DESIGN | **CLOSED ✅** (merged `4905150`; codex BLOCK→fix→CONCERN→fix; HITL smoke PASS) | `0.5.2-NAME-aliases-output.json` + `-review-20260627T043448Z.md` + `-HITL-smoke-20260627T131827Z.md` |
 | `CAP-modelinfo` | computed `model_info` injected at startup (`proxy._prepare_runtime_config`); `endpoints` region-gated; served natively on `/model/info` | NAME-aliases | **CLOSED ✅** (merged `c26c01a`; codex PASS; /model/info smoke PASS) | `0.5.2-CAP-modelinfo-output.json` + `-review-20260627T133638Z.md` + `-smoke-20260627T133749Z.md` |
-| `CAP-v1models` | Additive `airlock:{…}` on `GET /v1/models`+`/models` (ASGI response seam, reuse `capability_record`) | CAP-modelinfo | **REVIEW→FIX** (impl green @ 2250a62, 14 tests; codex CONCERN — harden map-build vs malformed config; fixer in flight) | `0.5.2-CAP-v1models-output.json` + `-review-20260627T135029Z.md` |
-| `COMPAT-tests` | Cross-cutting regression: old+new alias resolve/pin/attribute; collision-safety; batch via both | CAP-v1models | NOT_STARTED | `dev/plans/runs/0.5.2-COMPAT-tests-output.json` |
+| `CAP-v1models` | Additive `airlock:{…}` on `GET /v1/models`+`/models` (ASGI response seam, reuse `capability_record`) | CAP-modelinfo | **CLOSED ✅** (merged `0beed30`; codex CONCERN→fix; /v1/models smoke PASS 73/73) | `0.5.2-CAP-v1models-output.json` + `-review-20260627T135029Z.md` + `-smoke-20260627T135420Z.md` |
+| `COMPAT-tests` | Cross-cutting regression: old+new alias resolve/pin/attribute; collision-safety; batch via both; /model/info+/v1/models capability | CAP-v1models | **NEXT** | `dev/plans/runs/0.5.2-COMPAT-tests-output.json` |
 | `DOCS` | UN-21/UN-22; design note as-built; user guides; header catalog; changelog + deprecation notice | NAME+CAP merged | NOT_STARTED | `dev/plans/runs/0.5.2-DOCS-output.json` |
 
 States (furthest witnessed wins):
@@ -48,10 +47,10 @@ baseline) → `REVIEWED` (`<pack>-review-<ts>.md` with a `## Verdict:` line) →
 
 | Requirement | Pack | Status |
 |-------------|------|--------|
-| UN-21 — Discoverable Provider Selection (enumerate provider/region; pin by stable name; verify via header) | NAME-aliases, CAP-*, DOCS | 🟡 pin+verify proven live (aistudio→gemini, vertex→vertex_ai); enumerate via /model/info+/v1/models pending CAP packs |
-| UN-22 — Declared Capabilities (`endpoints` published + provably match routing) | CAP-modelinfo, COMPAT-tests, DOCS | 🟡 published on `/model/info` + proven live (region-gated batch correct); `/v1/models` + cross-cutting pending |
+| UN-21 — Discoverable Provider Selection (enumerate provider/region; pin by stable name; verify via header) | NAME-aliases, CAP-*, DOCS | ✅ enumerate (/v1/models+/model/info, 73/73) + pin + verify (X-Airlock-Served-By) all proven live; DOCS recipe pending |
+| UN-22 — Declared Capabilities (`endpoints` published + provably match routing) | CAP-modelinfo, COMPAT-tests, DOCS | ✅ published on `/model/info`+`/v1/models`, region-gated batch correct live; cross-cutting lock in COMPAT |
 | No client breaks — legacy aliases still resolve+pin | NAME-aliases, COMPAT-tests | 🟡 legacy resolve+pin covered by NAME-aliases tests; cross-cutting in COMPAT |
-| `/v1/models` augmentation additive (standard fields intact) | CAP-v1models | ⏳ |
+| `/v1/models` augmentation additive (standard fields intact) | CAP-v1models | ✅ seam tests + live smoke (73/73 additive, std fields intact) |
 | Slash alias does not collide with native provider parsing | NAME-aliases | ✅ unit (collision-safe loader/resolve) + live smoke (aistudio/vertex route distinctly) |
 
 ## 4. Parallelization plan
@@ -66,7 +65,7 @@ runbook; here ≤1 is typically in flight given the shared `config.yaml`.
 
 | Worktree path | Branch | Pack | State |
 |---------------|--------|------|-------|
-| `.claude/worktrees/feat-0.5.2-CAP-v1models` | `feat/0.5.2-CAP-v1models` | CAP-v1models | IMPLEMENTING |
+| _(none — CAP-v1models merged + removed)_ | | | |
 
 (Empty when all packs are CLEANED.)
 
