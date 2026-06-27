@@ -22,10 +22,13 @@ capabilities.** Plan: `dev/plans/0.5.2-plan.md`. Orchestrator:
   `test_fathom_init.py::test_init_engine_with_fathomdb`** (optional `fathomdb` not installed;
   separate Fathom×vLLM track; 0.5.2 touched no fathom code; predates 0.5.2 @ c3eaed7) →
   **non-blocker.** Live smokes all PASS (`/model/info`, `/v1/models`, `X-Airlock-Served-By`).
-- **Next action — RELEASE SIGN-OFF (HITL gate).** Awaiting operator go-ahead on the local
-  finalization (runbook §6.1 / K3): version bump 0.5.1→0.5.2 (pyproject + `airlock/__init__.py`;
-  CHANGELOG `[0.5.2]` already cut) → local merge `feat/0.5.2-naming` → `main` → annotated tag
-  `v0.5.2` — **all LOCAL, no push** (push/publish = separate approval).
+- **RELEASE SIGN-OFF — DONE ✅ (2026-06-27, operator-approved full local finalization).**
+  Version bumped 0.5.1→0.5.2 (pyproject + `airlock/__init__.py` + `callbacks/tracing.py`;
+  version-consistency check passed); CHANGELOG `[0.5.2]` cut; `feat/0.5.2-naming` merged to
+  `main` (`95743bc`); annotated tag **`v0.5.2`** created. **All LOCAL — nothing pushed**
+  (push/publish remains a separate approval; `main` is 110 commits ahead of `origin/main`,
+  consistent with the unpushed 0.5.x train). Integration + pack branches deleted; worktrees
+  removed. **0.5.2 is shipped locally.**
 
 ## 2. Pack scoreboard
 
