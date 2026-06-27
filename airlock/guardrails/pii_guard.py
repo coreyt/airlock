@@ -23,6 +23,7 @@ Env vars:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -33,6 +34,7 @@ from litellm import DualCache
 from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
+from airlock.text_extract import refresh_text_cache
 from airlock.transparency import record_redaction
 
 from . import _env_flag
@@ -195,7 +197,10 @@ class AirlockPIIGuard(CustomGuardrail):
         counters: dict[str, int] = {}
 
         if is_mcp_call(data, call_type):
-            _scrub_mcp_arguments(data, mapping, counters)
+            # Offload Presidio's synchronous analyze() to a worker thread so it
+            # does not block the event loop (UN-27). Dict mutation inside the
+            # thread is safe under the GIL; redaction output is byte-identical.
+            await asyncio.to_thread(_scrub_mcp_arguments, data, mapping, counters)
             if mapping:
                 record_redaction(
                     data.setdefault("metadata", {}),
@@ -209,7 +214,10 @@ class AirlockPIIGuard(CustomGuardrail):
         messages = data.get("messages")
         if messages:
             redacted_before = len(mapping)
-            data["messages"] = _scrub_messages(messages, mapping, counters)
+            # Offload Presidio off the event loop (UN-27); byte-identical output.
+            data["messages"] = await asyncio.to_thread(
+                _scrub_messages, messages, mapping, counters
+            )
             redacted_added = len(mapping) - redacted_before
             if redacted_added:
                 record_redaction(
@@ -239,6 +247,12 @@ class AirlockPIIGuard(CustomGuardrail):
                     "will NOT be hydrated. Tool-call arguments may contain "
                     "placeholders like <EMAIL_ADDRESS_1> instead of real values."
                 )
+
+        # PII runs first (config.yaml guard order) and is the only pre-call guard
+        # that mutates messages. Refresh the shared per-request text cache with the
+        # post-redaction text so downstream keyword + guardian reuse it (single
+        # extraction) and never see the raw PII.
+        refresh_text_cache(data, call_type)
 
         return data
 
