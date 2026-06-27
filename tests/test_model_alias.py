@@ -563,10 +563,7 @@ def collision_config(tmp_path):
 
 def _alias_to_model(path) -> dict[str, str]:
     cfg = yaml.safe_load(path.read_text())
-    return {
-        e["model_name"]: e["litellm_params"]["model"]
-        for e in cfg["model_list"]
-    }
+    return {e["model_name"]: e["litellm_params"]["model"] for e in cfg["model_list"]}
 
 
 class TestCollisionSafeResolution:
@@ -614,7 +611,9 @@ class TestCollisionSafeResolution:
         assert "mistral/gemini-3.5-flash" not in ctable._exact
 
     def test_legacy_aistudio_resolves_to_self(self, ctable):
-        assert ctable.resolve("gemini-3.5-flash-aistudio") == "gemini-3.5-flash-aistudio"
+        assert (
+            ctable.resolve("gemini-3.5-flash-aistudio") == "gemini-3.5-flash-aistudio"
+        )
 
     def test_legacy_vertex_resolves_to_self(self, ctable):
         assert ctable.resolve("gemini-3.5-flash-vertex") == "gemini-3.5-flash-vertex"

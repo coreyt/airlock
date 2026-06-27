@@ -38,7 +38,9 @@ def root_config() -> dict:
 
 @pytest.fixture(scope="module")
 def root_model_names(root_config) -> set[str]:
-    return {e["model_name"] for e in root_config.get("model_list", []) if "model_name" in e}
+    return {
+        e["model_name"] for e in root_config.get("model_list", []) if "model_name" in e
+    }
 
 
 @pytest.fixture(scope="module")

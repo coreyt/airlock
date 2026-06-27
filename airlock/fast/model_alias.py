@@ -22,6 +22,8 @@ from pathlib import Path
 
 import yaml  # type: ignore[import-untyped]
 
+from airlock.capability import airlock_provider_for, normalize_provider_token
+
 logger = logging.getLogger("airlock.fast.model_alias")
 
 # ---------------------------------------------------------------------------
@@ -203,6 +205,11 @@ class ModelAliasTable:
     def __init__(self) -> None:
         self._entries: list[_AliasEntry] = []
         self._exact: dict[str, str] = {}  # lowered name → alias
+        # Provider-aware index for collision-safe prefix-strip in resolve().
+        # (provider_token, bare_body) → alias  (first writer wins per pair)
+        self._provider_body_alias: dict[tuple[str, str], str] = {}
+        # bare_body → set of served-by provider tokens it appears under
+        self._body_providers: dict[str, set[str]] = {}
         self._loaded = False
 
     def load_from_config(self, config_path: str | Path | None = None) -> None:
@@ -231,6 +238,13 @@ class ModelAliasTable:
         model_list = cfg.get("model_list") or []
         self._entries = []
         self._exact = {}
+        self._provider_body_alias = {}
+        self._body_providers = {}
+
+        # --- Pass 1: explicit model_name keys are authoritative + immutable ---
+        explicit_keys: set[str] = set()
+        # variant key → set of aliases that claim it (collision detection)
+        variant_claims: dict[str, set[str]] = {}
 
         for item in model_list:
             alias = item.get("model_name", "")
@@ -249,17 +263,40 @@ class ModelAliasTable:
             )
             self._entries.append(entry)
 
-            # Pre-populate exact match table with known variants
+            alias_lower = alias.lower()
+            self._exact[alias_lower] = alias
+            explicit_keys.add(alias_lower)
+
+            # Provider-aware index: served-by token (NOT the alias prefix) keyed
+            # against the bare provider-model body and its version-stripped form.
+            token = airlock_provider_for(item)
             bare = _strip_provider_prefix(provider_model).lower()
-            self._exact[alias.lower()] = alias
-            self._exact[bare] = alias
-            # Also add version-stripped forms
-            alias_core = _strip_version(alias.lower())
             bare_core = _strip_version(bare)
-            if alias_core:
-                self._exact[alias_core] = alias
-            if bare_core and bare_core != alias_core:
-                self._exact[bare_core] = alias
+            if token:
+                for body in {bare, bare_core}:
+                    if not body:
+                        continue
+                    self._provider_body_alias.setdefault((token, body), alias)
+                    self._body_providers.setdefault(body, set()).add(token)
+
+            # Collect candidate variant keys (resolved in Pass 2 only if unique).
+            alias_core = _strip_version(alias_lower)
+            for key in (bare, alias_core, bare_core):
+                if key:
+                    variant_claims.setdefault(key, set()).add(alias)
+
+        # --- Pass 2: add variant keys only when not explicit AND unambiguous ---
+        for key, claimers in variant_claims.items():
+            if key in explicit_keys:
+                continue
+            if len(claimers) == 1:
+                self._exact[key] = next(iter(claimers))
+            else:
+                logger.debug(
+                    "model_alias_ambiguous_variant %s claimed by %s — dropped",
+                    key,
+                    sorted(claimers),
+                )
 
         self._loaded = True
         self._log_table()
@@ -304,11 +341,45 @@ class ModelAliasTable:
         if lower in self._exact:
             return self._exact[lower]
 
-        # Fast path: provider-prefixed form — strip any leading "provider/" and retry.
-        # Handles openai/claude-haiku, anthropic/claude-haiku, gemini/gemini-pro, etc.
-        # Clients using the litellm Python SDK naturally send these; Airlock normalises.
+        # Provider-aware prefix-strip — handles native + airlock-prefixed forms
+        # (openai/claude-haiku, gemini/gemini-3.5-flash, vertex_ai/gemini-3.5-flash,
+        # aistudio/…, vertex/…). Normalises the leading prefix to a served-by
+        # token so a body shared by multiple providers routes to the RIGHT entry
+        # instead of last-write-wins.
         if "/" in lower:
-            bare = lower.split("/", 1)[1]
+            prefix, bare = lower.split("/", 1)
+            token = normalize_provider_token(prefix)
+
+            # 1. exact (provider_token, bare_body) hit → the right deployment.
+            resolved = self._provider_body_alias.get((token, bare))
+            if resolved is not None:
+                self._exact[lower] = resolved
+                logger.debug("model_alias_prefix_strip %s -> %s", model_name, resolved)
+                return resolved
+
+            # 2. known body: single-provider → resolve regardless of prefix;
+            #    multi-provider with a non-disambiguating prefix → None (no fuzzy,
+            #    no cache) so a silent fuzzy pick can't reintroduce a repoint.
+            providers = self._body_providers.get(bare)
+            if providers is not None:
+                if len(providers) == 1:
+                    only = next(iter(providers))
+                    resolved = self._provider_body_alias[(only, bare)]
+                    self._exact[lower] = resolved
+                    logger.debug(
+                        "model_alias_prefix_strip %s -> %s", model_name, resolved
+                    )
+                    return resolved
+                logger.debug(
+                    "model_alias_ambiguous_prefix %s (body=%s providers=%s) -> None",
+                    model_name,
+                    bare,
+                    sorted(providers),
+                )
+                return None
+
+            # 3. bare matches a collision-safe alias/variant key (e.g. an alias
+            #    name that isn't itself a litellm body) → resolve.
             if bare in self._exact:
                 resolved = self._exact[bare]
                 self._exact[lower] = resolved  # cache for O(1) on repeat calls

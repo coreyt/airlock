@@ -25,7 +25,15 @@ class TestNormalizeProviderToken:
 
     @pytest.mark.parametrize(
         "token",
-        ["gemini", "vertex_ai", "openai", "anthropic", "mistral", "perplexity", "tavily"],
+        [
+            "gemini",
+            "vertex_ai",
+            "openai",
+            "anthropic",
+            "mistral",
+            "perplexity",
+            "tavily",
+        ],
     )
     def test_native_tokens_pass_through(self, token):
         assert normalize_provider_token(token) == token
@@ -49,7 +57,10 @@ class TestAirlockProviderFor:
         assert airlock_provider_for(_entry("vertex_ai/gemini-3.5-flash")) == "vertex_ai"
 
     def test_vertex_ai_beta_normalized(self):
-        assert airlock_provider_for(_entry("vertex_ai_beta/gemini-3.5-flash")) == "vertex_ai"
+        assert (
+            airlock_provider_for(_entry("vertex_ai_beta/gemini-3.5-flash"))
+            == "vertex_ai"
+        )
 
     def test_mistral(self):
         assert airlock_provider_for(_entry("mistral/mistral-large-latest")) == "mistral"
