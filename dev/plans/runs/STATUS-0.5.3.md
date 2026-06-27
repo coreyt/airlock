@@ -15,7 +15,7 @@ Release: **decouple from LiteLLM internals (ACL) + unblock the hot path
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** Phase E — Wave 1: **ACL CLOSED** (merge `dc1330e`); **RACE** under codex review.
+- **In flight:** Phase E — **Wave 1 COMPLETE** (ACL `dc1330e` + RACE `fe45159` both CLOSED). Authoring **Wave 2: DECOUPLE**.
 - **Done:** HITL kickoff (§6 all resolved); Phase A (UN-27 added; deferred plans
   renumbered); ACL call-site inventory (`0.5.3-ACL-inventory.md`); **Phase D codex
   design gate cleared** — verdict CONCERN, all 4 findings resolved in pack authoring
@@ -37,8 +37,8 @@ File-sharing graph forces waves (NOT the plan's original "LATENCY/RACE ∥"):
 | Pack | Goal (1 line) | Depends on | State | Witness |
 |------|---------------|------------|-------|---------|
 | `ACL` | `litellm_adapter.py` — single owner of all LiteLLM-internal reads; migrate call sites (parity) | design ✓ | **CLOSED** (merge `dc1330e`) | `dev/plans/runs/0.5.3-ACL-output.json` |
-| `RACE` | `threat_score` lock; identity/config consolidation | — (Wave 1 ∥ ACL) | REVIEWING | `dev/plans/runs/0.5.3-RACE-output.json` |
-| `DECOUPLE` | Break `fast`↔`guardrails` cycle; extract `proxy_bootstrap.py` | ACL + RACE merged | NOT_STARTED (Wave 2) | `dev/plans/runs/0.5.3-DECOUPLE-output.json` |
+| `RACE` | `threat_score` lock; identity/config consolidation | — (Wave 1 ∥ ACL) | **CLOSED** (merge `fe45159`) | `dev/plans/runs/0.5.3-RACE-output.json` |
+| `DECOUPLE` | Break `fast`↔`guardrails` cycle; extract `proxy_bootstrap.py` | ACL + RACE merged ✓ | IN FLIGHT (Wave 2) | `dev/plans/runs/0.5.3-DECOUPLE-output.json` |
 | `LATENCY` | Presidio → `to_thread`; shared text-extract; vLLM TTL | DECOUPLE merged | NOT_STARTED (Wave 3) | `dev/plans/runs/0.5.3-LATENCY-output.json` |
 | `OBS-eventbus` | Single `RequestEvent` + recorder (audit Tier 3 #8) | — | **DEFERRED → became release 0.5.4** | `dev/plans/0.5.4-plan.md` |
 
@@ -52,7 +52,7 @@ States (furthest witnessed wins): `WORKTREE_CREATED` → `IMPLEMENTING` →
 | UN-27 — predictable latency under concurrency (no Presidio serialization) | LATENCY | ⏳ |
 | AC-ACL — single ownership of internal reads; byte-parity headers/attribution | ACL | ✅ (merged dc1330e; 9 §3.7 parity fixtures green) |
 | AC-DECOUPLE — no `fast`↔`guardrails` cycle; install order asserted | DECOUPLE | ⏳ |
-| AC-RACE — no lost `threat_score`; one client-identity path | RACE | ⏳ |
+| AC-RACE — no lost `threat_score`; one client-identity path | RACE | ✅ (merged fe45159; deterministic no-lost-update probe + golden parity) |
 
 ## 4. Parallelization plan
 
