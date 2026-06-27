@@ -428,6 +428,20 @@ class TestModelAliasTable:
         t.load_from_config(sample_config)
         assert "claude-sonnet-4-6" not in t._exact
 
+    def test_reload_missing_config_clears_stale_table(self, sample_config, tmp_path):
+        """Reloading a now-missing/invalid config must NOT carry stale state."""
+        t = ModelAliasTable()
+        t.load_from_config(sample_config)
+        assert t._exact and t._entries
+        # Reload pointed at a non-existent path → empty, no stale carry-over.
+        t.load_from_config(tmp_path / "nonexistent.yaml")
+        assert t._exact == {}
+        assert t._entries == []
+        assert t._ambiguous_variants == set()
+        assert t._provider_body_alias == {}
+        assert t._body_providers == {}
+        assert t.resolve("claude-sonnet") is None
+
     def test_malformed_entry_missing_model_name(self, tmp_path):
         """Entry without model_name should be skipped."""
         config = {

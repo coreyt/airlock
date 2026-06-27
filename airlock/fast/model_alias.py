@@ -217,6 +217,15 @@ class ModelAliasTable:
 
     def load_from_config(self, config_path: str | Path | None = None) -> None:
         """Parse config.yaml and build the routing table."""
+        # Reset all table state up front so every early return (missing file,
+        # parse error, non-dict config) leaves a cleanly-empty table — never a
+        # stale carry-over from a previous successful load.
+        self._entries = []
+        self._exact = {}
+        self._provider_body_alias = {}
+        self._body_providers = {}
+        self._ambiguous_variants = set()
+
         if config_path is None:
             config_path = os.getenv("AIRLOCK_CONFIG", "config.yaml")
         path = Path(config_path)
@@ -239,11 +248,6 @@ class ModelAliasTable:
             return
 
         model_list = cfg.get("model_list") or []
-        self._entries = []
-        self._exact = {}
-        self._provider_body_alias = {}
-        self._body_providers = {}
-        self._ambiguous_variants = set()
 
         # --- Pass 1: explicit model_name keys are authoritative + immutable ---
         explicit_keys: set[str] = set()
