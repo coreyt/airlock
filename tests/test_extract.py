@@ -291,3 +291,60 @@ class TestExtractTextDispatch:
     def test_default_call_type(self):
         data = {"messages": [{"role": "user", "content": "test"}]}
         assert extract_text(data) == "test"
+
+
+# ---------------------------------------------------------------------------
+# extract_text() per-request, metadata-scoped cache (0.5.3-LATENCY)
+# ---------------------------------------------------------------------------
+class TestExtractTextCache:
+    def test_cache_hit_returns_stored_value(self):
+        # A populated cache short-circuits re-extraction (returns the cached
+        # value even though it differs from the current messages).
+        data = {
+            "messages": [{"role": "user", "content": "fresh content"}],
+            "metadata": {"_airlock_text": "CACHED VALUE"},
+        }
+        assert extract_text(data, "completion") == "CACHED VALUE"
+
+    def test_cache_miss_computes_and_stores(self):
+        data = {"messages": [{"role": "user", "content": "hello"}]}
+        assert extract_text(data, "completion") == "hello"
+        assert data["metadata"]["_airlock_text"] == "hello"
+
+    def test_extraction_runs_once_per_request(self, monkeypatch):
+        import airlock.text_extract as te
+
+        calls = {"n": 0}
+        real = te.extract_text_from_messages
+
+        def spy(messages):
+            calls["n"] += 1
+            return real(messages)
+
+        monkeypatch.setattr(te, "extract_text_from_messages", spy)
+        data = {"messages": [{"role": "user", "content": "hi there"}]}
+        first = te.extract_text(data, "completion")
+        second = te.extract_text(data, "completion")
+        assert first == second == "hi there"
+        # Cache means the underlying extractor only runs once.
+        assert calls["n"] == 1
+
+    def test_separate_requests_have_independent_caches(self):
+        data_a = {"messages": [{"role": "user", "content": "alpha"}]}
+        data_b = {"messages": [{"role": "user", "content": "beta"}]}
+        assert extract_text(data_a, "completion") == "alpha"
+        assert extract_text(data_b, "completion") == "beta"
+        assert data_a["metadata"]["_airlock_text"] == "alpha"
+        assert data_b["metadata"]["_airlock_text"] == "beta"
+
+    def test_refresh_overwrites_cache(self):
+        from airlock.text_extract import extract_text as et
+        from airlock.text_extract import refresh_text_cache
+
+        data = {"messages": [{"role": "user", "content": "original"}]}
+        assert et(data, "completion") == "original"
+        # Simulate a mutation (e.g. PII redaction) then refresh.
+        data["messages"][0]["content"] = "redacted"
+        assert refresh_text_cache(data, "completion") == "redacted"
+        # Subsequent cache-aware reads see the refreshed value.
+        assert et(data, "completion") == "redacted"
