@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from airlock import guardrail_overrides
 from airlock.admin.tokens import mint_token
-from airlock.guardrails import overrides
 from airlock.guardrails.overrides import (
     configure_guardrail_overrides,
     resolve_guardrail_decision,
@@ -18,9 +18,11 @@ AUTH_ID = "key:12345678"
 @pytest.fixture(autouse=True)
 def _env(monkeypatch):
     monkeypatch.setenv("AIRLOCK_JWT_SECRET", "jwt-secret-abcdefghijklmnop")
-    saved = overrides._cfg
+    # Save/restore the single source of truth (configure_guardrail_overrides
+    # rebinds this global) so config state does not leak between tests.
+    saved = guardrail_overrides._cfg
     yield
-    overrides._cfg = saved
+    guardrail_overrides._cfg = saved
 
 
 def _user_key(api_key=AUTH_KEY):
@@ -39,33 +41,43 @@ class TestResolver:
         assert d == {}
 
     def test_skip_keyword_when_enabled(self):
-        configure_guardrail_overrides({"guardrail_overrides": {"allow_capability_skip": True}})
+        configure_guardrail_overrides(
+            {"guardrail_overrides": {"allow_capability_skip": True}}
+        )
         tok = mint_token(AUTH_ID, ["guardrail:skip:keyword"], 60)
         d = resolve_guardrail_decision(_data_with_token(tok), _user_key())
         assert d == {"keyword": "observe"}
 
     def test_sub_must_match_authenticated_id_cc11(self):
-        configure_guardrail_overrides({"guardrail_overrides": {"allow_capability_skip": True}})
+        configure_guardrail_overrides(
+            {"guardrail_overrides": {"allow_capability_skip": True}}
+        )
         # token minted for a DIFFERENT sub -> rejected even though header could be forged
         tok = mint_token("key:99999999", ["guardrail:skip:keyword"], 60)
         d = resolve_guardrail_decision(_data_with_token(tok), _user_key())
         assert d == {}
 
     def test_unauthenticated_no_skip_cc11(self):
-        configure_guardrail_overrides({"guardrail_overrides": {"allow_capability_skip": True}})
+        configure_guardrail_overrides(
+            {"guardrail_overrides": {"allow_capability_skip": True}}
+        )
         tok = mint_token(AUTH_ID, ["guardrail:skip:keyword"], 60)
         # no authenticated key -> no skip
         d = resolve_guardrail_decision(_data_with_token(tok), None)
         assert d == {}
 
     def test_pii_never_skippable(self):
-        configure_guardrail_overrides({"guardrail_overrides": {"allow_capability_skip": True}})
+        configure_guardrail_overrides(
+            {"guardrail_overrides": {"allow_capability_skip": True}}
+        )
         tok = mint_token(AUTH_ID, ["guardrail:skip:pii_redact"], 60)
         d = resolve_guardrail_decision(_data_with_token(tok), _user_key())
         assert d == {}  # PII non-skippable by default
 
     def test_invalid_token_no_skip(self):
-        configure_guardrail_overrides({"guardrail_overrides": {"allow_capability_skip": True}})
+        configure_guardrail_overrides(
+            {"guardrail_overrides": {"allow_capability_skip": True}}
+        )
         d = resolve_guardrail_decision(_data_with_token("not.a.jwt"), _user_key())
         assert d == {}
 
@@ -74,7 +86,9 @@ class TestResolver:
             {
                 "guardrail_overrides": {
                     "allow_capability_skip": True,
-                    "skippable": {"pii_redact": {"skippable": True, "downgrade_to": "off"}},
+                    "skippable": {
+                        "pii_redact": {"skippable": True, "downgrade_to": "off"}
+                    },
                 }
             }
         )
@@ -83,19 +97,22 @@ class TestResolver:
         assert d == {"pii_redact": "off"}
 
     def test_list_headers_supported(self):
-        configure_guardrail_overrides({"guardrail_overrides": {"allow_capability_skip": True}})
+        configure_guardrail_overrides(
+            {"guardrail_overrides": {"allow_capability_skip": True}}
+        )
         tok = mint_token(AUTH_ID, ["guardrail:skip:keyword"], 60)
         data = {"metadata": {"headers": [(b"x-airlock-capability", tok.encode())]}}
         d = resolve_guardrail_decision(data, _user_key())
         assert d == {"keyword": "observe"}
 
     def test_decision_stamped(self):
-        configure_guardrail_overrides({"guardrail_overrides": {"allow_capability_skip": True}})
+        configure_guardrail_overrides(
+            {"guardrail_overrides": {"allow_capability_skip": True}}
+        )
         tok = mint_token(AUTH_ID, ["guardrail:skip:keyword"], 60)
         data = _data_with_token(tok)
         resolve_guardrail_decision(data, _user_key())
         assert data["metadata"]["airlock_guardrail_decision"] == {"keyword": "observe"}
-
 
 
 class TestKeywordGuardHonorsDecision:
@@ -135,9 +152,16 @@ class TestAdmSkipFix1Security:
 
     def test_injected_decision_is_ignored(self):
         # Feature ON but client injects a decision with NO token -> must be wiped.
-        configure_guardrail_overrides({"guardrail_overrides": {"allow_capability_skip": True}})
+        configure_guardrail_overrides(
+            {"guardrail_overrides": {"allow_capability_skip": True}}
+        )
         data = {
-            "metadata": {"airlock_guardrail_decision": {"keyword": "observe", "pii_redact": "off"}},
+            "metadata": {
+                "airlock_guardrail_decision": {
+                    "keyword": "observe",
+                    "pii_redact": "off",
+                }
+            },
             "headers": {},
         }
         d = resolve_guardrail_decision(data, _user_key())
@@ -151,7 +175,9 @@ class TestAdmSkipFix1Security:
 
     async def test_keyword_guard_blocks_despite_injection(self, monkeypatch):
         # The end-to-end bypass: client injects the decision, no token -> still blocked.
-        configure_guardrail_overrides({"guardrail_overrides": {"allow_capability_skip": True}})
+        configure_guardrail_overrides(
+            {"guardrail_overrides": {"allow_capability_skip": True}}
+        )
         monkeypatch.setenv("AIRLOCK_KW_ENABLED", "1")
         monkeypatch.setenv("AIRLOCK_BLOCKED_KEYWORDS", "topsecret")
         from airlock.guardrails.keyword_guard import AirlockKeywordGuard
@@ -162,10 +188,14 @@ class TestAdmSkipFix1Security:
             "metadata": {"airlock_guardrail_decision": {"keyword": "observe"}},
         }
         with pytest.raises(ValueError):  # injection ignored -> still enforced
-            await guard.async_pre_call_hook({"api_key": AUTH_KEY}, None, data, "completion")
+            await guard.async_pre_call_hook(
+                {"api_key": AUTH_KEY}, None, data, "completion"
+            )
 
     def test_malformed_utf8_header_no_crash(self):
-        configure_guardrail_overrides({"guardrail_overrides": {"allow_capability_skip": True}})
+        configure_guardrail_overrides(
+            {"guardrail_overrides": {"allow_capability_skip": True}}
+        )
         data = {"metadata": {"headers": [(b"x-airlock-capability", b"\xff\xfe bad")]}}
         # must not raise UnicodeDecodeError; invalid token -> no skip
         assert resolve_guardrail_decision(data, _user_key()) == {}
