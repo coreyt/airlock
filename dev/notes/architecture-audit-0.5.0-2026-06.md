@@ -6,7 +6,8 @@
 > (3) hot-path latency for client→LLM interactions. Findings cite `file:line`.
 > Companion roadmap: the tiered work below is distributed into
 > `dev/plans/0.5.1-plan.md` (already-scoped), `dev/plans/0.5.3-plan.md`
-> (correctness/latency + structural hygiene), and `dev/plans/0.5.4-plan.md`
+> (correctness/latency + structural hygiene), `dev/plans/0.5.4-plan.md`
+> (observability event-bus), and `dev/plans/0.5.5-plan.md`
 > (bulkhead/isolation).
 
 ## Method
@@ -119,7 +120,7 @@ STORE-seam (→ 0.5.1) so the spend tally stops shadowing LiteLLM's.
 | **Telemetry / event-driven** | ★★ Weakest | **4 duplicated `_build_record()`** (enterprise/fathom/s3/sql loggers) + a separate mutation ledger + metrics counters + served-backend attribution. Multiple sinks, no shared event model. The one genuinely event-sourced path is JSONL→`tail_jsonl`/`ingest_jsonl_record` (the TUI replica, CC-9) — good, but it is the exception. |
 | **Cohesion** | ★★ god-object | `fast/state.py` (~1400 LOC) owns client metrics, circuit state, provider quarantine, spend, rate-limit, MCP health, JSONL ingest, checkpoint/restore, and admin mutators. 7+ reasons to change. |
 | **Anti-Corruption Layer** | ★ Missing | (see Part 1) |
-| **Bulkhead / isolation** | ◐ Fault-isolation only | Per-client breaker + bounded fallback contain *failures* (UN-14/15/18). *Resource/throughput* isolation (admission control, fair queueing, process isolation) is absent; the one concrete proposal is parked out-of-scope (`design-circuit-breaker-per-client.md:189`). → 0.5.4. |
+| **Bulkhead / isolation** | ◐ Fault-isolation only | Per-client breaker + bounded fallback contain *failures* (UN-14/15/18). *Resource/throughput* isolation (admission control, fair queueing, process isolation) is absent; the one concrete proposal is parked out-of-scope (`design-circuit-breaker-per-client.md:189`). → 0.5.5. |
 
 ### Recurring root causes
 
@@ -190,13 +191,13 @@ quickly for non-matching routes with no per-request body buffering.
 
 **Tier 3 — larger, deliberate:**
 7. Replace the global `store` singleton with an injected `StateProvider` (also
-   unblocks multi-worker). — **0.5.4** *(enabler for isolation; see plan)*
+   unblocks multi-worker). — **0.5.5** *(enabler for isolation; see plan)*
 8. Unify observability behind one `RequestEvent` + recorder; collapse the 4
-   `_build_record()`s. — **0.5.3** *(candidate/stretch)*
-9. Split `fast/state.py` into core/spend/persistence/mcp. — **0.5.4** *(pairs with #7)*
+   `_build_record()`s. — **0.5.4** *(now its own release)*
+9. Split `fast/state.py` into core/spend/persistence/mcp. — **0.5.5** *(pairs with #7)*
 
 **Bulkhead / isolation (resource, not fault):** exploration + trade-off + impl. —
-**0.5.4** *(new)*
+**0.5.5** *(new)*
 
 ---
 
@@ -209,5 +210,5 @@ is well-reasoned. The debt that matters is **coupling-shaped, not feature-shaped
 isolate the LiteLLM internals (ACL), stop shadowing LiteLLM's state (DualCache),
 de-globalize the store (StateProvider), and unify the event model. Doing so makes
 every future LiteLLM bump cheaper and unblocks multi-worker — which is itself the
-gateway to true bulkhead isolation. The roadmap (0.5.1 → 0.5.3 → 0.5.4) sequences
+gateway to true bulkhead isolation. The roadmap (0.5.1 → 0.5.3 → 0.5.4 → 0.5.5) sequences
 these in dependency order.

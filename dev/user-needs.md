@@ -784,3 +784,39 @@ undercounted, and a restart does not zero an accumulated daily spend total.
    read-modify-write). Redis backend and `--num_workers` are deliberately deferred.
 6. `cb_state.json` circuit-breaker recovery still round-trips on the same
    (now correctly process-located) checkpoint path.
+
+## UN-27: Predictable Latency Under Concurrency
+
+**As an** operator running Airlock under concurrent load with PII redaction
+enabled,
+**I need** the request pipeline not to serialize behind synchronous PII analysis,
+**so that** N concurrent requests do not pay N× the single-request latency and
+tail latency stays bounded when `AIRLOCK_PII_ENABLED`.
+
+> Traces to `dev/plans/0.5.3-plan.md` and the architecture audit
+> (`dev/notes/architecture-audit-0.5.0-2026-06.md`, Part 3). Presidio's
+> `analyzer.analyze` (`pii_guard.py`) runs **synchronously inside an `async def`**
+> pre-call hook, blocking the event loop ~50–200 ms/request and serializing
+> concurrency. This is the single verified hot-path latency hazard; the fix is
+> behavior-preserving (redaction output unchanged) — only the threading changes.
+
+### Stakeholders
+
+- Operators (predictable tail latency under load with PII enabled)
+- End users (lower latency when the proxy is busy)
+
+### Acceptance Criteria
+
+1. Presidio analysis is offloaded off the event loop (e.g. `asyncio.to_thread`),
+   so N concurrent `AIRLOCK_PII_ENABLED` requests **no longer serialize** —
+   wall-clock ≪ N × single-request latency (or an event-loop-not-blocked
+   interleaving probe demonstrates the same).
+2. Redaction output is **byte-identical** to the pre-change behavior for the same
+   input (the offload is purely a threading change, not a semantic one).
+3. Single-request latency is unchanged (no regression for the uncontended path).
+4. Request text is extracted **once per request** and reused by the keyword and
+   guardian guards; the cache reflects the **post-PII-redaction** text (order
+   subtlety pinned in tests).
+5. The local-vLLM `/models` capability probe widens its cache TTL and prewarms on
+   startup without regressing first-request correctness for non-vLLM aliases
+   (which never hit that path).

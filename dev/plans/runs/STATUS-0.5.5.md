@@ -1,4 +1,4 @@
-# STATUS — 0.5.4  (live state board)
+# STATUS — 0.5.5  (live state board)
 
 > Single source of truth for this release's live state. The orchestrator
 > maintains it, **one docs commit per transition**. Implementer/reviewer agents
@@ -9,7 +9,7 @@
 _Last updated: 2026-06-26 (kickoff scaffold) · base branch: TBD at kickoff (needs 0.5.1 STORE-seam on base)_
 
 Release: **bulkhead / isolation — exploration → decision → implementation.** Plan:
-`dev/plans/0.5.4-plan.md`. Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`.
+`dev/plans/0.5.5-plan.md`. Orchestrator: `dev/plans/prompts/0.5.5-ORCHESTRATOR.md`.
 Audit source-of-record: `dev/notes/architecture-audit-0.5.0-2026-06.md` (Part 2,
 Bulkhead row).
 
@@ -26,12 +26,12 @@ Bulkhead row).
 
 | Pack | Goal (1 line) | Depends on | State | Witness |
 |------|---------------|------------|-------|---------|
-| `EXPLORE` | Time-boxed study + spikes → decision memo (measured) | audit | NOT_STARTED | `dev/notes/design-bulkhead-isolation.md` + `dev/plans/runs/0.5.4-BULKHEAD-design-review-<ts>.md` |
+| `EXPLORE` | Time-boxed study + spikes → decision memo (measured) | audit | NOT_STARTED | `dev/notes/design-bulkhead-isolation.md` + `dev/plans/runs/0.5.5-BULKHEAD-design-review-<ts>.md` |
 | `DECIDE` | HITL: pick mechanism (C1–C5); answer scale Q; finalize UN-23/24 | EXPLORE (codex PASS) | NOT_STARTED | decision recorded in §7 + finalized §3 |
-| `ENABLE-stateprovider` | Inject `StateProvider`; retire global `store` (Tier 3 #7) | DECIDE | NOT_STARTED | `dev/plans/runs/0.5.4-ENABLE-stateprovider-output.json` |
-| `ENABLE-statesplit` | Split `state.py` god-object (Tier 3 #9) | ENABLE-stateprovider | NOT_STARTED | `dev/plans/runs/0.5.4-ENABLE-statesplit-output.json` |
-| `IMPL-*` | The chosen mechanism (shape set by DECIDE) | ENABLE-* + 0.5.1 STORE-seam | NOT_STARTED | `dev/plans/runs/0.5.4-IMPL-*-output.json` |
-| `DOCS` | UN-23/24; as-built memo; ops guide; changelog | IMPL merged | NOT_STARTED | `dev/plans/runs/0.5.4-DOCS-output.json` |
+| `ENABLE-stateprovider` | Inject `StateProvider`; retire global `store` (Tier 3 #7) | DECIDE | NOT_STARTED | `dev/plans/runs/0.5.5-ENABLE-stateprovider-output.json` |
+| `ENABLE-statesplit` | Split `state.py` god-object (Tier 3 #9) | ENABLE-stateprovider | NOT_STARTED | `dev/plans/runs/0.5.5-ENABLE-statesplit-output.json` |
+| `IMPL-*` | The chosen mechanism (shape set by DECIDE) | ENABLE-* + 0.5.1 STORE-seam | NOT_STARTED | `dev/plans/runs/0.5.5-IMPL-*-output.json` |
+| `DOCS` | UN-23/24; as-built memo; ops guide; changelog | IMPL merged | NOT_STARTED | `dev/plans/runs/0.5.5-DOCS-output.json` |
 
 States (furthest witnessed wins): `WORKTREE_CREATED` → `IMPLEMENTING` →
 `IMPLEMENTED` → `REVIEWED` → `MERGED` → `CLOSED` → `CLEANED`.
@@ -68,7 +68,7 @@ may parallelize per the chosen mechanism. Max 3 worktrees.
 
 ## 7. Recent decisions (newest on top)
 
-- 2026-06-26 — **Scaffolded for `/goal complete 0.5.4`:** added lifecycle map (the
+- 2026-06-26 — **Scaffolded for `/goal complete 0.5.5`:** added lifecycle map (the
   two-stage Phase 0 → Phase E with the DECIDE gate), acceptance scoreboard
   (AC-DECISION/AC-ENABLE + mechanism-conditioned UN-23/24), production-ready DoD;
   authored this board + the orchestrator prompt.
@@ -79,8 +79,8 @@ may parallelize per the chosen mechanism. Max 3 worktrees.
 ## 8. Compaction-resume checklist
 
 1. `AGENTS.md` 2. `MEMORY.md` (incl. [[airlock-production-safety]])
-3. `dev/plans/0.5.4-plan.md` (candidate matrix C1–C5, guardrails, acceptance)
-4. `dev/plans/prompts/0.5.4-ORCHESTRATOR.md` (the two-stage contract)
+3. `dev/plans/0.5.5-plan.md` (candidate matrix C1–C5, guardrails, acceptance)
+4. `dev/plans/prompts/0.5.5-ORCHESTRATOR.md` (the two-stage contract)
 5. **this file** §1+§2 6. `dev/notes/design-bulkhead-isolation.md` (once authored).
 Then re-derive pack state from witnesses. **Never author a Phase-E pack before
 DECIDE is recorded.**
