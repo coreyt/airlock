@@ -2,14 +2,16 @@
   "pack": "0.5.2-COMPAT-tests",
   "baseline_sha": "dd58bda16d1f260051b886bbeceb21b9b46c3a54",
   "branch": "feat/0.5.2-COMPAT-tests",
-  "head_sha": "da70a3c79b4140236164dcf94c2c5ff7645976e3",
+  "head_sha": "9b41c2a237520c7abdd64fbe0fa45a6da30e98f4",
   "commits": [
     "d7bbea6: test(0.5.2-COMPAT): design memo for cross-cutting capability-compat suite",
-    "da70a3c: test(0.5.2-COMPAT): lock cross-cutting capability/naming contract vs real config"
+    "da70a3c: test(0.5.2-COMPAT): lock cross-cutting capability/naming contract vs real config",
+    "f8eb4cb: chore(0.5.2-COMPAT): closure artifact (output.json) — 43/43 green, tests-only",
+    "9b41c2a: test(0.5.2-COMPAT): harden assertions per codex review (stronger regression-lock)"
   ],
   "tdd_evidence": {
     "red_commit_sha": null,
-    "note": "Regression-lock pack against already-shipped code: the suite is GREEN on first write, so there is no separate RED tests-only commit. Each load-bearing assertion was proven able to go RED by temporarily inverting the expected value and confirming failure, then restoring (no product change). Inversion evidence: (1) collision-safety resolve('gemini-3.1-pro-preview') real=None, inverted assert ==\"x\" FAILS; (2) old<->new parity infer_provider('vertex/gemini-3.5-flash') real='vertex_ai', inverted assert =='gemini' FAILS; (3) capability<->wiring forcing every entry to expect batch yields 63 mismatches over 73 entries (assert FAILS), confirming endpoints_for matches the rule exactly (0 mismatches when correct).",
+    "note": "Regression-lock pack against already-shipped code: the suite is GREEN on first write, so there is no separate RED tests-only commit. Each load-bearing assertion (including the post-review HARDENED ones) was proven able to go RED by inverting the expected value / simulating a regression, then restoring (no product change). Inversion evidence: (1) collision-safety resolve('gemini-3.1-pro-preview') real=None, inverted assert ==\"x\" FAILS; (2) old<->new parity infer_provider('vertex/gemini-3.5-flash') real='vertex_ai', inverted assert =='gemini' FAILS; (3) capability<->wiring forcing every entry to expect batch yields 63/73 mismatches (FAILS). HARDENED-area RED: (4) Area-4 full-list — over-claiming an extra endpoint on a chat-only entry passes the OLD 'batch in endpoints' check but FAILS the new full-list equality; (5) Area-5 independent oracle — simulating capability_record dropping 'deprecated' makes record != _EXPECTED_CAP literal so the four-way equality FAILS, even though both product surfaces still mirror the broken record (the old circular check would have passed).",
     "test_files": ["tests/test_0_5_2_capability_compat.py"]
   },
   "tests": {
@@ -22,7 +24,7 @@
       "tests/test_0_5_2_capability_compat.py::TestV1ModelsSeam",
       "tests/test_0_5_2_capability_compat.py::TestReferenceIntegrity"
     ],
-    "passed": 43,
+    "passed": 54,
     "failed": 0,
     "failing_ids": []
   },
@@ -33,13 +35,19 @@
   "blockers_encountered": [
     {
       "id": "DETECT-1-router-catalog-autouse-reset",
-      "description": "First run: 4 TestAliasParity cases failed with infer_provider(...) == None for anthropic/, vertex/, vllm/, and aistudio-prefixed aliases. Root cause: the autouse conftest fixture tests/conftest.py::_reset_router_catalog calls set_router_config(None) before every test function, emptying router._alias_provider_map AFTER my originally module-scoped 'wired' fixture had populated it. infer_provider then fell back to the prefix-only heuristic (_PROVIDER_PREFIXES), which covers mistral but not anthropic/vertex_ai/openai-via-vllm. This is a test-harness ordering interaction, NOT a product bug (alias_table.resolve assertions passed because the autouse reset only touches the router catalog, not the alias table).",
-      "resolution": "Made the 'wired' fixture function-scoped so it re-applies set_router_config(cfg) AFTER the autouse reset runs for each test. Suite went 43/43 green; no product/config change."
+      "description": "First run: 4 TestAliasParity cases failed with infer_provider(...) == None for anthropic/, vertex/, vllm/, and aistudio-prefixed aliases. Root cause: the autouse conftest fixture tests/conftest.py::_reset_router_catalog calls set_router_config(None) before every test function, emptying router._alias_provider_map AFTER my originally module-scoped 'wired' fixture had populated it. infer_provider then fell back to the prefix-only heuristic (_PROVIDER_PREFIXES), which covers mistral but not anthropic/vertex_ai/openai-via-vllm. Test-harness ordering interaction, NOT a product bug (alias_table.resolve assertions passed because the autouse reset only touches the router catalog, not the alias table).",
+      "resolution": "Made the 'wired' fixture function-scoped so it re-applies set_router_config(cfg) AFTER the autouse reset runs for each test. Suite went green; no product/config change."
+    },
+    {
+      "id": "CONCERN-codex-review-hardening",
+      "description": "Codex review of the suite returned CONCERN with 5 findings, all test-side (a regression-lock that cannot fail is worthless) — no product bug. (1) Area 5 was circular: capability_record was the oracle for BOTH product surfaces, which are themselves built from capability_record, so a regression INSIDE capability_record would still pass. (2) Injected-model_info test only checked 'expected keys present', not exact — stale/extra keys would pass. (3) Area 4 only checked 'batch in endpoints_for' — extra/garbage endpoints would pass. (4) Area 1 only checked infer_provider parity + legacy non-None resolve, not that both aliases RESOLVE through alias_table to the same underlying. (5) 'wired' fixture never restored global singleton state on teardown, risking session leak.",
+      "resolution": "All 5 fixed in commit 9b41c2a (test-only, no product/config change, suite stays green at 54 passed): (1)+(2) added a hand-written _EXPECTED_CAP oracle (4 representative entries) and a four-way equality test (injected == seam-map == capability_record == literal); the per-entry injected-model_info check is now EXACT whole-dict equality. (3) Area 4 now asserts the FULL endpoints list per entry (==['chat'(,'batch')]). (4) Area 1 now asserts both old+new aliases resolve through alias_table to the SAME underlying litellm deployment. (5) 'wired' is a yield fixture that restores router map (set_router_config(None)) + resets the alias_table singleton on teardown. Re-confirmed inversion-RED for the hardened area-4 and area-5 assertions (see tdd_evidence). Neighbor isolation run (test_model_alias, test_capability, test_models_seam, test_fast_router) green => no leak."
     }
   ],
   "additional_changes_made_in_scope": [
-    "wired fixture scope changed from module to function (see DETECT-1) — test-internal only, keeps catalog-first infer_provider lookups order-independent against the autouse router-reset conftest fixture."
+    "wired fixture: module->function scope, then converted to a yield fixture with teardown restoring both global singletons (router map + alias_table). Test-internal only; keeps catalog-first infer_provider lookups order-independent vs the autouse router-reset conftest fixture and prevents session leak.",
+    "Added _EXPECTED_CAP independent oracle + four-way agreement test; tightened Area 4 (full endpoints list), Area 5 (exact model_info dict), and Area 1 (resolve-to-same-underlying) per codex review."
   ],
-  "agent_verify_result": "pass — uv run --extra test python -m pytest tests/test_0_5_2_capability_compat.py -q => 43 passed. Neighbor sanity run (test_model_alias, test_capability, test_models_seam, test_batch_gateway) => 248 passed, no interference. ruff check + ruff format --check clean.",
-  "next_step_for_orchestrator": "Pack 0.5.2-COMPAT-tests on branch feat/0.5.2-COMPAT-tests at da70a3c; review, verify, merge. Tests-only, zero product/config changes."
+  "agent_verify_result": "pass — uv run --extra test python -m pytest tests/test_0_5_2_capability_compat.py -q => 54 passed. Neighbor isolation run (test_0_5_2_capability_compat, test_model_alias, test_capability, test_models_seam, test_fast_router) => 309 passed, no leak. ruff check + ruff format --check clean.",
+  "next_step_for_orchestrator": "Pack 0.5.2-COMPAT-tests on branch feat/0.5.2-COMPAT-tests at 9b41c2a; review, verify, merge. Tests-only, zero product/config changes. Codex CONCERN (5 hardening findings) addressed in 9b41c2a."
 }
