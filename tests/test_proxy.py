@@ -488,8 +488,11 @@ class TestRuntimeConfigPreparation:
     def test_prepare_runtime_config_returns_original_when_no_overrides(
         self, tmp_path, monkeypatch
     ):
+        # No model_list -> nothing to inject; with no env overrides the original
+        # config path is returned unchanged. (A model_list always triggers the
+        # unconditional model_info injection, exercised in the injection tests.)
         cfg = tmp_path / "config.yaml"
-        cfg.write_text(_VALID_CONFIG)
+        cfg.write_text("litellm_settings: {}\n")
 
         monkeypatch.setenv("AIRLOCK_MCP_STARTUP_MODE", "eager")
         monkeypatch.delenv("AIRLOCK_ENABLE_MCP_SERVERS", raising=False)
@@ -531,9 +534,16 @@ class TestRuntimeConfigPreparation:
         monkeypatch.delenv("AIRLOCK_ENABLE_MCP_SERVERS", raising=False)
         monkeypatch.delenv("AIRLOCK_BACKGROUND_HEALTH_CHECKS", raising=False)
 
+        # model_info injection always writes a temp config; lazy mode must keep
+        # the configured mcp_servers (only `off` strips them).
         runtime_path, temp_path = _prepare_runtime_config(str(cfg))
-        assert runtime_path == str(cfg)
-        assert temp_path is None
+        assert temp_path is not None
+
+        import yaml
+
+        with open(runtime_path, encoding="utf-8") as f:
+            loaded = yaml.safe_load(f) or {}
+        assert "mcp_servers" in loaded
 
     def test_prepare_runtime_config_can_override_health_checks(
         self, tmp_path, monkeypatch
