@@ -13,6 +13,7 @@ import pytest
 
 from airlock.models_seam import (
     ModelsCapabilityMiddleware,
+    _build_capability_map,
     install_models_capability_seam_on_proxy_app,
 )
 
@@ -341,3 +342,80 @@ def test_install_returns_false_without_app(monkeypatch):
         "airlock.models_seam._get_proxy_app", lambda: None, raising=False
     )
     assert install_models_capability_seam_on_proxy_app() is False
+
+
+# --- _build_capability_map: never-crash contract -----------------------------
+
+
+def _write_config(tmp_path, text: str, monkeypatch):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(text)
+    monkeypatch.setenv("AIRLOCK_CONFIG", str(cfg))
+    return cfg
+
+
+def test_build_map_missing_config_returns_empty(tmp_path, monkeypatch):
+    monkeypatch.setenv("AIRLOCK_CONFIG", str(tmp_path / "does-not-exist.yaml"))
+    assert _build_capability_map() == {}
+
+
+def test_build_map_non_list_model_list_returns_empty(tmp_path, monkeypatch):
+    # truthy non-list model_list must not be iterated (would raise)
+    _write_config(tmp_path, "model_list: true\n", monkeypatch)
+    assert _build_capability_map() == {}
+
+
+def test_build_map_dict_model_list_returns_empty(tmp_path, monkeypatch):
+    _write_config(tmp_path, "model_list:\n  foo: bar\n", monkeypatch)
+    assert _build_capability_map() == {}
+
+
+def test_build_map_skips_malformed_entry_keeps_good(tmp_path, monkeypatch):
+    _write_config(
+        tmp_path,
+        (
+            "model_list:\n"
+            "  - model_name: bad-entry\n"
+            "    litellm_params: not-a-dict\n"
+            "  - model_name: good-entry\n"
+            "    litellm_params:\n"
+            "      model: anthropic/claude-haiku\n"
+        ),
+        monkeypatch,
+    )
+    result = _build_capability_map()
+    assert "good-entry" in result
+    assert result["good-entry"]["airlock_provider"] == "anthropic"
+    assert result["good-entry"]["underlying"] == "anthropic/claude-haiku"
+    # the malformed entry is skipped, not crashing the whole map
+    assert "bad-entry" not in result
+
+
+def test_build_map_per_entry_exception_skipped(tmp_path, monkeypatch):
+    # capability_record raising for one entry must not abort the whole map
+    import airlock.models_seam as seam
+
+    real = seam.capability_record
+
+    def _boom(entry):
+        if entry.get("model_name") == "explode":
+            raise ValueError("boom")
+        return real(entry)
+
+    monkeypatch.setattr(seam, "capability_record", _boom)
+    _write_config(
+        tmp_path,
+        (
+            "model_list:\n"
+            "  - model_name: explode\n"
+            "    litellm_params:\n"
+            "      model: gemini/x\n"
+            "  - model_name: fine\n"
+            "    litellm_params:\n"
+            "      model: gemini/y\n"
+        ),
+        monkeypatch,
+    )
+    result = _build_capability_map()
+    assert "fine" in result
+    assert "explode" not in result
