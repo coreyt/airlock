@@ -323,10 +323,20 @@ answers** (§1.6) — don't re-litigate them here:
    the confirmed `x.y.z`; rename CHANGELOG `[Unreleased]` → `[x.y.z] — <date>`. These are
    release docs/config the orchestrator may edit directly. Verify `import airlock;
    airlock.__version__` reflects the bump.
-3. **Merge + tag, LOCAL** (per K3). Merge `feat/x.y.z-*` → local `main` (`--no-ff`),
+3. **Docs reconciliation.** Per-pack work should already carry its docs in the pack's
+   closing `docs(...)` commit (one-docs-commit-per-transition). Before sign-off, run a
+   release-eve sweep over any change that touched a **public surface** — HTTP API, CLI
+   flags, `config.yaml` / `airlock_settings` keys, `.env.example` env vars, response
+   headers, or documented behavior. The method (classification table, dev→docs order,
+   verify gate, epoch marker) lives in **`dev/update-docs.md`** — that file is the
+   *process*; the release's **plan** is the *to-do list* (every release plan carries a
+   docs-reconciliation deliverable in its DoD). A surface change merged without a matching
+   doc update is a gap to close here. Stamp the `dev/update-docs.md` epoch marker only
+   after a genuine whole-tree (`$EPOCH..HEAD`) sweep, never a scoped one.
+4. **Merge + tag, LOCAL** (per K3). Merge `feat/x.y.z-*` → local `main` (`--no-ff`),
    create the annotated `vx.y.z` tag. **Do not push or publish** — that is a separate
    explicit approval (§1 Do-NOT; §11 anti-patterns).
-4. **Sign-off line** on the STATUS board: DoD checklist all-green, the smoke verdict,
+5. **Sign-off line** on the STATUS board: DoD checklist all-green, the smoke verdict,
    the merge/release/tag shas, and the follow-ups list. Save durable follow-ups to memory.
 
 ---
@@ -610,6 +620,7 @@ work that has higher impact (e.g., dispatching the next planned phase).
 | State spine + cold-start resume + STATUS board | [runbook §1.5](#15-state-spine--derive-position-from-disk-not-memory) |
 | Kickoff HITL — always-ask cross-cutting questions (branch / smoke-runner / version+tag+push) | [runbook §1.6](#16-kickoff-hitl--settle-the-foreseeable-cross-cutting-questions-first) |
 | Release finalization (smoke → version+CHANGELOG → local merge+tag → sign-off) | [runbook §6.1](#61-release-finalization-sign-off) |
+| Docs reconciliation method (per-pack + release-eve sweep; classification table; epoch marker) | [dev/update-docs.md](update-docs.md) |
 | On-disk layout (plans/runs/prompts) | [dev/plans/README.md](plans/README.md) |
 | Pack prompt template (fill-in) | [dev/plans/prompts/SLICE-TEMPLATE.md](plans/prompts/SLICE-TEMPLATE.md) |
 | codex reviewer (primary) + verdict promotion | [reference.md §3.1](agent-harness-reference.md#31-codex-reviewer-primary) |
