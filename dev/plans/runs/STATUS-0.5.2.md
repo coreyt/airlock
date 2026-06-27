@@ -64,7 +64,7 @@ runbook; here ≤1 is typically in flight given the shared `config.yaml`.
 
 | Worktree path | Branch | Pack | State |
 |---------------|--------|------|-------|
-| `.claude/worktrees/feat-0.5.2-CAP-modelinfo` | `feat/0.5.2-CAP-modelinfo` | CAP-modelinfo | IMPLEMENTING |
+| _(none — CAP-modelinfo merged + worktree removed)_ | | | |
 
 (Empty when all packs are CLEANED.)
 
