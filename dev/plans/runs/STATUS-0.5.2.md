@@ -16,25 +16,26 @@ capabilities.** Plan: `dev/plans/0.5.2-plan.md`. Orchestrator:
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** none — **Phase D DONE (design PASS).** Design note v3 codex-reviewed
-  **PASS** (`0.5.2-NAMING-design-review-20260627T040523Z.md`); v1 BLOCK → v2 BLOCK →
-  v3 PASS, all 3 findings resolved. Phase E may begin.
-- **Next action:** **Phase E pack 1 — NAME-aliases.** Author
-  `dev/plans/prompts/0.5.2-NAME-aliases.md` from SLICE-TEMPLATE with the resolved
-  design decisions: (1) §4.1 collision-safe `model_alias` (two-pass loader +
-  provider-aware `(provider,bare)→alias` strip; contradictory multi-provider prefix
-  → `None`, no fuzzy/cache); (2) §4.2 shared `airlock_provider_for()` in new
-  `airlock/capability.py`, used by `set_router_config`; (3) Appendix-A prefixed
-  aliases dual-listed, legacy `deprecated:true`; (4) N6 consolidation. RED tests
-  first; prove the router collision on a separate dir+port. Then the post-merge HITL
-  smoke gate.
+- **In flight:** none — **NAME-aliases CLOSED + HITL smoke PASS.** Merged `4905150`;
+  codex review BLOCK (ambiguous-variant fuzzy leak) → fix → CONCERN (stale reload) →
+  fix → merged. Live isolated smoke (`:4137`): `aistudio/gemini-3.5-flash`→`gemini`,
+  `vertex/gemini-3.5-flash`→`vertex_ai`, pinned, no model-override — the aistudio↔vertex
+  disambiguation proven on the wire (`-HITL-smoke-20260627T131827Z.md`).
+- **Next action:** **Phase E pack 2 — CAP-modelinfo.** Cut a worktree from
+  `feat/0.5.2-naming` HEAD; add `model_info:` capability blocks (`airlock_provider`,
+  `region?`, `endpoints`, `underlying`, `deprecated`) to every entry; **extend
+  `airlock/capability.py`** with `endpoints_for()` (design §4.5: batch iff
+  `airlock_batch` marker OR **regional** `vertex_ai/`) + `capability_record()`;
+  config-consistency test that published `endpoints` == `endpoints_for(entry)`; a
+  `/model/info` smoke proving LiteLLM surfaces the block. Re-verify config anchors
+  (they drifted +217 lines from NAME-aliases).
 
 ## 2. Pack scoreboard
 
 | Pack | Goal (1 line) | Depends on | State | Witness |
 |------|---------------|------------|-------|---------|
 | `DESIGN` | Design note covering N1–N6 + codex design-review PASS | — | **CLOSED ✅ (PASS v3)** | `dev/notes/design-provider-naming-and-capability-discovery.md` + `dev/plans/runs/0.5.2-NAMING-design-review-20260627T040523Z.md` |
-| `NAME-aliases` | `provider/model` aliases for whole catalog (Appendix A); legacy dual-listed; collision-safe model_alias + shared classifier; slash-alias resolves, pins, attributes | DESIGN | **REVIEW→FIX** (impl green @ 3f4fc08; codex BLOCK round 1 — ambiguous-variant fuzzy leak; fixer in flight) | `0.5.2-NAME-aliases-output.json` + `0.5.2-NAME-aliases-review-20260627T043448Z.md` |
+| `NAME-aliases` | `provider/model` aliases for whole catalog (Appendix A); legacy dual-listed; collision-safe model_alias + shared classifier; slash-alias resolves, pins, attributes | DESIGN | **CLOSED ✅** (merged `4905150`; codex BLOCK→fix→CONCERN→fix; HITL smoke PASS) | `0.5.2-NAME-aliases-output.json` + `-review-20260627T043448Z.md` + `-HITL-smoke-20260627T131827Z.md` |
 | `CAP-modelinfo` | `model_info` capability blocks; `endpoints` derived from real wiring; exposed on `/model/info` | NAME-aliases | NOT_STARTED | `dev/plans/runs/0.5.2-CAP-modelinfo-output.json` |
 | `CAP-v1models` | Additive `airlock:{provider,endpoints,underlying}` on `GET /v1/models` | CAP-modelinfo | NOT_STARTED | `dev/plans/runs/0.5.2-CAP-v1models-output.json` |
 | `COMPAT-tests` | Cross-cutting regression: old+new alias resolve/pin/attribute; collision-safety; batch via both | CAP-v1models | NOT_STARTED | `dev/plans/runs/0.5.2-COMPAT-tests-output.json` |
@@ -49,11 +50,11 @@ baseline) → `REVIEWED` (`<pack>-review-<ts>.md` with a `## Verdict:` line) →
 
 | Requirement | Pack | Status |
 |-------------|------|--------|
-| UN-21 — Discoverable Provider Selection (enumerate provider/region; pin by stable name; verify via header) | NAME-aliases, CAP-*, DOCS | ⏳ |
+| UN-21 — Discoverable Provider Selection (enumerate provider/region; pin by stable name; verify via header) | NAME-aliases, CAP-*, DOCS | 🟡 pin+verify proven live (aistudio→gemini, vertex→vertex_ai); enumerate via /model/info+/v1/models pending CAP packs |
 | UN-22 — Declared Capabilities (`endpoints` published + provably match routing) | CAP-modelinfo, COMPAT-tests, DOCS | ⏳ |
-| No client breaks — legacy aliases still resolve+pin | NAME-aliases, COMPAT-tests | ⏳ |
+| No client breaks — legacy aliases still resolve+pin | NAME-aliases, COMPAT-tests | 🟡 legacy resolve+pin covered by NAME-aliases tests; cross-cutting in COMPAT |
 | `/v1/models` augmentation additive (standard fields intact) | CAP-v1models | ⏳ |
-| Slash alias does not collide with native provider parsing | NAME-aliases | ⏳ |
+| Slash alias does not collide with native provider parsing | NAME-aliases | ✅ unit (collision-safe loader/resolve) + live smoke (aistudio/vertex route distinctly) |
 
 ## 4. Parallelization plan
 
