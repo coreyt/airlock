@@ -580,6 +580,79 @@ class TestRuntimeConfigPreparation:
         assert fathom in loaded["litellm_settings"]["success_callback"]
         assert fathom in loaded["litellm_settings"]["failure_callback"]
 
+    def test_prepare_runtime_config_injects_model_info(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_ENABLE_MCP_SERVERS", raising=False)
+        monkeypatch.delenv("AIRLOCK_BACKGROUND_HEALTH_CHECKS", raising=False)
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            "model_list:\n"
+            "  - model_name: claude-opus\n"
+            "    litellm_params:\n"
+            "      model: anthropic/claude-opus-4-8\n"
+            "  - model_name: aistudio/gemini-3.5-flash\n"
+            "    litellm_params:\n"
+            "      model: gemini/gemini-3.5-flash\n"
+            "    airlock_batch:\n"
+            "      backend: aistudio\n"
+            "  - model_name: gemini-3.5-flash-vertex\n"
+            "    litellm_params:\n"
+            "      model: vertex_ai/gemini-3.5-flash\n"
+            "      vertex_location: global\n"
+        )
+
+        runtime_path, temp_path = _prepare_runtime_config(str(cfg))
+        assert temp_path is not None
+
+        import yaml
+
+        with open(runtime_path, encoding="utf-8") as f:
+            loaded = yaml.safe_load(f) or {}
+
+        by_name = {e["model_name"]: e for e in loaded["model_list"]}
+        for entry in by_name.values():
+            assert "model_info" in entry
+
+        opus = by_name["claude-opus"]["model_info"]
+        assert opus["airlock_provider"] == "anthropic"
+        assert opus["endpoints"] == ["chat"]
+        assert opus["underlying"] == "anthropic/claude-opus-4-8"
+        assert opus["deprecated"] is False
+
+        flash = by_name["aistudio/gemini-3.5-flash"]["model_info"]
+        assert flash["endpoints"] == ["chat", "batch"]
+
+        vertex = by_name["gemini-3.5-flash-vertex"]["model_info"]
+        assert vertex["endpoints"] == ["chat"]
+        assert vertex["region"] == "global"
+        assert vertex["deprecated"] is True
+
+    def test_prepare_runtime_config_preserves_existing_model_info(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.delenv("AIRLOCK_ENABLE_MCP_SERVERS", raising=False)
+        monkeypatch.delenv("AIRLOCK_BACKGROUND_HEALTH_CHECKS", raising=False)
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            "model_list:\n"
+            "  - model_name: claude-opus\n"
+            "    litellm_params:\n"
+            "      model: anthropic/claude-opus-4-8\n"
+            "    model_info:\n"
+            "      custom_key: keep-me\n"
+        )
+
+        runtime_path, temp_path = _prepare_runtime_config(str(cfg))
+        assert temp_path is not None
+
+        import yaml
+
+        with open(runtime_path, encoding="utf-8") as f:
+            loaded = yaml.safe_load(f) or {}
+
+        info = loaded["model_list"][0]["model_info"]
+        assert info["custom_key"] == "keep-me"
+        assert info["airlock_provider"] == "anthropic"
+
     def test_shadow_mode_no_warning(self, monkeypatch, capsys):
         monkeypatch.setenv("AIRLOCK_ENFORCE_MODE", "shadow")
         _warn_observe_mode()
