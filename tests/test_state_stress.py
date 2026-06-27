@@ -147,7 +147,9 @@ def test_record_threat_score_concurrent_no_lost_update():
             )
 
     threads = [threading.Thread(target=worker, args=(0.9,))]
-    threads += [threading.Thread(target=worker, args=(0.1,)) for _ in range(low_threads)]
+    threads += [
+        threading.Thread(target=worker, args=(0.1,)) for _ in range(low_threads)
+    ]
     for t in threads:
         t.start()
     for t in threads:

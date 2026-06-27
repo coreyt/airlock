@@ -15,6 +15,50 @@ _HEADER_CANDIDATES = (
     "airlock-client",
 )
 
+# Canonical sentinel for a missing client identity. Re-exported by
+# ``airlock.fast.state`` so existing imports keep working.
+NO_CLIENT_ID = "no_client"
+
+
+def normalize_client_id(client_id: str | None) -> str:
+    """Return a stable client identifier, collapsing missing values to no_client."""
+    text = (client_id or "").strip()
+    return text or NO_CLIENT_ID
+
+
+def client_id_from_api_key(user_api_key_dict: Any) -> str:
+    """Derive a stable client identifier from the API-key metadata."""
+    if user_api_key_dict:
+        if hasattr(user_api_key_dict, "api_key"):
+            key = user_api_key_dict.api_key or ""
+            if len(key) > 8:
+                return f"key:{key[-8:]}"
+        if isinstance(user_api_key_dict, dict):
+            api_key = user_api_key_dict.get("api_key", "")
+            if len(api_key) > 8:
+                return f"key:{api_key[-8:]}"
+    return normalize_client_id(None)
+
+
+def extract_airlock_client_from_request(
+    data: Mapping[str, Any],
+    user_api_key_dict: Any = None,
+) -> str:
+    """Resolve a normalized client id for an inbound request (canonical path).
+
+    Prefers the inbound Airlock client identity (metadata then request/metadata
+    headers), falling back to the authenticated API-key derived id.
+    """
+    metadata = data.get("metadata") or {}
+    for value in (
+        metadata.get("airlock_client"),
+        extract_airlock_client_from_headers(data.get("headers")),
+        extract_airlock_client_from_headers(metadata.get("headers")),
+    ):
+        if value:
+            return normalize_client_id(str(value).strip())
+    return client_id_from_api_key(user_api_key_dict)
+
 
 def get_runtime_airlock_client() -> str | None:
     """Return the current process Airlock client identity, if configured."""
