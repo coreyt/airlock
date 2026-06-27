@@ -1,0 +1,97 @@
+{
+  "pack": "0.5.3-ACL",
+  "baseline_sha": "6aeea94",
+  "branch": "feat/0.5.3-ACL",
+  "head_sha": "6d1a4496a20b7b62cff584c62b42ad942e57f20d",
+  "commits": [
+    "66be82c: docs(0.5.3-ACL): design memo — adapter surface + migration map",
+    "a7c6101: test(0.5.3-ACL): RED — adapter accessors + byte-parity fixtures (no impl yet)",
+    "6d1a449: feat(0.5.3-ACL): litellm_adapter.py — single owner of LiteLLM-internal reads"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "a7c6101b7efbf2eb418ad34ecdaafc40f2bd2375",
+    "test_files": ["tests/test_litellm_adapter.py"]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_litellm_adapter.py",
+      "tests/test_served_attribution.py",
+      "tests/test_transparency_ledger.py",
+      "tests/test_transparency_config.py",
+      "tests/test_model_override_headers.py",
+      "tests/test_fast_monitor.py",
+      "tests/test_batch_middleware.py",
+      "tests/test_admin_http.py",
+      "tests/test_header_safety.py"
+    ],
+    "passed": 176,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "migrated_call_sites": [
+    "transparency.py:190 (_hidden_params read) -> litellm_adapter.hidden_params(response)",
+    "transparency.py:194-195 (custom_llm_provider read) -> litellm_adapter.served_provider(response)",
+    "transparency.py:212-214 (response_cost + fallback) -> litellm_adapter.response_cost(response, fallback=cost_fallback)",
+    "fast/monitor.py:196 (_hidden_params read) -> litellm_adapter.hidden_params(response_obj); isinstance(dict) gate preserved, additional_headers key read from the adapter-returned dict to keep gate semantics byte-identical",
+    "callbacks/model_override_headers.py:91-94 (_hidden_params read + additional_headers setdefault/update write) -> litellm_adapter.merge_additional_headers(response, response_headers)",
+    "health.py:79 (sys.modules proxy_server + .app) -> litellm_adapter.resolve_proxy_app()",
+    "proxy_errors.py:121 (sys.modules proxy_server + .app) -> litellm_adapter.resolve_proxy_app()",
+    "docs.py:481 (sys.modules proxy_server + .app) -> litellm_adapter.resolve_proxy_app()",
+    "models_seam.py:200 (_get_proxy_app) -> litellm_adapter.resolve_proxy_app(); models_seam.py:220-227 (None/built middleware branch) -> litellm_adapter.install_asgi_middleware(app, ModelsCapabilityMiddleware, capability_map=...)",
+    "batch/middleware.py:569 (sys.modules proxy_server + .app) -> litellm_adapter.resolve_proxy_app(); batch/middleware.py:575-580 (None/built branch) -> litellm_adapter.install_asgi_middleware(app, BatchGatewayMiddleware)",
+    "admin/http.py:267 (sys.modules proxy_server + .app) -> litellm_adapter.resolve_proxy_app(); admin/http.py:273-276 (None/built branch) -> litellm_adapter.install_asgi_middleware(app, AdminMiddleware)"
+  ],
+  "intentionally_excluded_sites": [
+    "callbacks/enterprise_logger.py:523 kwargs.get('response_cost') — Q1 documented CustomLogger kwargs surface, not _hidden_params; stays out of ACL",
+    "callbacks/fathom_logger.py:132 kwargs.get('response_cost', 0) — Q1 documented CustomLogger kwargs surface",
+    "fast/monitor.py:163,173,186 kwargs.get('response_cost') — Q1 cost_fallback sources from the CustomLogger kwargs dict (passed INTO the ACL accessor as fallback)",
+    "batch/middleware.py:48-65 custom_llm_provider query-param parsing — Q3 client/request ASGI surface, not a LiteLLM internal",
+    "callbacks/enterprise_logger.py _patch_lowest_cost_none_guard — Q4 router-strategy monkey-patch, not a read of internals",
+    "providers/enhanced_passthrough.py:169 resolved_params.pop('custom_llm_provider') — mutates request params, not an internal read"
+  ],
+  "grep_self_check": "grep -rn '_hidden_params|sys.modules.get(\"litellm.proxy.proxy_server\")|app.middleware_stack' airlock/ --include='*.py' | grep -v test  ==> the ONLY code reads are in airlock/litellm_adapter.py. Remaining matches are non-code: transparency.py:196 (a code comment) and fast/ratelimit_headers.py:5 (a docstring) — both pre-existing documentation strings, not reads (inventory marked ratelimit_headers as 'no (doc)').",
+  "parity_fixtures": [
+    "anthropic_native (Anthropic vs Bedrock vs Vertex)",
+    "bedrock_gateway (region header)",
+    "vertex_gateway (Vertex aiplatform host)",
+    "openai_native (OpenAI vs Azure)",
+    "azure_gateway",
+    "gemini_ai_studio (Vertex vs Gemini split by api_base host)",
+    "streaming_vertex_ai_beta_ai_studio (streaming wrapper hardcode -> gemini native)",
+    "streaming_vertex_ai_beta_vertex (streaming wrapper hardcode -> vertex_ai gateway)",
+    "unknown_provider (header omitted, not guessed)"
+  ],
+  "files_changed": [
+    "airlock/litellm_adapter.py (new)",
+    "airlock/transparency.py",
+    "airlock/fast/monitor.py",
+    "airlock/callbacks/model_override_headers.py",
+    "airlock/health.py",
+    "airlock/proxy_errors.py",
+    "airlock/docs.py",
+    "airlock/models_seam.py",
+    "airlock/batch/middleware.py",
+    "airlock/admin/http.py",
+    "tests/test_litellm_adapter.py (new)",
+    "dev/notes/0.5.3-ACL-design.md (new)"
+  ],
+  "blockers_encountered": [
+    {
+      "id": "ACL-BASE-CORRECTION",
+      "description": "Prompt named base 2074fd9, but the real base (prompt files on disk) is 6aeea94 = 2074fd9 + two pack-prompt files. Orchestrator instruction confirmed fast-forward to 6aeea94.",
+      "resolution": "Branched feat/0.5.3-ACL at 6aeea94 (fc67c33 confirmed ancestor of 6aeea94). Prompt + inventory then present in tree."
+    },
+    {
+      "id": "ACL-RED-TEST-HELPER-BUG",
+      "description": "[DETECT] During GREEN, test_merge_additional_headers_writes_into_hidden_params failed with KeyError: the _resp helper does 'hidden or {}', so passing an empty hp={} created a fresh dict and the write landed in a different object than the asserted one. Adapter was correct.",
+      "resolution": "[RESOLVE] Fixed the two write-path tests to build SimpleNamespace(_hidden_params=hp) directly so the asserted dict is the write target. All 31 adapter tests pass; no adapter change."
+    }
+  ],
+  "additional_changes_made_in_scope": [
+    "Removed now-unused 'import sys' from health.py, proxy_errors.py, docs.py, models_seam.py, batch/middleware.py, admin/http.py (sys was only used for the proxy-server lookup now owned by the ACL).",
+    "Moved the LiteLLM 1.89.0 _hidden_params version-assumption note into the litellm_adapter.py module docstring with the 'ONE file to re-verify on a LiteLLM upgrade' statement (Design Decision 3 / Q4).",
+    "models_seam wrap path now passes capability_map as a kwarg (was positional) via install_asgi_middleware; identical result given ModelsCapabilityMiddleware.__init__(self, app, capability_map)."
+  ],
+  "agent_verify_result": "pass — targeted 176 passed/0 failed; full no-network suite 2376 passed, 107 skipped, 1 xpassed, 1 failed (tests/test_fathom_init.py::test_init_engine_with_fathomdb — known pre-existing fathom env failure, recorded at 0.5.2 sign-off, unrelated to this pack). ruff check + format clean.",
+  "next_step_for_orchestrator": "Pack 0.5.3-ACL on branch feat/0.5.3-ACL at 6d1a4496a20b7b62cff584c62b42ad942e57f20d; review, verify byte-parity, merge."
+}
