@@ -626,6 +626,81 @@ visible rather than hidden.
 
 ---
 
+## UN-21: Discoverable Provider Selection
+
+**As a** client/researcher choosing where a model runs (AI Studio vs Vertex;
+native vs a gateway),
+**I need** to enumerate the catalog and see, per model, the serving provider and
+region without parsing the model id, pin a specific provider by a stable name,
+and verify it actually served,
+**so that** "which provider, and did it serve?" is answerable from data, not from
+a confusing alias suffix.
+
+> Traces to `dev/notes/design-provider-naming-and-capability-discovery.md`
+> (as-built, shipped 0.5.2). Root cause: the catalog used three inconsistent
+> naming conventions that conflated *provider/quota* (AI Studio vs Vertex) with
+> *API surface* (sync vs batch) and encoded neither discoverably — a researcher
+> pinned `gemini-3.5-flash-aistudio`, watched it behave differently from
+> `gemini-3.5-flash`, and concluded it was "a separate broken deployment."
+
+### Stakeholders
+
+- Clients/researchers (pick and pin a provider by a stable name)
+- Operators (a default that can be re-pointed without breaking the client contract)
+- Finance/observability (served provider is answerable from data, not the id string)
+
+### Acceptance Criteria
+
+1. `GET /v1/models` and `GET /model/info` expose, per model, an airlock
+   capability object (`airlock_provider`, `region`, `endpoints`, `underlying`,
+   `deprecated`). On `/model/info` the record is merged into `model_info`; on
+   `/v1/models` it is folded under an additive `airlock` object (OpenAI-compat
+   preserved).
+2. A `provider/model` alias (`aistudio/…`, `vertex/…`, `anthropic/…`, …) pins
+   that provider and is auto-pinned (fallbacks/retries off → 429-on-overload,
+   never a silent model swap).
+3. The served provider is verifiable post-call via `X-Airlock-Served-By` (and
+   `X-Airlock-Served-Region` for gateway/region backends); it equals the
+   `airlock_provider` discovered in step 1 (`aistudio` → `gemini`, `vertex` →
+   `vertex_ai`).
+4. The bare name (e.g. `gemini-3.5-flash`) remains a documented, ops-repointable
+   **default**; the prefixed name is the stable client contract.
+
+---
+
+## UN-22: Declared Capabilities
+
+**As a** client selecting a batch-capable deployment,
+**I need** per-model `endpoints` (chat/batch) published and **provably matching
+the real routing**,
+**so that** I pick a batch deployment from data, not by guessing from the id
+string.
+
+> Traces to `dev/notes/design-provider-naming-and-capability-discovery.md`
+> (as-built, shipped 0.5.2). `endpoints` is computed from the real wiring by one
+> helper (`airlock/capability.py:endpoints_for`), so published capability cannot
+> drift from routing.
+
+### Stakeholders
+
+- Clients (pick a batch deployment from declared capability)
+- Operators (capability cannot silently disagree with routing)
+
+### Acceptance Criteria
+
+1. `endpoints` is published on `/model/info` + `/v1/models`.
+2. `batch ∈ endpoints` **iff** the entry is gateway-batch-marked
+   (`airlock_batch`) OR a regionally-located Vertex model (`vertex_ai/` with a
+   non-`global` `vertex_location`) — a config-consistency test enforces this so
+   published capability cannot drift from routing. The shipped Vertex entries use
+   `vertex_location: global`, so they are **chat-only** (no batch advertised).
+3. Capability-in-the-name is gone: the `-batch`/`-aistudio` twins are
+   consolidated (one `provider/model` entry serves sync and advertises batch);
+   capability is read from `endpoints`, never the suffix. The legacy suffix twins
+   carry `deprecated: true` and are removed in 0.6.0.
+
+---
+
 ## UN-25: Unified Settings Precedence
 
 **As an** operator configuring Airlock,

@@ -5,6 +5,56 @@ All notable changes to Airlock are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] — 2026-06-27
+
+### Added
+
+- **Provider-explicit `provider/model` aliases across the whole catalog** —
+  every `model_list` entry gains a stable alias whose prefix names the serving
+  provider (`anthropic/…`, `openai/…`, `aistudio/…` (served-by `gemini`),
+  `vertex/…` (served-by `vertex_ai`), `mistral/…`, `perplexity/…`,
+  `tavily/web-search`, `vllm/…`). The prefix is the provider, exact-matched and
+  never re-parsed as routing; `aistudio/` and `vertex/` are deliberately distinct
+  from LiteLLM's native `gemini/` / `vertex_ai/` tokens. The bare name (e.g.
+  `gemini-3.5-flash`) remains a documented, ops-repointable **default**; the
+  prefixed name is the stable client contract. A concrete prefixed name is
+  auto-pinned (fallbacks/retries off → 429 on overload, never a silent swap).
+- **Machine-discoverable per-model capability** — `GET /model/info` publishes a
+  capability record (`airlock_provider`, `endpoints`, `underlying`, `region`,
+  `deprecated`) and `GET /v1/models` folds the same fields under an additive
+  `airlock` object on each model. `endpoints` is computed from the real wiring by
+  one helper (`airlock/capability.py`), so a model advertises `batch` **iff** it
+  is gateway-batch-marked (`airlock_batch`) **or** a regionally-located Vertex
+  model — published capability cannot drift from routing. A config-consistency
+  test enforces the rule. Capability-in-the-name is gone: the legacy `-batch` /
+  `-aistudio` twins are consolidated onto the `provider/model` entry, which serves
+  sync **and** advertises batch.
+- **`X-Airlock-Served-By` as the verify surface** — pin a `provider/model` alias,
+  then confirm from data that the discovered `airlock_provider` actually served:
+  `X-Airlock-Served-By` equals it (`aistudio/…` → `gemini`, `vertex/…` →
+  `vertex_ai`). `X-Airlock-Served-Region` appears for gateway/region backends.
+
+### Deprecated
+
+- **Legacy capability-suffix aliases** — `-aistudio` / `-vertex` / `-batch` twins
+  (`gemini-3.5-flash-aistudio`, `gemini-3.1-pro-aistudio`, `gemini-3.5-flash-vertex`,
+  `gemini-3.1-pro-vertex`, `mistral-large-batch`, `mistral-small-batch`,
+  `qwen36-27b-vllm-batch`) are **deprecated in 0.5.2, removed in 0.6.0**. They are
+  **dual-listed and fully functional** in 0.5.2 (same `litellm_params` + marker)
+  and carry `deprecated: true` in their capability record. No client breaks in
+  0.5.2 — migrate to the `provider/model` names (see
+  [Batch → old → new alias map](https://github.com/coreyt/airlock/blob/main/docs/guide/batch.md)).
+
+### Unchanged
+
+- **Request-path behavior** — pinning, fallbacks, the circuit breaker, and
+  served-by attribution are unchanged; this work is additive naming + metadata.
+- **`/v1/models` stays OpenAI-compatible** — the `airlock` object is purely
+  additive; absent-aware clients are unaffected.
+- **Vertex remains chat-only as shipped** — `vertex/…` entries use
+  `vertex_location: global` and advertise `endpoints: ["chat"]`; Vertex batch is
+  region-gated and is **not** advertised at `global`.
+
 ## [0.5.1] — 2026-06-26
 
 ### Added

@@ -171,6 +171,66 @@ class TestInferProvider:
         assert infer_provider("llama-3") is None
 
 
+class TestInferProviderCatalog:
+    """After set_router_config(root config), every Appendix-A alias maps to its
+    served-by token (no enhanced / aistudio / vertex literals)."""
+
+    @pytest.fixture
+    def root_config(self):
+        import pathlib
+
+        import yaml
+
+        path = pathlib.Path(__file__).resolve().parent.parent / "config.yaml"
+        with open(path, encoding="utf-8") as f:
+            return yaml.safe_load(f)
+
+    @pytest.fixture
+    def configured(self, root_config):
+        set_router_config(root_config)
+        return root_config
+
+    def test_aistudio_prefix_infers_gemini(self, configured):
+        assert infer_provider("aistudio/gemini-3.5-flash") == "gemini"
+
+    def test_vertex_prefix_infers_vertex_ai(self, configured):
+        assert infer_provider("vertex/gemini-3.5-flash") == "vertex_ai"
+
+    def test_enhanced_prefixed_alias_infers_gemini(self, configured):
+        assert infer_provider("aistudio/gemini-coding") == "gemini"
+
+    def test_enhanced_bare_alias_infers_gemini(self, configured):
+        assert infer_provider("gemini-coding") == "gemini"
+
+    def test_vllm_prefix_infers_openai(self, configured):
+        assert infer_provider("vllm/qwen3.6-27b") == "openai"
+
+    def test_anthropic_prefix(self, configured):
+        assert infer_provider("anthropic/claude-opus") == "anthropic"
+
+    def test_mistral_prefix(self, configured):
+        assert infer_provider("mistral/mistral-large") == "mistral"
+
+    def test_perplexity_prefix(self, configured):
+        assert infer_provider("perplexity/sonar") == "perplexity"
+
+    def test_tavily_prefix(self, configured):
+        assert infer_provider("tavily/web-search") == "tavily"
+
+    def test_no_alias_reports_enhanced_or_prefix_literal(self, configured, root_config):
+        """No catalog alias may resolve to enhanced/aistudio/vertex literals."""
+        from airlock.capability import airlock_provider_for
+
+        for entry in root_config["model_list"]:
+            alias = entry["model_name"]
+            provider = infer_provider(alias)
+            assert provider not in {"enhanced", "aistudio", "vertex"}, (
+                f"{alias} -> {provider}"
+            )
+            # catalog map must match the shared classifier
+            assert provider == airlock_provider_for(entry), alias
+
+
 # ---------------------------------------------------------------------------
 # Cost tier
 # ---------------------------------------------------------------------------

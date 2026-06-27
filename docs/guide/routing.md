@@ -140,6 +140,72 @@ precedence over `config.yaml`):
 AIRLOCK_COST_TIERS='{"low":["claude-haiku"],"medium":["claude-sonnet"],"high":["claude-opus"]}'
 ```
 
+## Provider-explicit model names (0.5.2)
+
+Every catalog entry has a **`provider/model`** alias whose prefix names the
+provider that serves it. The prefix *is* the provider — there is one rule
+everywhere:
+
+| Prefix | Provider | Served-by token |
+|---|---|---|
+| `anthropic/` | Anthropic | `anthropic` |
+| `openai/` | OpenAI | `openai` |
+| `aistudio/` | Google AI Studio | `gemini` |
+| `vertex/` | Google Vertex AI | `vertex_ai` |
+| `mistral/` | Mistral | `mistral` |
+| `perplexity/` | Perplexity | `perplexity` |
+| `tavily/` | Tavily | `tavily` |
+| `vllm/` | Local vLLM (OpenAI-compatible) | `openai` |
+
+- `aistudio/` and `vertex/` are deliberately distinct from LiteLLM's native
+  `gemini/` / `vertex_ai/` tokens, so the alias is **exact-matched** and never
+  re-parsed as provider routing.
+- The **bare** name (e.g. `gemini-3.5-flash`) is a documented, ops-repointable
+  **default** (AI Studio for Gemini). The **prefixed** name is the stable client
+  contract — pin it when you need a guaranteed provider.
+- `smart` is a routing *directive*, not a provider model — it is never pinned and
+  takes no prefix.
+
+### Discover → pin → verify
+
+The whole point is that "which provider, and did it serve?" is answerable from
+**data**, not from guessing at an alias suffix.
+
+1. **Discover.** `GET /v1/models` (or `GET /model/info`) → read each model's
+   capability object: `airlock_provider`, `endpoints`, `region`, `underlying`,
+   `deprecated`. On `/v1/models` it is an additive `airlock` sub-object (the list
+   stays OpenAI-compatible); on `/model/info` the same fields are merged into
+   `model_info`.
+
+   ```bash
+   curl -s http://localhost:4000/v1/models \
+     -H "Authorization: Bearer $AIRLOCK_MASTER_KEY" \
+   | jq '.data[] | select(.id=="aistudio/gemini-3.5-flash") | .airlock'
+   # -> {"airlock_provider":"gemini","endpoints":["chat","batch"],
+   #     "underlying":"gemini/gemini-3.5-flash","region":null,"deprecated":false}
+   ```
+
+2. **Pin.** Send a concrete prefixed name as the model:
+
+   ```json
+   { "model": "aistudio/gemini-3.5-flash", "messages": [ … ] }
+   ```
+
+   A concrete prefixed name is **auto-pinned** — fallbacks and retries are off,
+   so an overloaded provider returns a `429` rather than a silent swap to a
+   different model.
+
+3. **Verify.** Read [`X-Airlock-Served-By`](provider-observability.md#verifying-the-served-provider)
+   on the response — `gemini` for AI Studio, `vertex_ai` for Vertex,
+   `anthropic`/`openai`/… for the rest. It **equals** the `airlock_provider` you
+   discovered in step 1. `X-Airlock-Served-Region` appears for gateway/region
+   backends.
+
+`endpoints` is computed from the real wiring by one helper
+(`airlock/capability.py`), so a model advertises `batch` **iff** it is actually
+batch-capable — see [Batch Processing](batch.md#which-aliases-batch) for the
+capability map and the region-gated Vertex caveat.
+
 ## Provider inference and budgets
 
 Routing maps each alias to a provider **catalog-first**: any alias in

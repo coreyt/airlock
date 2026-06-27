@@ -23,6 +23,7 @@ from typing import Literal
 import yaml
 from dotenv import load_dotenv
 
+from airlock.capability import capability_record
 from airlock.models_catalog import fetch_live_provider_models
 
 _ENV_REF_PREFIX = "os.environ/"
@@ -163,6 +164,12 @@ def _prepare_runtime_config(config_path: str) -> tuple[str, str | None]:
     changed = False
     mcp_mode = _mcp_startup_mode()
     general_settings = config.setdefault("general_settings", {})
+
+    for entry in config.get("model_list", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        entry.setdefault("model_info", {}).update(capability_record(entry))
+        changed = True
 
     master_key_ref = general_settings.get("master_key")
     if isinstance(master_key_ref, str) and master_key_ref.startswith(_ENV_REF_PREFIX):
