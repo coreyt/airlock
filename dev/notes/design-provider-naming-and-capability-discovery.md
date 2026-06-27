@@ -1,12 +1,20 @@
 # Design: Provider-Explicit Model Naming & Machine-Discoverable Capabilities
 
 **Date:** 2026-06-26
-**Status:** Design draft **v2** — revised to resolve codex design-review **BLOCK**
-(2026-06-27, three findings: model_alias collision, shared provider classifier,
-vertex-batch overclaim — see §9). Pending re-review. Plan:
-`dev/plans/0.5.2-plan.md`; board: `dev/plans/runs/STATUS-0.5.2.md`; orchestrator:
+**Status:** **As-built — shipped in 0.5.2.** (v2 design resolved the codex
+design-review BLOCK — model_alias collision, shared provider classifier,
+vertex-batch overclaim — see §9.) Plan: `dev/plans/0.5.2-plan.md`; board:
+`dev/plans/runs/STATUS-0.5.2.md`; orchestrator:
 `dev/plans/prompts/0.5.2-ORCHESTRATOR.md`. Branch `feat/0.5.2-naming` (cut from
 `main` @ `c3eaed7`).
+**Shipped:** `config.yaml` `provider/model` aliases (dual-listed) +
+`airlock/capability.py` (single-source `endpoints`/served-by helper),
+`airlock/models_seam.py` (additive `airlock` object on `GET /v1/models`),
+`model_info` capability on `GET /model/info` (`airlock/proxy.py`), and the
+catalog/naming regression lock (Pack 0.5.2-COMPAT-tests, merge `4610db0`). User
+docs: `docs/guide/{routing,batch,vertex-batch,provider-observability}.md` +
+`CHANGELOG.md` (0.5.2). Vertex remains **chat-only** at `vertex_location: global`
+(batch is region-gated and not advertised).
 **LiteLLM target:** the running pin (1.89.x); the `/v1/models` + `/model/info`
 response shapes and the router exact-match-before-provider-parse behavior in §4
 are verified against that version on a separate dir+port (never the live proxy).
