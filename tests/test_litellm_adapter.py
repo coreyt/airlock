@@ -42,7 +42,9 @@ def test_hidden_params_none_value() -> None:
 # served_provider
 # ---------------------------------------------------------------------------
 def test_served_provider_from_hidden_params() -> None:
-    assert acl.served_provider(_resp({"custom_llm_provider": "anthropic"})) == "anthropic"
+    assert (
+        acl.served_provider(_resp({"custom_llm_provider": "anthropic"})) == "anthropic"
+    )
 
 
 def test_served_provider_falls_back_to_wrapper_attribute() -> None:
@@ -92,7 +94,7 @@ def test_additional_headers_no_hidden_params_returns_none() -> None:
 
 def test_merge_additional_headers_writes_into_hidden_params() -> None:
     hp: dict = {}
-    r = _resp(hp)
+    r = SimpleNamespace(_hidden_params=hp)
     ok = acl.merge_additional_headers(r, {"X-Airlock-Served-By": "openai"})
     assert ok is True
     assert hp["additional_headers"] == {"X-Airlock-Served-By": "openai"}
@@ -100,7 +102,7 @@ def test_merge_additional_headers_writes_into_hidden_params() -> None:
 
 def test_merge_additional_headers_updates_existing() -> None:
     hp: dict = {"additional_headers": {"a": "1"}}
-    r = _resp(hp)
+    r = SimpleNamespace(_hidden_params=hp)
     acl.merge_additional_headers(r, {"b": "2"})
     assert hp["additional_headers"] == {"a": "1", "b": "2"}
 

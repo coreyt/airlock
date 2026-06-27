@@ -11,6 +11,7 @@ from airlock.admin.http import install_admin_on_proxy_app
 from airlock.batch.middleware import install_batch_gateway_on_proxy_app
 from airlock.docs import install_airlock_docs_on_proxy_app
 from airlock.health import install_circuit_health_on_proxy_app
+from airlock.litellm_adapter import merge_additional_headers
 from airlock.models_seam import install_models_capability_seam_on_proxy_app
 from airlock.proxy_errors import install_airlock_error_handlers_on_proxy_app
 from airlock.gemini_interface import (
@@ -88,10 +89,7 @@ class AirlockModelOverrideHeaders(CustomLogger):
         if not response_headers:
             return None
 
-        hidden_params = getattr(response, "_hidden_params", None)
-        if isinstance(hidden_params, dict):
-            additional_headers = hidden_params.setdefault("additional_headers", {})
-            additional_headers.update(response_headers)
+        merge_additional_headers(response, response_headers)
 
         return dict(response_headers)
 

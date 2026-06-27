@@ -17,13 +17,13 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from airlock.capability import capability_record
+from airlock.litellm_adapter import install_asgi_middleware, resolve_proxy_app
 
 try:  # FastAPI is always present at runtime; tolerate its absence defensively.
     from fastapi import FastAPI
@@ -197,8 +197,7 @@ def _fix_headers(headers: list, length: int) -> list:
 # Install (mirror batch/middleware.py:546-583 — dual pre/post-start + flag)
 # ---------------------------------------------------------------------------
 def _get_proxy_app() -> Any:
-    proxy_server = sys.modules.get("litellm.proxy.proxy_server")
-    return getattr(proxy_server, "app", None)
+    return resolve_proxy_app()
 
 
 def install_models_capability_seam_on_proxy_app() -> bool:
@@ -217,13 +216,8 @@ def install_models_capability_seam_on_proxy_app() -> bool:
         return True
 
     capability_map = _build_capability_map()
-    if app.middleware_stack is None:
-        # Pre-start: the normal path; the stack is built on startup.
-        app.add_middleware(ModelsCapabilityMiddleware, capability_map=capability_map)
-    else:
-        # Post-start: add_middleware would raise — wrap the built stack instead.
-        app.middleware_stack = ModelsCapabilityMiddleware(
-            app.middleware_stack, capability_map
-        )
+    install_asgi_middleware(
+        app, ModelsCapabilityMiddleware, capability_map=capability_map
+    )
     app.state.airlock_models_seam_installed = True
     return True

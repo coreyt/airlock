@@ -16,10 +16,11 @@ import json
 import logging
 import os
 import re
-import sys
 import uuid
 from typing import Any
 from urllib.parse import parse_qs
+
+from airlock.litellm_adapter import install_asgi_middleware, resolve_proxy_app
 
 logger = logging.getLogger("airlock.batch")
 
@@ -566,18 +567,12 @@ def install_batch_gateway_on_proxy_app() -> bool:
     except ImportError:
         return False
 
-    proxy_server = sys.modules.get("litellm.proxy.proxy_server")
-    app = getattr(proxy_server, "app", None)
+    app = resolve_proxy_app()
     if not isinstance(app, FastAPI):
         return False
     if getattr(app.state, "airlock_batch_gateway_installed", False):
         return True
-    if app.middleware_stack is None:
-        # Pre-start: the normal path; the stack is built on startup.
-        app.add_middleware(BatchGatewayMiddleware)
-    else:
-        # Post-start: add_middleware would raise — wrap the built stack instead.
-        app.middleware_stack = BatchGatewayMiddleware(app.middleware_stack)
+    install_asgi_middleware(app, BatchGatewayMiddleware)
     app.state.airlock_batch_gateway_installed = True
     _schedule_vllm_reconcile()
     return True

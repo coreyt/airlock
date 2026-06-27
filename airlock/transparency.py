@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
+from airlock.litellm_adapter import hidden_params, response_cost, served_provider
+
 logger = logging.getLogger("airlock.transparency")
 
 MutationOp = Literal["set", "drop", "clamp", "rewrite", "inject", "redact", "suppress"]
@@ -178,22 +180,21 @@ def _normalize_served_provider(
 def attribute_served_backend(
     response: Any, *, cost_fallback: float | None = None
 ) -> ServedBackend | None:
-    """Read the served-backend identity from ``response._hidden_params``.
+    """Read the served-backend identity from the response (via ``litellm_adapter``).
 
     Tolerant of partial reads (CC-T3 / §4.1): provider falls back to the wrapper
     instance attribute on streams; response_cost is None at header-flush time and
     final in the log hook. Returns None only when ``response`` itself is falsy.
+    All LiteLLM-internal reads route through ``airlock.litellm_adapter``.
     """
     if not response:
         return None
 
-    hp = getattr(response, "_hidden_params", {}) or {}
+    hp = hidden_params(response) or {}
 
     # Provider (CC-T3, streaming-correct): on streams the provider is a wrapper
     # attribute, not yet in _hidden_params.
-    provider = hp.get("custom_llm_provider") or getattr(
-        response, "custom_llm_provider", None
-    )
+    provider = served_provider(response)
 
     api_base = hp.get("api_base")
     api_base_host = urlsplit(api_base).hostname if api_base else None
@@ -209,9 +210,7 @@ def attribute_served_backend(
         or hp.get("received_model_id")
     )
 
-    response_cost = hp.get("response_cost")
-    if response_cost is None:
-        response_cost = cost_fallback
+    cost = response_cost(response, fallback=cost_fallback)
 
     backend_kind = classify_backend_kind(provider)
 
@@ -220,7 +219,7 @@ def attribute_served_backend(
         api_base_host=api_base_host,
         region=region,
         model_id=model_id,
-        response_cost=response_cost,
+        response_cost=cost,
         backend_kind=backend_kind,
     )
 
