@@ -28,7 +28,9 @@ def test_bootstrap_runs_installs_in_order(monkeypatch):
         return _install
 
     monkeypatch.setattr(pb, "install_airlock_docs_on_proxy_app", _mk("docs"))
-    monkeypatch.setattr(pb, "install_circuit_health_on_proxy_app", _mk("circuit_health"))
+    monkeypatch.setattr(
+        pb, "install_circuit_health_on_proxy_app", _mk("circuit_health")
+    )
     monkeypatch.setattr(
         pb, "install_airlock_error_handlers_on_proxy_app", _mk("error_handlers")
     )

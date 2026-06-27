@@ -24,8 +24,8 @@ from airlock.callbacks.metrics import record_provider_ratelimit_headroom
 from airlock.client_identity import extract_airlock_client_from_kwargs
 from airlock.fast.ratelimit_headers import parse_ratelimit_headers
 from airlock.gemini_interface import classify_gemini_response
-from airlock.guardrails.extract import is_batch_call
 from airlock.litellm_adapter import additional_headers, hidden_params
+from airlock.text_extract import is_batch_call
 from airlock.transparency import attribute_served_backend, get_transparency_config
 from litellm.exceptions import APIError, RateLimitError
 from litellm.integrations.custom_logger import CustomLogger

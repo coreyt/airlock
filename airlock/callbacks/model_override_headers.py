@@ -7,13 +7,8 @@ from typing import Any
 
 from litellm.integrations.custom_logger import CustomLogger
 
-from airlock.admin.http import install_admin_on_proxy_app
-from airlock.batch.middleware import install_batch_gateway_on_proxy_app
-from airlock.docs import install_airlock_docs_on_proxy_app
-from airlock.health import install_circuit_health_on_proxy_app
 from airlock.litellm_adapter import merge_additional_headers
-from airlock.models_seam import install_models_capability_seam_on_proxy_app
-from airlock.proxy_errors import install_airlock_error_handlers_on_proxy_app
+from airlock.proxy_bootstrap import bootstrap_airlock_proxy
 from airlock.gemini_interface import (
     build_gemini_response_headers,
     classify_gemini_response,
@@ -140,12 +135,7 @@ def _coerce_optin(value: object) -> bool:
 
 proxy_model_override_headers = AirlockModelOverrideHeaders()
 
-# Airlock runs on top of LiteLLM's FastAPI app, so enrich the existing docs in place.
-install_airlock_docs_on_proxy_app()
-install_circuit_health_on_proxy_app()
-install_airlock_error_handlers_on_proxy_app()
-# Admin perimeter mounts BEFORE the batch gateway so the gateway stays the
-# outermost ASGI layer (umbrella §3 mount order).
-install_admin_on_proxy_app()
-install_batch_gateway_on_proxy_app()
-install_models_capability_seam_on_proxy_app()
+# Airlock runs on top of LiteLLM's FastAPI app. LiteLLM loads this callback module
+# (config.yaml), so trigger the proxy seam installs once here at import time. The
+# install order is owned by airlock.proxy_bootstrap.
+bootstrap_airlock_proxy()

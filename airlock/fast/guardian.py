@@ -41,7 +41,7 @@ from airlock.client_identity import (
     extract_airlock_client_from_request,
 )
 from airlock.gemini_interface import apply_gemini_request_semantics
-from airlock.guardrails.extract import extract_text, is_batch_call, is_mcp_call
+from airlock.text_extract import extract_text, is_batch_call, is_mcp_call
 
 from .circuit_breaker import check_model_with_filters
 from .model_alias import alias_table
@@ -242,7 +242,7 @@ class AirlockFastGuardian(CustomGuardrail):
         # Resolve per-request guardrail skips (CC-10/CC-11) and stamp the decision
         # so content guards can honour it. Off by default; binds to the
         # authenticated key id, not the forgeable client header.
-        from airlock.guardrails.overrides import resolve_guardrail_decision
+        from airlock.guardrail_overrides import resolve_guardrail_decision
 
         resolve_guardrail_decision(data, user_api_key_dict)
         client = store.get_client(client_id)
