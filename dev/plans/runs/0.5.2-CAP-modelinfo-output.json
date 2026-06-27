@@ -1,0 +1,40 @@
+{
+  "pack": "0.5.2-CAP-modelinfo",
+  "baseline_sha": "b264b16",
+  "branch": "feat/0.5.2-CAP-modelinfo",
+  "head_sha": "24f6e7334c0405fe4ea19702fdc80311c79e0869",
+  "commits": [
+    "6b70555: docs(0.5.2): design memo for computed model_info capability injection",
+    "548abe0: test(0.5.2): RED — endpoints_for/capability_record + model_info injection",
+    "24f6e73: feat(0.5.2): compute and inject per-model capability into model_info"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "548abe0122dcb7f77aa1703f1c1ea12b76333e5d",
+    "test_files": ["tests/test_capability.py", "tests/test_proxy.py"]
+  },
+  "tests": {
+    "targeted": ["tests/test_capability.py", "tests/test_proxy.py"],
+    "passed": 115,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/capability.py",
+    "airlock/proxy.py",
+    "tests/test_capability.py",
+    "tests/test_proxy.py",
+    "dev/notes/0.5.2-CAP-modelinfo-design.md"
+  ],
+  "blockers_encountered": [
+    {
+      "id": "DETECT-1",
+      "description": "Two pre-existing proxy tests (test_prepare_runtime_config_returns_original_when_no_overrides, test_prepare_runtime_config_keeps_mcp_servers_in_lazy_mode) assumed _VALID_CONFIG (which has a model_list) yields no temp config when no env overrides fire. The brief's unconditional model_info injection now always sets changed=True, which is the documented expected behavior.",
+      "resolution": "Adapted both in-scope tests in tests/test_proxy.py: the no-override test now uses a model_list-free config to exercise the genuine no-change path; the lazy-mode test now asserts a temp config is written and mcp_servers are preserved within it."
+    }
+  ],
+  "additional_changes_made_in_scope": [
+    "Adapted two existing runtime-config tests in tests/test_proxy.py to the now-unconditional model_info injection (anchor drift in expected behavior; both tests are in my MODIFY list)."
+  ],
+  "agent_verify_result": "pass — uv run --extra test python -m pytest tests/test_capability.py tests/test_proxy.py: 115 passed. Full suite: 2272 passed, 1 pre-existing unrelated failure (tests/test_fathom_init.py::test_init_engine_with_fathomdb — fathomdb not installed; outside this pack's scope).",
+  "next_step_for_orchestrator": "Pack 0.5.2-CAP-modelinfo on branch feat/0.5.2-CAP-modelinfo at 24f6e7334c0405fe4ea19702fdc80311c79e0869; review, verify, merge"
+}
