@@ -1,0 +1,62 @@
+{
+  "pack": "0.5.3-RACE",
+  "baseline_sha": "6aeea94",
+  "branch": "feat/0.5.3-RACE",
+  "head_sha": "b458c7d12a3d5cb5a8af3cb2f70712779b93a63a",
+  "commits": [
+    "643fb72: docs(0.5.3-RACE): design memo — atomic threat_score RMW + identity consolidation",
+    "404b9e7: test(0.5.3-RACE): RED — no-lost-update, golden identity, characterization tests",
+    "b458c7d: fix(0.5.3-RACE): atomic threat_score RMW under lock; consolidate client identity"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "404b9e7e28429e718ad09bff674c577fdc543fcf",
+    "test_files": [
+      "tests/test_threat_score_race.py",
+      "tests/test_state_stress.py",
+      "tests/test_client_identity.py",
+      "tests/test_fast_threat_detector.py"
+    ]
+  },
+  "design": {
+    "mutator_signature": "StateStore.record_threat_score(client: ClientState, score: float, now: float, *, decay_base: float, threshold: float, base_backoff_s: float, max_backoff_s: float) -> tuple[combined: float, blocked: bool, backoff_seconds: float]",
+    "what_it_locks": "Holds StateStore._lock for the entire read-modify-write: snapshots client.request_times (computes elapsed/decay), reads client.threat_score, applies combined = max(score, prev * decay_base**elapsed), writes client.threat_score and (when blocked) client.backoff_until, returns the assessment tuple. Constants are passed in by assess_threat so state.py needs no threat_detector import (no cycle). assess_threat keeps the four heuristics and the logger.warning OUTSIDE the lock.",
+    "identity_consolidation_map": {
+      "canonical_impl": "airlock/client_identity.py (NO_CLIENT_ID, normalize_client_id, client_id_from_api_key, extract_airlock_client_from_request)",
+      "airlock/fast/state.py": "re-exports NO_CLIENT_ID + normalize_client_id from client_identity (removed its own copies); all state.normalize_client_id callers now hit the canonical impl",
+      "airlock/fast/guardian.py": "_extract_client_id -> client_id_from_api_key; _request_client_id -> extract_airlock_client_from_request (kept by name as thin delegators because test_fast_guardian imports them)",
+      "airlock/callbacks/enterprise_logger.py": "READ-ONLY, unchanged; already routes through client_identity.extract_airlock_client_from_kwargs + state.normalize_client_id (now canonical) — golden test proves parity"
+    },
+    "golden_input_set": "normalize_client_id(None/''/'   '/'app'/'  app  '); client_id_from_api_key(None, _FakeKey('sk-1234567890abcdef')->key:90abcdef, dict variant, short-key->no_client, {}, {'api_key':'short'}); extract_airlock_client_from_request across metadata.airlock_client (incl. whitespace->no_client without api-key fallthrough), data headers (x-airlock-client / X-Airlock-Client), metadata headers (airlock-client), api-key fallback, None->no_client, metadata-wins-over-key; plus guardian-delegator parity and enterprise_logger parity assertions.",
+    "config_consolidation": "DEFERRED — lowest priority per prompt §4; would balloon across DO NOT TOUCH files. Race fix + identity consolidation only."
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_threat_score_race.py",
+      "tests/test_fast_threat_detector.py::TestAssessThreat::test_single_threaded_characterization_unchanged",
+      "tests/test_client_identity.py (TestNormalizeClientId, TestClientIdFromApiKey, TestExtractAirlockClientFromRequest)",
+      "tests/test_state_stress.py::test_record_threat_score_concurrent_no_lost_update (stress)"
+    ],
+    "passed": 2374,
+    "failed": 1,
+    "failing_ids": ["tests/test_fathom_init.py::test_init_engine_with_fathomdb"],
+    "note": "The single failure is the known pre-existing fathom env/db failure documented at baseline (suite green except 1 fathom env failure); unrelated to this pack. Stress suite (pytest -m stress): 5 passed."
+  },
+  "files_changed": [
+    "airlock/client_identity.py",
+    "airlock/fast/state.py",
+    "airlock/fast/threat_detector.py",
+    "airlock/fast/guardian.py",
+    "tests/test_threat_score_race.py",
+    "tests/test_state_stress.py",
+    "tests/test_client_identity.py",
+    "tests/test_fast_threat_detector.py",
+    "dev/notes/0.5.3-RACE-design.md"
+  ],
+  "blockers_encountered": [],
+  "additional_changes_made_in_scope": [
+    "Kept guardian._extract_client_id / _request_client_id as thin delegators (not removed) because tests/test_fast_guardian.py imports them by name; monitor.py + guardrails/* copies are DO NOT TOUCH and were left untouched.",
+    "Removed now-unused normalize_client_id import from guardian.py (replaced by canonical request extractor)."
+  ],
+  "agent_verify_result": "pass (full suite: 1 failed [known fathom env], 2374 passed, 107 skipped, 1 xpassed; stress: 5 passed; ruff check + format clean on all changed files)",
+  "next_step_for_orchestrator": "Pack 0.5.3-RACE on branch feat/0.5.3-RACE at b458c7d; review, verify, merge. Config-loading consolidation deferred (out of scope)."
+}
