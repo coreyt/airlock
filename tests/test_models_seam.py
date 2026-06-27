@@ -134,9 +134,10 @@ async def test_v1_models_augmented_with_airlock_object():
     out = resp.json()
     by_id = {item["id"]: item for item in out["data"]}
 
-    assert by_id["aistudio/gemini-3.5-flash"]["airlock"] == _CAP_MAP[
-        "aistudio/gemini-3.5-flash"
-    ]
+    assert (
+        by_id["aistudio/gemini-3.5-flash"]["airlock"]
+        == _CAP_MAP["aistudio/gemini-3.5-flash"]
+    )
     assert by_id["claude-haiku"]["airlock"] == _CAP_MAP["claude-haiku"]
 
 
@@ -336,8 +337,6 @@ def test_install_idempotent(monkeypatch):
 
 
 def test_install_returns_false_without_app(monkeypatch):
-    import airlock.models_seam as seam
-
     monkeypatch.setattr(
         "airlock.models_seam._get_proxy_app", lambda: None, raising=False
     )
