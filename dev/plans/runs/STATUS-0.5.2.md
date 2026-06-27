@@ -6,7 +6,9 @@
 > witnesses (worktree list, `output.json`, `*-review-*.md`, merge commits) and
 > trust the witnesses over this file on any conflict.
 
-_Last updated: 2026-06-24 (kickoff) · base branch: `feat/0.5.0-resilience-admin`_
+_Last updated: 2026-06-26 (kickoff settled) · base branch: `feat/0.5.2-naming`
+(cut from `main` @ `c3eaed7` — the 0.5.x train + v0.5.1 are merged into main, so
+the old `feat/0.5.0-resilience-admin` base is moot)._
 
 Release: **provider-explicit model naming (whole catalog) + machine-discoverable
 capabilities.** Plan: `dev/plans/0.5.2-plan.md`. Orchestrator:
@@ -14,12 +16,13 @@ capabilities.** Plan: `dev/plans/0.5.2-plan.md`. Orchestrator:
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** none — release not yet started.
+- **In flight:** none — Phase D (design) about to begin. Kickoff HITL settled
+  2026-06-26 (see §6/§7); branch `feat/0.5.2-naming` cut from `main` @ `c3eaed7`.
 - **Next action:** **Phase D.** Author `dev/notes/design-provider-naming-and-
-  capability-discovery.md` resolving the plan's open questions (bare-alias
-  defaults, deprecation window, N6 consolidation per family, `/v1/models` seam,
-  capability schema), then run the codex design review and require **PASS** before
-  any Phase-E pack. First, confirm the working branch with the human (HITL-kickoff).
+  capability-discovery.md` with the now-resolved decisions baked in (bare Gemini =
+  AI Studio; legacy aliases removed in 0.6.0; N6 = consolidate; `/v1/models` seam +
+  capability schema still to finalize in the note), then run the codex design
+  review and require **PASS** before any Phase-E pack.
 
 ## 2. Pack scoreboard
 
@@ -65,15 +68,27 @@ runbook; here ≤1 is typically in flight given the shared `config.yaml`.
 
 ## 6. Open HITL questions
 
-| # | Question | Options + recommendation | Blocking? |
-|---|----------|--------------------------|-----------|
-| 1 | Working branch for 0.5.2? | `feat/0.5.0-resilience-admin` (stack on the train) **(rec)** · fresh `feat/0.5.2-naming` | yes (kickoff) |
-| 2 | Bare-alias default provider for Gemini | keep `gemini-3.5-flash`→AI Studio (incumbent) **(rec)** · repoint to Vertex | design |
-| 3 | Deprecation window for legacy aliases | one minor release **(rec)** · two · until 1.0 | design |
-| 4 | N6: consolidate `-batch` twins into one `provider/model` entry? | consolidate **(rec)** · keep split with marker | design (per family) |
+_All kickoff questions resolved 2026-06-26 (see §7). Remaining HITL gates are the
+post-NAME-aliases smoke and release sign-off (orchestrator HITL gates)._
+
+| # | Question | Resolution (2026-06-26) | Status |
+|---|----------|-------------------------|--------|
+| 1 | Working branch for 0.5.2? | fresh `feat/0.5.2-naming` from `main` @ `c3eaed7` | ✅ settled |
+| 2 | Bare-alias default provider for Gemini | keep `gemini-3.5-flash` → AI Studio (incumbent) | ✅ settled |
+| 3 | Deprecation window for legacy aliases | one minor release — **removed in 0.6.0** | ✅ settled |
+| 4 | N6: consolidate `-batch` twins? | **consolidate** to one `provider/model` entry (all families) | ✅ settled |
+| K2 | Who runs the live smoke? | agent, via production-safe isolated harness (separate dir+port, copied config) | ✅ default adopted |
+| K3 | Version/CHANGELOG/tag/push policy | bump + cut CHANGELOG + annotated tag **LOCAL**; push/publish = separate approval | ✅ default adopted |
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-26 — **Kickoff HITL settled (user):** (1) branch = fresh
+  `feat/0.5.2-naming` from `main` @ `c3eaed7`; (2) bare `gemini-3.5-flash` stays →
+  AI Studio (ops-repointable, prefixed names are the stable contract); (3)
+  deprecation window = **one minor release** — legacy bare/`-aistudio`/`-vertex`/
+  `-batch` aliases **removed in 0.6.0**; (4) **N6 = consolidate** the `-batch`/
+  `-aistudio` twins into one `provider/model` entry that serves sync + advertises
+  `endpoints:[chat,batch]` (all families). K2/K3 orchestrator defaults adopted.
 - 2026-06-24 — **Roll the prefix scheme to ALL providers** (user), not Gemini-only;
   legacy names deprecated, not removed, in 0.5.2. (Appendix A enumerates the map.)
 - 2026-06-24 — Scope set: design (reviewed) → orchestrated TDD packs → docs
