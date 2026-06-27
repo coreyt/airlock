@@ -16,19 +16,24 @@ capabilities.** Plan: `dev/plans/0.5.2-plan.md`. Orchestrator:
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** none — Phase D (design) about to begin. Kickoff HITL settled
-  2026-06-26 (see §6/§7); branch `feat/0.5.2-naming` cut from `main` @ `c3eaed7`.
-- **Next action:** **Phase D.** Author `dev/notes/design-provider-naming-and-
-  capability-discovery.md` with the now-resolved decisions baked in (bare Gemini =
-  AI Studio; legacy aliases removed in 0.6.0; N6 = consolidate; `/v1/models` seam +
-  capability schema still to finalize in the note), then run the codex design
-  review and require **PASS** before any Phase-E pack.
+- **In flight:** none — **Phase D DONE (design PASS).** Design note v3 codex-reviewed
+  **PASS** (`0.5.2-NAMING-design-review-20260627T040523Z.md`); v1 BLOCK → v2 BLOCK →
+  v3 PASS, all 3 findings resolved. Phase E may begin.
+- **Next action:** **Phase E pack 1 — NAME-aliases.** Author
+  `dev/plans/prompts/0.5.2-NAME-aliases.md` from SLICE-TEMPLATE with the resolved
+  design decisions: (1) §4.1 collision-safe `model_alias` (two-pass loader +
+  provider-aware `(provider,bare)→alias` strip; contradictory multi-provider prefix
+  → `None`, no fuzzy/cache); (2) §4.2 shared `airlock_provider_for()` in new
+  `airlock/capability.py`, used by `set_router_config`; (3) Appendix-A prefixed
+  aliases dual-listed, legacy `deprecated:true`; (4) N6 consolidation. RED tests
+  first; prove the router collision on a separate dir+port. Then the post-merge HITL
+  smoke gate.
 
 ## 2. Pack scoreboard
 
 | Pack | Goal (1 line) | Depends on | State | Witness |
 |------|---------------|------------|-------|---------|
-| `DESIGN` | Design note covering N1–N6 + codex design-review PASS | — | NOT_STARTED | `dev/notes/design-provider-naming-and-capability-discovery.md` + `dev/plans/runs/0.5.2-NAMING-design-review-<ts>.md` |
+| `DESIGN` | Design note covering N1–N6 + codex design-review PASS | — | **CLOSED ✅ (PASS v3)** | `dev/notes/design-provider-naming-and-capability-discovery.md` + `dev/plans/runs/0.5.2-NAMING-design-review-20260627T040523Z.md` |
 | `NAME-aliases` | `provider/model` aliases for whole catalog (Appendix A); legacy dual-listed/deprecated; migrate fallbacks+cost_tiers+smart targets; slash-alias resolves, pins, attributes | DESIGN | NOT_STARTED | `dev/plans/runs/0.5.2-NAME-aliases-output.json` |
 | `CAP-modelinfo` | `model_info` capability blocks; `endpoints` derived from real wiring; exposed on `/model/info` | NAME-aliases | NOT_STARTED | `dev/plans/runs/0.5.2-CAP-modelinfo-output.json` |
 | `CAP-v1models` | Additive `airlock:{provider,endpoints,underlying}` on `GET /v1/models` | CAP-modelinfo | NOT_STARTED | `dev/plans/runs/0.5.2-CAP-v1models-output.json` |
@@ -82,6 +87,18 @@ post-NAME-aliases smoke and release sign-off (orchestrator HITL gates)._
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-27 — **Design PASS (codex, v3).** Three design refinements forced by the
+  review, now baked into the note + the pack scopes: (1) **collision-safe
+  `model_alias`** — the existing loader's `_exact[bare]` is last-write-wins and
+  `resolve()`'s prefix-strip is lossy; adding `aistudio/`+`vertex/` (or a native
+  `vertex_ai/…` input) could silently repoint the bare AI-Studio default →
+  two-pass immutable-explicit-keys loader + provider-aware `(provider,bare)→alias`
+  strip (NAME-aliases). (2) **shared `airlock_provider_for()`** in new
+  `airlock/capability.py` (fixes `enhanced/`→`gemini` at the source; used by
+  `set_router_config`). (3) **vertex batch is region-gated** — `endpoints_for()`
+  advertises `batch` only for an `airlock_batch` marker OR a **regional**
+  `vertex_ai/` model; current `vertex_location: global` ⇒ `vertex/…` advertises
+  `[chat]` (supersedes the plan's optimistic Appendix-A `chat,batch` for vertex).
 - 2026-06-26 — **Kickoff HITL settled (user):** (1) branch = fresh
   `feat/0.5.2-naming` from `main` @ `c3eaed7`; (2) bare `gemini-3.5-flash` stays →
   AI Studio (ops-repointable, prefixed names are the stable contract); (3)
