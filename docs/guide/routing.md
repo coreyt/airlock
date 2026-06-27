@@ -99,10 +99,12 @@ Directives are applied in this order:
 3. **Provider preference** (`prefer_provider`) — a soft tiebreaker: if a
    candidate from the preferred provider exists in the (tier-filtered)
    pool, prefer it. Never forces a switch when no candidate qualifies.
-4. **Budget awareness** — if the resolved provider is at ≥90% of its
-   configured daily budget, proactively swap to an alternative provider
-   that still has headroom. If every provider is near budget, the
-   request stays put (and logs a warning).
+4. **Budget awareness** — if the resolved provider is at or above
+   `budget_warn_ratio` (default `0.8`, i.e. 80%) of its configured daily
+   budget, proactively swap to an alternative provider that still has
+   headroom. If every provider is near budget, the request stays put (and
+   logs a warning). This is the same threshold the monitor warns at —
+   unified in 0.5.1 (previously the swap point was a hardcoded 90%).
 
 Every applied step is appended to `metadata.airlock_routing.reasons`
 (e.g. `cost_tier(low→claude-haiku)`, `session_pin(claude-sonnet)`,
@@ -148,9 +150,14 @@ and metrics with no code change. A static family-prefix heuristic
 `gemma→vllm`, `sonar→perplexity`, `tavily→tavily`) is the fallback for
 aliases not present in the cached config.
 
-Per-provider daily budgets drive the budget-awareness step. Defaults are
-`anthropic` $50, `openai` $50, `gemini` $25, `mistral` $25,
-`perplexity` $25. Override with `AIRLOCK_PROVIDER_BUDGETS` (JSON):
+Per-provider daily budgets drive the budget-awareness step. As of 0.5.1
+budgets are **purely config-driven** from
+`router_settings.provider_budget_config` — there are **no hidden defaults**
+(the old hardcoded `anthropic`/`openai` ≈ $50, `gemini`/`mistral`/`perplexity`
+≈ $25 were removed). With no `provider_budget_config`, there is no proactive
+swap and no budget warn; a `0` (or absent) budget means no enforcement. Set
+caps in config, or override with `AIRLOCK_PROVIDER_BUDGETS` (JSON, takes
+precedence):
 
 ```bash
 AIRLOCK_PROVIDER_BUDGETS='{"anthropic":100,"openai":75,"gemini":40}'
@@ -199,8 +206,9 @@ approach visible:
   [Provider Quota Observability](provider-observability.md).
 
 This per-provider daily cap (a hard stop) is distinct from the budget-awareness
-*routing swap* above, which proactively moves traffic at ≥90% of the
-`AIRLOCK_PROVIDER_BUDGETS` daily budget while headroom remains elsewhere.
+*routing swap* above, which proactively moves traffic at `budget_warn_ratio`
+(default `0.8` / 80%, unified with the monitor warn) of a provider's configured
+budget while headroom remains elsewhere.
 
 ## Configuration reference
 

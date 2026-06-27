@@ -90,7 +90,8 @@ scheme (`http://` → `https://`).
 | `AIRLOCK_HOST` | No | `127.0.0.1` | Bind address. Set to `0.0.0.0` for Docker/Kubernetes or to expose externally. |
 | `AIRLOCK_PORT` | No | `4000` | Listen port |
 | `AIRLOCK_LOG_DIR` | No | `./logs` | JSONL log directory |
-| `AIRLOCK_STATE_DIR` | No | `./logs` | State directory for circuit-breaker state and optional FathomDB files |
+| `AIRLOCK_STATE_DIR` | No | `./logs` | State directory for the circuit-breaker checkpoint (`cb_state.json`), the provider-spend checkpoint (`spend_state.json`), and optional FathomDB files |
+| `AIRLOCK_SPEND_CHECKPOINT_INTERVAL` | No | `60` | Seconds between provider-spend checkpoints to disk (the litellm child also checkpoints on shutdown) |
 | `AIRLOCK_MAX_LOG_DAYS` | No | `30` | Days to retain log files |
 | `AIRLOCK_MAX_LOG_SIZE_MB` | No | `500` | Max size per log file before rotation |
 | `AIRLOCK_STARTUP_MODEL_DISCOVERY` | No | `0` | Opt-in provider/model discovery at startup |
@@ -100,6 +101,19 @@ scheme (`http://` → `https://`).
 | `AIRLOCK_BLOCKED_KEYWORDS` | No | — | Comma-separated restricted phrases |
 | `AIRLOCK_PII_ENTITIES` | No | `CREDIT_CARD,US_SSN,EMAIL_ADDRESS,PHONE_NUMBER` | Presidio entity types to redact |
 | `AIRLOCK_OTEL_SERVICE_NAME` | No | `airlock` | OpenTelemetry service name |
+
+### Provider-spend durability across restart
+
+As of 0.5.1, provider spend (used for budget warns and proactive cost-swaps) is a
+rolling, time-windowed accumulator that is **checkpointed to disk and restored on
+startup**, so a restart no longer zeroes accumulated spend. The checkpoint
+(`spend_state.json` in `AIRLOCK_STATE_DIR`) is written by the litellm **child** process
+every `AIRLOCK_SPEND_CHECKPOINT_INTERVAL` (default 60s) and on shutdown, and rehydrated
+when the child restarts; `cb_state.json` circuit-breaker recovery rides the same path.
+For durability, point `AIRLOCK_STATE_DIR` at a persistent volume (not an ephemeral
+container layer). The accumulator is integer-micro-dollar and volume-independent, so it
+no longer undercounts high-traffic (>1000 call/day) providers. *(In-memory / single
+process — multi-worker durability via a shared backend is a future release.)*
 
 ### Startup Validation
 

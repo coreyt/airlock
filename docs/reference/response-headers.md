@@ -68,8 +68,8 @@ default `compact`). See
 
 | Header | Meaning | Emitted when |
 |---|---|---|
-| `X-Airlock-Model-Override` | final model alias when Airlock routed or failed over (unpinned requests only) | a routing/failover swap occurred |
-| `X-Airlock-Budget-State` | `near_limit` | a provider is at ≥80% of its daily cap (`AIRLOCK_BUDGET_WARN_RATIO`) |
+| `X-Airlock-Model-Override` | final model alias when Airlock routed or failed over (unpinned requests only) | a routing/failover swap occurred — incl. a proactive budget swap at `budget_warn_ratio` |
+| `X-Airlock-Budget-State` | `near_limit` | a provider is at ≥ `budget_warn_ratio` (default `0.8`, env `AIRLOCK_BUDGET_WARN_RATIO` / `airlock_settings.budget_warn_ratio`) of its daily cap |
 | `X-Airlock-Provider-State` | `quarantined` (breaker) or a Gemini output-shape marker | breaker block, or Gemini shape signalling |
 | `X-Airlock-Block-Scope` | scope of a breaker block — `provider` or `client_provider` | a circuit-breaker 429 |
 | `Retry-After` | client backoff seconds | a 429 (breaker cooldown or upstream provider reset) |

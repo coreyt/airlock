@@ -510,6 +510,37 @@ requirements UN-19/UN-20.
 
 ---
 
+### 3.8 Fast subsystem — typed settings + durable spend store (`airlock/fast/`)
+
+The `fast/` subsystem (router, monitor, circuit breaker, state) carries Airlock's
+pre/post-call routing, budget-awareness, and breaker logic. Two 0.5.1 structural pieces:
+
+- **Typed settings loader (`airlock/fast/settings.py`).** A single frozen
+  `AirlockSettings` (built by `load_airlock_settings`, exposed via `configure_settings`/
+  `get_settings`) is the *one* in-place reader for every `fast/` knob — provider budgets
+  (from `router_settings.provider_budget_config`), failover map (from
+  `router_settings.fallbacks`), `cost_tiers`, `session_ttl`, `smart_thresholds`,
+  `budget_warn_ratio` — each with uniform `env > config > default` precedence and
+  malformed-input fallback (modeled on `transparency.py`). It replaced per-consumer
+  hardcoded defaults and the dual (0.8/0.9) warn-ratio split (UN-25; register R1–R6).
+  Keys are read *in place* — `provider_budget_config` stays under `router_settings`
+  (LiteLLM owns it).
+- **Durable spend store (`airlock/fast/state.py`).** Per-provider spend is a rolling,
+  time-windowed **integer-µ\$** accumulator behind an Airlock-owned `DualCache`-backed
+  seam (in-memory, single process), replacing a `deque(maxlen=1000)` that undercounted
+  >1000-call/day providers (UN-26; R5). It is checkpointed to `spend_state.json`
+  (versioned, atomic, prune-before-write, idempotent age-bounded restore) and restored on
+  startup. **Process location matters:** checkpoint/restore run in the litellm **child**
+  process (where the monitor callback records spend), gated on `AIRLOCK_LITELLM_CHILD=1`
+  — the launcher no longer writes the store (FIX-1). `cb_state.json` breaker recovery
+  rides the same path; spend restore is bounded by record age, not the breaker's 5-min gate.
+
+**Design documents:** `dev/notes/0.5.1-SET-loader-design.md`, `0.5.1-SET-unify-design.md`,
+`0.5.1-SET-warnratio-design.md`, `0.5.1-STORE-seam-design.md`;
+`dev/plans/0.5.1-plan.md` (register R1–R6, STORE-seam guardrails); requirements UN-25/UN-26.
+
+---
+
 ## 4. Configuration Architecture
 
 Airlock uses a layered configuration approach:

@@ -46,10 +46,17 @@ companion gauges, so you can watch spend against the configured per-provider cap
 | `airlock_provider_budget_used_usd` | `provider` | USD spent against the provider's daily cap in the current window. |
 | `airlock_provider_budget_limit_usd` | `provider` | The configured daily cap for the provider. |
 
+These gauges and the near-limit warning are **opt-in**: they exist only for providers
+with an explicit `router_settings.provider_budget_config` cap (or an
+`AIRLOCK_PROVIDER_BUDGETS` override). As of 0.5.1 there are no hidden default budgets, so
+with no budget configured there are no budget gauges, no warn, and no proactive swap.
+
 The cap and the near-limit warning are described in
-[Routing → Provider budgets](routing.md#provider-budgets). At
-`AIRLOCK_BUDGET_WARN_RATIO` (default `0.8`) of a provider's daily cap, Airlock logs
-a warning and tags near-limit responses with `X-Airlock-Budget-State: near_limit`.
+[Routing → Provider budgets](routing.md#provider-budgets). At `budget_warn_ratio`
+(default `0.8`, env `AIRLOCK_BUDGET_WARN_RATIO` / `airlock_settings.budget_warn_ratio`) of
+a provider's daily cap, Airlock logs a warning and tags near-limit responses with
+`X-Airlock-Budget-State: near_limit` (the same threshold at which the router proactively
+swaps providers).
 
 ## Where else to see it
 

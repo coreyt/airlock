@@ -247,6 +247,24 @@ airlock_settings:
 The env override `AIRLOCK_BREAKER_OVERRIDES` (JSON, same shape under
 `defaults`/`clients`) takes precedence.
 
+### `airlock_settings` runtime knobs (session TTL, smart thresholds, warn ratio)
+
+0.5.1 gave three `fast/` runtime knobs real `config.yaml` keys (they were previously
+env-only). All read through the typed `AirlockSettings` loader
+(`airlock/fast/settings.py`) with uniform **`env > config > default`** precedence and
+malformed-input fallback:
+
+```yaml
+airlock_settings:
+  session_ttl: 3600              # session-stickiness window in seconds; env AIRLOCK_SESSION_TTL
+  smart_thresholds: [0.30, 0.60] # smart-routing low/high cut points; env AIRLOCK_SMART_THRESHOLDS
+  budget_warn_ratio: 0.8         # near-budget warn + proactive-swap point; env AIRLOCK_BUDGET_WARN_RATIO
+```
+
+`budget_warn_ratio` is the **single** "near budget" threshold for *both* the monitor
+near-limit warn and the fast router's proactive cost-swap — unified in 0.5.1 (previously
+the monitor warned at `0.8` while the router swapped at a hardcoded `0.9`).
+
 ### `admin`
 
 Enables the admin control plane. When `enabled` is `false`, `/airlock/admin/*`
@@ -285,10 +303,23 @@ guardrail_overrides:
 
 ### `provider_budget_config`
 
-The existing per-provider daily budget caps (under `router_settings`) now warn
-before the cliff. At `AIRLOCK_BUDGET_WARN_RATIO` (default `0.8`) of a provider's
-`budget_limit`, Airlock logs a warning and emits `X-Airlock-Budget-State:
-near_limit`. See [Routing → Provider budgets](../guide/routing.md#provider-budgets).
+Per-provider daily budget caps live under `router_settings.provider_budget_config`
+(LiteLLM owns that key; Airlock reads it *in place*). As of 0.5.1 budgets are **purely
+config-driven** — the old hidden hardcoded defaults (`anthropic`/`openai` ≈ $50,
+`gemini`/`mistral`/`perplexity` ≈ $25) the fast router used regardless of config are
+**removed**. One budget number drives **three** behaviors:
+
+1. **LiteLLM hard block** — requests to a provider are refused once it hits the cap.
+2. **Monitor near-limit warn** — at `budget_warn_ratio` (default `0.8`) of the cap,
+   Airlock logs a warning and emits `X-Airlock-Budget-State: near_limit`.
+3. **Fast router proactive reroute** — at the same `budget_warn_ratio`, the router
+   swaps spend toward another provider that still has headroom.
+
+A `budget_limit` of `0` (or an absent/unset provider) means **no enforcement /
+unlimited / no warn / no reroute** — identical across all three layers. With *no*
+`provider_budget_config` at all, there is no proactive swap and no budget warn. The env
+override `AIRLOCK_PROVIDER_BUDGETS` (JSON) takes precedence; the window is `1d`. See
+[Routing → Provider budgets](../guide/routing.md#provider-budgets).
 
 ## Native HTTPS
 
