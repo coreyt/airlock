@@ -2,14 +2,17 @@
   "pack": "0.5.2-NAME-aliases",
   "baseline_sha": "2f9b791bc61ca3934aab6839d12ff8542c037327",
   "branch": "feat/0.5.2-NAME-aliases",
-  "head_sha": "50d29209348259b145f9b58df87f3800b90fc393",
+  "head_sha": "68a49c0f9f395a59c404eb7b6b453450ce2b5724",
   "commits": [
     "ceffaad: docs(0.5.2): NAME-aliases implementation design memo",
     "e5a7a80: test(0.5.2): RED — collision-safe alias resolution, shared classifier, catalog inference, batch-key + reference integrity",
-    "50d2920: feat(0.5.2): provider-prefixed model aliases + collision-safe resolution"
+    "50d2920: feat(0.5.2): provider-prefixed model aliases + collision-safe resolution",
+    "3f4fc08: chore(0.5.2): NAME-aliases closure artifact (output.json)",
+    "68a49c0: fix(0.5.2): block ambiguous dropped bodies from fuzzy repoint (codex BLOCK)"
   ],
   "tdd_evidence": {
     "red_commit_sha": "e5a7a80a2ab1dd122edd99a48b5ea5c864ea0b03",
+    "fix_red_added_in_commit": "68a49c0f9f395a59c404eb7b6b453450ce2b5724",
     "test_files": [
       "tests/test_capability.py",
       "tests/test_model_alias.py",
@@ -24,7 +27,7 @@
       "tests/test_fast_router.py",
       "tests/test_config_consistency.py"
     ],
-    "passed": 246,
+    "passed": 251,
     "failed": 0,
     "failing_ids": [],
     "note": "1 xpassed — the pre-existing xfail tests/test_config_consistency.py::TestAliasTableCoverage::test_all_model_names_resolve_to_self (strict=False) now resolves correctly thanks to the collision-safe loader; reported as xpassed, not a failure."
@@ -40,12 +43,19 @@
     "tests/test_fast_router.py",
     "tests/test_model_alias.py"
   ],
-  "blockers_encountered": [],
+  "blockers_encountered": [
+    {
+      "id": "codex-BLOCK-ambiguous-fuzzy-repoint",
+      "description": "[DETECT] Codex review found a real correctness bug: the two-pass loader correctly DROPS ambiguous variant keys (bodies claimed by >=2 entries under different providers) from _exact, but resolve() still leaked those dropped bodies into the fuzzy _score_match slow path. A NON-slash input like resolve('gemini-3.1-pro-preview') (served by BOTH gemini/ and vertex_ai/, no explicit alias equal to that body) was not in _exact, had no '/', fell to fuzzy, scored a ~1.0 exact-body match, and silently picked the FIRST entry (AI-Studio) and cached it — the exact silent cross-provider repoint the design said to prevent.",
+      "resolution": "[RESOLVE] Added self._ambiguous_variants set (init in __init__, reset in load_from_config); pass 2 records every dropped multi-claimer variant key into it. resolve() now returns None (no fuzzy, no cache) for both the slash case (bare in _ambiguous_variants, checked after index/body/exact steps) and the non-slash case (lower in _ambiguous_variants, checked immediately before the fuzzy loop). Explicit-key matches still return at the top via _exact, so only genuinely-ambiguous dropped bodies are blocked. RED-first regression added in tests/test_model_alias.py::TestAmbiguousBodyNoFuzzyRepoint (synthetic two-provider config + real-config gemini-3.1-pro-preview); confirmed RED then GREEN. Fixed in commit 68a49c0. Verified: resolve('gemini-3.1-pro-preview') -> None (uncached) while resolve('aistudio/gemini-3.1-pro')/resolve('vertex/gemini-3.1-pro') still resolve to their own entries."
+    }
+  ],
   "additional_changes_made_in_scope": [
     "Config anchors drifted as new entries were inserted (expected per brief); all edits were anchored on entry bodies, not line numbers, so no manual re-grep adjustment was needed.",
     "NOTE for orchestrator: tests/test_config_consistency.py loads TWO configs — the existing TestAliasTableCoverage/TestFallbackConsistency suites read airlock/cli/templates/config.yaml (the simpler CLI template, NOT in this pack's MODIFY set, left untouched), while the NEW reference-integrity + batch-key tests read the deployed root config.yaml. The template is intentionally not updated here (out of scope); template-based tests still pass.",
-    "capability.py was kept minimal (airlock_provider_for + normalize_provider_token only). endpoints_for/capability_record/model_info shown in design note §4.5 are CAP-modelinfo's surface and were deliberately NOT added."
+    "capability.py was kept minimal (airlock_provider_for + normalize_provider_token only). endpoints_for/capability_record/model_info shown in design note §4.5 are CAP-modelinfo's surface and were deliberately NOT added.",
+    "Post-review fix added self._ambiguous_variants to ModelAliasTable + two None-guards in resolve() (codex-BLOCK above)."
   ],
-  "agent_verify_result": "pass — targeted: 246 passed, 1 xpassed, 0 failed. Adjacent regression (monitor/batch/guardian/enhanced/transparency/local-vllm): 212 passed. Full suite: 2237 passed, 107 skipped, 1 xpassed, 1 pre-existing unrelated failure (tests/test_fathom_init.py::test_init_engine_with_fathomdb — fails by design because optional fathomdb is not installed; no import of capability/model_alias/router).",
-  "next_step_for_orchestrator": "Pack 0.5.2-NAME-aliases on branch feat/0.5.2-NAME-aliases at 50d29209348259b145f9b58df87f3800b90fc393; review, verify, merge. Optional follow-up: mirror the new prefixed aliases into airlock/cli/templates/config.yaml if the CLI template should advertise them (out of scope here)."
+  "agent_verify_result": "pass — targeted: 251 passed, 1 xpassed, 0 failed. Adjacent regression after the fix (guardian/monitor/batch-gateway/enhanced): 135 passed. Pre-fix full suite was 2237 passed / 107 skipped / 1 xpassed with 1 pre-existing unrelated failure (tests/test_fathom_init.py::test_init_engine_with_fathomdb — fails by design because optional fathomdb is not installed; imports none of capability/model_alias/router).",
+  "next_step_for_orchestrator": "Pack 0.5.2-NAME-aliases on branch feat/0.5.2-NAME-aliases at 68a49c0f9f395a59c404eb7b6b453450ce2b5724; review, verify, merge. Optional follow-up: mirror the new prefixed aliases into airlock/cli/templates/config.yaml if the CLI template should advertise them (out of scope here)."
 }
