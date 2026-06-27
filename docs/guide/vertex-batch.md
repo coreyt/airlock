@@ -9,9 +9,27 @@ its own [Batch Gateway](batch.md#ai-studio-gemini-batch-via-the-airlock-batch-ga
 this guide covers the **Vertex** path, which uses LiteLLM's native batch with
 GCS staging.) Vertex batch is asynchronous, ~50% cheaper, and runs up to ~24h.
 
-The deployments are defined in `config.yaml` as `gemini-3.5-flash-vertex` and
-`gemini-3.1-pro-vertex` (provider `vertex_ai/…`). This guide covers the GCP
-setup they need.
+The deployments are defined in `config.yaml` under the stable `provider/model`
+aliases **`vertex/gemini-3.5-flash`** and **`vertex/gemini-3.1-pro`** (provider
+`vertex_ai/…`, served-by token `vertex_ai`). This guide covers the GCP setup they
+need.
+
+!!! warning "Shipped Vertex entries are chat-only (`vertex_location: global`)"
+    The `vertex/…` aliases ship with `vertex_location: global` and carry **no**
+    `airlock_batch` marker, so their published capability is **`endpoints:
+    ["chat"]`** — Vertex batch is **region-gated** and is *not* advertised at
+    `global`. Airlock only adds `batch` to a `vertex_ai/` model's `endpoints` when
+    its `vertex_location` is a real region (not `global`). To batch a Vertex
+    Gemini model you must point a `vertex_location` at a region where that model
+    resolves (see [§7 Model availability](#7-model-availability-read-this-ids-and-regions-differ)).
+    Use the [Airlock Batch Gateway](batch.md#ai-studio-gemini-batch-via-the-airlock-batch-gateway)
+    (`aistudio/…`) if you need Gemini batch today.
+
+!!! note "Legacy `-vertex` aliases are deprecated (removed in 0.6.0)"
+    The pre-0.5.2 names `gemini-3.5-flash-vertex` / `gemini-3.1-pro-vertex` are
+    **dual-listed and still functional** in 0.5.2 (same `litellm_params`), but
+    carry `deprecated: true` and are **removed in 0.6.0**. Migrate to the
+    `vertex/…` names — see the [old → new alias map](batch.md#old-new-alias-map-052).
 
 !!! warning "Batch bypasses Airlock guardrails"
     The Batch API is a LiteLLM passthrough. Airlock's guardrails (PII
@@ -120,9 +138,9 @@ GCS_BUCKET_NAME=airlock-vertex-batch-your-gcp-project-id
 ```
 
 !!! note "`vertex_location` is pinned in config.yaml"
-    The `gemini-*-vertex` deployments hard-code `vertex_location: global` in
-    `config.yaml`, so the `VERTEX_LOCATION` env var is **not** consulted for
-    them — change the value in `config.yaml` if you need a different location.
+    The `vertex/…` deployments (and the legacy `gemini-*-vertex` twins) hard-code
+    `vertex_location: global` in `config.yaml`, so the `VERTEX_LOCATION` env var is
+    **not** consulted for them — change the value in `config.yaml` if you need a different location.
     `VERTEX_PROJECT`, `VERTEX_CREDENTIALS`, and `GCS_BUCKET_NAME` *are* read from
     the environment.
 
@@ -161,7 +179,7 @@ Sync smoke test through the proxy:
 ```bash
 curl -s http://localhost:4000/v1/chat/completions \
   -H "Authorization: Bearer $AIRLOCK_MASTER_KEY" -H "Content-Type: application/json" \
-  -d '{"model":"gemini-3.5-flash-vertex","messages":[{"role":"user","content":"say ok"}],"max_tokens":10}'
+  -d '{"model":"vertex/gemini-3.5-flash","messages":[{"role":"user","content":"say ok"}],"max_tokens":10}'
 ```
 
 To list exactly which Gemini ids your project serves (per location), call the

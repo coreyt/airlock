@@ -30,6 +30,51 @@ cost** (typical ~24h turnaround). Airlock exposes the OpenAI-compatible Batch AP
 
 ---
 
+## Which aliases batch
+
+Batch capability is **data, not a name suffix** (0.5.2). Each model publishes an
+`endpoints` list on `GET /model/info` and `GET /v1/models` — a model advertises
+`batch` **iff** it is actually batch-wired, computed from the real routing by one
+helper (`airlock/capability.py`). Discover it instead of guessing:
+
+```bash
+curl -s http://localhost:4000/v1/models \
+  -H "Authorization: Bearer $AIRLOCK_MASTER_KEY" \
+| jq '.data[] | {id, endpoints: .airlock.endpoints}'
+```
+
+The shipped **batch-capable** stable aliases (`"batch" ∈ endpoints`):
+
+| Stable alias | Provider (served-by) | Batch path |
+|---|---|---|
+| `aistudio/gemini-3.5-flash`, `aistudio/gemini-3.1-pro` | `gemini` | Airlock Batch Gateway (`?custom_llm_provider=aistudio`) |
+| `mistral/mistral-large`, `mistral/mistral-small` | `mistral` | Airlock Batch Gateway (`?custom_llm_provider=mistral`) |
+| `vllm/qwen3.6-27b` | `openai` (vLLM, OpenAI-compatible) | Airlock Batch Gateway, executor mode (`?custom_llm_provider=vllm`) |
+| OpenAI models (e.g. `gpt-5.4-nano`) | `openai` | LiteLLM-native (`?custom_llm_provider=openai`) |
+
+`vertex/gemini-3.5-flash` / `vertex/gemini-3.1-pro` are **chat-only** as shipped —
+see the [region-gated Vertex caveat](#vertex-ai-gemini-batch) below.
+
+### Old → new alias map (0.5.2)
+
+The legacy capability-suffix names are **deprecated but still fully functional**
+in 0.5.2 (dual-listed, same `litellm_params` + `airlock_batch` marker). They carry
+`deprecated: true` in their capability record and are **removed in 0.6.0**. No
+client breaks in 0.5.2 — migrate to the stable `provider/model` name:
+
+| Legacy (deprecated → removed in 0.6.0) | New stable alias | Served-by | `endpoints` |
+|---|---|---|---|
+| `gemini-3.5-flash-aistudio` / `gemini-3.1-pro-aistudio` | `aistudio/gemini-3.5-flash` / `aistudio/gemini-3.1-pro` | `gemini` | `chat, batch` |
+| `gemini-3.5-flash-vertex` / `gemini-3.1-pro-vertex` | `vertex/gemini-3.5-flash` / `vertex/gemini-3.1-pro` | `vertex_ai` | `chat` *(batch only when a **regional** `vertex_location` is set; the shipped entries use `global` → chat-only)* |
+| `mistral-large-batch` / `mistral-small-batch` | `mistral/mistral-large` / `mistral/mistral-small` | `mistral` | `chat, batch` |
+| `qwen36-27b-vllm-batch` | `vllm/qwen3.6-27b` | `openai` (vLLM) | `chat, batch` |
+
+The `airlock_batch` marker now rides the consolidated `provider/model` entry, so
+one alias serves **both** sync and batch — capability is read from `endpoints`,
+never the suffix.
+
+---
+
 ## Prerequisites (one-time)
 
 ### 1. `files_settings` in `config.yaml`
