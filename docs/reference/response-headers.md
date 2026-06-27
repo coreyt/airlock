@@ -25,7 +25,7 @@ X-Airlock-Served-By: vertex_ai
 ```
 
 This is the observed counterpart to the pre-call *inference* surfaced by
-[`X-Airlock-Model-Override`](#x-airlock-model-override): `X-Airlock-Model-Override`
+[`X-Airlock-Model-Override`](#protection-state-headers): `X-Airlock-Model-Override`
 tells you the final *model alias* Airlock routed/failed-over to; `X-Airlock-Served-By`
 tells you the *backend* that answered (e.g. `anthropic` vs `bedrock` vs `vertex_ai`
 for the same logical model). See

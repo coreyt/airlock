@@ -36,27 +36,28 @@ Alerting suggestion: alert when `airlock_provider_ratelimit_remaining_tokens` dr
 below a fraction of its observed ceiling — that's your early warning before the
 provider starts rejecting calls.
 
-## Budget headroom
+## Budget near-limit signal
 
-Provider **daily-budget** spend is exposed alongside the rate-limit headroom as
-companion gauges, so you can watch spend against the configured per-provider cap:
+Provider **daily-budget** spend is tracked separately from rate-limit headroom (see
+[Routing → Provider budgets](routing.md#provider-budgets)). It is **opt-in**: it applies
+only to providers with an explicit `router_settings.provider_budget_config` cap (or an
+`AIRLOCK_PROVIDER_BUDGETS` override). As of 0.5.1 there are no hidden default budgets — with
+no budget configured there is no warn and no proactive swap.
 
-| Gauge | Labels | Meaning |
-|---|---|---|
-| `airlock_provider_budget_used_usd` | `provider` | USD spent against the provider's daily cap in the current window. |
-| `airlock_provider_budget_limit_usd` | `provider` | The configured daily cap for the provider. |
+When configured, at `budget_warn_ratio` (default `0.8`, env `AIRLOCK_BUDGET_WARN_RATIO` /
+`airlock_settings.budget_warn_ratio`) of a provider's cap, Airlock surfaces the near-limit
+state via:
 
-These gauges and the near-limit warning are **opt-in**: they exist only for providers
-with an explicit `router_settings.provider_budget_config` cap (or an
-`AIRLOCK_PROVIDER_BUDGETS` override). As of 0.5.1 there are no hidden default budgets, so
-with no budget configured there are no budget gauges, no warn, and no proactive swap.
+- a **log warning** (`provider_budget_near_limit provider=… spent=… limit=…`),
+- the **`X-Airlock-Budget-State: near_limit`** response header (the same threshold at which
+  the router proactively swaps providers — see [Response Headers](../reference/response-headers.md)),
+- the accumulated **rolling-window spend** total, queryable via the advisor / admin surface
+  (it survives restart — see [Operations](../operations.md#provider-spend-durability-across-restart)).
 
-The cap and the near-limit warning are described in
-[Routing → Provider budgets](routing.md#provider-budgets). At `budget_warn_ratio`
-(default `0.8`, env `AIRLOCK_BUDGET_WARN_RATIO` / `airlock_settings.budget_warn_ratio`) of
-a provider's daily cap, Airlock logs a warning and tags near-limit responses with
-`X-Airlock-Budget-State: near_limit` (the same threshold at which the router proactively
-swaps providers).
+> **Note:** budget spend is **not** currently exported as a Prometheus gauge — only the
+> rate-limit headroom gauges above and `airlock_circuit_breaker_state` exist (see
+> [Observability → Prometheus](observability.md)). A dedicated budget-spend gauge is a
+> possible future addition.
 
 ## Where else to see it
 

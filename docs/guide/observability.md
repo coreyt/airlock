@@ -185,10 +185,21 @@ inferred-provider keying, set it to `false` to restore the previous behavior.
   }
   ```
 
-- **Prometheus** — `airlock_mutations_total{field, op}` counts mutations by field
-  and op, so you can chart how often each kind of change fires. Install the metrics
-  extra and add the callback (see
-  [Operations → Monitoring](../operations.md#monitoring)).
+- **Prometheus** — install the metrics extra and add the callback (see
+  [Operations → Monitoring](../operations.md#monitoring)). Airlock exports:
+
+  | Metric | Type | Labels | Meaning |
+  |---|---|---|---|
+  | `airlock_requests_total` | counter | `model`, `status` | requests handled |
+  | `airlock_request_duration_seconds` | histogram | `model` | end-to-end latency |
+  | `airlock_pii_redactions_total` | counter | `entity_type` | PII entities redacted |
+  | `airlock_keyword_blocks_total` | counter | — | keyword-guard blocks |
+  | `airlock_threat_blocks_total` | counter | — | threat-detector blocks |
+  | `airlock_response_scan_detections_total` | counter | — | response-scanner detections |
+  | `airlock_mutations_total` | counter | `field`, `op` | mutations by field and op |
+  | `airlock_circuit_breaker_state` | gauge | `model` | breaker state (0 closed / 1 open / 2 half-open) |
+  | `airlock_provider_ratelimit_remaining_tokens` | gauge | `provider` | upstream token headroom |
+  | `airlock_provider_ratelimit_remaining_requests` | gauge | `provider` | upstream request headroom |
 - **TUI** — the Overview screen gains a **"Served via"** column, so the
   native-vs-gateway split (and same-provider failover) is visible at a glance. See
   [TUI Dashboard](tui.md).

@@ -159,6 +159,37 @@ Needs the `mistral` extra (`pip install 'airlock-llm[mistral]'`, pinned `<2`) an
 Full recipe in
 [Batch Processing → Mistral batch](../guide/batch.md#mistral-batch-via-the-airlock-batch-gateway).
 
+## `files_settings` (the `/v1/files` upload route)
+
+Top-level block that tells the file-upload route which provider/key to resolve against
+(required when you use `/v1/files` + `/v1/batches`):
+
+```yaml
+files_settings:
+  - custom_llm_provider: openai
+    api_key: os.environ/OPENAI_API_KEY
+```
+
+## `batch_profile` (batch guardrail + limits)
+
+Top-level block controlling how the Airlock Batch Gateway scans and bounds batch jobs.
+The `default` profile applies to all gateway-backed batches:
+
+```yaml
+batch_profile:
+  default:
+    scan_at_upload: true       # scan input at create: keyword reject + PII redaction
+    keyword_block: true        # reject a batch whose input trips the keyword guard
+    pii_redact: false          # redact PII in batch input before upload
+    pii_hydrate_output: false  # terminal redaction only — no PII reverse-map on output
+    output_scan_mode: observe  # observe | enforce on batch output
+    max_rows: 50000            # reject batches with more input rows
+    max_bytes: 2147483648      # reject batches with a larger input file (2 GiB)
+    max_concurrent_jobs: 5     # cap in-flight provider batch jobs
+```
+
+See [Batch Processing](../guide/batch.md) for the end-to-end recipe.
+
 ## Environment variables
 
 | Variable | Description | Default |

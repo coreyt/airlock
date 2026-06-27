@@ -54,8 +54,10 @@ Exit code 0 if healthy, 1 if unreachable.
 Launch the terminal dashboard.
 
 ```bash
-airlock tui --start    # start proxy + dashboard
-airlock tui            # dashboard only (connect to running proxy)
+airlock tui --start            # start proxy + dashboard
+airlock tui                    # dashboard only (connect to running proxy)
+airlock tui --start --daemon   # start proxy and leave it running after the TUI exits
+airlock tui --host H --port P  # monitor a proxy on a specific host/port
 ```
 
 See [TUI Dashboard](tui.md) for screen details.
@@ -94,7 +96,13 @@ airlock post                          # full check
 airlock post --skip-llm               # skip provider connectivity
 airlock post --skip-llm --skip-mcp    # config + guardrails only
 airlock post --json                   # machine-readable output
+airlock post -v                       # verbose per-check details
+airlock post --timeout 10             # per-check timeout (seconds; default 30)
 ```
+
+Skip flags: `--skip-llm` (provider connectivity), `--skip-storage` (log dir / S3 /
+SQL), `--skip-guardrails` (guardrail dependencies), `--skip-mcp` (MCP server health).
+`--no-color` disables ANSI output.
 
 ### `airlock hooks`
 
@@ -110,8 +118,13 @@ airlock hooks status     # check hook installation state
 Print shell commands to configure Claude Code to route through Airlock.
 
 ```bash
-eval $(airlock dogfood)
+eval $(airlock dogfood)                  # bash/zsh (default)
+airlock dogfood --shell fish | source    # fish syntax
+airlock dogfood --master-key "$KEY"      # override the master key in the exports
 ```
+
+`--shell` accepts `bash`, `zsh`, or `fish` (default `bash`); `--host`/`--port` target
+a specific proxy.
 
 ### `airlock install-service`
 
