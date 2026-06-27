@@ -16,19 +16,16 @@ capabilities.** Plan: `dev/plans/0.5.2-plan.md`. Orchestrator:
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** none — **NAME-aliases CLOSED + HITL smoke PASS.** Merged `4905150`;
-  codex review BLOCK (ambiguous-variant fuzzy leak) → fix → CONCERN (stale reload) →
-  fix → merged. Live isolated smoke (`:4137`): `aistudio/gemini-3.5-flash`→`gemini`,
-  `vertex/gemini-3.5-flash`→`vertex_ai`, pinned, no model-override — the aistudio↔vertex
-  disambiguation proven on the wire (`-HITL-smoke-20260627T131827Z.md`).
-- **Next action:** **Phase E pack 2 — CAP-modelinfo.** Cut a worktree from
-  `feat/0.5.2-naming` HEAD; add `model_info:` capability blocks (`airlock_provider`,
-  `region?`, `endpoints`, `underlying`, `deprecated`) to every entry; **extend
-  `airlock/capability.py`** with `endpoints_for()` (design §4.5: batch iff
-  `airlock_batch` marker OR **regional** `vertex_ai/`) + `capability_record()`;
-  config-consistency test that published `endpoints` == `endpoints_for(entry)`; a
-  `/model/info` smoke proving LiteLLM surfaces the block. Re-verify config anchors
-  (they drifted +217 lines from NAME-aliases).
+- **In flight:** **CAP-modelinfo IMPLEMENTING** (wt `feat-0.5.2-CAP-modelinfo` @
+  `b264b16`). Approach refined (design v4): capability is **computed** by
+  `capability.py` (`endpoints_for` + `capability_record`) and **injected** into the
+  model_list `model_info` at startup via `proxy._prepare_runtime_config` (NOT 73
+  hand-written config blocks) → litellm serves `/model/info` natively. Pack prompt:
+  `dev/plans/prompts/0.5.2-CAP-modelinfo.md`.
+- **Done:** NAME-aliases CLOSED + HITL smoke PASS (merged `4905150`; `aistudio→gemini`,
+  `vertex→vertex_ai` proven live on `:4137`).
+- **Next action:** on implementer completion → witness check → codex review the diff →
+  merge → live `/model/info` smoke (isolated port) → CAP-v1models.
 
 ## 2. Pack scoreboard
 
