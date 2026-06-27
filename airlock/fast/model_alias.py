@@ -210,6 +210,9 @@ class ModelAliasTable:
         self._provider_body_alias: dict[tuple[str, str], str] = {}
         # bare_body → set of served-by provider tokens it appears under
         self._body_providers: dict[str, set[str]] = {}
+        # variant keys dropped in pass 2 because ≥2 entries claimed them — these
+        # must NOT leak into the fuzzy slow path (silent cross-provider repoint).
+        self._ambiguous_variants: set[str] = set()
         self._loaded = False
 
     def load_from_config(self, config_path: str | Path | None = None) -> None:
@@ -240,6 +243,7 @@ class ModelAliasTable:
         self._exact = {}
         self._provider_body_alias = {}
         self._body_providers = {}
+        self._ambiguous_variants = set()
 
         # --- Pass 1: explicit model_name keys are authoritative + immutable ---
         explicit_keys: set[str] = set()
@@ -292,6 +296,7 @@ class ModelAliasTable:
             if len(claimers) == 1:
                 self._exact[key] = next(iter(claimers))
             else:
+                self._ambiguous_variants.add(key)
                 logger.debug(
                     "model_alias_ambiguous_variant %s claimed by %s — dropped",
                     key,
@@ -385,6 +390,17 @@ class ModelAliasTable:
                 self._exact[lower] = resolved  # cache for O(1) on repeat calls
                 logger.debug("model_alias_prefix_strip %s -> %s", model_name, resolved)
                 return resolved
+
+            # 4. bare is an ambiguous (dropped) multi-claimer variant → None;
+            #    never let it fall into fuzzy (would silently repoint + cache).
+            if bare in self._ambiguous_variants:
+                return None
+
+        # An ambiguous (dropped) body with NO disambiguating prefix must NOT leak
+        # into fuzzy scoring — a near-exact body match would silently pick the
+        # first claimer (cross-provider repoint). Return None, do NOT cache.
+        if lower in self._ambiguous_variants:
+            return None
 
         # Slow path: fuzzy scoring against all entries
         best_score = 0.0

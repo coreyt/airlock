@@ -619,6 +619,70 @@ class TestCollisionSafeResolution:
         assert ctable.resolve("gemini-3.5-flash-vertex") == "gemini-3.5-flash-vertex"
 
 
+class TestAmbiguousBodyNoFuzzyRepoint:
+    """A provider-model body claimed by entries under DIFFERENT providers, with
+    no explicit alias equal to that body, must resolve to None — never silently
+    fuzzy-pick the first entry (the cross-provider repoint the design forbids)."""
+
+    @pytest.fixture
+    def ambig_config(self, tmp_path):
+        config = {
+            "model_list": [
+                {
+                    "model_name": "a/foo",
+                    "litellm_params": {
+                        "model": "anthropic/foo-1.0",
+                        "api_key": "sk-test",
+                    },
+                },
+                {
+                    "model_name": "b/foo",
+                    "litellm_params": {
+                        "model": "mistral/foo-1.0",
+                        "api_key": "sk-test",
+                    },
+                },
+            ],
+        }
+        path = tmp_path / "config.yaml"
+        path.write_text(yaml.dump(config))
+        return path
+
+    @pytest.fixture
+    def atable(self, ambig_config):
+        t = ModelAliasTable()
+        t.load_from_config(ambig_config)
+        return t
+
+    def test_bare_ambiguous_body_returns_none(self, atable):
+        assert atable.resolve("foo-1.0") is None
+
+    def test_ambiguous_body_not_cached(self, atable):
+        atable.resolve("foo-1.0")
+        assert "foo-1.0" not in atable._exact
+
+    def test_version_stripped_ambiguous_body_returns_none(self, atable):
+        # "foo" is the version-stripped body shared by both providers
+        assert atable.resolve("foo") is None
+        assert "foo" not in atable._exact
+
+    def test_explicit_prefixed_aliases_still_resolve(self, atable):
+        assert atable.resolve("a/foo") == "a/foo"
+        assert atable.resolve("b/foo") == "b/foo"
+
+    def test_real_config_ambiguous_preview_body_returns_none(self):
+        # gemini-3.1-pro-preview is served by BOTH gemini/ and vertex_ai/ in the
+        # deployed config and is not an explicit alias -> must be None, not a
+        # silent fuzzy repoint to the first (AI-Studio) entry.
+        t = ModelAliasTable()
+        t.load_from_config("config.yaml")
+        assert t.resolve("gemini-3.1-pro-preview") is None
+        assert "gemini-3.1-pro-preview" not in t._exact
+        # The explicit prefixed aliases must still resolve to their own entry.
+        assert t.resolve("aistudio/gemini-3.1-pro") == "aistudio/gemini-3.1-pro"
+        assert t.resolve("vertex/gemini-3.1-pro") == "vertex/gemini-3.1-pro"
+
+
 class TestAllLoggedModels:
     """Test every model name observed in production JSONL logs resolves correctly."""
 
