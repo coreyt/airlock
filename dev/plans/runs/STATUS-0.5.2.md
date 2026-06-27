@@ -35,7 +35,7 @@ capabilities.** Plan: `dev/plans/0.5.2-plan.md`. Orchestrator:
 | `NAME-aliases` | `provider/model` aliases for whole catalog (Appendix A); legacy dual-listed; collision-safe model_alias + shared classifier; slash-alias resolves, pins, attributes | DESIGN | **CLOSED ✅** (merged `4905150`; codex BLOCK→fix→CONCERN→fix; HITL smoke PASS) | `0.5.2-NAME-aliases-output.json` + `-review-20260627T043448Z.md` + `-HITL-smoke-20260627T131827Z.md` |
 | `CAP-modelinfo` | computed `model_info` injected at startup (`proxy._prepare_runtime_config`); `endpoints` region-gated; served natively on `/model/info` | NAME-aliases | **CLOSED ✅** (merged `c26c01a`; codex PASS; /model/info smoke PASS) | `0.5.2-CAP-modelinfo-output.json` + `-review-20260627T133638Z.md` + `-smoke-20260627T133749Z.md` |
 | `CAP-v1models` | Additive `airlock:{…}` on `GET /v1/models`+`/models` (ASGI response seam, reuse `capability_record`) | CAP-modelinfo | **CLOSED ✅** (merged `0beed30`; codex CONCERN→fix; /v1/models smoke PASS 73/73) | `0.5.2-CAP-v1models-output.json` + `-review-20260627T135029Z.md` + `-smoke-20260627T135420Z.md` |
-| `COMPAT-tests` | Cross-cutting regression: old+new alias resolve/pin/attribute; collision-safety; batch via both; /model/info+/v1/models capability | CAP-v1models | **NEXT** | `dev/plans/runs/0.5.2-COMPAT-tests-output.json` |
+| `COMPAT-tests` | Cross-cutting regression (tests-only): old↔new parity; collision-safety; batch backend parity; capability↔wiring; two-surface agreement | CAP-v1models | **IMPLEMENTING** (wt `feat-0.5.2-COMPAT-tests` @ dd58bda) | `dev/plans/runs/0.5.2-COMPAT-tests-output.json` |
 | `DOCS` | UN-21/UN-22; design note as-built; user guides; header catalog; changelog + deprecation notice | NAME+CAP merged | NOT_STARTED | `dev/plans/runs/0.5.2-DOCS-output.json` |
 
 States (furthest witnessed wins):
@@ -65,7 +65,7 @@ runbook; here ≤1 is typically in flight given the shared `config.yaml`.
 
 | Worktree path | Branch | Pack | State |
 |---------------|--------|------|-------|
-| _(none — CAP-v1models merged + removed)_ | | | |
+| `.claude/worktrees/feat-0.5.2-COMPAT-tests` | `feat/0.5.2-COMPAT-tests` | COMPAT-tests | IMPLEMENTING |
 
 (Empty when all packs are CLEANED.)
 
