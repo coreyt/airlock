@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import sys
 from typing import Any
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
+
+from airlock.litellm_adapter import resolve_proxy_app
 
 AIRLOCK_DOCS_PATH = "/airlock/docs"
 _AIRLOCK_DOCS_MARKER = "x-airlock-docs-enriched"
@@ -478,8 +479,7 @@ def install_airlock_docs(app: FastAPI) -> None:
 
 
 def install_airlock_docs_on_proxy_app() -> bool:
-    proxy_server = sys.modules.get("litellm.proxy.proxy_server")
-    app = getattr(proxy_server, "app", None)
+    app = resolve_proxy_app()
     if not isinstance(app, FastAPI):
         return False
     install_airlock_docs(app)

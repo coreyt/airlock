@@ -11,12 +11,12 @@ rate-limit error handler.
 from __future__ import annotations
 
 import json
-import sys
 from typing import Any
 
 import airlock.fast.state as _state
 from airlock.admin.policy import LOOPBACK_HOSTS, Principal, admin_enabled, decide
 from airlock.callbacks.enterprise_logger import write_admin_action_record
+from airlock.litellm_adapter import install_asgi_middleware, resolve_proxy_app
 
 _PREFIX = "/airlock/admin/"
 
@@ -264,15 +264,11 @@ def install_admin_on_proxy_app() -> bool:
     except ImportError:
         return False
 
-    proxy_server = sys.modules.get("litellm.proxy.proxy_server")
-    app = getattr(proxy_server, "app", None)
+    app = resolve_proxy_app()
     if not isinstance(app, FastAPI):
         return False
     if getattr(app.state, "airlock_admin_installed", False):
         return True
-    if app.middleware_stack is None:
-        app.add_middleware(AdminMiddleware)
-    else:
-        app.middleware_stack = AdminMiddleware(app.middleware_stack)
+    install_asgi_middleware(app, AdminMiddleware)
     app.state.airlock_admin_installed = True
     return True

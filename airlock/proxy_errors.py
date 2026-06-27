@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import math
 import re
-import sys
 from typing import Any
 
 from litellm import RateLimitError
+
+from airlock.litellm_adapter import resolve_proxy_app
 
 # Redact key-like tokens (provider keys, bearer tokens, long secret-ish strings)
 # before any upstream reason text is echoed back to the client.
@@ -118,8 +119,7 @@ def install_airlock_error_handlers_on_proxy_app() -> bool:
     except ImportError:
         return False
 
-    proxy_server = sys.modules.get("litellm.proxy.proxy_server")
-    app = getattr(proxy_server, "app", None)
+    app = resolve_proxy_app()
     if not isinstance(app, FastAPI):
         return False
     if getattr(app.state, "airlock_error_handlers_installed", False):

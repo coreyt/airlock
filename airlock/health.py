@@ -8,11 +8,11 @@ by the model-override-headers callback at startup.
 
 from __future__ import annotations
 
-import sys
 import time
 from typing import Any
 
 from airlock.fast.state import CircuitState, StateStore
+from airlock.litellm_adapter import resolve_proxy_app
 
 
 def get_circuit_health(state_store: StateStore) -> dict[str, Any]:
@@ -76,8 +76,7 @@ def install_circuit_health_on_proxy_app() -> bool:
     except ImportError:
         return False
 
-    proxy_server = sys.modules.get("litellm.proxy.proxy_server")
-    app = getattr(proxy_server, "app", None)
+    app = resolve_proxy_app()
     if not isinstance(app, FastAPI):
         return False
     install_circuit_health_endpoint(app)
