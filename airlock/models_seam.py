@@ -63,14 +63,28 @@ def _build_capability_map() -> dict[str, dict]:
         logger.warning("Config is not a dict — models seam map empty")
         return {}
 
+    model_list = cfg.get("model_list")
+    if not isinstance(model_list, list):
+        # A truthy non-list (e.g. ``model_list: true``) must never be iterated.
+        if model_list:
+            logger.warning("Config model_list is not a list — models seam map empty")
+        return {}
+
     result: dict[str, dict] = {}
-    for entry in cfg.get("model_list") or []:
+    for entry in model_list:
         if not isinstance(entry, dict):
             continue
         name = entry.get("model_name")
         if not name:
             continue
-        result[name] = capability_record(entry)
+        try:
+            result[name] = capability_record(entry)
+        except Exception:  # noqa: BLE001 — one bad entry must not break startup.
+            logger.warning(
+                "Skipping model %r in models seam map: capability_record failed",
+                name,
+                exc_info=True,
+            )
     return result
 
 
