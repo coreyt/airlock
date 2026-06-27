@@ -1,0 +1,47 @@
+{
+  "pack": "0.5.2-DOCS",
+  "baseline_sha": "4610db046b62a530f896edc1638c0e5a1c317036",
+  "branch": "feat/0.5.2-DOCS",
+  "head_sha": "d12d5ece77c47de7ef99f2783846ee21e1761204",
+  "commits": [
+    "fa4bbe93963494f36129c393c3e5992d422db4e2: docs(0.5.2): plan memo — doc-classification for provider naming + capability discovery",
+    "d12d5ece77c47de7ef99f2783846ee21e1761204: docs(0.5.2): provider-explicit naming + machine-discoverable capabilities"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "n/a — docs pack; gate is `uv run mkdocs build --strict` (verified CLEAN before edits and after)",
+    "test_files": []
+  },
+  "tests": {
+    "targeted": ["uv run mkdocs build --strict"],
+    "passed": 1,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "dev/notes/0.5.2-DOCS-design.md",
+    "dev/user-needs.md",
+    "dev/notes/design-provider-naming-and-capability-discovery.md",
+    "docs/guide/routing.md",
+    "docs/guide/batch.md",
+    "docs/guide/vertex-batch.md",
+    "docs/guide/provider-observability.md",
+    "CHANGELOG.md"
+  ],
+  "blockers_encountered": [
+    {
+      "id": "anchor-slug-collapse",
+      "description": "Two new cross-link anchors used double-dash slugs (#discover--pin--verify, #old--new-alias-map-052) but the project slugify collapses consecutive dashes; mkdocs reported the links resolved to no anchor (INFO-level, did not fail --strict).",
+      "resolution": "Inspected the generated site HTML for the real ids (discover-pin-verify, old-new-alias-map-052), corrected both links, re-ran --strict — anchor messages gone, exit 0."
+    },
+    {
+      "id": "version-consistency-script-env",
+      "description": "scripts/check-version-consistency.py aborts with ModuleNotFoundError: tomli (missing dep in this env). Pre-existing tooling/env issue; the script only checks pyproject/__init__/tracing version strings, none of which this pack touched.",
+      "resolution": "Not in scope — no version string changed. Gate for this docs pack is mkdocs --strict, which is clean. Flagged for the orchestrator."
+    }
+  ],
+  "additional_changes_made_in_scope": [
+    "vertex-batch.md: updated the §8 smoke-test curl and the vertex_location note to use the stable vertex/gemini-3.5-flash name (legacy -vertex still functional/dual-listed) for naming-convention parity."
+  ],
+  "agent_verify_result": "pass — `uv run mkdocs build --strict` exit=0, no orphan pages / broken-link anchors; doc-vs-reality parity verified against config.yaml + airlock/capability.py (Vertex documented chat-only at vertex_location: global; deprecated:true rides only the -aistudio/-vertex/-batch suffix twins; served-by tokens aistudio→gemini, vertex→vertex_ai).",
+  "next_step_for_orchestrator": "Pack 0.5.2-DOCS on branch feat/0.5.2-DOCS at d12d5ec; review, verify (mkdocs --strict), merge. Note: scripts/check-version-consistency.py needs `tomli` in env (pre-existing); pyproject version still 0.5.1 — bump at release if the 0.5.2 CHANGELOG section is to ship as released."
+}
