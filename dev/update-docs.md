@@ -1,6 +1,6 @@
 <!--
   DOCS EPOCH MARKER — update this line at the END of every successful run.
-  Docs current as of: 8a2c332  (2026-06-15)  [main — first verified run: reconciled the 0.4.0 Airlock Batch Gateway + AI Studio (Gemini) adapter into user docs (batch guide AI Studio recipe, config/install extras, CHANGELOG, architecture §3.5, vertex-batch cross-link). Flagged setup-dev.sh --pip extras gap on the status board.]
+  Docs current as of: f9d01ed  (2026-06-26)  [main — reconciled the full 0.5.0 train + 0.5.1 (8a2c332→HEAD): 0.5.1 settings-coherence + storage-seam docs (config airlock_settings keys, provider_budget_config 3-behaviors, routing warn-ratio 0.9→0.8, operations spend-durability, .env.example, dev/architecture §3.8); 0.5.0 verify pass; fixed doc-infra drift (mkdocs nav: +rate-limiting/+provider-observability/+admin-api, response-headers broken anchor) so `mkdocs build --strict` is clean; observability.md full Prometheus metric table; CORRECTED provider-observability budget-gauge contradiction (gauges don't exist); cli.md missing flags; configuration.md files_settings+batch_profile; tracing.py OTel version 0.3.1→0.5.1. Flagged: no budget-spend Prometheus gauge (possible future).]
   (SHA of the commit whose tree the documentation was last verified against.)
 -->
 
