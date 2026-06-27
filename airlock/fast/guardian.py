@@ -36,7 +36,10 @@ from airlock.callbacks.enterprise_logger import write_precall_block_record
 from airlock.proxy_errors import AirlockProviderBlocked, sanitize_reason
 from airlock.reasoning_effort import normalize_reasoning_effort
 from airlock.transparency import detect_dropped_params, record_mutation
-from airlock.client_identity import extract_airlock_client_from_headers
+from airlock.client_identity import (
+    client_id_from_api_key,
+    extract_airlock_client_from_request,
+)
 from airlock.gemini_interface import apply_gemini_request_semantics
 from airlock.guardrails.extract import extract_text, is_batch_call, is_mcp_call
 
@@ -44,7 +47,7 @@ from .circuit_breaker import check_model_with_filters
 from .model_alias import alias_table
 from .priority import compute_priority
 from .router import apply_routing, infer_provider
-from .state import normalize_client_id, store
+from .state import store
 from .threat_detector import assess_threat
 
 logger = logging.getLogger("airlock.fast.guardian")
@@ -54,30 +57,20 @@ logger = logging.getLogger("airlock.fast.guardian")
 # Helpers
 # ---------------------------------------------------------------------------
 def _extract_client_id(user_api_key_dict: Any) -> str:
-    """Derive a stable client identifier from the API-key metadata."""
-    if user_api_key_dict:
-        if hasattr(user_api_key_dict, "api_key"):
-            key = user_api_key_dict.api_key or ""
-            if len(key) > 8:
-                return f"key:{key[-8:]}"
-        if isinstance(user_api_key_dict, dict):
-            api_key = user_api_key_dict.get("api_key", "")
-            if len(api_key) > 8:
-                return f"key:{api_key[-8:]}"
-    return normalize_client_id(None)
+    """Derive a stable client identifier from the API-key metadata.
+
+    Thin delegator to the canonical ``client_identity`` implementation; kept by
+    name for back-compat with importers.
+    """
+    return client_id_from_api_key(user_api_key_dict)
 
 
 def _request_client_id(data: dict[str, Any], user_api_key_dict: Any) -> str:
-    """Prefer the inbound Airlock client header for request metadata."""
-    metadata = data.get("metadata") or {}
-    for value in (
-        metadata.get("airlock_client"),
-        extract_airlock_client_from_headers(data.get("headers")),
-        extract_airlock_client_from_headers(metadata.get("headers")),
-    ):
-        if value:
-            return normalize_client_id(str(value).strip())
-    return _extract_client_id(user_api_key_dict)
+    """Prefer the inbound Airlock client header for request metadata.
+
+    Thin delegator to the canonical ``client_identity`` implementation.
+    """
+    return extract_airlock_client_from_request(data, user_api_key_dict)
 
 
 def _is_client_pinned(original_model: str, data: dict[str, Any]) -> bool:

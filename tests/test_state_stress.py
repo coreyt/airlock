@@ -8,10 +8,17 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import deque
 
 import pytest
 
-from airlock.fast.state import StateStore
+from airlock.fast.state import ClientState, StateStore
+from airlock.fast.threat_detector import (
+    BASE_BACKOFF_S,
+    DECAY_FACTOR,
+    MAX_BACKOFF_S,
+    THREAT_BLOCK_THRESHOLD,
+)
 
 
 class _CountingLock:
@@ -109,6 +116,46 @@ def test_ingest_jsonl_record_single_outer_lock_scope():
         f"{store._lock.acquire_count} — composite ingest_jsonl_record body "
         f"is not wrapped in a single outer lock"
     )
+
+
+@pytest.mark.stress
+def test_record_threat_score_concurrent_no_lost_update():
+    """Concurrent same-client threat-score updates must not lose the high write.
+
+    Decay is neutralised (request_times preset so elapsed clamps to 0.01), so the
+    final accumulated score converges deterministically to ~0.9 under the atomic
+    RMW. A lost update of the high write would drop it toward the 0.1 cluster.
+    """
+    store = StateStore()
+    client = ClientState(client_id="race")
+    now = 1_000_000.0
+    client.request_times = deque([now, now], maxlen=1000)
+
+    iters = 50
+    low_threads = 4
+
+    def worker(score: float) -> None:
+        for _ in range(iters):
+            store.record_threat_score(
+                client,
+                score,
+                now,
+                decay_base=DECAY_FACTOR,
+                threshold=THREAT_BLOCK_THRESHOLD,
+                base_backoff_s=BASE_BACKOFF_S,
+                max_backoff_s=MAX_BACKOFF_S,
+            )
+
+    threads = [threading.Thread(target=worker, args=(0.9,))]
+    threads += [
+        threading.Thread(target=worker, args=(0.1,)) for _ in range(low_threads)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert 0.75 <= client.threat_score <= 0.9
 
 
 @pytest.mark.stress

@@ -17,12 +17,17 @@ from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 
+# Canonical client-identity helpers live in ``airlock.client_identity``; re-export
+# here so the many ``from airlock.fast.state import normalize_client_id`` callers
+# (and ``state.NO_CLIENT_ID``) keep working against the single implementation.
+from airlock.client_identity import NO_CLIENT_ID as NO_CLIENT_ID  # re-export
+from airlock.client_identity import normalize_client_id
+
 # ---------------------------------------------------------------------------
 # Tuning constants
 # ---------------------------------------------------------------------------
 WINDOW_SECONDS = 300  # default sliding-window duration (5 min)
 MAX_SAMPLES = 1000  # cap per deque to bound memory
-NO_CLIENT_ID = "no_client"
 CLIENT_PROVIDER_COOLDOWN_SECONDS = 300.0
 PROVIDER_QUARANTINE_SECONDS = 300.0
 PROVIDER_ESCALATION_WINDOW_SECONDS = 300.0
@@ -153,12 +158,6 @@ class CircuitState(Enum):
     CLOSED = "closed"  # healthy — requests flow normally
     OPEN = "open"  # broken — requests should failover
     HALF_OPEN = "half_open"  # probing — one test request allowed
-
-
-def normalize_client_id(client_id: str | None) -> str:
-    """Return a stable client identifier, collapsing missing values to no_client."""
-    text = (client_id or "").strip()
-    return text or NO_CLIENT_ID
 
 
 # ---------------------------------------------------------------------------
@@ -890,6 +889,47 @@ class StateStore:
     def all_clients(self) -> dict[str, ClientState]:
         with self._lock:
             return dict(self._clients)
+
+    def record_threat_score(
+        self,
+        client: ClientState,
+        score: float,
+        now: float,
+        *,
+        decay_base: float,
+        threshold: float,
+        base_backoff_s: float,
+        max_backoff_s: float,
+    ) -> tuple[float, bool, float]:
+        """Atomically blend ``score`` into ``client.threat_score`` under the lock.
+
+        The heuristic ``score`` is computed lock-free by the caller; this mutator
+        performs only the read-modify-write so concurrent same-client requests
+        cannot lose an update. Snapshots the request deque, decays the accumulated
+        score, applies ``combined = max(score, prev * decay)``, writes
+        ``threat_score`` and (when blocked) ``backoff_until``, and returns
+        ``(combined, blocked, backoff_seconds)``.
+        """
+        with self._lock:
+            request_times = list(client.request_times)
+            if len(request_times) >= 2:
+                # guardian records the current request BEFORE assessing, so [-1] is
+                # "now"; use [-2] for the previous request's timestamp.
+                elapsed = now - request_times[-2]
+            else:
+                elapsed = 1.0
+            elapsed = max(elapsed, 0.01)  # guard against zero/negative
+            decay_factor = decay_base**elapsed
+            combined = max(score, client.threat_score * decay_factor)
+            client.threat_score = combined
+
+            blocked = combined >= threshold
+            backoff_seconds = 0.0
+            if blocked:
+                exponent = min(10, int(combined * 10))
+                backoff_seconds = min(max_backoff_s, base_backoff_s * (2**exponent))
+                client.backoff_until = now + backoff_seconds
+            return combined, blocked, backoff_seconds
 
     def all_models(self) -> dict[str, ModelState]:
         with self._lock:

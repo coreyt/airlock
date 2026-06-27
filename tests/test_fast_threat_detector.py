@@ -166,3 +166,19 @@ class TestAssessThreat:
         result = assess_threat(client)
         assert result.reasons == []
         assert result.blocked is False
+
+    def test_single_threaded_characterization_unchanged(self):
+        """Pin the decision for a fixed input so the lock refactor stays behavior-
+
+        preserving. threat_score=0.8, empty request_times (elapsed=1.0,
+        decay=0.977), no message text => combined=0.7816, blocked, backoff=256s.
+        """
+        client = ClientState(client_id="characterize")
+        client.threat_score = 0.8
+
+        result = assess_threat(client)
+
+        assert result.threat_score == pytest.approx(0.7816)
+        assert result.blocked is True
+        assert result.backoff_seconds == 256.0
+        assert client.threat_score == result.threat_score

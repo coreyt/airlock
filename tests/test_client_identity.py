@@ -7,10 +7,14 @@ import urllib.request
 import pytest
 
 from airlock.client_identity import (
+    NO_CLIENT_ID,
     add_airlock_client_header,
+    client_id_from_api_key,
     extract_airlock_client_from_headers,
     extract_airlock_client_from_kwargs,
+    extract_airlock_client_from_request,
     get_runtime_airlock_client,
+    normalize_client_id,
 )
 
 
@@ -119,3 +123,125 @@ class TestExtractAirlockClientFromKwargs:
     def test_returns_none_when_litellm_params_not_mapping(self):
         kwargs = {"litellm_params": "not-a-dict"}
         assert extract_airlock_client_from_kwargs(kwargs) is None
+
+
+# ===================================================================
+# Consolidated identity (golden / characterization oracle)
+# ===================================================================
+
+
+class _FakeKey:
+    def __init__(self, api_key):
+        self.api_key = api_key
+
+
+class TestNormalizeClientId:
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            (None, NO_CLIENT_ID),
+            ("", NO_CLIENT_ID),
+            ("   ", NO_CLIENT_ID),
+            ("app", "app"),
+            ("  app  ", "app"),
+        ],
+    )
+    def test_normalize(self, raw, expected):
+        assert normalize_client_id(raw) == expected
+
+    def test_state_reexport_is_same_callable(self):
+        from airlock.fast.state import NO_CLIENT_ID as STATE_NO_CLIENT_ID
+        from airlock.fast.state import normalize_client_id as state_normalize
+
+        assert state_normalize is normalize_client_id
+        assert STATE_NO_CLIENT_ID == NO_CLIENT_ID
+
+
+class TestClientIdFromApiKey:
+    @pytest.mark.parametrize(
+        "key,expected",
+        [
+            (None, NO_CLIENT_ID),
+            (_FakeKey("sk-1234567890abcdef"), "key:90abcdef"),
+            ({"api_key": "sk-1234567890abcdef"}, "key:90abcdef"),
+            (_FakeKey("short"), NO_CLIENT_ID),
+            ({}, NO_CLIENT_ID),
+            ({"api_key": "short"}, NO_CLIENT_ID),
+        ],
+    )
+    def test_from_api_key(self, key, expected):
+        assert client_id_from_api_key(key) == expected
+
+
+class TestExtractAirlockClientFromRequest:
+    """Golden parity vs the legacy guardian _request_client_id behavior."""
+
+    @pytest.mark.parametrize(
+        "data,key,expected",
+        [
+            ({"metadata": {"airlock_client": "meta"}}, None, "meta"),
+            ({"metadata": {"airlock_client": "  meta  "}}, None, "meta"),
+            # whitespace-only airlock_client is truthy => normalizes to no_client,
+            # does NOT fall through to the api-key path (legacy behavior).
+            (
+                {"metadata": {"airlock_client": "   "}},
+                _FakeKey("sk-1234567890abcdef"),
+                NO_CLIENT_ID,
+            ),
+            ({"headers": {"x-airlock-client": "hdr"}}, None, "hdr"),
+            ({"headers": {"X-Airlock-Client": "hdr2"}}, None, "hdr2"),
+            ({"metadata": {"headers": {"airlock-client": "mhdr"}}}, None, "mhdr"),
+            # api-key fallback when no header/metadata identity present
+            ({}, _FakeKey("sk-1234567890abcdef"), "key:90abcdef"),
+            ({}, {"api_key": "sk-1234567890abcdef"}, "key:90abcdef"),
+            ({}, None, NO_CLIENT_ID),
+            ({}, _FakeKey("short"), NO_CLIENT_ID),
+            # None data must not raise (closure contract: None -> api-key / no_client)
+            (None, None, NO_CLIENT_ID),
+            (None, _FakeKey("sk-1234567890abcdef"), "key:90abcdef"),
+            # missing-header / empty-mapping variants fall through to the key path
+            ({"headers": {}}, _FakeKey("sk-1234567890abcdef"), "key:90abcdef"),
+            ({"metadata": {"headers": {}}}, None, NO_CLIENT_ID),
+            # metadata identity wins over the api-key fallback
+            (
+                {"metadata": {"airlock_client": "winner"}},
+                _FakeKey("sk-1234567890abcdef"),
+                "winner",
+            ),
+        ],
+    )
+    def test_request_extraction(self, data, key, expected):
+        assert extract_airlock_client_from_request(data, key) == expected
+
+    def test_matches_guardian_delegators(self):
+        from airlock.fast.guardian import _extract_client_id, _request_client_id
+
+        data = {"headers": {"X-Airlock-Client": "harness-live:claude-sonnet"}}
+        key = {"api_key": "sk-1234567890abcdef"}
+        assert _request_client_id(data, key) == "harness-live:claude-sonnet"
+        assert _extract_client_id(key) == "key:90abcdef"
+
+    def test_enterprise_logger_parity(self, monkeypatch):
+        """The 3rd legacy path (enterprise_logger) shares the canonical normalize.
+
+        Asserts the representative input set (present / whitespace / missing /
+        client_id fallback) all collapse through the same canonical normalizer as
+        the request extractor — captured-legacy parity, not just two cases.
+        """
+        from airlock.callbacks.enterprise_logger import _get_airlock_client
+
+        monkeypatch.delenv("AIRLOCK_CLIENT", raising=False)
+        # present (incl. surrounding whitespace stripped by normalize)
+        assert _get_airlock_client({"airlock_client": "  x  "}, {}) == "x"
+        assert _get_airlock_client({"airlock_client": "client-a"}, {}) == "client-a"
+        # whitespace-only collapses to no_client (same as normalize_client_id)
+        assert _get_airlock_client({"airlock_client": "   "}, {}) == NO_CLIENT_ID
+        # missing / empty metadata => no_client
+        assert _get_airlock_client({}, {}) == NO_CLIENT_ID
+        # legacy client_id fallback key is honored
+        assert _get_airlock_client({"client_id": "legacy-id"}, {}) == "legacy-id"
+        # parity with the canonical normalizer on the same raw inputs
+        for raw in ("  x  ", "client-a", "   ", None):
+            assert _get_airlock_client(
+                {"airlock_client": raw} if raw is not None else {}, {}
+            ) == normalize_client_id(raw)

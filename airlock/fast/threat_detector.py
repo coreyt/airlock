@@ -23,7 +23,7 @@ import logging
 import time
 from dataclasses import dataclass
 
-from .state import ClientState, WINDOW_SECONDS
+from .state import ClientState, WINDOW_SECONDS, store
 
 logger = logging.getLogger("airlock.fast.threat")
 
@@ -109,28 +109,22 @@ def assess_threat(
         score += 0.3
         reasons.append(f"error_probing(rate={error_rate:.0%},n={recent_requests})")
 
-    # Blend with accumulated score, decayed proportionally to elapsed time.
-    # 0.977 per second: score halves in ~30 seconds.
-    last_request_times = list(client.request_times)
-    if len(last_request_times) >= 2:
-        # guardian records the current request BEFORE calling assess_threat,
-        # so [-1] is "now"; use [-2] for the previous request's timestamp.
-        elapsed = now - last_request_times[-2]
-    else:
-        elapsed = 1.0
-    elapsed = max(elapsed, 0.01)  # guard against zero/negative
-    decay_factor = DECAY_FACTOR**elapsed
-    combined = max(score, client.threat_score * decay_factor)
-    client.threat_score = combined
-
-    # Decide whether to block
-    blocked = combined >= THREAT_BLOCK_THRESHOLD
-    backoff_seconds = 0.0
+    # Blend with the accumulated score, decayed proportionally to elapsed time
+    # (0.977 per second: score halves in ~30 seconds). The read-modify-write of
+    # threat_score / backoff_until is delegated to the store mutator so it runs
+    # atomically under StateStore._lock — the heuristics above and the logging
+    # below stay outside the lock.
+    combined, blocked, backoff_seconds = store.record_threat_score(
+        client,
+        score,
+        now,
+        decay_base=DECAY_FACTOR,
+        threshold=THREAT_BLOCK_THRESHOLD,
+        base_backoff_s=BASE_BACKOFF_S,
+        max_backoff_s=MAX_BACKOFF_S,
+    )
 
     if blocked:
-        exponent = min(10, int(combined * 10))
-        backoff_seconds = min(MAX_BACKOFF_S, BASE_BACKOFF_S * (2**exponent))
-        client.backoff_until = now + backoff_seconds
         logger.warning(
             "threat_blocked client=%s score=%.2f backoff=%.0fs reasons=%s",
             client.client_id,
