@@ -1,0 +1,45 @@
+{
+  "pack": "0.5.4-MIGRATE-entfathom-project",
+  "baseline_sha": "57010d1",
+  "ff_base_sha": "2935062",
+  "branch": "worktree-agent-a32eb91b756a6372f",
+  "head_sha": "8d1d3834ac78a662f34bb1f037208f54da4a4cfe",
+  "commits": [
+    "c246bff: test(0.5.4-MIGRATE-entfathom-project): RED golden equivalence tests for projections",
+    "4da593f: feat(0.5.4-MIGRATE-entfathom-project): pure project_enterprise/project_fathom projections",
+    "8d1d383: fix(0.5.4-MIGRATE-entfathom-project): faithful fathom cost (source default 0) + collision/order/cost golden coverage"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "c246bffa25630a6b508a31461aeb1fd7a0c6a5db",
+    "test_files": ["tests/test_projections_equiv.py"]
+  },
+  "tests": {
+    "targeted": ["tests/test_projections_equiv.py"],
+    "passed": 44,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/callbacks/projections.py",
+    "airlock/callbacks/request_event.py",
+    "tests/test_projections_equiv.py",
+    "dev/notes/0.5.4-MIGRATE-entfathom-project-design.md"
+  ],
+  "blockers_encountered": [
+    {
+      "id": "F1",
+      "description": "Codex review BLOCK: fathom `cost` diverged from old `kwargs.get('response_cost', 0)` for explicit-None response_cost (old -> None -> dropped by None-filter; projection emitted cost:0). Keystone issue since pack 2b deletes the old builders and relies on the projections.",
+      "resolution": "Applied fathom's .get(...,0) default AT SOURCE: request_event.py builder now `response_cost=kwargs.get('response_cost', 0)` (fathom-only event field; attribute_served_backend's separate `cost_fallback=kwargs.get('response_cost')` left UNCHANGED), and project_fathom now emits raw `cost: event.response_cost` so the trailing None-filter drops explicit-None. Reproduces absent->0(kept) / None->omitted / numeric->value."
+    },
+    {
+      "id": "F2",
+      "description": "Codex review concern: golden tests under-covered guardrail-key collisions, key order, and the three cost cases.",
+      "resolution": "Added `guardrail_collision` fixture (colliding airlock_provider/airlock_client into guardrail_meta); added `list(got.keys()) == list(expected.keys())` key-order assertion to the enterprise golden test; added `test_project_fathom_cost_cases` parametrized over absent/none/numeric. 44 passed."
+    }
+  ],
+  "additional_changes_made_in_scope": [
+    "airlock/callbacks/request_event.py: 1-line correctness fix `response_cost=kwargs.get('response_cost', 0)` on the fathom-only event field (authorized by coordinator review F1); served-backend cost_fallback call left unchanged."
+  ],
+  "agent_verify_result": "pass (44 passed in tests/test_projections_equiv.py; ruff check + format clean on projections.py/request_event.py/test_projections_equiv.py; test_request_event.py + test_projections_equiv.py = 64 passed)",
+  "next_step_for_orchestrator": "Pack 0.5.4-MIGRATE-entfathom-project on branch worktree-agent-a32eb91b756a6372f at 8d1d383 (stacked on feat/0.5.4-eventbus @ 2935062 via clean ff); review, verify, merge. Additive new module + tests; the only existing-file edit is the authorized 1-line fathom-cost default in request_event.py. No sink/builder/registration/config rewiring (that is pack 2b MIGRATE-entfathom-install)."
+}
