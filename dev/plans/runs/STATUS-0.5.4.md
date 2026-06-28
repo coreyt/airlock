@@ -21,10 +21,12 @@ Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`. Audit source-of-record:
   `_fathom_properties` deleted**. Recorder fans out to: enterprise (always, first), metrics
   (always), fathom (gated async-only), s3 (gated), sql (gated); fan-out before `proxy_monitor`.
   (codex reviewer still rate-limited → sonnet `code-reviewer` fallback in use for reviews.)
-- **Next action:** VERIFY — cross-sink equivalence harness over a representative request set
-  + **isolated-instance `dev/smoketest/` parity run on a separate dir+port** (live `:4000`
-  untouched — [[airlock-production-safety]]). Extend smoke only if a field changed (expected:
-  none, except the registered timestamp convergence).
+- **VERIFY progress:** (a) isolated-instance parity smoke **GREEN** (orchestrator-run, port
+  4137 — recorder is the sole callback **before monitor on both lists** in the live litellm
+  proxy; live enterprise JSONL record field-for-field complete incl. Gemini enrich + served/
+  mutations; served-by/mutations headers intact; no field change; live `:4000` untouched).
+  (b) cross-sink equivalence harness — implementer IN FLIGHT.
+- **Next action:** close VERIFY (review+merge the cross-sink harness), then DOCS, then sign-off.
 - **enterprise+fathom FULLY MIGRATED** (2a+2b-i+2b-ii all CLOSED): the recorder is the
   single live telemetry callback in enterprise's slot (before monitor); enterprise &
   fathom are projection-backed sinks; `_build_record`/`_base_record`/`_fathom_properties`
@@ -90,7 +92,7 @@ States (furthest witnessed wins): `WORKTREE_CREATED` → `IMPLEMENTING` →
 | **UN-28** (next-free; plan says "UN-27" but that COLLIDES with 0.5.3 — allocate UN-28 at Phase A) — one canonical event drives all sinks | EVENT, MIGRATE-* | ⏳ |
 | AC-EQUIV — every sink emits field-for-field identical records before vs after | MIGRATE-*, VERIFY | 🟢 per-sink frozen goldens green (entfathom/s3/sql) + metrics counter parity; VERIFY confirms cross-sink + parity run |
 | AC-SEAM — one dispatch seam with per-sink failure isolation | EVENT | ✅ recorder dispatch: ordered, per-sink try/except, lock snapshot, no-double-emit proven |
-| AC-SMOKE — any logged/served field change is smoke-covered (else parity oracle) | VERIFY, DOCS | ⏳ |
+| AC-SMOKE — any logged/served field change is smoke-covered (else parity oracle) | VERIFY, DOCS | ✅ isolated-instance parity smoke GREEN (port 4137; live :4000 untouched) — recorder sole callback before monitor (LIVE), enterprise record field-for-field complete, served-by/mutations intact, no field change. See `0.5.4-VERIFY-smoke-20260628T191444Z.md` |
 
 ## 4. Parallelization plan
 
