@@ -2,11 +2,13 @@
   "pack": "0.5.4-EVENT",
   "baseline_sha": "a220e5d06bbf34ebd75af0c3c656dc46fc286bc4",
   "branch": "worktree-agent-a09ec693de1f81c4c",
-  "head_sha": "04aa1ff630c6d7b346d5c9447c87e33d83f0b37a",
+  "head_sha": "e783e0c23f98d020a0f5c228489bc4ebdfcb2ca7",
   "commits": [
     "b455f45: docs(0.5.4-EVENT): implementation memo — approach + test plan",
     "ac59704: test(0.5.4-EVENT): RED — RequestEvent/build_request_event/RequestRecorder target tests",
-    "04aa1ff: feat(0.5.4-EVENT): canonical RequestEvent + RequestRecorder dispatch seam"
+    "04aa1ff: feat(0.5.4-EVENT): canonical RequestEvent + RequestRecorder dispatch seam",
+    "3b61810: chore(0.5.4-EVENT): closure artifact output.json",
+    "e783e0c: fix(0.5.4-EVENT): snapshot recorder sink list under lock for stable dispatch (codex CONCERN, low finding)"
   ],
   "tdd_evidence": {
     "red_commit_sha": "ac59704f4c91d3e2816ef3462ab64a8f055e2a37",
@@ -14,7 +16,7 @@
   },
   "tests": {
     "targeted": ["tests/test_request_event.py"],
-    "passed": 19,
+    "passed": 20,
     "failed": 0,
     "failing_ids": []
   },
@@ -33,8 +35,9 @@
   "additional_changes_made_in_scope": [
     "Fast-forwarded the worktree branch from main HEAD 57010d1 to feat/0.5.4-eventbus tip a220e5d (clean fast-forward, no own commits replayed) so the EVENT pack stacks on the DESIGN/Phase-A train as intended; see blocker B1.",
     "Anchor check: enterprise_logger.py _build_record is at lines 406-539 (spec said ~406-539) — no drift. _normalize_failure :75, _get_airlock_client :64, imports :27-35 all match. fathom mcp_arguments chain at :160-170 matches.",
-    "Added 8 extra assertion-cases beyond the 8 required scenarios (e.g. duration None when times missing, success-path bare_exception None, mcp_meta empty for normal call, frozen-event immutability) for coverage — 19 tests total, all in the new test file only."
+    "Added 8 extra assertion-cases beyond the 8 required scenarios (e.g. duration None when times missing, success-path bare_exception None, mcp_meta empty for normal call, frozen-event immutability) for coverage.",
+    "Post-review (codex CONCERN, 1 low finding): hardened RequestRecorder for reentrant/concurrent register() — added a threading.Lock; register()/sinks/sink_names operate under the lock; dispatch() snapshots the sink set under the lock then iterates the snapshot OUTSIDE the lock (so a slow/raising sink never holds it). Added test_reentrant_register_during_dispatch_is_snapshot_stable. 20 tests total, all in the new test file only."
   ],
-  "agent_verify_result": "pass — uv run --extra test python -m pytest tests/test_request_event.py: 19 passed. Related telemetry suite (logger/transparency/metrics + new): 148 passed, 11 skipped, 0 failed. ruff check + ruff format --check clean on both changed source/test files.",
-  "next_step_for_orchestrator": "Pack 0.5.4-EVENT on branch worktree-agent-a09ec693de1f81c4c at 04aa1ff (stacked on feat/0.5.4-eventbus a220e5d); review (codex), verify, merge into feat/0.5.4-eventbus. EVENT delivers the module + tests only — no sink migrated, no registration/config touched, not installed into the live litellm callback manager (that is MIGRATE-enterprise). Then advance to the MIGRATE-* packs."
+  "agent_verify_result": "pass — uv run --extra test python -m pytest tests/test_request_event.py: 20 passed (post lock-hardening). Related telemetry suite (logger/transparency/metrics + new): 148 passed, 11 skipped, 0 failed at first close. ruff check + ruff format --check clean on both changed source/test files.",
+  "next_step_for_orchestrator": "Pack 0.5.4-EVENT on branch worktree-agent-a09ec693de1f81c4c at e783e0c (stacked on feat/0.5.4-eventbus a220e5d); codex CONCERN low finding addressed (recorder sink list now snapshotted under a lock). Re-review/verify, merge into feat/0.5.4-eventbus. EVENT delivers the module + tests only — no sink migrated, no registration/config touched, not installed into the live litellm callback manager (that is MIGRATE-enterprise). Then advance to the MIGRATE-* packs."
 }
