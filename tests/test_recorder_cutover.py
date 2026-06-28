@@ -143,6 +143,49 @@ def test_old_loggers_not_separately_registered_in_litellm():
         assert proxy_fathom_logger not in lst
 
 
+def test_no_double_emit_live_callback_list_cardinality():
+    """No-double-emit at the LIVE registration level (review med finding).
+
+    recorder_callback is registered from TWO sources — config.yaml (sync lists) AND
+    recorder._self_register() (all four lists). No-double-emit therefore depends on
+    litellm.logging_callback_manager DEDUPING recorder_callback to exactly one entry
+    per list. This is the same dedup the old enterprise proxy_logger relied on (it too
+    sat in config.yaml + a module self_register). Prove it directly: repeat
+    registration is idempotent, each list holds recorder_callback exactly once, and the
+    deleted enterprise/fathom instances are in none of them.
+    """
+    import litellm
+    from airlock.callbacks.enterprise_logger import proxy_logger
+
+    cb = recorder_mod.recorder_callback
+    mgr = litellm.logging_callback_manager
+
+    # (1) idempotency: re-run self_register (import already ran it once).
+    recorder_mod._self_register()
+    recorder_mod._self_register()
+    # (4) also simulate litellm resolving config.yaml's recorder_callback string to the
+    # SAME instance and adding it to the sync lists — must still dedupe to one.
+    mgr.add_litellm_success_callback(cb)
+    mgr.add_litellm_failure_callback(cb)
+
+    lists = {
+        "success_callback (sync)": litellm.success_callback,
+        "failure_callback (sync)": litellm.failure_callback,
+        "_async_success_callback": litellm._async_success_callback,
+        "_async_failure_callback": litellm._async_failure_callback,
+    }
+    for name, lst in lists.items():
+        # (2) recorder_callback present exactly once (dedup holds → no double-emit)
+        assert lst.count(cb) == 1, (
+            f"{name}: recorder_callback registered {lst.count(cb)}x"
+        )
+        # (3) no legacy double-path: deleted sinks are not separately registered
+        assert proxy_logger not in lst, f"{name}: stale enterprise proxy_logger present"
+        assert proxy_fathom_logger not in lst, (
+            f"{name}: stale proxy_fathom_logger present"
+        )
+
+
 # ---------------------------------------------------------------------------
 # 3. Fathom gating (flag + async-only + skip)
 # ---------------------------------------------------------------------------
