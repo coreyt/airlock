@@ -90,6 +90,17 @@ small disjoint batches** (one sink per worktree). `VERIFY` after all MIGRATE-*;
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-28 — **DESIGN CLOSED (codex PASS, gate #4) → EVENT pack authored + spawned.**
+  4 adversarial codex gates converged 4→3→2→0 findings. **EVENT-scaffolding decision:**
+  EVENT delivers `airlock/callbacks/request_event.py` (`RequestEvent` dataclass +
+  `build_request_event` + `RequestRecorder`) + `tests/test_request_event.py` **only** —
+  it touches **no** existing sink/registration/config and does **not** install into the
+  live `litellm` callback manager. The LIVE recorder install + enterprise-slot ordering
+  is deferred to **MIGRATE-enterprise** (the first sink to move). This is strictly more
+  conservative than design-note §5a's wording (which assigned the registration to EVENT)
+  — it keeps EVENT zero-behavior-change; the registration/ordering *mechanism* is
+  delivered + unit-tested here against an in-memory recorder. No event-shape/seam-semantics
+  change, so no re-gate needed. Pack prompt: `dev/plans/prompts/0.5.4-EVENT.md`.
 - 2026-06-28 — **Kickoff gate answered + Phase A done.** Branch
   `feat/0.5.4-eventbus` off `main`; **UN-28** allocated in `dev/user-needs.md` and
   the plan's `UN-27` collision fixed; MIGRATE runs **sequential / small disjoint
