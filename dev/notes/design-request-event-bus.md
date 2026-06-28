@@ -128,8 +128,10 @@ RequestEvent (superset; each sink projects its subset)
   user / team / airlock_client
   airlock_provider: str
   request_headers: Any     # raw kwargs["headers"] — fathom headers_json (§3.8 / finding #2)
-  # response
-  response: Any            # objects; sql projection json-encodes; fathom response_text derives via _response_text
+  # response — carry the RAW response_obj; each projection serializes/extracts (§3.10)
+  response_obj: Any        # the raw response object (canonical source, sourced once)
+  #   enterprise/s3 project _serialize(response_obj); sql projects json.dumps(_serialize(...));
+  #   fathom projects _response_text(response_obj) — operates on the raw object, as today
   usage: {prompt,completion,total}_tokens
   response_cost            # for fathom "cost"
   # failure — BOTH forms carried (finding #1)
@@ -151,13 +153,35 @@ RequestEvent (superset; each sink projects its subset)
 > `headers_json` = `_json_text(kwargs.get("headers"))` (`AIRLOCK_FATHOM_STORE_HEADERS`),
 > and `mcp_arguments_json` = `_json_text(<resolved mcp_arguments>)`
 > (`AIRLOCK_FATHOM_STORE_MCP_PAYLOADS`). For `project_fathom(event)` to be **pure**
-> (no kwargs re-read — the seam's contract), the event must carry `request_headers`
+> (no kwargs re-read — the seam's contract), the event carries `request_headers`
 > (raw `kwargs["headers"]`), `mcp_arguments` (the same resolution chain
-> kwargs→litellm_params→metadata), and a response from which `_response_text` can
-> derive `response_text` — `event.response` already holds the serialized response
-> object, so fathom runs `_response_text` against it. `messages_json` derives from
-> `event.messages`. The env-flag gating stays **in the fathom projection** (it is a
-> fathom output concern, not an event concern).
+> kwargs→litellm_params→metadata), and the **raw `response_obj`** (§3.10), so fathom
+> runs `_response_text(event.response_obj)` against the raw object exactly as today.
+> `messages_json` derives from `event.messages`. The env-flag gating stays **in the
+> fathom projection** (it is a fathom output concern, not an event concern).
+
+> **§3.10 — The event carries the RAW response object, not a pre-serialized dict
+> (gate #2 finding #1).** Today each consumer serializes the response *itself*:
+> enterprise/s3 store `_serialize(response_obj)` (a dict), sql stores
+> `json.dumps(_serialize(response_obj))` (a string), and fathom calls
+> `_response_text(response_obj)` — which reads `.choices` off the **raw object** and
+> does **not** handle a top-level `{"choices": ...}` dict. If the event carried the
+> pre-serialized dict, fathom's `response_text` would silently drop — a BLOCK.
+> Therefore the canonical event field is the **raw `response_obj`** (sourced once),
+> and **serialization is a per-projection step**: enterprise/s3 → `_serialize`,
+> sql → `json.dumps(_serialize(...))`, fathom → `_response_text`. Golden tests pin
+> all three (incl. `AIRLOCK_FATHOM_STORE_RESPONSE_TEXT` against a serialized-shape
+> response).
+
+> **§3.11 — Fathom whole-sink skip must be preserved (gate #2 finding #2).** Fathom
+> skips the **entire** write when `metadata["airlock_skip_fathom_logger"]` is truthy
+> (fathom_logger.py:229) — `enhanced_passthrough.py:172` sets it on inner
+> physical-model calls so passthrough doesn't double-log. The flag is `airlock_`-
+> prefixed so it already rides on the event (in `guardrail_meta`); the **fathom
+> emit** (not the recorder) must check it and emit **zero rows** when set, exactly as
+> today. A seam/golden test pins: flag set → no fathom row, other sinks unaffected.
+> This is a fathom **emit predicate**, part of preserving each sink's firing surface
+> (§5a).
 
 > **§3.9 — Bare vs rich `error` (finding #1).** s3 (`s3_logger.py:93`) and sql
 > (`sql_logger.py:121`) emit `"error": str(kwargs.get("exception")) if not success
@@ -197,24 +221,40 @@ A single recorder that builds the event once and fans out:
 ### 5a. Registration cutover + ordering invariant (RESOLVED — finding #4)
 
 The recorder is **one fan-out callback** that replaces the per-sink registrations.
-Concretely, today's registration surface (verified at HEAD):
+**Today's registration surface is heterogeneous — verified at HEAD (gate #2 finding
+#3 corrected the earlier overstatement):**
 
-- **`config.yaml`** (`:547-549`): `callbacks` = `[model_override_headers...]`;
-  `success_callback`/`failure_callback` =
-  `[enterprise_logger.proxy_logger, fast.monitor.proxy_monitor]` (fathom is
-  commented out — **not** registered via config today).
-- **Module-level `_self_register()`** at import: enterprise (`:574-593`,
-  adds `proxy_logger` to sync+async success/failure lists) — and the analogous
-  self-registration in the s3 / sql / fathom / metrics modules.
+| Sink | `_self_register()` at import | In `config.yaml` | Net firing surface today |
+|---|---|---|---|
+| enterprise `proxy_logger` | **yes** — sync+async × success+failure (`enterprise_logger.py:593`) | yes (`:548-549` success+failure) | always-on, sync **and** async |
+| fast monitor `proxy_monitor` | yes — sync+async **success** (`monitor.py:501`) | yes (`:548-549`) | always-on (**not a record sink**) |
+| metrics `metrics_callback` | yes — sync+async **success** (`metrics.py:248`) | no | always-on, success only |
+| fathom `proxy_fathom_logger` | **`_self_register_async()` — ASYNC only** (`fathom_logger.py:408`) | no (commented out) | **async paths only** |
+| s3 `proxy_s3_logger` | **none** — module instance + `atexit` flush (`s3_logger.py:209`) | no | **inactive by default; opt-in** via config |
+| sql `proxy_sql_logger` | **none** — module instance only (`sql_logger.py:184`) | no | **inactive by default; opt-in** via config |
 
-**Cutover:** the recorder registers **once** (sync+async success+failure) and calls
-the record sinks (enterprise, s3, sql, fathom) + the per-request side channels
-(mutation ledger, `requests_total`/`request_duration`/`_record_mutations`) as plain
-**projection functions**, not as independently-registered `CustomLogger`s. Each
-migrated sink's `_self_register()` is removed and its `config.yaml` entry is dropped
-in the **same** MIGRATE pack that moves it (so it is never both self-registered
-*and* fan-out-dispatched — that would double-emit). The EVENT pack adds the recorder
-registration; the MIGRATE packs each remove one old registration as they land.
+**Cutover:** the recorder registers **once** and dispatches to the record sinks
+(enterprise, s3, sql, fathom) + per-request side channels (mutation ledger,
+`requests_total`/`request_duration`/`_record_mutations`) as plain **projection
+functions**, not independently-registered `CustomLogger`s. The EVENT pack adds the
+recorder registration in **enterprise's slot** (§5a ordering invariant). Each
+MIGRATE pack then **removes only the registration that actually exists** for its
+sink — enterprise's `_self_register()` + config entries; fathom's
+`_self_register_async()`; metrics' `_self_register()` — and **does not chase
+nonexistent removals for s3/sql** (they have none). A sink is never both
+self-registered *and* fan-out-dispatched (that would double-emit).
+
+**Firing-surface invariant — DO NOT regress (gate #2 finding #3):** the recorder
+must reproduce **each sink's exact current activation and sync/async coverage** — no
+sink may start firing where it doesn't today. Concretely: **fathom stays async-only**
+(its projection/emit must not run on a sync-only dispatch), **s3 and sql stay
+opt-in** (dispatched only when a deployment has activated them, i.e. they were
+configured — the recorder honors an explicit per-sink "enabled" flag rather than
+always emitting), **metrics stays success-only**. Golden/seam tests pin: an async
+success dispatches enterprise+fathom+metrics(+s3/sql iff enabled); a sync dispatch
+does **not** produce a fathom row; a failure does **not** produce a metrics
+`request_duration`-on-success row; etc. This invariant is the EVENT pack's core
+behavior-preservation obligation.
 
 **Ordering invariant — DO NOT regress (the subtle one):** `fast.monitor.proxy_monitor`
 is **not a record sink** — it is the protection subsystem, and it **stays a separate
@@ -311,6 +351,16 @@ DESIGN (this note, codex PASS)
 ---
 
 ### Changelog of this note
+- 2026-06-28 (rev 3 — post codex gate #2 BLOCK, re-gate #3) — gate #1's 4 findings
+  confirmed resolved; addressed gate #2's 3 (narrower) findings, all with
+  contract-determined resolutions: **#1** event now carries the **raw `response_obj`**
+  (serialization is per-projection) so fathom's `_response_text` works on the raw
+  object exactly as today (§3.10, §4); **#2** pinned fathom's whole-sink
+  `airlock_skip_fathom_logger` skip as an emit predicate (§3.11); **#3** rewrote the
+  §5a registration inventory with verified per-sink facts (enterprise sync+async+config
+  & self-register; fathom **async-only** self-register; metrics self-register; s3/sql
+  **opt-in, no self-register**) + a **firing-surface invariant** (no sink fires where
+  it doesn't today). Verdict promoted to `...154755Z.md`. Re-running gate #3 (decisive).
 - 2026-06-28 (rev 2 — post codex BLOCK, re-gate) — addressed all four design-gate
   findings with HEAD-verified evidence:
   **#1** added `bare_exception_error` to the event so s3/sql reproduce their raw

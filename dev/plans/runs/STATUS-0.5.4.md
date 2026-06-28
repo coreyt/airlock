@@ -15,21 +15,23 @@ Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`. Audit source-of-record:
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** **DESIGN** (Phase B) — codex gate #1 returned **BLOCK** (4 findings,
-  all addressed); design note revised to rev 2; **re-gate in progress**.
-- **Done:** kickoff HITL answered (branch `feat/0.5.4-eventbus`, UN-28,
-  sequential/small-batch MIGRATE); Phase A complete (UN-28 in `dev/user-needs.md`;
-  plan's UN-27 collision fixed); codex gate #1 verdict promoted →
-  `0.5.4-EVENTBUS-design-review-20260628T153724Z.md` (triage: FIX → re-gate).
-- **Codex gate #1 BLOCK findings (all FIXED in note rev 2):** #1 s3/sql raw
-  `error` → added `bare_exception_error`; #2 fathom env-gated fields
-  (`headers`/`mcp_arguments`/`response_text`) → added event sources so
-  `project_fathom` is pure; #3 `write_precall_block_record`/`write_batch_record`
-  → explicitly scoped OUT (§2a); #4 registration cutover + **monitor-ordering
-  invariant** (recorder takes enterprise's slot before `proxy_monitor`) → pinned
-  (§5a).
-- **Next action:** re-run the **codex design gate** over the revised note. PASS →
-  Phase E (`EVENT`). A second BLOCK → halt to HITL (no looping).
+- **In flight:** **DESIGN** (Phase B) — gate #1 BLOCK (4 findings) → rev 2; gate #2
+  BLOCK (3 narrower findings) → rev 3; **gate #3 (decisive) in progress.**
+- **Done:** kickoff HITL answered; Phase A complete; gate #1 + #2 verdicts promoted
+  (`...153724Z.md`, `...154755Z.md`). Gate #1's 4 findings confirmed resolved by gate
+  #2's "what passed".
+- **Gate #1 BLOCK (all FIXED, rev 2):** #1 `bare_exception_error` (s3/sql raw error);
+  #2 fathom env-gated field sources (pure `project_fathom`); #3 scoped out
+  `write_precall_block_record`/`write_batch_record` (§2a); #4 registration cutover +
+  monitor-ordering invariant (§5a).
+- **Gate #2 BLOCK (all FIXED, rev 3):** #1 carry **raw `response_obj`** (per-projection
+  serialize) so fathom `_response_text` works on the raw object (§3.10); #2 fathom
+  whole-sink `airlock_skip_fathom_logger` skip pinned (§3.11); #3 corrected §5a
+  registration facts (fathom **async-only**; s3/sql **opt-in, no self-register**) +
+  **firing-surface invariant**.
+- **Decision rule for gate #3:** PASS or CONCERN/low-only → Phase E (`EVENT`),
+  carrying residual CONCERNs as EVENT-pack test obligations. Another **high BLOCK →
+  halt to HITL** (stop the autonomous re-gate loop).
 
 ## 2. Pack scoreboard
 
