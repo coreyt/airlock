@@ -115,6 +115,14 @@ small disjoint batches** (one sink per worktree). `VERIFY` after all MIGRATE-*;
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-28 — **ALL MIGRATE CLOSED (full no-network suite 2572 passed, 1 pre-existing
+  env failure) → VERIFY.** HITL: **agent runs the isolated-instance smoke** (user
+  authorized the billed spend; runbook authorizes agent-run — safe by construction,
+  separate port, refuses :4000/:8090). VERIFY = (a) cross-sink equivalence harness
+  (implementer, no-network) + (b) orchestrator runs `dev/smoketest/run_isolated_instance.sh`
+  on a spare port, drives a few representative billed calls, confirms the enterprise JSONL
+  records have the expected shape (validates the LIVE litellm→recorder→sink path +
+  registration ordering that unit tests mock), then stops the instance.
 - 2026-06-28 — **⚠️ codex REVIEWER UNAVAILABLE (usage limit; resets ~14:14).** The
   MIGRATE-sql codex review aborted with "You've hit your usage limit". Per
   `dev/agent-harness-reference.md` §3.2, falling back to the **`code-reviewer` (sonnet)**
