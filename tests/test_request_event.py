@@ -135,7 +135,9 @@ def test_failure_event_bare_exception_none_string():
 
 
 def test_success_event_bare_exception_is_none():
-    event = build_request_event(_kwargs(), _FakeResponse(), _ts(0), _ts(1), success=True)
+    event = build_request_event(
+        _kwargs(), _FakeResponse(), _ts(0), _ts(1), success=True
+    )
     assert event.bare_exception_error is None
     assert event.error is None
     assert event.error_type is None
@@ -296,7 +298,9 @@ def test_recorder_dispatch_in_registration_order():
 
     assert list(recorder.sink_names) == ["A", "B", "C"]
 
-    event = build_request_event(_kwargs(), _FakeResponse(), _ts(0), _ts(1), success=True)
+    event = build_request_event(
+        _kwargs(), _FakeResponse(), _ts(0), _ts(1), success=True
+    )
     recorder.dispatch(event)
 
     assert calls == ["A", "B", "C"]
@@ -316,7 +320,9 @@ def test_recorder_failure_isolation(caplog):
     recorder.register(raising, name="B")
     recorder.register(lambda e: calls.append("C"), name="C")
 
-    event = build_request_event(_kwargs(), _FakeResponse(), _ts(0), _ts(1), success=True)
+    event = build_request_event(
+        _kwargs(), _FakeResponse(), _ts(0), _ts(1), success=True
+    )
 
     import logging
 
@@ -325,7 +331,9 @@ def test_recorder_failure_isolation(caplog):
         recorder.dispatch(event)
 
     assert calls == ["A", "C"]
-    assert any("B" in r.getMessage() or "exploded" in r.getMessage() for r in caplog.records)
+    assert any(
+        "B" in r.getMessage() or "exploded" in r.getMessage() for r in caplog.records
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -334,7 +342,9 @@ def test_recorder_failure_isolation(caplog):
 def test_empty_recorder_dispatch_is_noop():
     recorder = RequestRecorder()
     assert list(recorder.sink_names) == []
-    event = build_request_event(_kwargs(), _FakeResponse(), _ts(0), _ts(1), success=True)
+    event = build_request_event(
+        _kwargs(), _FakeResponse(), _ts(0), _ts(1), success=True
+    )
     # no sinks, no raise, returns None
     assert recorder.dispatch(event) is None
 
@@ -343,7 +353,9 @@ def test_recorder_frozen_event_is_passed_through():
     received = []
     recorder = RequestRecorder()
     recorder.register(lambda e: received.append(e), name="capture")
-    event = build_request_event(_kwargs(), _FakeResponse(), _ts(0), _ts(1), success=True)
+    event = build_request_event(
+        _kwargs(), _FakeResponse(), _ts(0), _ts(1), success=True
+    )
     recorder.dispatch(event)
     assert received == [event]
     with pytest.raises(Exception):
