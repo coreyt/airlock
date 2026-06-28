@@ -1,0 +1,110 @@
+{
+  "sql": {
+    "plain_success": {
+      "success": true,
+      "model": "gpt-4o",
+      "user": "alice",
+      "team": "team-a",
+      "request_id": "call-123",
+      "messages": "[{\"role\": \"user\", \"content\": \"hello\"}]",
+      "response": "\"_FakeResponse(prompt=3 completion=5 total=8 content='hi')\"",
+      "error": null,
+      "duration_ms": 1500,
+      "prompt_tokens": 3,
+      "completion_tokens": 5,
+      "total_tokens": 8
+    },
+    "provider_failure": {
+      "success": false,
+      "model": "gpt-4o",
+      "user": "alice",
+      "team": "team-a",
+      "request_id": "call-123",
+      "messages": "[{\"role\": \"user\", \"content\": \"hello\"}]",
+      "response": null,
+      "error": "boom",
+      "duration_ms": 1000
+    },
+    "pre_call_failure": {
+      "success": false,
+      "model": "gpt-4o",
+      "user": "alice",
+      "team": "team-a",
+      "request_id": "call-123",
+      "messages": "[{\"role\": \"user\", \"content\": \"hello\"}]",
+      "response": null,
+      "error": "None",
+      "duration_ms": 1000
+    },
+    "mcp_call": {
+      "success": true,
+      "model": "gpt-4o",
+      "user": "alice",
+      "team": "team-a",
+      "request_id": "call-123",
+      "messages": "[{\"role\": \"user\", \"content\": \"hello\"}]",
+      "response": "\"_FakeResponse(prompt=3 completion=5 total=8 content='hi')\"",
+      "error": null,
+      "duration_ms": 400,
+      "prompt_tokens": 3,
+      "completion_tokens": 5,
+      "total_tokens": 8
+    },
+    "gemini_success": {
+      "success": true,
+      "model": "gemini-1.5-pro",
+      "user": "alice",
+      "team": "team-a",
+      "request_id": "call-123",
+      "messages": "[{\"role\": \"user\", \"content\": \"hello\"}]",
+      "response": "\"_FakeResponse(prompt=3 completion=5 total=8 content='hi')\"",
+      "error": null,
+      "duration_ms": 2000,
+      "prompt_tokens": 3,
+      "completion_tokens": 5,
+      "total_tokens": 8
+    },
+    "mutations_and_served": {
+      "success": true,
+      "model": "gpt-4o",
+      "user": "alice",
+      "team": "team-a",
+      "request_id": "call-123",
+      "messages": "[{\"role\": \"user\", \"content\": \"hello\"}]",
+      "response": "\"_FakeResponse(prompt=3 completion=5 total=8 content='hi')\"",
+      "error": null,
+      "duration_ms": 1000,
+      "prompt_tokens": 3,
+      "completion_tokens": 5,
+      "total_tokens": 8
+    },
+    "guardrail_keys": {
+      "success": true,
+      "model": "gpt-4o",
+      "user": "alice",
+      "team": "team-a",
+      "request_id": "call-123",
+      "messages": "[{\"role\": \"user\", \"content\": \"hello\"}]",
+      "response": "\"_FakeResponse(prompt=3 completion=5 total=8 content='hi')\"",
+      "error": null,
+      "duration_ms": 1000,
+      "prompt_tokens": 3,
+      "completion_tokens": 5,
+      "total_tokens": 8
+    },
+    "guardrail_collision": {
+      "success": true,
+      "model": "gpt-4o",
+      "user": "alice",
+      "team": "team-a",
+      "request_id": "call-123",
+      "messages": "[{\"role\": \"user\", \"content\": \"hello\"}]",
+      "response": "\"_FakeResponse(prompt=3 completion=5 total=8 content='hi')\"",
+      "error": null,
+      "duration_ms": 1000,
+      "prompt_tokens": 3,
+      "completion_tokens": 5,
+      "total_tokens": 8
+    }
+  }
+}

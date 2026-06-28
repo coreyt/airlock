@@ -13,10 +13,19 @@ try:
 except ImportError:
     _SA_AVAILABLE = False
 
+from airlock.callbacks.request_event import (
+    RequestRecorder,
+    build_request_event,
+)
 from airlock.callbacks.sql_logger import AirlockSQLLogger
 
 
 pytestmark = pytest.mark.skipif(not _SA_AVAILABLE, reason="sqlalchemy not installed")
+
+
+def _event(kwargs, response_obj, start, end, *, success=True):
+    """Build the canonical RequestEvent the recorder feeds to ``record_event``."""
+    return build_request_event(kwargs, response_obj, start, end, success=success)
 
 
 class TestSQLLogger:
@@ -40,7 +49,9 @@ class TestSQLLogger:
         self, sql_logger, mock_logger_kwargs, mock_response_obj, mock_start_end_times
     ):
         start, end = mock_start_end_times
-        sql_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
+        sql_logger.record_event(
+            _event(mock_logger_kwargs, mock_response_obj, start, end)
+        )
 
         with sql_logger._engine.connect() as conn:
             result = conn.execute(sa.text("SELECT * FROM airlock_logs"))
@@ -51,7 +62,9 @@ class TestSQLLogger:
         self, sql_logger, mock_logger_kwargs, mock_response_obj, mock_start_end_times
     ):
         start, end = mock_start_end_times
-        sql_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
+        sql_logger.record_event(
+            _event(mock_logger_kwargs, mock_response_obj, start, end)
+        )
 
         with sql_logger._engine.connect() as conn:
             result = conn.execute(sa.text("SELECT * FROM airlock_logs"))
@@ -69,7 +82,9 @@ class TestSQLLogger:
         self, sql_logger, mock_logger_kwargs, mock_response_obj, mock_start_end_times
     ):
         start, end = mock_start_end_times
-        sql_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
+        sql_logger.record_event(
+            _event(mock_logger_kwargs, mock_response_obj, start, end)
+        )
 
         with sql_logger._engine.connect() as conn:
             result = conn.execute(sa.text("SELECT messages FROM airlock_logs"))
@@ -83,7 +98,9 @@ class TestSQLLogger:
         self, sql_logger, mock_failure_kwargs, mock_start_end_times
     ):
         start, end = mock_start_end_times
-        sql_logger.log_failure_event(mock_failure_kwargs, None, start, end)
+        sql_logger.record_event(
+            _event(mock_failure_kwargs, None, start, end, success=False)
+        )
 
         with sql_logger._engine.connect() as conn:
             result = conn.execute(sa.text("SELECT * FROM airlock_logs"))
@@ -97,8 +114,8 @@ class TestSQLLogger:
     ):
         start, end = mock_start_end_times
         for _ in range(5):
-            sql_logger.log_success_event(
-                mock_logger_kwargs, mock_response_obj, start, end
+            sql_logger.record_event(
+                _event(mock_logger_kwargs, mock_response_obj, start, end)
             )
 
         with sql_logger._engine.connect() as conn:
@@ -106,12 +123,16 @@ class TestSQLLogger:
             count = result.scalar()
         assert count == 5
 
-    async def test_async_delegates(
+    def test_async_dispatch_inserts(
         self, sql_logger, mock_logger_kwargs, mock_response_obj, mock_start_end_times
     ):
+        # The sql logger is a NORMAL recorder sink; async dispatch reaches it the
+        # same as sync (the deleted async_log_success_event delegated to _insert too).
         start, end = mock_start_end_times
-        await sql_logger.async_log_success_event(
-            mock_logger_kwargs, mock_response_obj, start, end
+        recorder = RequestRecorder()
+        recorder.register(sql_logger.record_event, name="sql")
+        recorder.dispatch(
+            _event(mock_logger_kwargs, mock_response_obj, start, end), is_async=True
         )
 
         with sql_logger._engine.connect() as conn:
