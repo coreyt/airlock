@@ -46,7 +46,7 @@ Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`. Audit source-of-record:
 | Pack | Goal (1 line) | Depends on | State | Witness |
 |------|---------------|------------|-------|---------|
 | `DESIGN` | `design-request-event-bus.md` + codex design-review PASS | — | **CLOSED** (codex PASS, gate #4) | `design-request-event-bus.md` rev 4 + `0.5.4-EVENTBUS-design-review-20260628T160640Z.md` (PASS) |
-| `EVENT` | Canonical `RequestEvent` + recorder/dispatcher seam (registration, ordering, per-sink failure isolation) | DESIGN ✅ | IN_FLIGHT (authoring prompt) | `dev/plans/runs/0.5.4-EVENT-output.json` |
+| `EVENT` | Canonical `RequestEvent` + recorder/dispatcher seam (registration, ordering, per-sink failure isolation) | DESIGN ✅ | IMPLEMENTING (implementer spawned, worktree) | `dev/plans/runs/0.5.4-EVENT-output.json` |
 | `MIGRATE-enterprise` | Enterprise logger onto `RequestEvent`; delete its `_build_record()` | EVENT | NOT_STARTED | `dev/plans/runs/0.5.4-MIGRATE-enterprise-output.json` |
 | `MIGRATE-fathom` | Fathom logger onto `RequestEvent`; delete `_build_record()` | EVENT | NOT_STARTED | `dev/plans/runs/0.5.4-MIGRATE-fathom-output.json` |
 | `MIGRATE-s3` | S3 logger onto `RequestEvent`; delete `_build_record()` | EVENT | NOT_STARTED | `dev/plans/runs/0.5.4-MIGRATE-s3-output.json` |
