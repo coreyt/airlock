@@ -13,6 +13,50 @@ recorder/dispatcher behind every telemetry sink.** Plan: `dev/plans/0.5.4-plan.m
 Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`. Audit source-of-record:
 `dev/notes/architecture-audit-0.5.0-2026-06.md` (Part 2 telemetry row + Tier 3 #8).
 
+## 0. RELEASE SIGN-OFF — ✅ ENGINEERING-COMPLETE (2026-06-28)
+
+**0.5.4 — observability event-bus unification — is engineering-complete and signed off
+on `feat/0.5.4-eventbus` (HEAD `0532b30`).** Definition of Done (plan §"Definition of
+Done") — all met:
+
+1. **Design closed** — `design-request-event-bus.md` rev 4, codex **PASS** (gate #4, after
+   4 adversarial gates: findings 4→3→2→0). ✅
+2. **All packs CLOSED w/ promoted review PASS** — DESIGN, EVENT, MIGRATE-entfathom
+   (2a/2b-i/2b-ii), MIGRATE-s3, MIGRATE-sql, MIGRATE-sidechannels, VERIFY, DOCS. codex
+   reviewed design + EVENT/2a/2b-i/2b-ii/s3; **sonnet `code-reviewer` fallback** reviewed
+   sql + sidechannels (codex usage-limited mid-release — noted §7); VERIFY/DOCS
+   self-verified + gated. ✅
+3. **Acceptance criteria** — **UN-28** (one event drives all sinks) ✅; **AC-EQUIV**
+   (per-sink frozen goldens + cross-sink harness + live parity smoke) ✅; **AC-SEAM**
+   (single recorder, deterministic order, per-sink failure isolation, no-double-emit —
+   confirmed LIVE) ✅; **AC-SMOKE** (isolated-instance parity GREEN) ✅.
+4. **Equivalence proven; the duplicated builders are GONE** — `_build_record` (enterprise),
+   `_base_record`/`_fathom_properties` (fathom), s3 `_build_record`, sql `_build_record` all
+   deleted; every sink emits field-for-field identical records (only the registered
+   `timestamp` convergence differs). ✅
+5. **Full no-network suite GREEN** — `2586 passed`, 2 skipped, 1 xpassed; the lone failure
+   (`test_fathom_init::test_init_engine_with_fathomdb`) is **pre-existing + environmental**
+   (optional `fathomdb` dep absent) — verified failing identically on `main` (57010d1)
+   before any 0.5.4 work. Sink-failure isolation test-covered. ✅
+6. **Isolated-instance parity run GREEN** — port 4137, live `:4000` untouched; recorder
+   confirmed sole telemetry callback **before monitor** on both lists in the real litellm
+   proxy; live enterprise JSONL record field-for-field complete. (`0.5.4-VERIFY-smoke-…md`) ✅
+7. **Docs shipped** — UN-28 in `user-needs.md`; as-built `design-request-event-bus.md`;
+   CHANGELOG 0.5.4 + behavior-change register; `operations.md` recorder model + new
+   `AIRLOCK_ENABLE_S3_LOGGER`/`AIRLOCK_ENABLE_SQL_LOGGER` flags; `mkdocs build --strict`
+   clean; config/docs parity tests green. ✅
+8. **Nothing pushed/tagged** — version bumped 0.5.3→0.5.4 locally; **all subsequent steps
+   are HITL-gated** (below). ✅
+
+### Remaining — HUMAN-GATED (not executed without explicit approval)
+- Merge `feat/0.5.4-eventbus` → `main` (the 0.5.x train).
+- `git push` + tag `v0.5.4`.
+- (Optional) PyPI publish — 0.5.2/0.5.3 did NOT auto-publish; operator-gated.
+- Operator note for custom deployments: migrate telemetry callbacks to
+  `recorder_callback` + the new env flags (see CHANGELOG behavior-change register).
+
+---
+
 ## 1. Current pack in flight + next action
 
 - **In flight:** **VERIFY** (Phase E, pack 6). **ALL MIGRATE PACKS CLOSED — core
@@ -21,15 +65,10 @@ Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`. Audit source-of-record:
   `_fathom_properties` deleted**. Recorder fans out to: enterprise (always, first), metrics
   (always), fathom (gated async-only), s3 (gated), sql (gated); fan-out before `proxy_monitor`.
   (codex reviewer still rate-limited → sonnet `code-reviewer` fallback in use for reviews.)
-- **In flight:** **DOCS** (Phase E, last pack). **VERIFY CLOSED:** (a) isolated-instance
-  parity smoke GREEN (port 4137; recorder sole callback before monitor on both lists LIVE;
-  enterprise record field-for-field complete; no field change; `:4000` untouched); (b)
-  cross-sink equivalence harness merged (14 tests; one event → all 4 sinks vs frozen goldens
-  + metrics + failure isolation). Full suite 2586 green.
-- **Next action:** DOCS — UN-28 (done in Phase A; confirm), as-built design note, changelog
-  + behavior-change register (s3/sql env-flag opt-in + timestamp convergence; else "internal
-  — no wire change"), document new `AIRLOCK_ENABLE_S3_LOGGER`/`AIRLOCK_ENABLE_SQL_LOGGER`
-  flags; reconcile per `dev/update-docs.md` (`mkdocs build --strict` + config parity). Then sign-off.
+- **In flight:** none — **release engineering-complete + SIGNED OFF** (see §0). All 8
+  packs CLOSED; version bumped 0.5.3→0.5.4 (`0532b30`).
+- **Next action:** **HALT to human** for the HITL-gated release steps (merge to `main`,
+  push, tag `v0.5.4`, optional PyPI publish) — §0. Nothing pushed/tagged without approval.
 - **enterprise+fathom FULLY MIGRATED** (2a+2b-i+2b-ii all CLOSED): the recorder is the
   single live telemetry callback in enterprise's slot (before monitor); enterprise &
   fathom are projection-backed sinks; `_build_record`/`_base_record`/`_fathom_properties`
