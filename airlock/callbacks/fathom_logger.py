@@ -301,6 +301,39 @@ class AirlockFathomLogger(CustomLogger):
         except Exception as e:
             logger.error(f"FathomDB write failed: {e}")
 
+    def record_event(self, event: Any) -> None:
+        """Fathom sink (0.5.4-MIGRATE) — dormant until pack 2b-ii cutover.
+
+        Reproduces ``_log_event``'s functional path (skip / engine / call_id /
+        dedup / write) from the canonical event via ``project_fathom``.
+        """
+        from airlock.callbacks.projections import project_fathom
+
+        if event.guardrail_meta.get("airlock_skip_fathom_logger"):
+            return
+
+        db_engine = self._get_engine()
+        if not db_engine or WriteRequestBuilder is None:
+            return
+
+        call_id = event.request_id or uuid.uuid4().hex
+        if self._should_skip_call_id(call_id):
+            return
+
+        builder = WriteRequestBuilder("airlock_log")
+        builder.add_node(
+            row_id=uuid.uuid4().hex,
+            logical_id=call_id,
+            kind="RequestLog",
+            properties=project_fathom(event),
+            source_ref="airlock:fathom_logger",
+            upsert=True,
+        )
+        try:
+            db_engine.write(builder.build())
+        except Exception as e:
+            logger.error(f"FathomDB write failed: {e}")
+
     def log_success_event(
         self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
     ) -> None:
