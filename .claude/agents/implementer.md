@@ -101,7 +101,7 @@ Return this exact structure (a human-readable echo of `output.json`):
 ## Worktree Discipline
 
 - Do ALL work inside the worktree path from your briefing
-- Do NOT cd into /home/coreyt/projects/airlock for any reason
+- Do NOT cd into <repo-root> for any reason
 - Do NOT push, merge, or touch main — the orchestrator merges worktree → main
 - Commit inside the worktree. Uncommitted work is lost when the worktree is removed
 

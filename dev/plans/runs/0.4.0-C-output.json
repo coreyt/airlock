@@ -44,7 +44,7 @@
   "blockers_encountered": [
     {
       "id": "main-worktree-preexisting-changes",
-      "description": "MAIN working dir (/home/coreyt/projects/airlock) shows 'M .claude/agents/implementer.md' and '?? dev/update-docs.md'. The stray-edit tripwire flagged these.",
+      "description": "MAIN working dir (<repo-root>) shows 'M .claude/agents/implementer.md' and '?? dev/update-docs.md'. The stray-edit tripwire flagged these.",
       "resolution": "Not mine — every Edit/Write/Bash I ran targeted absolute paths under /tmp/airlock-0.4.0-C only. These are pre-existing orchestrator scaffolding, not my stray edits, so I left MAIN untouched as required (did NOT revert orchestrator files)."
     },
     {

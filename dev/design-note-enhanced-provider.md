@@ -17,7 +17,7 @@ Actual implementation diverged. Airlock now uses `airlock/providers/enhanced_pas
 
 ### Current Behavior Snapshot
 
-- Runtime implementation: [`airlock/providers/enhanced_passthrough.py`](/home/coreyt/projects/airlock/airlock/providers/enhanced_passthrough.py)
+- Runtime implementation: [`airlock/providers/enhanced_passthrough.py`](<repo-root>/airlock/providers/enhanced_passthrough.py)
 - Config surface: `model_list[].litellm_params.enhanced_profile`
 - Forwarded fields: target model, injected system prompt, normalized Gemini reasoning params, provider auth (`api_key`), and transport context (`api_base`, `headers`, `client`)
 - Logging behavior: inner forwarded provider call skips Airlock Fathom logging; one logical alias request produces one `RequestLog` row

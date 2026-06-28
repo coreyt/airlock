@@ -50,7 +50,7 @@ Worktree (your working directory): {{WORKTREE_PATH}}
 Branch: {{BRANCH}}
 Base commit (fresh from main): {{BASE_COMMIT}}
 
-Do ALL work inside the worktree. Do NOT cd into /home/coreyt/projects/airlock
+Do ALL work inside the worktree. Do NOT cd into <repo-root>
 for any reason. Do NOT edit, stage, or commit files there. If any command below
 targets the main checkout, STOP and report.
 
