@@ -112,7 +112,8 @@ def test_config_lists_recorder_before_monitor():
 def test_no_double_emit_enterprise_once_fathom_once(monkeypatch):
     monkeypatch.setenv("AIRLOCK_ENABLE_FATHOM_LOGGER", "1")
     recorder = recorder_mod._build_recorder()
-    assert recorder.sink_names == ["enterprise", "fathom"]
+    # metrics is an always-on sink registered after enterprise (sidechannels pack).
+    assert recorder.sink_names == ["enterprise", "metrics", "fathom"]
     cb = RequestRecorderCallback(recorder)
 
     engine = MagicMock()
@@ -192,7 +193,9 @@ def test_no_double_emit_live_callback_list_cardinality():
 def test_fathom_sink_absent_when_flag_unset(monkeypatch):
     monkeypatch.delenv("AIRLOCK_ENABLE_FATHOM_LOGGER", raising=False)
     recorder = recorder_mod._build_recorder()
-    assert recorder.sink_names == ["enterprise"]
+    # metrics is always-on; fathom stays absent while its flag is unset.
+    assert recorder.sink_names == ["enterprise", "metrics"]
+    assert "fathom" not in recorder.sink_names
 
     engine = MagicMock()
     with (
