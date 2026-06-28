@@ -107,6 +107,12 @@ small disjoint batches** (one sink per worktree). `VERIFY` after all MIGRATE-*;
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-28 — **⚠️ codex REVIEWER UNAVAILABLE (usage limit; resets ~14:14).** The
+  MIGRATE-sql codex review aborted with "You've hit your usage limit". Per
+  `dev/agent-harness-reference.md` §3.2, falling back to the **`code-reviewer` (sonnet)**
+  subagent for sql (and any pack reviewed while codex is down); noted on the board.
+  Prefer codex once it resets for later packs (sidechannels/VERIFY). The sonnet fallback
+  is acceptable for the clean s3-mirroring sql pack.
 - 2026-06-28 — **enterprise+fathom CLOSED → MIGRATE-s3. ⚠️ BEHAVIOR-CHANGE-REGISTER
   ITEM (s3/sql opt-in mechanism).** Today s3/sql are opt-in via a deployment adding
   `proxy_s3_logger`/`proxy_sql_logger` to config.yaml `success_callback` (they have no
