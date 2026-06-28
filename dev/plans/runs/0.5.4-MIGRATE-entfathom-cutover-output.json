@@ -2,10 +2,12 @@
   "pack": "0.5.4-MIGRATE-entfathom-cutover",
   "baseline_sha": "d466934e292726ee51e826010b826af55415f44f",
   "branch": "worktree-agent-ac63240cce3fa8b85",
-  "head_sha": "2f44be7be4a2691543db2340816076e67efc7ebb",
+  "head_sha": "d1d44fb1918732d56c3d00c0d556fd37ef0204d8",
   "commits": [
     "63164a9: test(0.5.4-cutover): freeze projection oracle to goldens + add recorder seam tests (RED)",
-    "2f44be7: feat(0.5.4-cutover): activate recorder as single live telemetry callback; delete duplicated builders"
+    "2f44be7: feat(0.5.4-cutover): activate recorder as single live telemetry callback; delete duplicated builders",
+    "70420d0: chore(0.5.4-cutover): closure artifact output.json",
+    "d1d44fb: test(0.5.4-MIGRATE-entfathom-cutover): prove no-double-emit via live callback-list cardinality + idempotent self_register"
   ],
   "tdd_evidence": {
     "red_commit_sha": "63164a9f66881a328bb2e285a9a8df4b95c3954e",
@@ -25,10 +27,11 @@
       "tests/test_fathom_logger.py",
       "tests/test_proxy.py"
     ],
-    "passed": 221,
+    "passed": 222,
     "failed": 0,
     "failing_ids": [],
-    "full_suite_no_network": "2515 passed, 107 skipped, 1 xpassed, 1 failed (pre-existing: tests/test_fathom_init.py::test_init_engine_with_fathomdb — optional fathomdb pkg not installed; datastore.py untouched by this pack)"
+    "review_med_finding_closed": "test_recorder_cutover.py::test_no_double_emit_live_callback_list_cardinality — proves recorder_callback dedupes to exactly ONE entry per litellm list (success/failure x sync/async) under repeated _self_register() + a simulated config-load add; deleted proxy_logger/proxy_fathom_logger absent from all four lists. DEDUP HELD (no double-emit).",
+    "full_suite_no_network": "2516 passed, 107 skipped, 1 xpassed, 1 failed (pre-existing: tests/test_fathom_init.py::test_init_engine_with_fathomdb — optional fathomdb pkg not installed; datastore.py untouched by this pack)"
   },
   "files_changed": [
     "airlock/callbacks/recorder.py",
@@ -73,6 +76,6 @@
     "Removed now-dead fathom _debug_enabled helper (only callers were the deleted _log_event/_self_register_async).",
     "Kept proxy.py _fathom_logger_enabled() (still referenced by test_proxy.py) — only removed the config-mutating append block."
   ],
-  "agent_verify_result": "pass (221 targeted passed; full no-network suite 2515 passed / 1 pre-existing fathomdb-absent failure unrelated to this pack; ruff check + format clean on all changed files)",
-  "next_step_for_orchestrator": "Pack 0.5.4-MIGRATE-entfathom-cutover on branch worktree-agent-ac63240cce3fa8b85 at 2f44be7; review (note the 3 documented out-of-scope test fan-out edits + the pre-existing test_fathom_init fathomdb failure), verify, merge."
+  "agent_verify_result": "pass (222 targeted passed incl. new live-cardinality no-double-emit test; full no-network suite 2516 passed / 1 pre-existing fathomdb-absent failure unrelated to this pack; ruff check + format clean on all changed files)",
+  "next_step_for_orchestrator": "Pack 0.5.4-MIGRATE-entfathom-cutover on branch worktree-agent-ac63240cce3fa8b85 at d1d44fb; review med finding CLOSED (live callback-list dedup proven — recorder_callback exactly once per list, idempotent self_register, no legacy double-path). Note the 3 documented out-of-scope test fan-out edits + the pre-existing test_fathom_init fathomdb failure. Verify, merge."
 }
