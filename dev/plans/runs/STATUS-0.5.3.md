@@ -24,10 +24,28 @@ Release: **decouple from LiteLLM internals (ACL) + unblock the hot path
   skipped, 1 failed (`test_fathom_init.py` — known pre-existing fathom env failure,
   unrelated).**
 - **Release engineering-complete:** version bumped 0.5.2 → **0.5.3** (pyproject +
-  uv.lock); CHANGELOG `[0.5.3]` added; annotated tag `v0.5.3` cut LOCAL.
-- **Remaining (sign-off):** isolated-port `dev/smoketest/` run as the parity +
-  latency oracle (operator-gated — spends real provider tokens), then push/publish
-  per separate approval (K3). **Nothing pushed.**
+  uv.lock, `13c71e0`); CHANGELOG `[0.5.3]` added; annotated tag **`v0.5.3`** cut LOCAL.
+
+## ✅ 0.5.3 SIGNED OFF (2026-06-28)
+
+All DoD items met. **Isolated-port smoke PASS** (agent-run on `:4137`, copied config,
+production `:4000` untouched — [[airlock-production-safety]]): post-ACL-refactor the
+transparency headers are intact on **both** paths —
+- non-streaming + `--explain`: `X-Airlock-Served-By: gemini`,
+  `X-Airlock-Mutations: fallbacks=suppressed`, `X-Airlock-Explain` envelope present;
+- streaming (SSE): `X-Airlock-Served-By: gemini` (no regression of the old
+  streaming served-by bug), mutations header present.
+
+The ACL (`litellm_adapter.py`) preserved served-by/mutations/explain end-to-end; PII
+parity + concurrency are covered by the no-network suite (2428 passed). **Shipped
+LOCAL ONLY:** all 4 packs merged to `main` (LATENCY merge `902617e`); version
+0.5.2 → **0.5.3** (`13c71e0`); annotated tag **`v0.5.3`**. `main` is ~30 commits
+ahead of `origin/main`; **push + PyPI publish are the operator's call** (K3 — nothing
+pushed). Also unpushed: the **`v0.5.1` tag** (local-only since the 0.5.1 release).
+
+**Follow-ups (optional, later):** the 3 LATENCY review nits (pragma/test-name/memo);
+stale merged branches eligible for deletion (incl. 4 `worktree-agent-*`); push the
+0.5.3 train + `v0.5.1`/`v0.5.3` tags when approved.
 
 ### Parallelization (REVISED per design gate F2 — conflict-free waves)
 
