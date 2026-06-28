@@ -15,8 +15,14 @@ Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`. Audit source-of-record:
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** **MIGRATE-enterprise+fathom** (Phase E, pack 2, coupled batch) —
-  next to author + spawn. EVENT is CLOSED.
+- **In flight:** **MIGRATE-s3** (Phase E, pack 3) — next to author + spawn.
+- **enterprise+fathom FULLY MIGRATED** (2a+2b-i+2b-ii all CLOSED): the recorder is the
+  single live telemetry callback in enterprise's slot (before monitor); enterprise &
+  fathom are projection-backed sinks; `_build_record`/`_base_record`/`_fathom_properties`
+  **deleted**; equivalence frozen to `tests/fixtures/0.5.4-entfathom-golden.json`;
+  no-double-emit proven (litellm dedup). Full no-network suite 2516 passed (1 pre-existing
+  env failure: optional `fathomdb`). Merges: EVENT `bfe56bf`, 2a `7cd60d8`, 2b-i `29ca578`,
+  2b-ii `41448df`.
 - **EVENT CLOSED** (merge `bfe56bf`): `airlock/callbacks/request_event.py`
   (`RequestEvent` + `build_request_event` + `RequestRecorder`) + `tests/test_request_event.py`
   (20 tests). codex review CONCERN(low) → recorder lock/snapshot hardening (`e783e0c`) →
@@ -58,8 +64,8 @@ Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`. Audit source-of-record:
 | `EVENT` | Canonical `RequestEvent` + recorder/dispatcher seam (registration, ordering, per-sink failure isolation) | DESIGN ✅ | **CLOSED** (merge `bfe56bf`; codex CONCERN→fixed; 20 tests) | `dev/plans/runs/0.5.4-EVENT-output.json` |
 | `MIGRATE-entfathom-project` (2a) | Pure `project_enterprise`/`project_fathom` + golden equivalence (additive; nothing rewired) | EVENT ✅ | **CLOSED** (merge `7cd60d8`; codex BLOCK→fixed; 44 tests; +faithful cost fix to `request_event.py`) | `dev/plans/runs/0.5.4-MIGRATE-entfathom-project-output.json` |
 | `MIGRATE-entfathom-wire` (2b-i) | Extend recorder (async_only + is_async); add recorder callback + `record_event` sink methods on enterprise & fathom; wire the module-level recorder — **dormant** | 2a ✅ | **CLOSED** (merge `29ca578`; codex PASS; 11 tests; dormancy verified) | `dev/plans/runs/0.5.4-MIGRATE-entfathom-wire-output.json` |
-| `MIGRATE-entfathom-cutover` (2b-ii) | Register recorder in enterprise's slot (before monitor); remove enterprise `_self_register`+config + fathom `_self_register_async`; **delete** `_build_record`/`_base_record`/`_fathom_properties`/old callback methods | 2b-i ✅ | IMPLEMENTING (implementer spawned) | `dev/plans/runs/0.5.4-MIGRATE-entfathom-cutover-output.json` |
-| `MIGRATE-s3` | S3 logger onto `RequestEvent`; delete `_build_record()` | EVENT | NOT_STARTED | `dev/plans/runs/0.5.4-MIGRATE-s3-output.json` |
+| `MIGRATE-entfathom-cutover` (2b-ii) | Register recorder in enterprise's slot (before monitor); remove enterprise `_self_register`+config + fathom `_self_register_async`; **delete** `_build_record`/`_base_record`/`_fathom_properties`/old callback methods | 2b-i ✅ | **CLOSED** (merge `41448df`; codex CONCERN→both closed; 2516 suite green) | `dev/plans/runs/0.5.4-MIGRATE-entfathom-cutover-output.json` |
+| `MIGRATE-s3` | S3 logger onto `RequestEvent` (`project_s3`+sink; keep `_redact_record`, narrow fields, bare error); delete `_build_record()`; register with recorder | enterprise+fathom ✅ | IN_FLIGHT (investigating s3 opt-in gating) | `dev/plans/runs/0.5.4-MIGRATE-s3-output.json` |
 | `MIGRATE-sql` | SQL logger onto `RequestEvent`; delete `_build_record()` | EVENT | NOT_STARTED | `dev/plans/runs/0.5.4-MIGRATE-sql-output.json` |
 | `MIGRATE-sidechannels` | Mutation ledger + metrics fed from the same seam | EVENT | NOT_STARTED | `dev/plans/runs/0.5.4-MIGRATE-sidechannels-output.json` |
 | `VERIFY` | Cross-sink equivalence harness + isolated-instance parity run | all MIGRATE-* | NOT_STARTED | `dev/plans/runs/0.5.4-VERIFY-output.json` |
