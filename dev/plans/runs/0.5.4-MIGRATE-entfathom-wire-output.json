@@ -1,0 +1,47 @@
+{
+  "pack": "0.5.4-MIGRATE-entfathom-wire",
+  "baseline_sha": "398b8d385418a40b4740cf15e578181ca7a22481",
+  "branch": "worktree-agent-a0636cf47c03e53d0",
+  "head_sha": "99baeb4376e759d49efeebfcafc5383c7fa606f5",
+  "commits": [
+    "8d671681c741f91616736ecc66c51efa75541ffa: test(0.5.4-MIGRATE-entfathom-wire): RED — recorder mechanism + record_event sinks + dormancy (2b-i)",
+    "99baeb4376e759d49efeebfcafc5383c7fa606f5: feat(0.5.4-MIGRATE-entfathom-wire): GREEN — dormant live recorder mechanism (2b-i)"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "8d671681c741f91616736ecc66c51efa75541ffa",
+    "red_confirmation": "At RED commit RequestRecorderCallback is absent from committed airlock/callbacks/request_event.py (grep -c == 0), so the test module import fails -> genuinely red.",
+    "test_files": ["tests/test_recorder_wiring.py"]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_recorder_wiring.py::test_async_only_sink_skipped_on_sync_dispatch",
+      "tests/test_recorder_wiring.py::test_backward_compat_default_dispatch_and_register",
+      "tests/test_recorder_wiring.py::test_callback_sync_success_and_failure",
+      "tests/test_recorder_wiring.py::test_callback_async_variants_dispatch_is_async_true",
+      "tests/test_recorder_wiring.py::test_enterprise_record_event_success",
+      "tests/test_recorder_wiring.py::test_enterprise_record_event_failure",
+      "tests/test_recorder_wiring.py::test_fathom_record_event_skip_metadata",
+      "tests/test_recorder_wiring.py::test_fathom_record_event_no_engine",
+      "tests/test_recorder_wiring.py::test_fathom_record_event_dedup",
+      "tests/test_recorder_wiring.py::test_fathom_record_event_normal_write",
+      "tests/test_recorder_wiring.py::test_recorder_module_is_dormant"
+    ],
+    "passed": 11,
+    "failed": 0,
+    "failing_ids": [],
+    "regression_suite": "test_enterprise_logger.py + test_fathom_logger.py + test_request_event.py + test_projections_equiv.py + test_recorder_wiring.py = 149 passed (138 pre-existing baseline + 11 new), 0 failed"
+  },
+  "files_changed": [
+    "airlock/callbacks/request_event.py",
+    "airlock/callbacks/enterprise_logger.py",
+    "airlock/callbacks/fathom_logger.py",
+    "airlock/callbacks/recorder.py",
+    "tests/test_recorder_wiring.py"
+  ],
+  "blockers_encountered": [],
+  "additional_changes_made_in_scope": [
+    "Added 'from litellm.integrations.custom_logger import CustomLogger' import to request_event.py (required by the new RequestRecorderCallback)."
+  ],
+  "agent_verify_result": "pass — 149 passed (full telemetry suite + new tests); ruff check + ruff format --check clean on all 5 scoped files; RED commit confirmed red; recorder NOT installed into LiteLLM (dormancy test green); no existing registration/builder removed; config.yaml untouched.",
+  "next_step_for_orchestrator": "Pack 0.5.4-MIGRATE-entfathom-wire on branch worktree-agent-a0636cf47c03e53d0 at 99baeb4376e759d49efeebfcafc5383c7fa606f5; review, verify, merge. Activation (registering recorder_callback into LiteLLM + deleting old paths/builders) is pack 2b-ii."
+}
