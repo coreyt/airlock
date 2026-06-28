@@ -69,7 +69,9 @@ class _FakeResponse:
     def __init__(self, *, prompt=3, completion=5, total=8, content="hi") -> None:
         self.usage = _FakeUsage(prompt, completion, total)
         self.choices = [_FakeChoice(content)]
-        self._tag = f"prompt={prompt} completion={completion} total={total} content={content!r}"
+        self._tag = (
+            f"prompt={prompt} completion={completion} total={total} content={content!r}"
+        )
 
     def __repr__(self) -> str:
         # Deterministic (no memory address) so ``_serialize(resp) == str(resp)`` is

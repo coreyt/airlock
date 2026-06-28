@@ -13,6 +13,7 @@ import time
 import pytest
 
 from airlock.callbacks.enterprise_logger import AirlockLogger
+from airlock.callbacks.request_event import build_request_event
 from airlock.fast.guardian import AirlockFastGuardian
 from airlock.fast.monitor import AirlockFastMonitor
 from airlock.fast.state import CircuitState
@@ -191,7 +192,9 @@ class TestLoggerReceivesScrubbed:
         }
 
         logger = AirlockLogger()
-        logger.log_success_event(kwargs, mock_response_obj, start, end)
+        logger.record_event(
+            build_request_event(kwargs, mock_response_obj, start, end, success=True)
+        )
 
         today = datetime.date.today().isoformat()
         log_path = log_dir / f"airlock-{today}.jsonl"
@@ -240,7 +243,9 @@ class TestFailoverInLogs:
             "litellm_params": {"metadata": result.get("metadata", {})},
         }
         logger = AirlockLogger()
-        logger.log_success_event(kwargs, mock_response_obj, start, end)
+        logger.record_event(
+            build_request_event(kwargs, mock_response_obj, start, end, success=True)
+        )
 
         today = datetime.date.today().isoformat()
         log_path = log_dir / f"airlock-{today}.jsonl"
@@ -392,7 +397,9 @@ class TestObserverIntegration:
             "litellm_params": {"metadata": data.get("metadata", {})},
         }
         logger_inst = AirlockLogger()
-        logger_inst.log_success_event(kwargs, mock_response_obj, start, end)
+        logger_inst.record_event(
+            build_request_event(kwargs, mock_response_obj, start, end, success=True)
+        )
 
         today = datetime.date.today().isoformat()
         log_path = log_dir / f"airlock-{today}.jsonl"

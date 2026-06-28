@@ -32,12 +32,18 @@ class TestParseRatelimitHeaders:
         assert out["reset_tokens_seconds"] is None
 
     def test_plain_seconds_and_unparseable(self):
-        assert parse_ratelimit_headers({"x-ratelimit-reset-tokens": "12.5"})[
-            "reset_tokens_seconds"
-        ] == 12.5
-        assert parse_ratelimit_headers({"x-ratelimit-reset-tokens": "soon"})[
-            "reset_tokens_seconds"
-        ] is None
+        assert (
+            parse_ratelimit_headers({"x-ratelimit-reset-tokens": "12.5"})[
+                "reset_tokens_seconds"
+            ]
+            == 12.5
+        )
+        assert (
+            parse_ratelimit_headers({"x-ratelimit-reset-tokens": "soon"})[
+                "reset_tokens_seconds"
+            ]
+            is None
+        )
 
     def test_non_mapping_input(self):
         out = parse_ratelimit_headers(None)
@@ -70,7 +76,9 @@ class TestProviderRateLimitState:
 
     def test_store_noop_on_empty(self):
         store = StateStore()
-        store.record_provider_ratelimit("openai", {"remaining_tokens": None}, time.time())
+        store.record_provider_ratelimit(
+            "openai", {"remaining_tokens": None}, time.time()
+        )
         # nothing observed -> default state, observed_at stays 0
         assert store.get_provider_ratelimit("openai").observed_at == 0.0
 
@@ -85,14 +93,19 @@ class TestMetricsHelperNoCrash:
 
 class TestRecordType:
     def test_request_record_has_record_type(self):
-        from airlock.callbacks.enterprise_logger import AirlockLogger
+        # _build_record was deleted in the 0.5.4 cutover; the enterprise record now
+        # comes from the projection over the canonical event.
+        from airlock.callbacks.projections import project_enterprise
+        from airlock.callbacks.request_event import build_request_event
 
-        rec = AirlockLogger._build_record(
-            {"model": "gpt-5.4", "messages": []},
-            None,
-            None,
-            None,
-            success=True,
+        rec = project_enterprise(
+            build_request_event(
+                {"model": "gpt-5.4", "messages": []},
+                None,
+                None,
+                None,
+                success=True,
+            )
         )
         assert rec["record_type"] == "request"
 
@@ -137,7 +150,9 @@ class TestObservFix1:
             usage=None,
         )
         monitor.log_success_event(kwargs, response_obj, None, None)
-        assert fresh_state_store.get_provider_ratelimit("openai").remaining_tokens == 777
+        assert (
+            fresh_state_store.get_provider_ratelimit("openai").remaining_tokens == 777
+        )
 
     def test_monitor_failure_captures_headroom(self, fresh_state_store):
         from types import SimpleNamespace
@@ -146,9 +161,7 @@ class TestObservFix1:
 
         monitor = AirlockFastMonitor()
         exc = RuntimeError("rate limit exceeded")
-        exc.response = SimpleNamespace(
-            headers={"x-ratelimit-remaining-requests": "3"}
-        )
+        exc.response = SimpleNamespace(headers={"x-ratelimit-remaining-requests": "3"})
         kwargs = {
             "model": "gpt-5.4",
             "litellm_params": {"metadata": {"user_api_key": "sk-bbbbbbbb12345678"}},

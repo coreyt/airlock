@@ -159,7 +159,10 @@ def test_fathom_sink_absent_when_flag_unset(monkeypatch):
     ):
         recorder.dispatch(
             build_request_event(
-                _kwargs(call_id="gate-off"), _FakeResponse(), _ts(0), _ts(1),
+                _kwargs(call_id="gate-off"),
+                _FakeResponse(),
+                _ts(0),
+                _ts(1),
                 success=True,
             ),
             is_async=True,
@@ -182,7 +185,10 @@ def test_fathom_sink_present_and_async_only_when_flag_set(monkeypatch):
         # sync dispatch -> async_only fathom sink skipped, no write
         recorder.dispatch(
             build_request_event(
-                _kwargs(call_id="gate-sync"), _FakeResponse(), _ts(0), _ts(1),
+                _kwargs(call_id="gate-sync"),
+                _FakeResponse(),
+                _ts(0),
+                _ts(1),
                 success=True,
             ),
             is_async=False,
@@ -192,7 +198,10 @@ def test_fathom_sink_present_and_async_only_when_flag_set(monkeypatch):
         # async dispatch -> fathom fires
         recorder.dispatch(
             build_request_event(
-                _kwargs(call_id="gate-async"), _FakeResponse(), _ts(0), _ts(1),
+                _kwargs(call_id="gate-async"),
+                _FakeResponse(),
+                _ts(0),
+                _ts(1),
                 success=True,
             ),
             is_async=True,

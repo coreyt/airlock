@@ -1,26 +1,65 @@
-"""DORMANT module-level recorder wiring (0.5.4-MIGRATE-entfathom-wire, pack 2b-i).
+"""LIVE module-level recorder wiring (0.5.4-MIGRATE-entfathom-cutover, pack 2b-ii).
 
-Builds the live ``RequestRecorder`` + ``RequestRecorderCallback`` mechanism and
-registers the enterprise (always-on) and fathom (async_only) sinks, but leaves it
-**dormant**: ``recorder_callback`` is intentionally NOT installed into LiteLLM here
-and the existing enterprise/fathom callbacks still fire exactly as today.
+Builds the live ``RequestRecorder`` + ``RequestRecorderCallback`` mechanism, registers
+the enterprise (always-on) and fathom (async_only, env-gated) sinks, and installs
+``recorder_callback`` into LiteLLM's callback lists as the SINGLE live telemetry
+callback in enterprise's old slot.
 
-Activation (registering ``recorder_callback`` into the LiteLLM callback manager and
-removing the old paths) is pack 2b-ii (the cutover). Importing this module must NOT
-register anything into LiteLLM and must NOT change any existing callback registration.
+Ordering invariant: ``config.yaml`` lists ``recorder_callback`` BEFORE
+``proxy_monitor`` and this module ``_self_register()`` appends to all four LiteLLM
+callback lists at import — so the recorder builds the event (snapshotting
+``guardrail_meta``) before monitor's ``log_failure_event`` mutates the metadata with
+``airlock_provider_protection``. Fathom dispatch is owned here (gated by
+``AIRLOCK_ENABLE_FATHOM_LOGGER``), replacing proxy.py's old fathom-callback append.
 """
 
 from __future__ import annotations
 
+import logging
+
 from airlock.callbacks.enterprise_logger import proxy_logger
-from airlock.callbacks.fathom_logger import proxy_fathom_logger
+from airlock.callbacks.fathom_logger import _env_flag, proxy_fathom_logger
 from airlock.callbacks.request_event import RequestRecorder, RequestRecorderCallback
 
-request_recorder = RequestRecorder()
-request_recorder.register(proxy_logger.record_event, name="enterprise")  # always-on
-request_recorder.register(
-    proxy_fathom_logger.record_event, name="fathom", async_only=True
-)
+logger = logging.getLogger("airlock.logger")
+
+
+def _build_recorder() -> RequestRecorder:
+    """Build the recorder with the enterprise sink always-on (FIRST) and the fathom
+    sink registered only when ``AIRLOCK_ENABLE_FATHOM_LOGGER`` is set (async-only)."""
+    recorder = RequestRecorder()
+    recorder.register(proxy_logger.record_event, name="enterprise")  # always-on, first
+    if _env_flag("AIRLOCK_ENABLE_FATHOM_LOGGER", default=False):
+        recorder.register(
+            proxy_fathom_logger.record_event, name="fathom", async_only=True
+        )
+    return recorder
+
+
+request_recorder = _build_recorder()
 recorder_callback = RequestRecorderCallback(request_recorder)
-# NOTE: recorder_callback is intentionally NOT registered into litellm here — that is
-# pack 2b-ii (the cutover). s3/sql/sidechannels sinks register in their own packs.
+
+
+def _self_register() -> None:
+    """Install ``recorder_callback`` into both sync and async LiteLLM callback lists.
+
+    Mirrors the slot the enterprise ``proxy_logger`` used to occupy: config.yaml
+    populates the sync lists, but async proxy requests only invoke the async
+    callbacks, so the recorder must reach all four lists.
+    """
+    try:
+        import litellm
+
+        mgr = litellm.logging_callback_manager
+        mgr.add_litellm_success_callback(recorder_callback)
+        mgr.add_litellm_failure_callback(recorder_callback)
+        mgr.add_litellm_async_success_callback(recorder_callback)
+        mgr.add_litellm_async_failure_callback(recorder_callback)
+    except Exception:
+        logger.warning(
+            "recorder self-registration deferred — litellm not fully loaded",
+            exc_info=True,
+        )
+
+
+_self_register()

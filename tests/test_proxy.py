@@ -564,22 +564,24 @@ class TestRuntimeConfigPreparation:
             loaded = yaml.safe_load(f) or {}
         assert loaded["general_settings"]["background_health_checks"] is False
 
-    def test_prepare_runtime_config_can_enable_fathom_logger(
+    def test_prepare_runtime_config_does_not_inject_fathom_callback(
         self, tmp_path, monkeypatch
     ):
+        # 0.5.4 cutover: the recorder (airlock.callbacks.recorder) owns fathom dispatch,
+        # gated by AIRLOCK_ENABLE_FATHOM_LOGGER. _prepare_runtime_config must NO LONGER
+        # append the fathom callback to the config — the recorder handles the flag.
         cfg = tmp_path / "config.yaml"
         cfg.write_text(
             _VALID_CONFIG
             + "litellm_settings:\n"
-            + '  success_callback: ["airlock.callbacks.enterprise_logger.proxy_logger"]\n'
-            + '  failure_callback: ["airlock.callbacks.enterprise_logger.proxy_logger"]\n'
+            + '  success_callback: ["airlock.callbacks.recorder.recorder_callback"]\n'
+            + '  failure_callback: ["airlock.callbacks.recorder.recorder_callback"]\n'
         )
         monkeypatch.setenv("AIRLOCK_ENABLE_FATHOM_LOGGER", "1")
         monkeypatch.setenv("AIRLOCK_MCP_STARTUP_MODE", "eager")
         monkeypatch.delenv("AIRLOCK_BACKGROUND_HEALTH_CHECKS", raising=False)
 
-        runtime_path, temp_path = _prepare_runtime_config(str(cfg))
-        assert temp_path is not None
+        runtime_path, _temp_path = _prepare_runtime_config(str(cfg))
 
         import yaml
 
@@ -587,8 +589,9 @@ class TestRuntimeConfigPreparation:
             loaded = yaml.safe_load(f) or {}
 
         fathom = "airlock.callbacks.fathom_logger.proxy_fathom_logger"
-        assert fathom in loaded["litellm_settings"]["success_callback"]
-        assert fathom in loaded["litellm_settings"]["failure_callback"]
+        settings = loaded["litellm_settings"]
+        assert fathom not in (settings.get("success_callback") or [])
+        assert fathom not in (settings.get("failure_callback") or [])
 
     def test_prepare_runtime_config_injects_model_info(self, tmp_path, monkeypatch):
         monkeypatch.delenv("AIRLOCK_ENABLE_MCP_SERVERS", raising=False)

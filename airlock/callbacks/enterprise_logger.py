@@ -15,7 +15,6 @@ Env vars:
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import logging
 import os
@@ -25,12 +24,6 @@ from pathlib import Path
 from typing import Any
 
 from airlock.client_identity import extract_airlock_client_from_kwargs
-from airlock.transparency import attribute_served_backend
-from airlock.gemini_interface import (
-    build_gemini_response_headers,
-    classify_gemini_response,
-    is_gemini_provider,
-)
 from airlock.fast.router import infer_provider
 from airlock.fast.state import normalize_client_id
 from litellm.integrations.custom_logger import CustomLogger
@@ -346,62 +339,7 @@ class AirlockLogger(CustomLogger):
     """
 
     # ------------------------------------------------------------------
-    # Success
-    # ------------------------------------------------------------------
-    def log_success_event(
-        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
-    ) -> None:
-        record = self._build_record(
-            kwargs, response_obj, start_time, end_time, success=True
-        )
-        _write_log(record)
-        logger.info(
-            "request_logged model=%s user=%s tokens=%s",
-            record["model"],
-            record.get("user"),
-            record.get("total_tokens"),
-        )
-
-    async def async_log_success_event(
-        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
-    ) -> None:
-        import asyncio
-
-        await asyncio.to_thread(
-            self.log_success_event, kwargs, response_obj, start_time, end_time
-        )
-
-    # ------------------------------------------------------------------
-    # Failure
-    # ------------------------------------------------------------------
-    def log_failure_event(
-        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
-    ) -> None:
-        record = self._build_record(
-            kwargs, response_obj, start_time, end_time, success=False
-        )
-        _write_log(record)
-        logger.warning(
-            "request_failed model=%s user=%s client=%s category=%s error_type=%s error=%s",
-            record["model"],
-            record.get("user"),
-            record.get("airlock_client"),
-            record.get("failure_category"),
-            record.get("error_type"),
-            record.get("error"),
-        )
-
-    async def async_log_failure_event(
-        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
-    ) -> None:
-        import asyncio
-
-        await asyncio.to_thread(
-            self.log_failure_event, kwargs, response_obj, start_time, end_time
-        )
-
-    # ------------------------------------------------------------------
-    # Event sink (0.5.4-MIGRATE) — dormant until pack 2b-ii cutover.
+    # Event sink (0.5.4-MIGRATE) — the single live telemetry sink (pack 2b-ii).
     # ------------------------------------------------------------------
     def record_event(self, event: Any) -> None:
         """Enterprise sink: reproduce today's success/failure output via the projection."""
@@ -427,149 +365,10 @@ class AirlockLogger(CustomLogger):
                 record.get("error"),
             )
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-    @staticmethod
-    def _build_record(
-        kwargs: dict,
-        response_obj: Any,
-        start_time: Any,
-        end_time: Any,
-        *,
-        success: bool,
-    ) -> dict[str, Any]:
-        litellm_params = kwargs.get("litellm_params", {}) or {}
-        metadata = litellm_params.get("metadata", {}) or {}
-        airlock_client = _get_airlock_client(metadata, kwargs)
-        error = None
-        error_type = None
-        failure_category = None
-        if not success:
-            error, error_type, failure_category = _normalize_failure(
-                kwargs, response_obj
-            )
 
-        # Token usage
-        usage: dict[str, int] = {}
-        if response_obj and hasattr(response_obj, "usage") and response_obj.usage:
-            u = response_obj.usage
-            usage = {
-                "prompt_tokens": getattr(u, "prompt_tokens", 0),
-                "completion_tokens": getattr(u, "completion_tokens", 0),
-                "total_tokens": getattr(u, "total_tokens", 0),
-            }
-
-        # Collect airlock_* guardrail metadata (semantic scores, priority,
-        # failover info) so the slow analyzer can see classifier verdicts.
-        guardrail_meta = {k: v for k, v in metadata.items() if k.startswith("airlock_")}
-        provider = metadata.get("airlock_provider") or infer_provider(
-            kwargs.get("model", "unknown")
-        )
-
-        if success and is_gemini_provider(kwargs.get("model"), provider):
-            request_meta = metadata.get("airlock_gemini") or {
-                "mode": "balanced",
-                "visibility": "final_only",
-                "allow_empty_text": False,
-                "mapping_source": "implicit",
-                "explicit_controls": [],
-                "provider": "gemini",
-                "model": kwargs.get("model", "unknown"),
-            }
-            response_meta = classify_gemini_response(response_obj) or {
-                "output_shape": "unknown",
-                "empty_text_success": False,
-            }
-            metadata["airlock_gemini"] = request_meta
-            metadata["airlock_gemini_response"] = response_meta
-            response_headers = metadata.setdefault("airlock_response_headers", {})
-            response_headers.update(
-                build_gemini_response_headers(request_meta, response_meta)
-            )
-            guardrail_meta = {
-                k: v for k, v in metadata.items() if k.startswith("airlock_")
-            }
-
-        # MCP tool call metadata
-        call_type = kwargs.get("call_type", "")
-        mcp_meta: dict[str, Any] = {}
-        if call_type == "call_mcp_tool" or "mcp_tool_name" in kwargs:
-            mcp_meta["call_type"] = call_type or "call_mcp_tool"
-            mcp_meta["mcp_tool_name"] = (
-                kwargs.get("mcp_tool_name")
-                or litellm_params.get("mcp_tool_name")
-                or metadata.get("mcp_tool_name")
-            )
-            mcp_meta["mcp_server_name"] = (
-                kwargs.get("mcp_server_name")
-                or litellm_params.get("mcp_server_name")
-                or metadata.get("mcp_server_name")
-            )
-
-        record = {
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            # CC-9: discriminator so ingest_jsonl_record can route record kinds.
-            # Request records are "request"; the admin pack adds "admin_action".
-            # An absent record_type is treated as "request" for back-compat.
-            "record_type": "request",
-            "success": success,
-            "model": kwargs.get("model", "unknown"),
-            "user": metadata.get("user_api_key_alias")
-            or metadata.get("user_api_key_user_id"),
-            "team": metadata.get("user_api_key_team_alias"),
-            "request_id": kwargs.get("litellm_call_id"),
-            "messages": kwargs.get("messages"),
-            "response": _serialize(response_obj) if response_obj else None,
-            "error": error,
-            "error_type": error_type,
-            "failure_category": failure_category,
-            "airlock_provider": provider,
-            "start_time": start_time,
-            "end_time": end_time,
-            "duration_ms": (
-                int((end_time - start_time).total_seconds() * 1000)
-                if start_time and end_time
-                else None
-            ),
-            **usage,
-            **mcp_meta,
-            **guardrail_meta,
-        }
-
-        # Transparency (OBS-log): additive mutation ledger + served-backend
-        # attribution. Attribution is self-contained here (Decision 5) — it does
-        # not depend on the response-headers hook having run.
-        ledger = metadata.get("airlock_mutations") or []
-        record["mutations"] = [
-            dataclasses.asdict(m) if dataclasses.is_dataclass(m) else _serialize(m)
-            for m in ledger
-        ]
-        try:
-            served_backend = attribute_served_backend(
-                response_obj, cost_fallback=kwargs.get("response_cost")
-            )
-        except Exception:  # logging must never crash the record build
-            logger.debug("served-backend attribution failed", exc_info=True)
-            served_backend = None
-        served = (
-            dataclasses.asdict(served_backend) if served_backend is not None else None
-        )
-        record["served"] = served
-        record["attribution"] = (
-            "served"
-            if served is not None and served.get("provider") is not None
-            else "inferred"
-        )
-
-        record["airlock_client"] = airlock_client
-        return record
-
-
-# Module-level instance for config.yaml callback registration.
+# Module-level instance referenced by the recorder (airlock.callbacks.recorder),
+# which builds the canonical event once and dispatches to this sink's record_event.
 # LiteLLM's get_instance_fn does getattr — it needs an instance, not a class.
-# We also self-register into the async callback lists because the proxy runs
-# async but config's success_callback key only populates the sync list.
 proxy_logger = AirlockLogger()
 
 
@@ -598,24 +397,9 @@ def _patch_lowest_cost_none_guard() -> None:
         logger.warning("lowest_cost_none_guard patch failed", exc_info=True)
 
 
-def _self_register() -> None:
-    """Ensure proxy_logger is in both sync and async callback lists."""
-    try:
-        import litellm
-
-        mgr = litellm.logging_callback_manager
-        mgr.add_litellm_success_callback(proxy_logger)
-        mgr.add_litellm_failure_callback(proxy_logger)
-        mgr.add_litellm_async_success_callback(proxy_logger)
-        mgr.add_litellm_async_failure_callback(proxy_logger)
-    except Exception:
-        logger.warning(
-            "enterprise_logger self-registration deferred — litellm not fully loaded",
-            exc_info=True,
-        )
-
-    _patch_lowest_cost_none_guard()
-
-
-_self_register()
+# proxy_logger is no longer self-registered into LiteLLM — the recorder
+# (airlock.callbacks.recorder) is the single live callback and dispatches to this
+# sink. The lowest-cost None guard + log cleanup are unrelated to telemetry wiring
+# and still run at import.
+_patch_lowest_cost_none_guard()
 _cleanup_old_logs()
