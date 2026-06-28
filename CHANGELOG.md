@@ -5,6 +5,42 @@ All notable changes to Airlock are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] — 2026-06-28
+
+Internal-quality release: decouple from LiteLLM internals, take PII off the event
+loop, and pay down structural debt surfaced by the 0.5.0 architecture audit
+(`dev/notes/architecture-audit-0.5.0-2026-06.md`). No new client-facing features;
+behavior-preserving except the documented concurrency win.
+
+### Changed
+
+- **Lower tail latency under concurrency (UN-27).** Presidio PII analysis now runs
+  via `asyncio.to_thread` instead of synchronously on the event loop, so concurrent
+  `AIRLOCK_PII_ENABLED` requests no longer serialize behind it. Redaction output,
+  mapping, and counters are **byte-identical**; single-request latency is unchanged.
+- **Request text is extracted once per request.** `extract_text` is now
+  cache-aware (metadata-scoped, post-PII-redaction); the PII, keyword, and guardian
+  guards reuse the cached text instead of each re-walking the messages.
+- **Local-vLLM `/models` cache TTL widened 5s → 30s** with an opt-in-safe prewarm
+  (a cold cache still resolves correctly on the first request; non-vLLM aliases are
+  unaffected). Override via `AIRLOCK_LOCAL_VLLM_CACHE_TTL_SECONDS`.
+
+### Internal / structural (no wire change)
+
+- **LiteLLM Anti-Corruption Layer (`airlock/litellm_adapter.py`).** A single module
+  now owns every read of LiteLLM internals (`_hidden_params`, wrapper attributes,
+  `response_cost`, the proxy-app object and middleware install). **This is the one
+  file to re-verify on a LiteLLM upgrade** — internal-coupling assumptions live here
+  and nowhere else. Response headers, served-by attribution, and logs are
+  byte-identical (parity-tested across the streaming and non-streaming paths).
+- **`fast` ↔ `guardrails` import cycle broken**, and the proxy bootstrap extracted
+  to `airlock/proxy_bootstrap.py` (the sole caller of the `install_*` hooks); an
+  automated guard fails the build if the cycle returns. Middleware install order is
+  asserted (batch → admin → header → LiteLLM).
+- **`threat_score` race fixed** — the read-modify-write now happens atomically under
+  `StateStore`'s lock; client-identity extraction is consolidated behind
+  `airlock/client_identity.py` (golden-equivalent across the prior call sites).
+
 ## [0.5.2] — 2026-06-27
 
 ### Added

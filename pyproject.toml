@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "airlock-llm"
-version = "0.5.2"
+version = "0.5.3"
 description = "Enterprise LLM proxy built on LiteLLM — logging, guardrails, and unified access for AI coding tools."
 readme = "README.md"
 license = "Apache-2.0"

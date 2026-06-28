@@ -6,7 +6,7 @@
 > witnesses (worktree list, `output.json`, `*-review-*.md`, merge commits) and
 > trust the witnesses over this file on any conflict.
 
-_Last updated: 2026-06-27 (kickoff done; design gate cleared) · base branch: `main` @ `fc67c33` (v0.5.2 — 0.5.1 + 0.5.2 both merged/tagged)_
+_Last updated: 2026-06-28 (ALL 4 PACKS CLOSED + MERGED; release engineering-complete) · base branch: `main` (0.5.1 + 0.5.2 merged/tagged)_
 
 Release: **decouple from LiteLLM internals (ACL) + unblock the hot path
 (Presidio) + structural hygiene.** Plan: `dev/plans/0.5.3-plan.md`. Orchestrator:
@@ -15,13 +15,19 @@ Release: **decouple from LiteLLM internals (ACL) + unblock the hot path
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** Phase E — Waves 1+2 COMPLETE (ACL `dc1330e`, RACE `fe45159`, DECOUPLE `2ff3f38` all CLOSED). Authoring **Wave 3: LATENCY** (last pack).
-- **Done:** HITL kickoff (§6 all resolved); Phase A (UN-27 added; deferred plans
-  renumbered); ACL call-site inventory (`0.5.3-ACL-inventory.md`); **Phase D codex
-  design gate cleared** — verdict CONCERN, all 4 findings resolved in pack authoring
-  (`0.5.3-design-review-20260627T181450Z.md`).
-- **Next action:** author + spawn `ACL` and `RACE` implementers (Wave 1, disjoint
-  files). Then Wave 2 `DECOUPLE` (after ACL+RACE merge), Wave 3 `LATENCY`.
+- **ALL 4 PACKS CLOSED + MERGED to `main`:** ACL `dc1330e`, RACE `fe45159`,
+  DECOUPLE `2ff3f38`, **LATENCY `902617e`** (merge). Each codex/reviewer PASS.
+- **LATENCY closeout (2026-06-28):** code-reviewer subagent **PASS** (codex
+  bwrap-sandbox unavailable → sanctioned sonnet fallback;
+  `0.5.3-LATENCY-review-20260628T142435Z.md`), 3 nits no-fix. Closure witness
+  `0.5.3-LATENCY-output.json` written. **Full no-network suite: 2428 passed, 107
+  skipped, 1 failed (`test_fathom_init.py` — known pre-existing fathom env failure,
+  unrelated).**
+- **Release engineering-complete:** version bumped 0.5.2 → **0.5.3** (pyproject +
+  uv.lock); CHANGELOG `[0.5.3]` added; annotated tag `v0.5.3` cut LOCAL.
+- **Remaining (sign-off):** isolated-port `dev/smoketest/` run as the parity +
+  latency oracle (operator-gated — spends real provider tokens), then push/publish
+  per separate approval (K3). **Nothing pushed.**
 
 ### Parallelization (REVISED per design gate F2 — conflict-free waves)
 
@@ -39,7 +45,7 @@ File-sharing graph forces waves (NOT the plan's original "LATENCY/RACE ∥"):
 | `ACL` | `litellm_adapter.py` — single owner of all LiteLLM-internal reads; migrate call sites (parity) | design ✓ | **CLOSED** (merge `dc1330e`) | `dev/plans/runs/0.5.3-ACL-output.json` |
 | `RACE` | `threat_score` lock; identity/config consolidation | — (Wave 1 ∥ ACL) | **CLOSED** (merge `fe45159`) | `dev/plans/runs/0.5.3-RACE-output.json` |
 | `DECOUPLE` | Break `fast`↔`guardrails` cycle; extract `proxy_bootstrap.py` | ACL + RACE merged ✓ | **CLOSED** (merge `2ff3f38`) | `dev/plans/runs/0.5.3-DECOUPLE-output.json` |
-| `LATENCY` | Presidio → `to_thread`; shared text-extract; vLLM TTL | DECOUPLE merged ✓ | IN FLIGHT (Wave 3) | `dev/plans/runs/0.5.3-LATENCY-output.json` |
+| `LATENCY` | Presidio → `to_thread`; shared text-extract; vLLM TTL | DECOUPLE merged ✓ | **CLOSED** (merge `902617e`; reviewer PASS) | `dev/plans/runs/0.5.3-LATENCY-output.json` |
 | `OBS-eventbus` | Single `RequestEvent` + recorder (audit Tier 3 #8) | — | **DEFERRED → became release 0.5.4** | `dev/plans/0.5.4-plan.md` |
 
 States (furthest witnessed wins): `WORKTREE_CREATED` → `IMPLEMENTING` →
@@ -49,7 +55,7 @@ States (furthest witnessed wins): `WORKTREE_CREATED` → `IMPLEMENTING` →
 
 | Requirement | Pack | Status |
 |-------------|------|--------|
-| UN-27 — predictable latency under concurrency (no Presidio serialization) | LATENCY | ⏳ |
+| UN-27 — predictable latency under concurrency (no Presidio serialization) | LATENCY | ✅ (merged 902617e; concurrency/non-blocking test green; redaction byte-identical) |
 | AC-ACL — single ownership of internal reads; byte-parity headers/attribution | ACL | ✅ (merged dc1330e; 9 §3.7 parity fixtures green) |
 | AC-DECOUPLE — no `fast`↔`guardrails` cycle; install order asserted | DECOUPLE | ✅ (merged 2ff3f38; AST guard + bootstrap-order test) |
 | AC-RACE — no lost `threat_score`; one client-identity path | RACE | ✅ (merged fe45159; deterministic no-lost-update probe + golden parity) |
