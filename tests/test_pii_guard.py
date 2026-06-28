@@ -285,6 +285,86 @@ class TestAsyncPreCallHook:
         assert result["messages"] == []
 
 
+class TestOffloadByteParity:
+    """The asyncio.to_thread offload must not change redaction output: the
+    hook's redacted messages + mapping are byte-identical to calling the
+    synchronous _scrub_messages directly."""
+
+    @pytest.fixture(autouse=True)
+    def _require_presidio(self, presidio_available, reset_presidio_singletons):
+        if not presidio_available:
+            pytest.skip("Presidio not available")
+
+    async def test_hook_redaction_matches_direct_scrub(
+        self, mock_cache, mock_user_api_key_dict
+    ):
+        guard = AirlockPIIGuard()
+        original = [
+            {"role": "system", "content": "You are helpful."},
+            {
+                "role": "user",
+                "content": "Email alice@corp.com and bob@other.org card 4111111111111111",
+            },
+        ]
+        data = {"messages": [dict(m) for m in original], "model": "claude-sonnet"}
+        result = await guard.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+
+        # Direct synchronous reference path.
+        ref_mapping, ref_counters = {}, {}
+        ref_messages = _scrub_messages(
+            [dict(m) for m in original], ref_mapping, ref_counters
+        )
+
+        assert result["messages"] == ref_messages
+        assert result["metadata"]["airlock_pii_map"] == ref_mapping
+
+
+class TestTextCachePostRedaction:
+    """The shared per-request text cache must hold POST-redaction text so
+    keyword + guardian (which run after pii) never see the raw PII."""
+
+    @pytest.fixture(autouse=True)
+    def _require_presidio(self, presidio_available, reset_presidio_singletons):
+        if not presidio_available:
+            pytest.skip("Presidio not available")
+
+    async def test_cache_holds_redacted_text(
+        self, mock_cache, mock_user_api_key_dict
+    ):
+        guard = AirlockPIIGuard()
+        data = {
+            "messages": [{"role": "user", "content": "Email alice@corp.com"}],
+            "model": "claude-sonnet",
+        }
+        await guard.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        cached = data["metadata"]["_airlock_text"]
+        assert "alice@corp.com" not in cached
+        assert "<EMAIL_ADDRESS_1>" in cached
+
+    async def test_downstream_extract_text_sees_redacted(
+        self, mock_cache, mock_user_api_key_dict
+    ):
+        from airlock.guardrails.extract import extract_text
+
+        guard = AirlockPIIGuard()
+        data = {
+            "messages": [{"role": "user", "content": "Email alice@corp.com"}],
+            "model": "claude-sonnet",
+        }
+        await guard.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+        # A downstream guard reusing the cache-aware extractor gets the
+        # redacted text, not the original.
+        downstream = extract_text(data, "completion")
+        assert downstream == data["metadata"]["_airlock_text"]
+        assert "alice@corp.com" not in downstream
+
+
 class TestAsyncPostCallHookNullData:
     """Batch/file routes (/v1/batches, /v1/files) invoke the post-call hook with
     no chat `data` — it must not crash hydrating a None/odd payload."""

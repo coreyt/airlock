@@ -25,14 +25,16 @@ Caching
 -------
 The config file is read once on first use. The list of loaded models is
 fetched from ``{api_base}/models`` and cached for
-``AIRLOCK_LOCAL_VLLM_CACHE_TTL_SECONDS`` (default 5s) so model switches
-are picked up quickly without per-request overhead.
+``AIRLOCK_LOCAL_VLLM_CACHE_TTL_SECONDS`` (default 30s) so model switches
+are picked up quickly without per-request overhead. ``prewarm()`` can be
+called on startup to populate the cache ahead of the first request
+(best-effort; a cold cache still resolves correctly on the first request).
 
 Configuration
 -------------
 - ``AIRLOCK_LOCAL_VLLM_BASE_URL``  — default ``http://192.168.1.45:8000/v1``
 - ``AIRLOCK_CONFIG``               — path to airlock config.yaml (re-used)
-- ``AIRLOCK_LOCAL_VLLM_CACHE_TTL_SECONDS`` — default ``5``
+- ``AIRLOCK_LOCAL_VLLM_CACHE_TTL_SECONDS`` — default ``30``
 - ``AIRLOCK_LOCAL_VLLM_SWITCH_HINT`` — optional format string appended to
   the error. Supports ``{requested}``, ``{requested_served}``,
   ``{loaded}``, ``{loaded_aliases}``, ``{base_url}``.
@@ -54,7 +56,7 @@ from litellm.types.guardrails import GuardrailEventHooks
 logger = logging.getLogger("airlock.guardrails.local_vllm_router")
 
 _DEFAULT_BASE_URL = "http://192.168.1.45:8000/v1"
-_DEFAULT_TTL = 5.0
+_DEFAULT_TTL = 30.0
 
 
 def _base_url() -> str:
@@ -123,6 +125,20 @@ class AirlockLocalVLLMRouter(CustomGuardrail):
                 "local_vllm_router discovered aliases: %s", sorted(self._alias_map)
             )
         return self._alias_map
+
+    async def prewarm(self) -> None:
+        """Best-effort: populate the ``/models`` cache on startup so the first
+        real request doesn't pay the probe latency.
+
+        Idempotent (delegates to the TTL-guarded ``_loaded_models``) and
+        opt-in safe: any failure is swallowed — a cold cache still resolves
+        correctly on the first request, and non-vLLM aliases never reach the
+        probe at all.
+        """
+        try:
+            await self._loaded_models()
+        except Exception as exc:  # pragma: no cover - defensive belt-and-suspenders
+            logger.debug("local_vllm_router prewarm skipped: %s", exc)
 
     async def _loaded_models(self) -> set[str]:
         now = time.monotonic()

@@ -187,3 +187,43 @@ class _FakeResp:
 
     def json(self) -> dict:
         return self._payload
+
+
+# ---------------------------------------------------------------------------
+# cache TTL default widen (0.5.3-LATENCY)
+# ---------------------------------------------------------------------------
+class TestCacheTTLDefault:
+    def test_default_ttl_is_30s(self):
+        assert lvr._DEFAULT_TTL == 30.0
+
+    def test_cache_ttl_default_is_30(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_LOCAL_VLLM_CACHE_TTL_SECONDS", raising=False)
+        assert lvr._cache_ttl() == 30.0
+
+    def test_cache_ttl_env_override(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_LOCAL_VLLM_CACHE_TTL_SECONDS", "12")
+        assert lvr._cache_ttl() == 12.0
+
+    def test_cache_ttl_bad_value_falls_back_to_30(self, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_LOCAL_VLLM_CACHE_TTL_SECONDS", "not-a-number")
+        assert lvr._cache_ttl() == 30.0
+
+
+# ---------------------------------------------------------------------------
+# prewarm (opt-in safe) (0.5.3-LATENCY)
+# ---------------------------------------------------------------------------
+class TestPrewarm:
+    @pytest.mark.asyncio
+    async def test_prewarm_populates_cache(self, router):
+        router._loaded_models = AsyncMock(return_value={"kimi-dev-72b"})
+        await router.prewarm()
+        router._loaded_models.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_prewarm_swallows_failure(self, router):
+        async def boom() -> set[str]:
+            raise RuntimeError("vllm down")
+
+        router._loaded_models = boom  # type: ignore[assignment]
+        # Must not raise — a cold cache still resolves on the first request.
+        await router.prewarm()

@@ -139,9 +139,45 @@ def is_batch_call(data: dict, call_type: str = "") -> bool:
     return data.get("purpose") == "batch"
 
 
-def extract_text(data: dict, call_type: str = "") -> str:
-    """Dispatch: MCP if call_type == 'call_mcp_tool' or 'mcp_tool_name' in data,
-    else LLM messages."""
+# Per-request cache key, stored under ``data["metadata"]``. Scoped to a single
+# request (a new request is a new ``data`` dict, hence a fresh cache) so there is
+# no cross-request leakage. The underscore prefix marks it as Airlock-internal.
+_TEXT_CACHE_KEY = "_airlock_text"
+
+
+def _compute_text(data: dict, call_type: str) -> str:
     if is_mcp_call(data, call_type):
         return extract_text_from_mcp(data)
     return extract_text_from_messages(data.get("messages", []))
+
+
+def extract_text(data: dict, call_type: str = "") -> str:
+    """Dispatch: MCP if call_type == 'call_mcp_tool' or 'mcp_tool_name' in data,
+    else LLM messages.
+
+    Cache-aware (per-request, metadata-scoped): if ``data["metadata"]`` already
+    holds a computed value it is returned as-is; otherwise the text is computed
+    from the *current* messages/arguments and stored so subsequent guards in the
+    same request reuse it instead of re-walking. The PII guard runs first and
+    refreshes this cache with post-redaction text (see ``refresh_text_cache``),
+    so downstream keyword + guardian reads are post-redaction.
+    """
+    metadata = data.get("metadata")
+    if isinstance(metadata, dict) and _TEXT_CACHE_KEY in metadata:
+        return metadata[_TEXT_CACHE_KEY]
+    text = _compute_text(data, call_type)
+    data.setdefault("metadata", {})[_TEXT_CACHE_KEY] = text
+    return text
+
+
+def refresh_text_cache(data: dict, call_type: str = "") -> str:
+    """Recompute the request text from the *current* messages/arguments and
+    overwrite the per-request cache.
+
+    Called by the PII guard after redaction (it is the only pre-call guard that
+    mutates ``data["messages"]``) so downstream guards read post-redaction text.
+    Any caller that mutates the messages must invalidate the cache this way.
+    """
+    text = _compute_text(data, call_type)
+    data.setdefault("metadata", {})[_TEXT_CACHE_KEY] = text
+    return text
