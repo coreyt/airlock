@@ -1,0 +1,30 @@
+{
+  "pack": "0.5.4-MIGRATE-entfathom-project",
+  "baseline_sha": "57010d1",
+  "ff_base_sha": "2935062",
+  "branch": "worktree-agent-a32eb91b756a6372f",
+  "head_sha": "4da593f808c1edba1caae014428a160b59097ac4",
+  "commits": [
+    "c246bff: test(0.5.4-MIGRATE-entfathom-project): RED golden equivalence tests for projections",
+    "4da593f: feat(0.5.4-MIGRATE-entfathom-project): pure project_enterprise/project_fathom projections"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "c246bffa25630a6b508a31461aeb1fd7a0c6a5db",
+    "test_files": ["tests/test_projections_equiv.py"]
+  },
+  "tests": {
+    "targeted": ["tests/test_projections_equiv.py"],
+    "passed": 36,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/callbacks/projections.py",
+    "tests/test_projections_equiv.py",
+    "dev/notes/0.5.4-MIGRATE-entfathom-project-design.md"
+  ],
+  "blockers_encountered": [],
+  "additional_changes_made_in_scope": [],
+  "agent_verify_result": "pass (36 passed in tests/test_projections_equiv.py; ruff check + format clean; test_request_event.py + test_projections_equiv.py = 56 passed)",
+  "next_step_for_orchestrator": "Pack 0.5.4-MIGRATE-entfathom-project on branch worktree-agent-a32eb91b756a6372f at 4da593f (stacked on feat/0.5.4-eventbus @ 2935062 via clean ff); review, verify, merge. Strictly additive: new airlock/callbacks/projections.py + tests/test_projections_equiv.py only; no sink/builder/registration/config touched. Rewiring is pack 2b (MIGRATE-entfathom-install)."
+}
