@@ -1,10 +1,12 @@
 # Design — `RequestEvent` + single recorder/dispatcher (0.5.4)
 
-> **STATUS: READY FOR CODEX GATE.** Authored at 0.5.4 kickoff as the Phase-B design
-> seed; kickoff HITL answered (branch `feat/0.5.4-eventbus` off `main`, UN-28,
-> sequential/small-batch MIGRATE — §6/§7). The canonical-shape and dispatch-semantics
-> sections are **proposals with a recommended resolution** for the design gate,
-> grounded in a verified read of HEAD (see "Verified inventory").
+> **STATUS: CODEX-GATED — PASS (gate #4, 2026-06-28).** Authored at 0.5.4 kickoff;
+> hardened through four adversarial codex design gates (findings 4→3→2→0) to a clean
+> PASS — see `dev/plans/runs/0.5.4-EVENTBUS-design-review-20260628T160640Z.md` and the
+> three prior verdicts. This note (rev 4) is the **authoritative `RequestEvent` + seam
+> contract** for Phase E; the §-level golden-test obligations are binding on the
+> EVENT/MIGRATE packs. Kickoff HITL answered (branch `feat/0.5.4-eventbus` off `main`,
+> UN-28, sequential/small-batch MIGRATE — §6/§7).
 > No Phase-E pack may start until this note passes the **codex design-review gate**
 > (DoD item 1). Items marked **[OPEN — HITL]** still need a human call; items marked
 > **[RESOLVED]** are settled with code evidence and recorded here so they don't

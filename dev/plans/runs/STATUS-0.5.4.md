@@ -15,9 +15,12 @@ Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`. Audit source-of-record:
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** **DESIGN** (Phase B) — gates #1 BLOCK (4: 2 high) → rev 2; #2 BLOCK
-  (3: 1 high) → rev 3; #3 BLOCK (**2: 0 high**, §5a table fixes) → rev 4; **gate #4
-  (terminal) in progress.** Convergence: 4→3→2 findings, high→high→none.
+- **In flight:** **EVENT** (Phase E, pack 1) — DESIGN gate CLOSED (codex **PASS**,
+  gate #4, 0 findings). Authoring the EVENT pack prompt + spawning the implementer.
+- **DESIGN CLOSED:** 4 adversarial codex gates, findings 4→3→2→**0** (high→high→none→
+  PASS). Verdicts: `...153724Z.md` (#1), `...154755Z.md` (#2), `...155901Z.md` (#3),
+  `...160640Z.md` (#4 PASS). Note rev 4 is the authoritative RequestEvent + seam
+  contract; its §-level golden-test obligations bind the EVENT/MIGRATE packs.
 - **Done:** kickoff HITL answered; Phase A complete; gate #1 + #2 verdicts promoted
   (`...153724Z.md`, `...154755Z.md`). Gate #1's 4 findings confirmed resolved by gate
   #2's "what passed".
@@ -42,8 +45,8 @@ Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`. Audit source-of-record:
 
 | Pack | Goal (1 line) | Depends on | State | Witness |
 |------|---------------|------------|-------|---------|
-| `DESIGN` | `design-request-event-bus.md` + codex design-review PASS | — | IN_FLIGHT (note ready; codex gate next) | `dev/notes/design-request-event-bus.md` + `dev/plans/runs/0.5.4-EVENTBUS-design-review-<ts>.md` |
-| `EVENT` | Canonical `RequestEvent` + recorder/dispatcher seam (registration, ordering, per-sink failure isolation) | DESIGN | NOT_STARTED | `dev/plans/runs/0.5.4-EVENT-output.json` |
+| `DESIGN` | `design-request-event-bus.md` + codex design-review PASS | — | **CLOSED** (codex PASS, gate #4) | `design-request-event-bus.md` rev 4 + `0.5.4-EVENTBUS-design-review-20260628T160640Z.md` (PASS) |
+| `EVENT` | Canonical `RequestEvent` + recorder/dispatcher seam (registration, ordering, per-sink failure isolation) | DESIGN ✅ | IN_FLIGHT (authoring prompt) | `dev/plans/runs/0.5.4-EVENT-output.json` |
 | `MIGRATE-enterprise` | Enterprise logger onto `RequestEvent`; delete its `_build_record()` | EVENT | NOT_STARTED | `dev/plans/runs/0.5.4-MIGRATE-enterprise-output.json` |
 | `MIGRATE-fathom` | Fathom logger onto `RequestEvent`; delete `_build_record()` | EVENT | NOT_STARTED | `dev/plans/runs/0.5.4-MIGRATE-fathom-output.json` |
 | `MIGRATE-s3` | S3 logger onto `RequestEvent`; delete `_build_record()` | EVENT | NOT_STARTED | `dev/plans/runs/0.5.4-MIGRATE-s3-output.json` |
