@@ -28,7 +28,12 @@ from pathlib import Path
 import pytest
 
 from airlock.callbacks.enterprise_logger import _serialize
-from airlock.callbacks.projections import project_enterprise, project_fathom, project_s3
+from airlock.callbacks.projections import (
+    project_enterprise,
+    project_fathom,
+    project_s3,
+    project_sql,
+)
 from airlock.callbacks.request_event import build_request_event
 from airlock.transparency import Mutation
 
@@ -38,6 +43,10 @@ _GOLDEN = json.loads(
 
 _S3_GOLDEN = json.loads(
     (Path(__file__).parent / "fixtures" / "0.5.4-s3-golden.json").read_text()
+)
+
+_SQL_GOLDEN = json.loads(
+    (Path(__file__).parent / "fixtures" / "0.5.4-sql-golden.json").read_text()
 )
 
 
@@ -252,6 +261,12 @@ def _s3_projection(inputs):
     return project_s3(event)
 
 
+def _sql_projection(inputs):
+    kwargs, resp, start, end, success = inputs
+    event = build_request_event(kwargs, resp, start, end, success=success)
+    return project_sql(event)
+
+
 @pytest.mark.parametrize("name,make_inputs", REQUEST_SET)
 def test_project_enterprise_matches_build_record(name, make_inputs):
     got = _enterprise_projection(make_inputs())
@@ -292,6 +307,32 @@ def test_project_s3_matches_build_record(name, make_inputs):
     # key ORDER must match too (the cutover deletes _build_record and relies on
     # this projection's exact shape)
     assert list(got_no_ts.keys()) == list(expected.keys())
+
+
+@pytest.mark.parametrize("name,make_inputs", REQUEST_SET)
+def test_project_sql_matches_build_record(name, make_inputs):
+    """``project_sql`` reproduces the FROZEN ``AirlockSQLLogger._build_record`` golden
+    field-for-field, ignoring only ``timestamp`` (sql's narrow set: no guardrail/mcp/
+    served/provider/record_type, NO redaction). ``messages``/``response`` are JSON
+    STRINGS (sql stores text, not objects)."""
+    got = _sql_projection(make_inputs())
+    assert got.get("timestamp") is not None
+    # messages is always a JSON STRING; response is a JSON STRING or None
+    assert isinstance(got["messages"], str)
+    assert got["response"] is None or isinstance(got["response"], str)
+    expected = _SQL_GOLDEN["sql"][name]
+    got_no_ts = _jsonify(got)
+    assert got_no_ts == expected
+    # key ORDER must match too (the cutover deletes _build_record and relies on
+    # this projection's exact shape)
+    assert list(got_no_ts.keys()) == list(expected.keys())
+
+
+def test_project_sql_response_none_when_no_response_obj():
+    """``response is None`` (not the string ``"null"``) when there is no response_obj."""
+    got = _sql_projection(_provider_failure())
+    assert got["response"] is None
+    assert isinstance(got["messages"], str)
 
 
 def test_project_s3_redaction_matches_build_record(monkeypatch):
