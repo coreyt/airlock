@@ -39,6 +39,12 @@ def _build_recorder() -> RequestRecorder:
         # normal sink (success+failure; NOT async_only) — the AIRLOCK_S3_BUCKET
         # write-gate still discards when no bucket is configured.
         recorder.register(proxy_s3_logger.record_event, name="s3")
+    if _env_flag("AIRLOCK_ENABLE_SQL_LOGGER", default=False):
+        from airlock.callbacks.sql_logger import proxy_sql_logger
+
+        # normal sink (success+failure; NOT async_only) — the AIRLOCK_SQL_URL
+        # disabled-path still no-ops when no connection string is configured.
+        recorder.register(proxy_sql_logger.record_event, name="sql")
     return recorder
 
 

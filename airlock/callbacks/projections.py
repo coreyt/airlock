@@ -14,6 +14,7 @@ event.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from airlock.callbacks.enterprise_logger import _redact_record, _serialize
@@ -72,6 +73,32 @@ def project_s3(event: RequestEvent) -> dict[str, Any]:
         **event.usage,
     }
     return _redact_record(record)
+
+
+def project_sql(event: RequestEvent) -> dict[str, Any]:
+    """Reproduce ``AirlockSQLLogger._build_record`` output from the event (§3.9).
+
+    sql's narrow set carries NO guardrail_meta/mcp/served/provider/record_type and
+    NO redaction; ``messages``/``response`` are JSON STRINGS (sql stores text, not
+    objects) via the same ``json.dumps(..., default=_serialize)`` shape as the old
+    builder. ``error`` is the bare exception string (``str(exception)|None``).
+    """
+    record: dict[str, Any] = {
+        "timestamp": event.timestamp,
+        "success": event.success,
+        "model": event.model,
+        "user": event.user,
+        "team": event.team,
+        "request_id": event.request_id,
+        "messages": json.dumps(event.messages, default=_serialize),
+        "response": json.dumps(_serialize(event.response_obj), default=_serialize)
+        if event.response_obj
+        else None,
+        "error": event.bare_exception_error,
+        "duration_ms": event.duration_ms,
+        **event.usage,
+    }
+    return record
 
 
 def project_fathom(event: RequestEvent) -> dict[str, Any]:

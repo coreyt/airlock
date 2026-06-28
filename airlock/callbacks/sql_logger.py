@@ -11,8 +11,6 @@ Env vars:
 
 from __future__ import annotations
 
-import datetime
-import json
 import logging
 import os
 from typing import Any
@@ -28,7 +26,7 @@ except ImportError:
 
 from litellm.integrations.custom_logger import CustomLogger
 
-from .enterprise_logger import _serialize
+from .projections import project_sql
 
 
 def _get_table() -> Any:
@@ -87,46 +85,6 @@ class AirlockSQLLogger(CustomLogger):
         metadata.create_all(self._engine)
         self._initialized = True
 
-    def _build_record(
-        self,
-        kwargs: dict,
-        response_obj: Any,
-        start_time: Any,
-        end_time: Any,
-        *,
-        success: bool,
-    ) -> dict[str, Any]:
-        lp_metadata = kwargs.get("litellm_params", {}).get("metadata", {}) or {}
-        usage: dict[str, int] = {}
-        if response_obj and hasattr(response_obj, "usage") and response_obj.usage:
-            u = response_obj.usage
-            usage = {
-                "prompt_tokens": getattr(u, "prompt_tokens", 0),
-                "completion_tokens": getattr(u, "completion_tokens", 0),
-                "total_tokens": getattr(u, "total_tokens", 0),
-            }
-
-        return {
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "success": success,
-            "model": kwargs.get("model", "unknown"),
-            "user": lp_metadata.get("user_api_key_alias")
-            or lp_metadata.get("user_api_key_user_id"),
-            "team": lp_metadata.get("user_api_key_team_alias"),
-            "request_id": kwargs.get("litellm_call_id"),
-            "messages": json.dumps(kwargs.get("messages"), default=_serialize),
-            "response": json.dumps(_serialize(response_obj), default=_serialize)
-            if response_obj
-            else None,
-            "error": str(kwargs.get("exception")) if not success else None,
-            "duration_ms": (
-                int((end_time - start_time).total_seconds() * 1000)
-                if start_time and end_time
-                else None
-            ),
-            **usage,
-        }
-
     def _insert(self, record: dict[str, Any]) -> None:
         self._ensure_initialized()
         if self._engine is None or self._table is None:
@@ -139,45 +97,13 @@ class AirlockSQLLogger(CustomLogger):
         except Exception:
             logger.exception("sql_insert_failed model=%s", record.get("model"))
 
-    # ------------------------------------------------------------------
-    # Success
-    # ------------------------------------------------------------------
-    def log_success_event(
-        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
-    ) -> None:
-        record = self._build_record(
-            kwargs, response_obj, start_time, end_time, success=True
-        )
-        self._insert(record)
+    def record_event(self, event: Any) -> None:
+        """Recorder sink: insert the sql projection of one ``RequestEvent``.
 
-    async def async_log_success_event(
-        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
-    ) -> None:
-        import asyncio
-
-        await asyncio.to_thread(
-            self.log_success_event, kwargs, response_obj, start_time, end_time
-        )
-
-    # ------------------------------------------------------------------
-    # Failure
-    # ------------------------------------------------------------------
-    def log_failure_event(
-        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
-    ) -> None:
-        record = self._build_record(
-            kwargs, response_obj, start_time, end_time, success=False
-        )
-        self._insert(record)
-
-    async def async_log_failure_event(
-        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
-    ) -> None:
-        import asyncio
-
-        await asyncio.to_thread(
-            self.log_failure_event, kwargs, response_obj, start_time, end_time
-        )
+        Reuses the existing ``_insert``/``_ensure_initialized`` path unchanged
+        (engine/table guard + exception swallow).
+        """
+        self._insert(project_sql(event))
 
 
 # Module-level instance for LiteLLM config.yaml callback registration.
