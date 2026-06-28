@@ -373,6 +373,21 @@ DESIGN (this note, codex PASS)
 ---
 
 ### Changelog of this note
+- 2026-06-28 (**AS-BUILT** — release complete) — implemented exactly as designed and
+  merged on `feat/0.5.4-eventbus`: `RequestEvent` + `build_request_event` +
+  `RequestRecorder`/`RequestRecorderCallback` (`request_event.py`); per-sink projections
+  (`projections.py`: `project_enterprise`/`project_fathom`/`project_s3`/`project_sql` +
+  metrics `record_event`); the recorder installed in enterprise's slot **before**
+  `proxy_monitor` (`recorder.py` + `config.yaml`); the three duplicated builders deleted.
+  Two as-built refinements vs the gated design, both consistent with it (no re-gate):
+  (1) `response_cost` sourced with fathom's default-0 at event build (fathom-only field,
+  §3.10 fix); (2) s3/sql opt-in via new `AIRLOCK_ENABLE_S3_LOGGER`/`AIRLOCK_ENABLE_SQL_LOGGER`
+  env flags (the single-callback design removed per-sink config registration) — registered
+  in the 0.5.4 behavior-change register. Equivalence proven by frozen goldens
+  (`tests/fixtures/0.5.4-*-golden.json`) + the cross-sink harness + an isolated-instance
+  parity smoke (recorder confirmed sole callback before monitor in the live litellm proxy;
+  enterprise record field-for-field complete). Merges: EVENT `bfe56bf`, 2a `7cd60d8`,
+  2b-i `29ca578`, 2b-ii `41448df`, s3, sql, sidechannels, VERIFY.
 - 2026-06-28 (rev 4 — post codex gate #3 BLOCK, re-gate #4 final) — gate #3 returned
   **no high finding** (1 medium + 1 low, both §5a table-accuracy fixes); all prior
   high findings confirmed resolved. Corrected the §5a registration table: **metrics**

@@ -21,12 +21,15 @@ Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`. Audit source-of-record:
   `_fathom_properties` deleted**. Recorder fans out to: enterprise (always, first), metrics
   (always), fathom (gated async-only), s3 (gated), sql (gated); fan-out before `proxy_monitor`.
   (codex reviewer still rate-limited → sonnet `code-reviewer` fallback in use for reviews.)
-- **VERIFY progress:** (a) isolated-instance parity smoke **GREEN** (orchestrator-run, port
-  4137 — recorder is the sole callback **before monitor on both lists** in the live litellm
-  proxy; live enterprise JSONL record field-for-field complete incl. Gemini enrich + served/
-  mutations; served-by/mutations headers intact; no field change; live `:4000` untouched).
-  (b) cross-sink equivalence harness — implementer IN FLIGHT.
-- **Next action:** close VERIFY (review+merge the cross-sink harness), then DOCS, then sign-off.
+- **In flight:** **DOCS** (Phase E, last pack). **VERIFY CLOSED:** (a) isolated-instance
+  parity smoke GREEN (port 4137; recorder sole callback before monitor on both lists LIVE;
+  enterprise record field-for-field complete; no field change; `:4000` untouched); (b)
+  cross-sink equivalence harness merged (14 tests; one event → all 4 sinks vs frozen goldens
+  + metrics + failure isolation). Full suite 2586 green.
+- **Next action:** DOCS — UN-28 (done in Phase A; confirm), as-built design note, changelog
+  + behavior-change register (s3/sql env-flag opt-in + timestamp convergence; else "internal
+  — no wire change"), document new `AIRLOCK_ENABLE_S3_LOGGER`/`AIRLOCK_ENABLE_SQL_LOGGER`
+  flags; reconcile per `dev/update-docs.md` (`mkdocs build --strict` + config parity). Then sign-off.
 - **enterprise+fathom FULLY MIGRATED** (2a+2b-i+2b-ii all CLOSED): the recorder is the
   single live telemetry callback in enterprise's slot (before monitor); enterprise &
   fathom are projection-backed sinks; `_build_record`/`_base_record`/`_fathom_properties`

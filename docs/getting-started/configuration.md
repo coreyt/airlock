@@ -213,7 +213,9 @@ See [Batch Processing](../guide/batch.md) for the end-to-end recipe.
 | `AIRLOCK_STARTUP_MODEL_DISCOVERY` | Opt-in provider/model discovery on startup | `0` |
 | `AIRLOCK_MCP_STARTUP_MODE` | MCP startup mode: `off`, `lazy`, or `eager` | `lazy` |
 | `AIRLOCK_ENABLE_FATHOMDB` | Enable lazy FathomDB engine initialization | `0` |
-| `AIRLOCK_ENABLE_FATHOM_LOGGER` | Append Fathom request logging at runtime | `0` |
+| `AIRLOCK_ENABLE_FATHOM_LOGGER` | Enable the Fathom request-logging sink (recorder-fed) | `0` |
+| `AIRLOCK_ENABLE_S3_LOGGER` | Enable the S3 logging sink (recorder-fed; also needs `AIRLOCK_S3_BUCKET`) | `0` |
+| `AIRLOCK_ENABLE_SQL_LOGGER` | Enable the SQL logging sink (recorder-fed; also needs `AIRLOCK_SQL_URL`) | `0` |
 | `AIRLOCK_LOCAL_VLLM_BASE_URL` | URL of the local vLLM endpoint the router guardrail watches | `http://192.168.1.45:8000/v1` |
 | `AIRLOCK_LOCAL_VLLM_CACHE_TTL_SECONDS` | Cache TTL for the `/models` probe used by the local vLLM router | `5` |
 | `AIRLOCK_LOCAL_VLLM_SWITCH_HINT` | Optional format-string appended to the router's mismatch error (placeholders: `{requested}`, `{requested_served}`, `{loaded}`, `{loaded_aliases}`, `{base_url}`) | -- |

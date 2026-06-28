@@ -227,31 +227,53 @@ airlock analyze --days 7     # last 7 days
 ## Callbacks
 
 Airlock registers LiteLLM callbacks via `config.yaml`. The default
-`config.yaml` enables the request logger, the fast-path monitor, and the
-model-override-headers callback; the rest are opt-in extras.
+`config.yaml` registers **one** telemetry callback —
+`airlock.callbacks.recorder.recorder_callback` — plus the fast-path monitor and the
+model-override-headers callback.
+
+> **Since 0.5.4 — one event, one recorder.** Every per-request telemetry sink
+> (enterprise/fathom/s3/sql loggers + Prometheus metrics) is now fed from a single
+> canonical `RequestEvent` built once per request and fanned out by
+> `recorder_callback`. You no longer register each sink in `config.yaml`. The recorder
+> entry **must** stay **before** `airlock.fast.monitor.proxy_monitor` in
+> `success_callback`/`failure_callback` (the recorder snapshots guardrail metadata
+> before the monitor mutates it). The enterprise logger and metrics are **always-on**
+> via the recorder; the optional sinks are gated by env flags (see below). Emitted
+> records and counters are unchanged — only the opt-in mechanism moved from a
+> `config.yaml` callback entry to an env flag.
+
+```yaml
+litellm_settings:
+  callbacks: ["airlock.callbacks.model_override_headers.proxy_model_override_headers"]
+  success_callback: ["airlock.callbacks.recorder.recorder_callback", "airlock.fast.monitor.proxy_monitor"]
+  failure_callback: ["airlock.callbacks.recorder.recorder_callback", "airlock.fast.monitor.proxy_monitor"]
+```
+
+| Sink (fed by the recorder) | Module | Enabled by | Role |
+|----------------------------|--------|------------|------|
+| Enterprise logger | `airlock.callbacks.enterprise_logger` | always-on | Structured JSONL request/response logging (default) |
+| Prometheus metrics | `airlock.callbacks.metrics` | always-on (`[metrics]` extra for the exporter) | Prometheus counters/histograms |
+| Fathom logger | `airlock.callbacks.fathom_logger` | `AIRLOCK_ENABLE_FATHOM_LOGGER=1` | Optional FathomDB request logging |
+| S3 logger | `airlock.callbacks.s3_logger` | `AIRLOCK_ENABLE_S3_LOGGER=1` (+ `AIRLOCK_S3_BUCKET`, `[s3]` extra) | Ship JSONL logs to S3 |
+| SQL logger | `airlock.callbacks.sql_logger` | `AIRLOCK_ENABLE_SQL_LOGGER=1` (+ `AIRLOCK_SQL_URL`, `[sql]` extra) | Database logging |
+
+Separately registered (not recorder sinks):
 
 | Callback | Module | Role |
 |----------|--------|------|
-| Enterprise logger | `airlock.callbacks.enterprise_logger.proxy_logger` | Structured JSONL request/response logging (default) |
-| Fast monitor | `airlock.fast.monitor.proxy_monitor` | Feeds circuit breaker / threat / priority state (default) |
+| Fast monitor | `airlock.fast.monitor.proxy_monitor` | Feeds circuit breaker / threat / priority state (default; registered after the recorder) |
 | Model override headers | `airlock.callbacks.model_override_headers.proxy_model_override_headers` | Adds Airlock/Gemini response headers; installs the `/health/circuits` endpoint and enriched API docs (default) |
-| Fathom logger | `airlock.callbacks.fathom_logger.proxy_fathom_logger` | Optional FathomDB request logging (gated by `AIRLOCK_ENABLE_FATHOM_LOGGER`) |
-| Prometheus metrics | `airlock.callbacks.metrics` | Prometheus counters/histograms (`[metrics]` extra) |
 | OpenTelemetry tracing | `airlock.callbacks.tracing` | Trace export (`[tracing]` extra) |
-| S3 logger | `airlock.callbacks.s3_logger` | Ship JSONL logs to S3 (`[s3]` extra) |
-| SQL logger | `airlock.callbacks.sql_logger` | Database logging (`[sql]` extra) |
 
 ## Monitoring
 
 ### Prometheus Metrics
 
-Install with `pip install airlock-llm[metrics]` and add the metrics callback:
-
-```yaml
-litellm_settings:
-  success_callback: ["airlock.callbacks.metrics"]
-  failure_callback: ["airlock.callbacks.metrics"]
-```
+Install with `pip install airlock-llm[metrics]` for the Prometheus exporter. Since
+0.5.4 the per-request metrics are **always-on** via the recorder — you do **not** add
+a metrics callback to `config.yaml` (the `recorder_callback` already fans the request
+event out to the metrics sink). Just having the recorder registered (the default
+`config.yaml`) emits the counters below.
 
 Exposed metrics:
 
