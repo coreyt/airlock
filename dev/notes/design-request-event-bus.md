@@ -47,6 +47,22 @@ two genuinely-independent builders (s3, sql) onto event projections, (d) feed th
 side channels from the same event. This is **less duplication than "4×" implies**
 and changes ordering/parallelism (§8).
 
+### 2a. Related record producers held OUT OF SCOPE (explicit boundary)
+
+Two other functions in `enterprise_logger.py` build request/log-shaped records but
+are **not** on the LiteLLM success/failure callback fan-out path, so they are
+**explicitly out of scope** for 0.5.4 — the same way `admin_action` records are
+(codex design-review finding #3):
+
+| Producer | Module | Why out of scope |
+|---|---|---|
+| `write_precall_block_record()` | `enterprise_logger.py:236` | Builds a **failure** record for requests blocked **before** LiteLLM callbacks fire (no `response_obj`/`start`/`end`; `request_id` from `metadata`, `duration_ms=0`). It is a *fourth* enterprise-shaped failure builder, but on the **pre-dispatch** path — there is no `RequestEvent` at that point. Folding it in would expand scope to the pre-call hook. **Left as-is**; a future release may converge it once the seam exists. |
+| `write_batch_record()` | `enterprise_logger.py:287` | Batch/file-job lifecycle telemetry (`call_type="batch"`, `is_batch_call=True`), emitted **outside** the interactive success/failure callback path. Entirely different shape (no messages/response/usage). **Left as-is.** |
+
+Both still write through `_write_log` (rotation + redaction) and are unchanged by
+this release. The MIGRATE-enterprise golden tests assert these two paths' output is
+**byte-identical** before vs after (they must not be perturbed by the refactor).
+
 ## 3. Critical divergences — "behavior-preserving" is NOT "make sinks identical"
 
 The sinks **do not emit the same record today.** The canonical event is a
@@ -111,19 +127,47 @@ RequestEvent (superset; each sink projects its subset)
   request_id: str          # litellm_call_id
   user / team / airlock_client
   airlock_provider: str
+  request_headers: Any     # raw kwargs["headers"] — fathom headers_json (§3.8 / finding #2)
   # response
-  response: Any            # objects; sql projection json-encodes
+  response: Any            # objects; sql projection json-encodes; fathom response_text derives via _response_text
   usage: {prompt,completion,total}_tokens
   response_cost            # for fathom "cost"
-  # failure (rich; s3/sql project to bare error str)
-  error / error_type / failure_category
+  # failure — BOTH forms carried (finding #1)
+  error / error_type / failure_category   # rich, _normalize_failure() — enterprise projects these
+  bare_exception_error: str | None         # literal str(kwargs.get("exception")) — s3/sql project THIS as their "error"
   # enrichment (computed once, pre-fanout — §3.5)
   guardrail_meta: dict     # airlock_* (post Gemini enrichment)
   mcp_meta: dict           # call_type, mcp_tool_name, mcp_server_name
+  mcp_arguments: Any       # resolved kwargs/litellm_params/metadata mcp_arguments — fathom mcp_arguments_json (§3.8 / finding #2)
   # transparency
   mutations: list          # from metadata["airlock_mutations"]
   served / attribution     # attribute_served_backend(...)
 ```
+
+> **§3.8 — Fathom's env-flag-gated fields must all source from the event
+> (finding #2).** `_fathom_properties` (fathom_logger.py:106-172) re-reads raw
+> `kwargs`/`response_obj` for three optional fields gated by env flags:
+> `response_text` = `_response_text(response_obj)` (`AIRLOCK_FATHOM_STORE_RESPONSE_TEXT`),
+> `headers_json` = `_json_text(kwargs.get("headers"))` (`AIRLOCK_FATHOM_STORE_HEADERS`),
+> and `mcp_arguments_json` = `_json_text(<resolved mcp_arguments>)`
+> (`AIRLOCK_FATHOM_STORE_MCP_PAYLOADS`). For `project_fathom(event)` to be **pure**
+> (no kwargs re-read — the seam's contract), the event must carry `request_headers`
+> (raw `kwargs["headers"]`), `mcp_arguments` (the same resolution chain
+> kwargs→litellm_params→metadata), and a response from which `_response_text` can
+> derive `response_text` — `event.response` already holds the serialized response
+> object, so fathom runs `_response_text` against it. `messages_json` derives from
+> `event.messages`. The env-flag gating stays **in the fathom projection** (it is a
+> fathom output concern, not an event concern).
+
+> **§3.9 — Bare vs rich `error` (finding #1).** s3 (`s3_logger.py:93`) and sql
+> (`sql_logger.py:121`) emit `"error": str(kwargs.get("exception")) if not success
+> else None` — the **raw** exception string, including `None`/empty-string edge
+> cases. Enterprise emits the **normalized** rich triple. The event carries **both**:
+> the rich triple (enterprise projects it) and `bare_exception_error` (s3/sql
+> project it verbatim as their `error`). Carrying only the rich triple would change
+> s3/sql output — a BLOCK. fathom's `error`/`error_type` (under
+> `AIRLOCK_FATHOM_STORE_ERROR_DETAILS`) project from the **rich** triple, matching
+> today (it reads the enterprise builder's `record`).
 
 Each sink/side-channel gets a **pure projection function** `project_<sink>(event)
 -> dict` (or metric increments). The four-plus inlined builders are deleted; their
@@ -150,12 +194,47 @@ A single recorder that builds the event once and fans out:
   independent builds. Enrichment (Gemini, served attribution) runs **once** instead
   of per-builder → strictly cheaper.
 
-**Open seam question [OPEN — HITL/gate]:** does the recorder *replace* the N
-LiteLLM `CustomLogger` registrations with one callback that fans out, or does each
-sink stay a `CustomLogger` that pulls a memoized event off `kwargs`? Recommendation:
-**one fan-out callback** (true single seam; matches the audit intent). Pulling a
-memoized event keeps N registrations and a second source-of-truth risk. Settle at
-the gate.
+### 5a. Registration cutover + ordering invariant (RESOLVED — finding #4)
+
+The recorder is **one fan-out callback** that replaces the per-sink registrations.
+Concretely, today's registration surface (verified at HEAD):
+
+- **`config.yaml`** (`:547-549`): `callbacks` = `[model_override_headers...]`;
+  `success_callback`/`failure_callback` =
+  `[enterprise_logger.proxy_logger, fast.monitor.proxy_monitor]` (fathom is
+  commented out — **not** registered via config today).
+- **Module-level `_self_register()`** at import: enterprise (`:574-593`,
+  adds `proxy_logger` to sync+async success/failure lists) — and the analogous
+  self-registration in the s3 / sql / fathom / metrics modules.
+
+**Cutover:** the recorder registers **once** (sync+async success+failure) and calls
+the record sinks (enterprise, s3, sql, fathom) + the per-request side channels
+(mutation ledger, `requests_total`/`request_duration`/`_record_mutations`) as plain
+**projection functions**, not as independently-registered `CustomLogger`s. Each
+migrated sink's `_self_register()` is removed and its `config.yaml` entry is dropped
+in the **same** MIGRATE pack that moves it (so it is never both self-registered
+*and* fan-out-dispatched — that would double-emit). The EVENT pack adds the recorder
+registration; the MIGRATE packs each remove one old registration as they land.
+
+**Ordering invariant — DO NOT regress (the subtle one):** `fast.monitor.proxy_monitor`
+is **not a record sink** — it is the protection subsystem, and it **stays a separate
+callback**. Crucially it **mutates `metadata`** during the success/failure callback
+(`monitor.py:326-327` sets `metadata["airlock_provider"]` and
+`metadata["airlock_provider_protection"]`), and enterprise's `guardrail_meta` is
+`{k:v for k,v in metadata if k.startswith("airlock_")}`. **Today's callback order is
+`[enterprise, monitor]` — enterprise's record is built BEFORE monitor mutates
+metadata**, so `airlock_provider_protection` is *not* in today's
+enterprise/fathom `guardrail_meta`. The recorder must therefore be registered in
+**enterprise's slot — before `proxy_monitor`** — and source the event (snapshot
+`guardrail_meta` from `metadata`) at that point, reproducing today's snapshot
+exactly. A golden test pins a request that arms provider-protection and asserts
+`airlock_provider_protection` is **absent** from the logged `guardrail_meta`
+(byte-identical to today). Sourcing after monitor would silently *add* a field — a
+BLOCK.
+
+> The "memoized event off `kwargs`" alternative is rejected: it keeps N
+> registrations and a second-source-of-truth risk, and does not resolve the
+> ordering question above. One fan-out callback in enterprise's slot is the seam.
 
 ## 6. Resolved open items (settled with evidence)
 
@@ -232,6 +311,17 @@ DESIGN (this note, codex PASS)
 ---
 
 ### Changelog of this note
+- 2026-06-28 (rev 2 — post codex BLOCK, re-gate) — addressed all four design-gate
+  findings with HEAD-verified evidence:
+  **#1** added `bare_exception_error` to the event so s3/sql reproduce their raw
+  `str(exception)` (§3.9, §4); **#2** added `request_headers` + `mcp_arguments` and
+  pinned `response_text` derivation so `project_fathom` is pure (§3.8, §4);
+  **#3** explicitly scoped `write_precall_block_record()` + `write_batch_record()`
+  OUT, like `admin_action` (§2a); **#4** pinned the registration cutover and the
+  **monitor-ordering invariant** — recorder takes enterprise's slot *before*
+  `proxy_monitor`, monitor stays a separate non-sink callback, each MIGRATE pack
+  removes its own old registration (§5a). Verdict promoted to
+  `0.5.4-EVENTBUS-design-review-20260628T153724Z.md`. Re-running the codex gate.
 - 2026-06-28 — DRAFT seeded at kickoff from a verified HEAD read; resolved UN-28,
   parallel-safety, builder count, filename; surfaced the §3 divergences as the core
   risk; left seam-shape / redaction-placement / timestamp-convergence / branch for

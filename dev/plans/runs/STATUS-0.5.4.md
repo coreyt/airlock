@@ -15,14 +15,21 @@ Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`. Audit source-of-record:
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** **DESIGN** (Phase B) — design note finalized, READY FOR CODEX GATE.
+- **In flight:** **DESIGN** (Phase B) — codex gate #1 returned **BLOCK** (4 findings,
+  all addressed); design note revised to rev 2; **re-gate in progress**.
 - **Done:** kickoff HITL answered (branch `feat/0.5.4-eventbus`, UN-28,
   sequential/small-batch MIGRATE); Phase A complete (UN-28 in `dev/user-needs.md`;
-  plan's UN-27 collision fixed).
-- **Next action:** run the **codex design gate** over
-  `dev/notes/design-request-event-bus.md` + anchored modules →
-  `dev/plans/runs/0.5.4-EVENTBUS-design-review-<ts>.md` with Orchestrator triage.
-  **PASS required** before any Phase-E pack. Then Phase E starting with `EVENT`.
+  plan's UN-27 collision fixed); codex gate #1 verdict promoted →
+  `0.5.4-EVENTBUS-design-review-20260628T153724Z.md` (triage: FIX → re-gate).
+- **Codex gate #1 BLOCK findings (all FIXED in note rev 2):** #1 s3/sql raw
+  `error` → added `bare_exception_error`; #2 fathom env-gated fields
+  (`headers`/`mcp_arguments`/`response_text`) → added event sources so
+  `project_fathom` is pure; #3 `write_precall_block_record`/`write_batch_record`
+  → explicitly scoped OUT (§2a); #4 registration cutover + **monitor-ordering
+  invariant** (recorder takes enterprise's slot before `proxy_monitor`) → pinned
+  (§5a).
+- **Next action:** re-run the **codex design gate** over the revised note. PASS →
+  Phase E (`EVENT`). A second BLOCK → halt to HITL (no looping).
 
 ## 2. Pack scoreboard
 
