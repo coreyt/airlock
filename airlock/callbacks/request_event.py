@@ -227,7 +227,7 @@ def build_request_event(
         request_headers=kwargs.get("headers"),
         response_obj=response_obj,
         usage=usage,
-        response_cost=kwargs.get("response_cost"),
+        response_cost=kwargs.get("response_cost", 0),
         error=error,
         error_type=error_type,
         failure_category=failure_category,

@@ -64,7 +64,7 @@ def project_fathom(event: RequestEvent) -> dict[str, Any]:
         "prompt_tokens": event.usage.get("prompt_tokens", 0),
         "completion_tokens": event.usage.get("completion_tokens", 0),
         "total_tokens": event.usage.get("total_tokens", 0),
-        "cost": event.response_cost if event.response_cost is not None else 0,
+        "cost": event.response_cost,
         "duration_ms": event.duration_ms,
         "failure_category": event.failure_category,
         "call_type": event.mcp_meta.get("call_type"),

@@ -139,6 +139,21 @@ def _guardrail_keys():
     return k, _FakeResponse(), _ts(0), _ts(1), True
 
 
+def _guardrail_collision():
+    # airlock_* keys that COLLIDE with base record keys: `airlock_provider` is a
+    # base literal (the `**guardrail_meta` spread must not move/overwrite it with a
+    # different value), and `airlock_client` is assigned AFTER the spread (the
+    # post-literal assignment order is observable here).
+    k = _kwargs(
+        metadata={
+            "airlock_provider": "openai",
+            "airlock_client": "client-from-meta",
+            "airlock_semantic_score": 0.5,
+        }
+    )
+    return k, _FakeResponse(), _ts(0), _ts(1), True
+
+
 REQUEST_SET = [
     ("plain_success", _plain_success),
     ("provider_failure", _provider_failure),
@@ -147,6 +162,7 @@ REQUEST_SET = [
     ("gemini_success", _gemini_success),
     ("mutations_and_served", _mutations_and_served),
     ("guardrail_keys", _guardrail_keys),
+    ("guardrail_collision", _guardrail_collision),
 ]
 
 
@@ -227,7 +243,12 @@ def test_project_enterprise_matches_build_record(name, make_inputs):
     # timestamp is the ONLY accepted divergence (registered convergence §3.4)
     assert expected.get("timestamp") is not None
     assert got.get("timestamp") is not None
-    assert _strip_ts(got) == _strip_ts(expected)
+    expected_no_ts = _strip_ts(expected)
+    got_no_ts = _strip_ts(got)
+    assert got_no_ts == expected_no_ts
+    # key ORDER must match too (a reorder-only regression must not pass — 2b
+    # deletes _build_record and relies on this projection's exact shape)
+    assert list(got_no_ts.keys()) == list(expected_no_ts.keys())
 
 
 @pytest.mark.parametrize("env_name,env", _ENV_MATRIX)
@@ -255,3 +276,37 @@ def test_enrich_order_independent_for_gemini():
         copy.deepcopy(kwargs), resp, start, end, success=success
     )
     assert _strip_ts(project_enterprise(ev_first)) == _strip_ts(rec_after)
+
+
+@pytest.mark.parametrize(
+    "cost_case,expect_present,expect_value",
+    [
+        # absent: old kwargs.get("response_cost", 0) == 0 -> kept (0 is not None)
+        ("absent", True, 0),
+        # explicit None: old -> None -> dropped by the final None-filter
+        ("none", False, None),
+        # numeric: value passes through
+        ("numeric", True, 0.0042),
+    ],
+)
+def test_project_fathom_cost_cases(cost_case, expect_present, expect_value):
+    """Fathom `cost` must reproduce `kwargs.get("response_cost", 0)` for all three
+    cases — the F1 keystone fix (source default 0 + raw projection + None-filter)."""
+    k = _kwargs()
+    if cost_case == "absent":
+        k.pop("response_cost", None)
+    elif cost_case == "none":
+        k["response_cost"] = None
+    else:
+        k["response_cost"] = 0.0042
+
+    inputs = (k, _FakeResponse(), _ts(0), _ts(1), True)
+    expected, got = _fathom_pair(inputs)
+    assert _strip_ts(got) == _strip_ts(expected)
+
+    if expect_present:
+        assert got["cost"] == expect_value
+        assert expected["cost"] == expect_value
+    else:
+        assert "cost" not in got
+        assert "cost" not in expected
