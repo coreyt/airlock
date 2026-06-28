@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from airlock.callbacks.enterprise_logger import _serialize
+from airlock.callbacks.enterprise_logger import _redact_record, _serialize
 from airlock.callbacks.fathom_logger import _env_flag, _json_text, _response_text
 from airlock.callbacks.request_event import RequestEvent
 
@@ -49,6 +49,29 @@ def project_enterprise(event: RequestEvent) -> dict[str, Any]:
     record["attribution"] = event.attribution
     record["airlock_client"] = event.airlock_client
     return record
+
+
+def project_s3(event: RequestEvent) -> dict[str, Any]:
+    """Reproduce ``AirlockS3Logger._build_record`` output from the event (§3.9).
+
+    s3's narrow set carries NO guardrail_meta/mcp/served/provider/record_type; the
+    key order matches the old builder exactly. ``error`` is the bare exception string
+    (``str(exception)|None``), and ``_redact_record`` is applied last.
+    """
+    record: dict[str, Any] = {
+        "timestamp": event.timestamp,
+        "success": event.success,
+        "model": event.model,
+        "user": event.user,
+        "team": event.team,
+        "request_id": event.request_id,
+        "messages": event.messages,
+        "response": _serialize(event.response_obj) if event.response_obj else None,
+        "error": event.bare_exception_error,
+        "duration_ms": event.duration_ms,
+        **event.usage,
+    }
+    return _redact_record(record)
 
 
 def project_fathom(event: RequestEvent) -> dict[str, Any]:

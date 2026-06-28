@@ -1,0 +1,53 @@
+{
+  "pack": "0.5.4-MIGRATE-s3",
+  "baseline_sha": "6032dc1fac13c88837aa86e5ffd2a95b9d536eee",
+  "branch": "worktree-agent-a011448f98d86d414",
+  "head_sha": "f808509cb7385cd8e27071a13005a9f924224341",
+  "commits": [
+    "89ad24ab7077dab288fa3b14ddd7eb233e29046a: test(0.5.4-MIGRATE-s3): RED — project_s3 + record_event sink + gating + redaction",
+    "f808509cb7385cd8e27071a13005a9f924224341: feat(0.5.4-MIGRATE-s3): s3 logger onto RequestEvent/recorder seam"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "89ad24ab7077dab288fa3b14ddd7eb233e29046a",
+    "test_files": [
+      "tests/test_migrate_s3.py",
+      "tests/test_projections_equiv.py",
+      "tests/test_s3_logger.py"
+    ]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_migrate_s3.py",
+      "tests/test_projections_equiv.py",
+      "tests/test_s3_logger.py",
+      "tests/test_recorder_cutover.py",
+      "tests/test_recorder_wiring.py"
+    ],
+    "passed": 163,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/callbacks/projections.py",
+    "airlock/callbacks/s3_logger.py",
+    "airlock/callbacks/recorder.py",
+    "tests/test_migrate_s3.py",
+    "tests/test_projections_equiv.py",
+    "tests/test_s3_logger.py",
+    "tests/fixtures/0.5.4-s3-golden.json",
+    "dev/notes/0.5.4-MIGRATE-s3-design.md"
+  ],
+  "blockers_encountered": [
+    {
+      "id": "anchor-drift-test_s3_logger",
+      "description": "tests/test_s3_logger.py modified by the linter between Read and Edit (file-state-changed error on the async test re-point).",
+      "resolution": "Re-Read the file and re-applied the exact edit; verified via re-run (16 passed)."
+    }
+  ],
+  "additional_changes_made_in_scope": [
+    "Re-pointed all test_s3_logger.py tests that called the deleted _build_record/log_success_event/log_failure_event/async_log_success_event through a _record() helper that builds the event and calls record_event(); assertions preserved. The async-delegation test (test_async_delegates) became test_record_event_buffers (s3 sink only buffers; async delegation now owned by the recorder seam).",
+    "Added a finally-clear of the proxy_s3_logger singleton buffer in test_s3_sink_fires_on_sync_dispatch to avoid module-singleton residue at atexit flush."
+  ],
+  "agent_verify_result": "pass — targeted+proxy+recorder suites 163 passed; full no-network suite 2533 passed (1 pre-existing failure: tests/test_fathom_init.py::test_init_engine_with_fathomdb, fathomdb optional dep not installed; confirmed failing on baseline via git stash, unrelated to this pack).",
+  "next_step_for_orchestrator": "Pack 0.5.4-MIGRATE-s3 on branch worktree-agent-a011448f98d86d414 at f808509cb7385cd8e27071a13005a9f924224341; review, verify, merge. Note registered behavior change: s3 opt-in moved from config-callback-entry to AIRLOCK_ENABLE_S3_LOGGER env flag (DOCS owns the register entry)."
+}

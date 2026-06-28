@@ -33,6 +33,12 @@ def _build_recorder() -> RequestRecorder:
         recorder.register(
             proxy_fathom_logger.record_event, name="fathom", async_only=True
         )
+    if _env_flag("AIRLOCK_ENABLE_S3_LOGGER", default=False):
+        from airlock.callbacks.s3_logger import proxy_s3_logger
+
+        # normal sink (success+failure; NOT async_only) — the AIRLOCK_S3_BUCKET
+        # write-gate still discards when no bucket is configured.
+        recorder.register(proxy_s3_logger.record_event, name="s3")
     return recorder
 
 

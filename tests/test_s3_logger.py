@@ -7,7 +7,16 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from airlock.callbacks.projections import project_s3
+from airlock.callbacks.request_event import build_request_event
 from airlock.callbacks.s3_logger import AirlockS3Logger
+
+
+def _record(s3_logger, kwargs, response_obj, start, end, *, success):
+    """Re-point through the migrated seam: build the event and record it via the
+    recorder sink (replaces the deleted ``_build_record``/``log_*_event`` path)."""
+    event = build_request_event(kwargs, response_obj, start, end, success=success)
+    s3_logger.record_event(event)
 
 
 class TestS3Logger:
@@ -24,9 +33,10 @@ class TestS3Logger:
         self, s3_logger, mock_logger_kwargs, mock_response_obj, mock_start_end_times
     ):
         start, end = mock_start_end_times
-        record = s3_logger._build_record(
+        event = build_request_event(
             mock_logger_kwargs, mock_response_obj, start, end, success=True
         )
+        record = project_s3(event)
         assert record["success"] is True
         assert record["model"] == "claude-sonnet"
         assert record["prompt_tokens"] == 25
@@ -42,9 +52,10 @@ class TestS3Logger:
         """S3 records must honor AIRLOCK_LOG_REDACT_FIELDS just like the file logger."""
         monkeypatch.setenv("AIRLOCK_LOG_REDACT_FIELDS", "messages,model")
         start, end = mock_start_end_times
-        record = s3_logger._build_record(
+        event = build_request_event(
             mock_logger_kwargs, mock_response_obj, start, end, success=True
         )
+        record = project_s3(event)
         assert record["messages"] == "[REDACTED]"
         assert record["model"] == "[REDACTED]"
         # Unlisted fields are untouched
@@ -54,9 +65,10 @@ class TestS3Logger:
         self, s3_logger, mock_failure_kwargs, mock_start_end_times
     ):
         start, end = mock_start_end_times
-        record = s3_logger._build_record(
+        event = build_request_event(
             mock_failure_kwargs, None, start, end, success=False
         )
+        record = project_s3(event)
         assert record["success"] is False
         assert "timeout" in record["error"]
 
@@ -64,7 +76,9 @@ class TestS3Logger:
         self, s3_logger, mock_logger_kwargs, mock_response_obj, mock_start_end_times
     ):
         start, end = mock_start_end_times
-        s3_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
+        _record(
+            s3_logger, mock_logger_kwargs, mock_response_obj, start, end, success=True
+        )
         assert len(s3_logger._buffer) == 1
         s3_logger._client.put_object.assert_not_called()
 
@@ -73,8 +87,13 @@ class TestS3Logger:
     ):
         start, end = mock_start_end_times
         for _ in range(3):  # batch_size = 3
-            s3_logger.log_success_event(
-                mock_logger_kwargs, mock_response_obj, start, end
+            _record(
+                s3_logger,
+                mock_logger_kwargs,
+                mock_response_obj,
+                start,
+                end,
+                success=True,
             )
         s3_logger._client.put_object.assert_called_once()
         assert len(s3_logger._buffer) == 0
@@ -83,7 +102,9 @@ class TestS3Logger:
         self, s3_logger, mock_logger_kwargs, mock_response_obj, mock_start_end_times
     ):
         start, end = mock_start_end_times
-        s3_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
+        _record(
+            s3_logger, mock_logger_kwargs, mock_response_obj, start, end, success=True
+        )
         s3_logger._flush()
 
         call_kwargs = s3_logger._client.put_object.call_args
@@ -99,7 +120,9 @@ class TestS3Logger:
         self, s3_logger, mock_logger_kwargs, mock_response_obj, mock_start_end_times
     ):
         start, end = mock_start_end_times
-        s3_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
+        _record(
+            s3_logger, mock_logger_kwargs, mock_response_obj, start, end, success=True
+        )
         s3_logger._flush()
 
         key = s3_logger._client.put_object.call_args.kwargs["Key"]
@@ -119,7 +142,7 @@ class TestS3Logger:
         self, s3_logger, mock_failure_kwargs, mock_start_end_times
     ):
         start, end = mock_start_end_times
-        s3_logger.log_failure_event(mock_failure_kwargs, None, start, end)
+        _record(s3_logger, mock_failure_kwargs, None, start, end, success=False)
         assert len(s3_logger._buffer) == 1
         assert s3_logger._buffer[0]["success"] is False
 
@@ -132,15 +155,17 @@ class TestS3Logger:
         monkeypatch.setattr(logger, "_bucket", "")
 
         start, end = mock_start_end_times
-        logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
+        _record(logger, mock_logger_kwargs, mock_response_obj, start, end, success=True)
         logger._client.put_object.assert_not_called()
 
-    async def test_async_delegates(
+    def test_record_event_buffers(
         self, s3_logger, mock_logger_kwargs, mock_response_obj, mock_start_end_times
     ):
+        # Async delegation is now owned by the recorder seam; the s3 sink itself
+        # just buffers the projected record (replaces async_log_success_event).
         start, end = mock_start_end_times
-        await s3_logger.async_log_success_event(
-            mock_logger_kwargs, mock_response_obj, start, end
+        _record(
+            s3_logger, mock_logger_kwargs, mock_response_obj, start, end, success=True
         )
         assert len(s3_logger._buffer) == 1
 
@@ -149,7 +174,9 @@ class TestS3Logger:
     ):
         start, end = mock_start_end_times
         s3_logger._client.put_object.side_effect = Exception("S3 unreachable")
-        s3_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
+        _record(
+            s3_logger, mock_logger_kwargs, mock_response_obj, start, end, success=True
+        )
         # Should not raise
         s3_logger._flush()
 
@@ -158,8 +185,12 @@ class TestS3Logger:
     ):
         """On S3 failure, records should be re-buffered for retry."""
         start, end = mock_start_end_times
-        s3_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
-        s3_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
+        _record(
+            s3_logger, mock_logger_kwargs, mock_response_obj, start, end, success=True
+        )
+        _record(
+            s3_logger, mock_logger_kwargs, mock_response_obj, start, end, success=True
+        )
         assert len(s3_logger._buffer) == 2
 
         s3_logger._client.put_object.side_effect = Exception("S3 unreachable")
@@ -172,7 +203,9 @@ class TestS3Logger:
     ):
         """After a failed flush, a successful retry should clear the buffer."""
         start, end = mock_start_end_times
-        s3_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
+        _record(
+            s3_logger, mock_logger_kwargs, mock_response_obj, start, end, success=True
+        )
 
         # First flush fails
         s3_logger._client.put_object.side_effect = Exception("S3 unreachable")
@@ -190,7 +223,9 @@ class TestS3Logger:
     ):
         """Records should be dropped after max retry attempts with CRITICAL log."""
         start, end = mock_start_end_times
-        s3_logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
+        _record(
+            s3_logger, mock_logger_kwargs, mock_response_obj, start, end, success=True
+        )
 
         s3_logger._client.put_object.side_effect = Exception("S3 unreachable")
         # Flush 3 times (max retries) — records should be re-queued each time

@@ -28,12 +28,16 @@ from pathlib import Path
 import pytest
 
 from airlock.callbacks.enterprise_logger import _serialize
-from airlock.callbacks.projections import project_enterprise, project_fathom
+from airlock.callbacks.projections import project_enterprise, project_fathom, project_s3
 from airlock.callbacks.request_event import build_request_event
 from airlock.transparency import Mutation
 
 _GOLDEN = json.loads(
     (Path(__file__).parent / "fixtures" / "0.5.4-entfathom-golden.json").read_text()
+)
+
+_S3_GOLDEN = json.loads(
+    (Path(__file__).parent / "fixtures" / "0.5.4-s3-golden.json").read_text()
 )
 
 
@@ -242,6 +246,12 @@ def _fathom_projection(inputs):
     return project_fathom(event)
 
 
+def _s3_projection(inputs):
+    kwargs, resp, start, end, success = inputs
+    event = build_request_event(kwargs, resp, start, end, success=success)
+    return project_s3(event)
+
+
 @pytest.mark.parametrize("name,make_inputs", REQUEST_SET)
 def test_project_enterprise_matches_build_record(name, make_inputs):
     got = _enterprise_projection(make_inputs())
@@ -267,6 +277,32 @@ def test_project_fathom_matches_fathom_properties(
     got_no_ts = _jsonify(got)
     assert got_no_ts == expected
     assert list(got_no_ts.keys()) == list(expected.keys())
+
+
+@pytest.mark.parametrize("name,make_inputs", REQUEST_SET)
+def test_project_s3_matches_build_record(name, make_inputs):
+    """``project_s3`` reproduces the FROZEN ``AirlockS3Logger._build_record`` golden
+    field-for-field, ignoring only ``timestamp`` (s3's narrow set: no guardrail/mcp/
+    served/provider/record_type)."""
+    got = _s3_projection(make_inputs())
+    assert got.get("timestamp") is not None
+    expected = _S3_GOLDEN["s3"][name]
+    got_no_ts = _jsonify(got)
+    assert got_no_ts == expected
+    # key ORDER must match too (the cutover deletes _build_record and relies on
+    # this projection's exact shape)
+    assert list(got_no_ts.keys()) == list(expected.keys())
+
+
+def test_project_s3_redaction_matches_build_record(monkeypatch):
+    """s3's ``_redact_record`` pass is reproduced: AIRLOCK_LOG_REDACT_FIELDS-targeted
+    fields are replaced with ``[REDACTED]`` identically to the old builder."""
+    monkeypatch.setenv("AIRLOCK_LOG_REDACT_FIELDS", "messages,model")
+    got = _s3_projection(_plain_success())
+    expected = _S3_GOLDEN["s3_redacted"]["plain_success"]
+    assert _jsonify(got) == expected
+    assert got["messages"] == "[REDACTED]"
+    assert got["model"] == "[REDACTED]"
 
 
 def test_enrich_order_independent_for_gemini():
