@@ -15,8 +15,17 @@ Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`. Audit source-of-record:
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** **EVENT** (Phase E, pack 1) — DESIGN gate CLOSED (codex **PASS**,
-  gate #4, 0 findings). Authoring the EVENT pack prompt + spawning the implementer.
+- **In flight:** **MIGRATE-enterprise+fathom** (Phase E, pack 2, coupled batch) —
+  next to author + spawn. EVENT is CLOSED.
+- **EVENT CLOSED** (merge `bfe56bf`): `airlock/callbacks/request_event.py`
+  (`RequestEvent` + `build_request_event` + `RequestRecorder`) + `tests/test_request_event.py`
+  (20 tests). codex review CONCERN(low) → recorder lock/snapshot hardening (`e783e0c`) →
+  merged. 20 target + 90 telemetry tests green; worktree cleaned. The seam is delivered
+  but NOT yet live-installed (that's MIGRATE-enterprise).
+- **Worktree-base note (for MIGRATE prompts):** the Agent-tool worktree is cut from
+  `main` HEAD (`57010d1`), NOT from `feat/0.5.4-eventbus`. Each implementer must
+  `git merge feat/0.5.4-eventbus --ff-only` first (the EVENT agent did this cleanly).
+  MIGRATE prompts must instruct this up front.
 - **DESIGN CLOSED:** 4 adversarial codex gates, findings 4→3→2→**0** (high→high→none→
   PASS). Verdicts: `...153724Z.md` (#1), `...154755Z.md` (#2), `...155901Z.md` (#3),
   `...160640Z.md` (#4 PASS). Note rev 4 is the authoritative RequestEvent + seam
@@ -46,9 +55,8 @@ Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`. Audit source-of-record:
 | Pack | Goal (1 line) | Depends on | State | Witness |
 |------|---------------|------------|-------|---------|
 | `DESIGN` | `design-request-event-bus.md` + codex design-review PASS | — | **CLOSED** (codex PASS, gate #4) | `design-request-event-bus.md` rev 4 + `0.5.4-EVENTBUS-design-review-20260628T160640Z.md` (PASS) |
-| `EVENT` | Canonical `RequestEvent` + recorder/dispatcher seam (registration, ordering, per-sink failure isolation) | DESIGN ✅ | IMPLEMENTING (implementer spawned, worktree) | `dev/plans/runs/0.5.4-EVENT-output.json` |
-| `MIGRATE-enterprise` | Enterprise logger onto `RequestEvent`; delete its `_build_record()` | EVENT | NOT_STARTED | `dev/plans/runs/0.5.4-MIGRATE-enterprise-output.json` |
-| `MIGRATE-fathom` | Fathom logger onto `RequestEvent`; delete `_build_record()` | EVENT | NOT_STARTED | `dev/plans/runs/0.5.4-MIGRATE-fathom-output.json` |
+| `EVENT` | Canonical `RequestEvent` + recorder/dispatcher seam (registration, ordering, per-sink failure isolation) | DESIGN ✅ | **CLOSED** (merge `bfe56bf`; codex CONCERN→fixed; 20 tests) | `dev/plans/runs/0.5.4-EVENT-output.json` |
+| `MIGRATE-enterprise`+`fathom` | Enterprise (`AirlockLogger._build_record`) + fathom (reuses it) onto `RequestEvent`; install recorder in enterprise's slot; delete the shared builder | EVENT ✅ | IN_FLIGHT (authoring prompt) | `dev/plans/runs/0.5.4-MIGRATE-entfathom-output.json` |
 | `MIGRATE-s3` | S3 logger onto `RequestEvent`; delete `_build_record()` | EVENT | NOT_STARTED | `dev/plans/runs/0.5.4-MIGRATE-s3-output.json` |
 | `MIGRATE-sql` | SQL logger onto `RequestEvent`; delete `_build_record()` | EVENT | NOT_STARTED | `dev/plans/runs/0.5.4-MIGRATE-sql-output.json` |
 | `MIGRATE-sidechannels` | Mutation ledger + metrics fed from the same seam | EVENT | NOT_STARTED | `dev/plans/runs/0.5.4-MIGRATE-sidechannels-output.json` |
