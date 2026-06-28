@@ -15,8 +15,9 @@ Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`. Audit source-of-record:
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** **DESIGN** (Phase B) — gate #1 BLOCK (4 findings) → rev 2; gate #2
-  BLOCK (3 narrower findings) → rev 3; **gate #3 (decisive) in progress.**
+- **In flight:** **DESIGN** (Phase B) — gates #1 BLOCK (4: 2 high) → rev 2; #2 BLOCK
+  (3: 1 high) → rev 3; #3 BLOCK (**2: 0 high**, §5a table fixes) → rev 4; **gate #4
+  (terminal) in progress.** Convergence: 4→3→2 findings, high→high→none.
 - **Done:** kickoff HITL answered; Phase A complete; gate #1 + #2 verdicts promoted
   (`...153724Z.md`, `...154755Z.md`). Gate #1's 4 findings confirmed resolved by gate
   #2's "what passed".
@@ -29,9 +30,13 @@ Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`. Audit source-of-record:
   whole-sink `airlock_skip_fathom_logger` skip pinned (§3.11); #3 corrected §5a
   registration facts (fathom **async-only**; s3/sql **opt-in, no self-register**) +
   **firing-surface invariant**.
-- **Decision rule for gate #3:** PASS or CONCERN/low-only → Phase E (`EVENT`),
-  carrying residual CONCERNs as EVENT-pack test obligations. Another **high BLOCK →
-  halt to HITL** (stop the autonomous re-gate loop).
+- **Gate #3 BLOCK (all FIXED, rev 4):** #1 [medium] metrics is success+failure not
+  success-only — added §5b pinning `requests_total` on BOTH paths (don't drop failure
+  counter) as a sidechannels golden obligation; #2 [low] monitor table corrected to
+  success+failure.
+- **Decision rule for gate #4 (TERMINAL):** PASS → Phase E (`EVENT`). ANY BLOCK →
+  **halt to HITL** — no further autonomous re-gates (contract forbids overriding a
+  BLOCK; convergence is near-complete but a human PASS is then required).
 
 ## 2. Pack scoreboard
 

@@ -226,9 +226,9 @@ The recorder is **one fan-out callback** that replaces the per-sink registration
 
 | Sink | `_self_register()` at import | In `config.yaml` | Net firing surface today |
 |---|---|---|---|
-| enterprise `proxy_logger` | **yes** — sync+async × success+failure (`enterprise_logger.py:593`) | yes (`:548-549` success+failure) | always-on, sync **and** async |
-| fast monitor `proxy_monitor` | yes — sync+async **success** (`monitor.py:501`) | yes (`:548-549`) | always-on (**not a record sink**) |
-| metrics `metrics_callback` | yes — sync+async **success** (`metrics.py:248`) | no | always-on, success only |
+| enterprise `proxy_logger` | **yes** — sync+async × success+failure (`enterprise_logger.py:593`) | yes (`:548-549` success+failure) | always-on, sync **and** async, success **and** failure |
+| fast monitor `proxy_monitor` | yes — sync+async × **success+failure** (`monitor.py:389-392`, `:501`) | yes (`:548-549` success+failure) | always-on, success **and** failure (**not a record sink**) |
+| metrics `metrics_callback` | yes — sync+async × **success+failure** (`metrics.py:240-243`, `:248`) | no | always-on, success **and** failure (see counter semantics below) |
 | fathom `proxy_fathom_logger` | **`_self_register_async()` — ASYNC only** (`fathom_logger.py:408`) | no (commented out) | **async paths only** |
 | s3 `proxy_s3_logger` | **none** — module instance + `atexit` flush (`s3_logger.py:209`) | no | **inactive by default; opt-in** via config |
 | sql `proxy_sql_logger` | **none** — module instance only (`sql_logger.py:184`) | no | **inactive by default; opt-in** via config |
@@ -246,15 +246,35 @@ self-registered *and* fan-out-dispatched (that would double-emit).
 
 **Firing-surface invariant — DO NOT regress (gate #2 finding #3):** the recorder
 must reproduce **each sink's exact current activation and sync/async coverage** — no
-sink may start firing where it doesn't today. Concretely: **fathom stays async-only**
-(its projection/emit must not run on a sync-only dispatch), **s3 and sql stay
-opt-in** (dispatched only when a deployment has activated them, i.e. they were
-configured — the recorder honors an explicit per-sink "enabled" flag rather than
-always emitting), **metrics stays success-only**. Golden/seam tests pin: an async
-success dispatches enterprise+fathom+metrics(+s3/sql iff enabled); a sync dispatch
-does **not** produce a fathom row; a failure does **not** produce a metrics
-`request_duration`-on-success row; etc. This invariant is the EVENT pack's core
-behavior-preservation obligation.
+sink may start firing where it doesn't today, and no sink may **stop** firing where
+it does today. Concretely: **fathom stays async-only** (its projection/emit must not
+run on a sync-only dispatch), **s3 and sql stay opt-in** (dispatched only when a
+deployment has activated them via config — the recorder honors an explicit per-sink
+"enabled" flag rather than always emitting), **enterprise fires on success and
+failure, sync and async**, **monitor (separate, non-sink) fires on success and
+failure**. Golden/seam tests pin: an async success dispatches
+enterprise+fathom+metrics(+s3/sql iff enabled); a sync dispatch does **not** produce
+a fathom row; a **failure** still produces enterprise + the metrics
+`requests_total{success="false"}` increment (below) but **no** `request_duration`
+row. This invariant is the EVENT pack's core behavior-preservation obligation.
+
+> **§5b — Per-request metrics counter semantics (gate #3 finding #1 — DO NOT drop
+> the failure counter).** The metrics that move to the seam (MIGRATE-sidechannels)
+> are NOT "success only". Verified at HEAD (`metrics.py:175-221`):
+> - `requests_total{model,user,success}` — incremented on **BOTH** paths:
+>   `success="true"` on success (`:189`) and `success="false"` on **failure**
+>   (`:216`). The seam **must** increment it on failure dispatch too — dropping it
+>   would silently lose all failure request counters (a BLOCK).
+> - `request_duration{model}` — **success only**, and only when `start_time` &
+>   `end_time` are present (`:191-193`).
+> - `_record_mutations(metadata)` — **success only** (`:195`).
+>
+> MIGRATE-sidechannels golden tests pin all three: a failure dispatch increments
+> `requests_total{success="false"}` and **nothing else**; a success dispatch
+> increments `requests_total{success="true"}` + `request_duration` + mutation
+> counters. (The standalone guardrail counters — `record_pii_redaction`,
+> `record_keyword_block`, `set_circuit_breaker_state`, etc. — remain **out of scope**
+> per §7.)
 
 **Ordering invariant — DO NOT regress (the subtle one):** `fast.monitor.proxy_monitor`
 is **not a record sink** — it is the protection subsystem, and it **stays a separate
@@ -351,6 +371,15 @@ DESIGN (this note, codex PASS)
 ---
 
 ### Changelog of this note
+- 2026-06-28 (rev 4 — post codex gate #3 BLOCK, re-gate #4 final) — gate #3 returned
+  **no high finding** (1 medium + 1 low, both §5a table-accuracy fixes); all prior
+  high findings confirmed resolved. Corrected the §5a registration table: **metrics**
+  and **monitor** register sync+async × **success+failure** (not success-only); added
+  **§5b** pinning per-request metrics counter semantics — `requests_total` increments
+  on **both** success and failure (MUST NOT drop the failure counter), while
+  `request_duration` + `_record_mutations` are success-only — as a MIGRATE-sidechannels
+  golden-test obligation. Verdict promoted to `...155901Z.md`. Re-gate #4 is terminal:
+  PASS → Phase E; any BLOCK → halt to HITL.
 - 2026-06-28 (rev 3 — post codex gate #2 BLOCK, re-gate #3) — gate #1's 4 findings
   confirmed resolved; addressed gate #2's 3 (narrower) findings, all with
   contract-determined resolutions: **#1** event now carries the **raw `response_obj`**
