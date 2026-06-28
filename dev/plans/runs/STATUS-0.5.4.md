@@ -15,8 +15,16 @@ Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`. Audit source-of-record:
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** **MIGRATE-sidechannels** (Phase E, pack 5, last MIGRATE). s3 + sql CLOSED.
-  (codex reviewer rate-limited until ~14:14 → sonnet `code-reviewer` fallback in use.)
+- **In flight:** **VERIFY** (Phase E, pack 6). **ALL MIGRATE PACKS CLOSED — core
+  deliverable done:** all 5 sinks (enterprise/fathom/s3/sql) + per-request metrics unified
+  behind one `RequestEvent` + recorder; **every legacy `_build_record`/`_base_record`/
+  `_fathom_properties` deleted**. Recorder fans out to: enterprise (always, first), metrics
+  (always), fathom (gated async-only), s3 (gated), sql (gated); fan-out before `proxy_monitor`.
+  (codex reviewer still rate-limited → sonnet `code-reviewer` fallback in use for reviews.)
+- **Next action:** VERIFY — cross-sink equivalence harness over a representative request set
+  + **isolated-instance `dev/smoketest/` parity run on a separate dir+port** (live `:4000`
+  untouched — [[airlock-production-safety]]). Extend smoke only if a field changed (expected:
+  none, except the registered timestamp convergence).
 - **enterprise+fathom FULLY MIGRATED** (2a+2b-i+2b-ii all CLOSED): the recorder is the
   single live telemetry callback in enterprise's slot (before monitor); enterprise &
   fathom are projection-backed sinks; `_build_record`/`_base_record`/`_fathom_properties`
@@ -68,7 +76,7 @@ Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`. Audit source-of-record:
 | `MIGRATE-entfathom-cutover` (2b-ii) | Register recorder in enterprise's slot (before monitor); remove enterprise `_self_register`+config + fathom `_self_register_async`; **delete** `_build_record`/`_base_record`/`_fathom_properties`/old callback methods | 2b-i ✅ | **CLOSED** (merge `41448df`; codex CONCERN→both closed; 2516 suite green) | `dev/plans/runs/0.5.4-MIGRATE-entfathom-cutover-output.json` |
 | `MIGRATE-s3` | S3 logger onto `RequestEvent` (`project_s3`+sink; keep `_redact_record`, narrow fields, bare error); delete `_build_record()`; recorder sink gated by `AIRLOCK_ENABLE_S3_LOGGER` | enterprise+fathom ✅ | **CLOSED** (merge; codex PASS; frozen golden) | `dev/plans/runs/0.5.4-MIGRATE-s3-output.json` |
 | `MIGRATE-sql` | SQL logger onto `RequestEvent` (`project_sql`+sink; **JSON-string** messages/response, bare error, NO redaction); delete `_build_record()`; recorder sink gated by `AIRLOCK_ENABLE_SQL_LOGGER` | enterprise+fathom ✅ | **CLOSED** (merge; sonnet-fallback PASS; frozen golden) | `dev/plans/runs/0.5.4-MIGRATE-sql-output.json` |
-| `MIGRATE-sidechannels` | Mutation ledger + metrics fed from the same seam | EVENT | NOT_STARTED | `dev/plans/runs/0.5.4-MIGRATE-sidechannels-output.json` |
+| `MIGRATE-sidechannels` | Per-request metrics (requests_total both paths / request_duration+mutations success-only) fed from the seam; metrics is an unconditional recorder sink; standalone guardrail metrics out of scope | enterprise+fathom ✅ | **CLOSED** (merge; sonnet-fallback PASS + crash-safety fix) | `dev/plans/runs/0.5.4-MIGRATE-sidechannels-output.json` |
 | `VERIFY` | Cross-sink equivalence harness + isolated-instance parity run | all MIGRATE-* | NOT_STARTED | `dev/plans/runs/0.5.4-VERIFY-output.json` |
 | `DOCS` | UN + as-built design note + changelog/behavior-change register | VERIFY | NOT_STARTED | `dev/plans/runs/0.5.4-DOCS-output.json` |
 
@@ -80,8 +88,8 @@ States (furthest witnessed wins): `WORKTREE_CREATED` → `IMPLEMENTING` →
 | Requirement | Pack(s) | Status |
 |-------------|---------|--------|
 | **UN-28** (next-free; plan says "UN-27" but that COLLIDES with 0.5.3 — allocate UN-28 at Phase A) — one canonical event drives all sinks | EVENT, MIGRATE-* | ⏳ |
-| AC-EQUIV — every sink emits field-for-field identical records before vs after | MIGRATE-*, VERIFY | ⏳ |
-| AC-SEAM — one dispatch seam with per-sink failure isolation | EVENT | ⏳ |
+| AC-EQUIV — every sink emits field-for-field identical records before vs after | MIGRATE-*, VERIFY | 🟢 per-sink frozen goldens green (entfathom/s3/sql) + metrics counter parity; VERIFY confirms cross-sink + parity run |
+| AC-SEAM — one dispatch seam with per-sink failure isolation | EVENT | ✅ recorder dispatch: ordered, per-sink try/except, lock snapshot, no-double-emit proven |
 | AC-SMOKE — any logged/served field change is smoke-covered (else parity oracle) | VERIFY, DOCS | ⏳ |
 
 ## 4. Parallelization plan
