@@ -32,7 +32,8 @@ except ImportError:
 # Late import to avoid circular dependency
 from litellm.integrations.custom_logger import CustomLogger
 
-from .enterprise_logger import _redact_record, _serialize
+from .enterprise_logger import _serialize
+from .projections import project_s3
 
 
 _MAX_FLUSH_RETRIES = 3
@@ -60,45 +61,6 @@ class AirlockS3Logger(CustomLogger):
             )
         self._client = boto3.client("s3")
         return self._client
-
-    def _build_record(
-        self,
-        kwargs: dict,
-        response_obj: Any,
-        start_time: Any,
-        end_time: Any,
-        *,
-        success: bool,
-    ) -> dict[str, Any]:
-        metadata = kwargs.get("litellm_params", {}).get("metadata", {}) or {}
-        usage: dict[str, int] = {}
-        if response_obj and hasattr(response_obj, "usage") and response_obj.usage:
-            u = response_obj.usage
-            usage = {
-                "prompt_tokens": getattr(u, "prompt_tokens", 0),
-                "completion_tokens": getattr(u, "completion_tokens", 0),
-                "total_tokens": getattr(u, "total_tokens", 0),
-            }
-
-        record = {
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "success": success,
-            "model": kwargs.get("model", "unknown"),
-            "user": metadata.get("user_api_key_alias")
-            or metadata.get("user_api_key_user_id"),
-            "team": metadata.get("user_api_key_team_alias"),
-            "request_id": kwargs.get("litellm_call_id"),
-            "messages": kwargs.get("messages"),
-            "response": _serialize(response_obj) if response_obj else None,
-            "error": str(kwargs.get("exception")) if not success else None,
-            "duration_ms": (
-                int((end_time - start_time).total_seconds() * 1000)
-                if start_time and end_time
-                else None
-            ),
-            **usage,
-        }
-        return _redact_record(record)
 
     def _flush(self) -> None:
         with self._lock:
@@ -160,45 +122,12 @@ class AirlockS3Logger(CustomLogger):
         if should_flush:
             self._flush()
 
-    # ------------------------------------------------------------------
-    # Success
-    # ------------------------------------------------------------------
-    def log_success_event(
-        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
-    ) -> None:
-        record = self._build_record(
-            kwargs, response_obj, start_time, end_time, success=True
-        )
-        self._append(record)
+    def record_event(self, event: Any) -> None:
+        """Recorder sink: buffer the s3 projection of one ``RequestEvent``.
 
-    async def async_log_success_event(
-        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
-    ) -> None:
-        import asyncio
-
-        await asyncio.to_thread(
-            self.log_success_event, kwargs, response_obj, start_time, end_time
-        )
-
-    # ------------------------------------------------------------------
-    # Failure
-    # ------------------------------------------------------------------
-    def log_failure_event(
-        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
-    ) -> None:
-        record = self._build_record(
-            kwargs, response_obj, start_time, end_time, success=False
-        )
-        self._append(record)
-
-    async def async_log_failure_event(
-        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
-    ) -> None:
-        import asyncio
-
-        await asyncio.to_thread(
-            self.log_failure_event, kwargs, response_obj, start_time, end_time
-        )
+        Reuses the existing ``_append``/buffer/``_flush`` path unchanged.
+        """
+        self._append(project_s3(event))
 
     def flush(self) -> None:
         """Flush any buffered records to S3. Call on shutdown."""

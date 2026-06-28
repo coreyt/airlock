@@ -129,8 +129,13 @@ def test_s3_sink_fires_on_sync_dispatch(monkeypatch):
 
     recorder = recorder_mod._build_recorder()
     event = _event()
-    recorder.dispatch(event, is_async=False)
-    assert proxy_s3_logger._buffer[-1] == project_s3(event)
+    try:
+        recorder.dispatch(event, is_async=False)
+        assert proxy_s3_logger._buffer[-1] == project_s3(event)
+    finally:
+        # don't leave residue in the module singleton (atexit flush)
+        with proxy_s3_logger._lock:
+            proxy_s3_logger._buffer.clear()
 
 
 # ---------------------------------------------------------------------------
