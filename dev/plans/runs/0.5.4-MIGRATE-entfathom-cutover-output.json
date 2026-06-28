@@ -1,0 +1,81 @@
+{
+  "pack": "0.5.4-MIGRATE-entfathom-cutover",
+  "baseline_sha": "d466934e292726ee51e826010b826af55415f44f",
+  "branch": "worktree-agent-ac63240cce3fa8b85",
+  "head_sha": "d1d44fb1918732d56c3d00c0d556fd37ef0204d8",
+  "commits": [
+    "63164a9: test(0.5.4-cutover): freeze projection oracle to goldens + add recorder seam tests (RED)",
+    "2f44be7: feat(0.5.4-cutover): activate recorder as single live telemetry callback; delete duplicated builders",
+    "70420d0: chore(0.5.4-cutover): closure artifact output.json",
+    "d1d44fb: test(0.5.4-MIGRATE-entfathom-cutover): prove no-double-emit via live callback-list cardinality + idempotent self_register"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "63164a9f66881a328bb2e285a9a8df4b95c3954e",
+    "test_files": [
+      "tests/test_recorder_cutover.py",
+      "tests/test_projections_equiv.py",
+      "tests/fixtures/0.5.4-entfathom-golden.json"
+    ]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_recorder_cutover.py",
+      "tests/test_projections_equiv.py",
+      "tests/test_recorder_wiring.py",
+      "tests/test_request_event.py",
+      "tests/test_enterprise_logger.py",
+      "tests/test_fathom_logger.py",
+      "tests/test_proxy.py"
+    ],
+    "passed": 222,
+    "failed": 0,
+    "failing_ids": [],
+    "review_med_finding_closed": "test_recorder_cutover.py::test_no_double_emit_live_callback_list_cardinality — proves recorder_callback dedupes to exactly ONE entry per litellm list (success/failure x sync/async) under repeated _self_register() + a simulated config-load add; deleted proxy_logger/proxy_fathom_logger absent from all four lists. DEDUP HELD (no double-emit).",
+    "full_suite_no_network": "2516 passed, 107 skipped, 1 xpassed, 1 failed (pre-existing: tests/test_fathom_init.py::test_init_engine_with_fathomdb — optional fathomdb pkg not installed; datastore.py untouched by this pack)"
+  },
+  "files_changed": [
+    "airlock/callbacks/recorder.py",
+    "airlock/callbacks/enterprise_logger.py",
+    "airlock/callbacks/fathom_logger.py",
+    "airlock/proxy.py",
+    "config.yaml",
+    "tests/test_projections_equiv.py",
+    "tests/fixtures/0.5.4-entfathom-golden.json",
+    "tests/test_recorder_cutover.py",
+    "tests/test_enterprise_logger.py",
+    "tests/test_fathom_logger.py",
+    "tests/test_recorder_wiring.py",
+    "tests/test_proxy.py",
+    "tests/harness/test_phase4_logging.py",
+    "tests/test_integration.py",
+    "tests/test_ratelimit_observability.py",
+    "dev/notes/0.5.4-MIGRATE-entfathom-cutover-design.md"
+  ],
+  "blockers_encountered": [
+    {
+      "id": "DORMANCY-TEST-FLIP",
+      "description": "[DETECT] tests/test_recorder_wiring.py::test_recorder_module_is_dormant pinned the pre-cutover dormant state (recorder NOT installed into litellm). The cutover's activation step (spec step 2) intentionally installs it, contradicting the test. File not in MODIFY list.",
+      "resolution": "[RESOLVE] Updated to test_recorder_module_is_live asserting recorder_callback IS in litellm's callback lists (sync+async). In-scope fan-out of the activation directive. Green."
+    },
+    {
+      "id": "PROXY-FATHOM-INJECT-TEST",
+      "description": "[DETECT] tests/test_proxy.py::test_prepare_runtime_config_can_enable_fathom_logger asserted proxy.py appends the fathom callback to config when the flag is set — exactly the block the cutover (spec step 2) removes (recorder now owns fathom). File not in MODIFY list.",
+      "resolution": "[RESOLVE] Rewrote as test_prepare_runtime_config_does_not_inject_fathom_callback asserting the fathom callback is NOT injected. In-scope fan-out. Green."
+    },
+    {
+      "id": "BUILDER-DELETION-FANOUT",
+      "description": "[DETECT] Deleting enterprise _build_record/log_*_event and fathom _fathom_properties/log_*_event broke 13 tests in 3 files outside the MODIFY list: tests/harness/test_phase4_logging.py (9), tests/test_integration.py (3), tests/test_ratelimit_observability.py (1).",
+      "resolution": "[RESOLVE] Re-pointed each through the live event->projection->sink path (project_enterprise(build_request_event(...)) / record_event) via thin in-file shims; assertions unchanged. DoD requires full no-network suite green. Green."
+    }
+  ],
+  "additional_changes_made_in_scope": [
+    "Oracle freeze: captured live builder output to tests/fixtures/0.5.4-entfathom-golden.json (8 enterprise + 32 fathom env-matrix + 3 cost cases) with AIRLOCK_* cleared to match conftest.clean_env; added deterministic _FakeResponse.__repr__ so _serialize(resp) is freezable.",
+    "Deleted-test -> replacement-coverage mapping (enterprise): TestBuildRecord + TestTransparencyRecord + gemini/mcp/served/mutations _build_record tests RE-POINTED (not deleted) through project_enterprise(build_request_event(...)) — assertions preserved; field equivalence ALSO locked by tests/test_projections_equiv.py vs frozen goldens + tests/test_request_event.py. Chose re-point over delete per spec 'if unsure, KEEP and re-point'.",
+    "Deleted tests (enterprise): test_async_log_success_delegates, test_async_log_failure_delegates — exercised the deleted AirlockLogger async plumbing now owned by RequestRecorderCallback; coverage in tests/test_request_event.py::test_callback_async_variants_dispatch_is_async_true and tests/test_recorder_wiring.py.",
+    "Fathom tests (test_fathom_logger.py): all log_*_event call sites re-pointed through record_event(build_request_event(...)); _log_event/_fathom_properties behavior coverage now via record_event + tests/test_projections_equiv.py fathom goldens.",
+    "Removed now-dead fathom _debug_enabled helper (only callers were the deleted _log_event/_self_register_async).",
+    "Kept proxy.py _fathom_logger_enabled() (still referenced by test_proxy.py) — only removed the config-mutating append block."
+  ],
+  "agent_verify_result": "pass (222 targeted passed incl. new live-cardinality no-double-emit test; full no-network suite 2516 passed / 1 pre-existing fathomdb-absent failure unrelated to this pack; ruff check + format clean on all changed files)",
+  "next_step_for_orchestrator": "Pack 0.5.4-MIGRATE-entfathom-cutover on branch worktree-agent-ac63240cce3fa8b85 at d1d44fb; review med finding CLOSED (live callback-list dedup proven — recorder_callback exactly once per list, idempotent self_register, no legacy double-path). Note the 3 documented out-of-scope test fan-out edits + the pre-existing test_fathom_init fathomdb failure. Verify, merge."
+}

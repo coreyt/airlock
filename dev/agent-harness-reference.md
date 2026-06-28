@@ -64,7 +64,7 @@ fill in the bracketed values.
 The worktree path is supplied by the harness when `isolation: "worktree"`
 is set — the agent starts *inside* the worktree. The orchestrator must
 still name it explicitly so the agent can verify it is in the right tree
-and never wanders back to `/home/coreyt/projects/airlock`.
+and never wanders back to `<repo-root>`.
 
 ```markdown
 You are an implementing agent for Pack {PACK_ID} — {DESCRIPTION}.
@@ -76,7 +76,7 @@ Branch: {BRANCH}
 Base commit (fresh from main): {COMMIT_HASH}
 
 Do ALL work inside the worktree. Do NOT cd into
-/home/coreyt/projects/airlock for any reason. Do NOT edit, stage, or
+<repo-root> for any reason. Do NOT edit, stage, or
 commit files there. If any command below targets the main checkout,
 STOP and report.
 
@@ -223,7 +223,7 @@ sandbox cannot write the verdict file).
 PACK={{PACK_ID}}
 RTS=$(date -u +%Y%m%dT%H%M%SZ)
 WT={{WORKTREE_ABSOLUTE_PATH}}          # implementer's worktree, post-commit
-REV_LOG=/home/coreyt/projects/airlock/dev/plans/runs/${PACK}-review-${RTS}.log
+REV_LOG=<repo-root>/dev/plans/runs/${PACK}-review-${RTS}.log
 
 PROMPT=$(cat <<'EOF'
 You are reviewing airlock Pack {{PACK_ID}}.
@@ -307,7 +307,7 @@ git -C {WORKTREE_ABSOLUTE_PATH} show {COMMIT_HASH}
 \```
 
 IMPORTANT: Read ALL files from {WORKTREE_ABSOLUTE_PATH}/, NOT from
-/home/coreyt/projects/airlock/. Worktree paths follow the pattern
+<repo-root>/. Worktree paths follow the pattern
 `.claude/worktrees/agent-<hash>/` (or `.claude/worktrees/<branch>/` for
 manually created ones). Verify you are reading the correct tree
 before starting — a review of the wrong tree is worse than no review.
@@ -389,7 +389,7 @@ If a review returns NEEDS_FIXES, the orchestrator MUST verify before acting:
 ### Python venv broken or missing (only matters for python-bindings packs)
 
 ```bash
-cd /home/coreyt/projects/airlock
+cd <repo-root>
 rm -rf python/.venv
 uv pip install -e .
 ```
@@ -402,7 +402,7 @@ but runs old code.
 ### Agent committed to wrong branch or directly to main
 
 ```bash
-cd /home/coreyt/projects/airlock
+cd <repo-root>
 git log --oneline -3        # identify bad commit
 git revert <hash>           # clean revert if pushed
 # or if not pushed:
@@ -412,7 +412,7 @@ git reset --soft HEAD~1     # undo commit, keep changes
 ### Test suite broken after agent work
 
 ```bash
-cd /home/coreyt/projects/airlock
+cd <repo-root>
 uv run pytest --cov=airlock -q 2>&1 | grep -E "FAIL|failed"
 # Categorize: agent's files or pre-existing?
 # Agent's files -> launch fixer implementer
@@ -427,7 +427,7 @@ git worktree list                    # remove stale worktrees
 git worktree remove <path> --force
 git worktree prune
 # If still tight, clean the largest stale target dir:
-du -sh /home/coreyt/projects/airlock/.claude/worktrees/*/target 2>/dev/null
+du -sh <repo-root>/.claude/worktrees/*/target 2>/dev/null
 ```
 
 ---
@@ -442,7 +442,7 @@ will fail.
 ### Diagnosis
 
 ```bash
-cd /home/coreyt/projects/airlock
+cd <repo-root>
 git status --short | grep "^ M"
 ```
 
@@ -454,7 +454,7 @@ prompt (point working directory at the worktree) before relaunching.
 
 1. **Edits are useful (agent did good work):**
    ```bash
-   cd /home/coreyt/projects/airlock
+   cd <repo-root>
    git diff <file>                            # review
    uv run pytest {tests}                  # test
    git add <specific-files>                   # stage
@@ -463,13 +463,13 @@ prompt (point working directory at the worktree) before relaunching.
 
 2. **Edits are garbage or incomplete:**
    ```bash
-   cd /home/coreyt/projects/airlock
+   cd <repo-root>
    git checkout -- .
    ```
 
 3. **Edits are mixed (some good, some bad):**
    ```bash
-   cd /home/coreyt/projects/airlock
+   cd <repo-root>
    git diff <file>          # review each file
    git checkout -- <bad-file>
    git add <good-file>
@@ -560,10 +560,10 @@ trap:
 ### Filesystem
 
 ```
-/home/coreyt/projects/airlock/            <- project root (main checkout)
-/home/coreyt/projects/airlock/target      <- cargo target dir (large)
-/home/coreyt/projects/airlock/python/.venv <- python venv (only if bindings work planned)
-/home/coreyt/projects/airlock/.claude/worktrees/ <- worktree parent directory
+<repo-root>/            <- project root (main checkout)
+<repo-root>/target      <- cargo target dir (large)
+<repo-root>/python/.venv <- python venv (only if bindings work planned)
+<repo-root>/.claude/worktrees/ <- worktree parent directory
     agent-<hash>/                                 <- harness-created (isolation: worktree)
     <branch>/                                     <- manually created
 ```

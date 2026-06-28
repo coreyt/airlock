@@ -1,6 +1,18 @@
 from unittest.mock import MagicMock, patch
 
 from airlock.callbacks.fathom_logger import AirlockFathomLogger
+from airlock.callbacks.request_event import build_request_event
+
+
+# The historical fathom ``log_*_event``/``_log_event``/``_fathom_properties`` builders
+# were deleted in the 0.5.4 cutover; the fathom sink now consumes the canonical event
+# via ``record_event`` (project_fathom). This shim re-points the legacy behavior tests
+# through that live path so their assertions on the emitted FathomDB node still hold.
+def _emit(logger, kwargs, response_obj, start_time, end_time, *, success):
+    event = build_request_event(
+        kwargs, response_obj, start_time, end_time, success=success
+    )
+    logger.record_event(event)
 
 
 class MockUsage:
@@ -29,7 +41,7 @@ def test_fathom_logger_success():
         builder_instance = MockBuilder.return_value
         builder_instance.build.return_value = "mock_request"
 
-        logger.log_success_event(kwargs, response_obj, None, None)
+        _emit(logger, kwargs, response_obj, None, None, success=True)
 
         builder_instance.add_node.assert_called_once()
         call_kwargs = builder_instance.add_node.call_args[1]
@@ -67,7 +79,7 @@ def test_fathom_logger_failure():
         builder_instance = MockBuilder.return_value
         builder_instance.build.return_value = "mock_request"
 
-        logger.log_failure_event(kwargs, response_obj, None, None)
+        _emit(logger, kwargs, response_obj, None, None, success=False)
 
         builder_instance.add_node.assert_called_once()
         call_kwargs = builder_instance.add_node.call_args[1]
@@ -93,7 +105,7 @@ def test_fathom_logger_no_fathomdb():
     kwargs = {"model": "gpt-4"}
 
     with patch("airlock.callbacks.fathom_logger.WriteRequestBuilder", None):
-        logger.log_success_event(kwargs, None, None, None)
+        _emit(logger, kwargs, None, None, None, success=True)
         engine_mock.write.assert_not_called()
 
 
@@ -108,8 +120,8 @@ def test_fathom_logger_skips_duplicate_call_ids():
         builder_instance = MockBuilder.return_value
         builder_instance.build.return_value = "mock_request"
 
-        logger.log_success_event(kwargs, response_obj, None, None)
-        logger.log_failure_event(kwargs, response_obj, None, None)
+        _emit(logger, kwargs, response_obj, None, None, success=True)
+        _emit(logger, kwargs, response_obj, None, None, success=False)
 
         builder_instance.add_node.assert_called_once()
     engine_mock.write.assert_called_once_with("mock_request")
@@ -125,7 +137,7 @@ def test_fathom_logger_skips_when_metadata_requests_suppression():
     }
 
     with patch("airlock.callbacks.fathom_logger.WriteRequestBuilder") as MockBuilder:
-        logger.log_success_event(kwargs, MockResponse(total_tokens=100), None, None)
+        _emit(logger, kwargs, MockResponse(total_tokens=100), None, None, success=True)
 
     MockBuilder.assert_not_called()
     engine_mock.write.assert_not_called()
@@ -163,7 +175,7 @@ def test_fathom_logger_opt_in_fields(monkeypatch):
         builder_instance = MockBuilder.return_value
         builder_instance.build.return_value = "mock_request"
 
-        logger.log_failure_event(kwargs, MockResponse(total_tokens=100), None, None)
+        _emit(logger, kwargs, MockResponse(total_tokens=100), None, None, success=False)
 
         properties = builder_instance.add_node.call_args[1]["properties"]
         assert properties["airlock_client"] == "client-1"

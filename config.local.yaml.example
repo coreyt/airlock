@@ -1,0 +1,23 @@
+# config.local.yaml.example — template for machine-specific config overrides.
+#
+# Copy to `config.local.yaml` (gitignored) and put deployment/host-specific settings
+# here that should NOT live in the tracked `config.yaml` — e.g. MCP servers whose
+# `command:` is an absolute path under your home directory.
+#
+# Activation: add to your local config.yaml
+#     include: ["config.local.yaml"]
+# litellm merges included files into the main config. Caveats:
+#   - the included file MUST exist or proxy startup fails (FileNotFoundError);
+#   - a key whose value is a dict (e.g. `mcp_servers`) REPLACES the main config's
+#     value rather than deep-merging — so list every MCP server you want under
+#     `mcp_servers` here, including any you still want from config.yaml.
+#
+# Example:
+#
+# mcp_servers:
+#   my_local_tool:
+#     transport: stdio
+#     command: ${HOME}/projects/my-tool/.venv/bin/my-tool
+#     args: []
+#     env:
+#       MY_TOOL_TOKEN: os.environ/MY_TOOL_TOKEN

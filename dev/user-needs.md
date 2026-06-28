@@ -820,3 +820,54 @@ tail latency stays bounded when `AIRLOCK_PII_ENABLED`.
 5. The local-vLLM `/models` capability probe widens its cache TTL and prewarms on
    startup without regressing first-request correctness for non-vLLM aliases
    (which never hit that path).
+
+---
+
+## UN-28: One Canonical Request Event Behind Every Telemetry Sink
+
+**As an** operator and maintainer of Airlock's observability,
+**I need** each per-request telemetry record to be built **once** into a single
+canonical event and fanned out to every sink, rather than re-derived independently
+in each logger,
+**so that** a new field or a fix lands in one place instead of four-plus, the sinks
+cannot silently drift, and one failing sink cannot break the request or the others.
+
+> Traces to `dev/plans/0.5.4-plan.md` and the architecture audit
+> (`dev/notes/architecture-audit-0.5.0-2026-06.md`, Part 2 telemetry row ★★
+> "Weakest", and Tier 3 #8). Today the same record is derived independently across
+> three distinct `_build_record()` builders (enterprise/`AirlockLogger`, s3, sql),
+> a fathom projection that reuses the enterprise builder, plus a separate mutation
+> ledger and metrics counters — the fields agree only by convention and have already
+> drifted. The fix is a **behavior-preserving structural refactor**: source the
+> record once into a canonical `RequestEvent` and let each sink **project** its
+> historical subset; the wire/log/metrics output is unchanged. Design:
+> `dev/notes/design-request-event-bus.md`.
+
+### Stakeholders
+
+- Operators (telemetry stays consistent; a failing sink is contained, not fatal)
+- Maintainers (one typed contract to extend instead of four-plus to keep in sync)
+
+### Acceptance Criteria
+
+1. A single canonical `RequestEvent` is built **once per request** and dispatched
+   to every telemetry sink (enterprise, fathom, s3, sql) plus the mutation ledger
+   and per-request metrics; no sink derives its own record (the three
+   `_build_record()`s and the fathom builder-reuse are deleted).
+2. **Behavior-preserving:** every sink emits the **same fields and values** it emits
+   today, proven by a per-consumer golden/field-for-field equivalence test
+   (enterprise/fathom/s3/sql + mutation ledger + metrics, before vs after). s3 keeps
+   its redaction + narrow set; sql keeps its JSON-string encoding; fathom keeps its
+   env-flag-gated subset; s3/sql keep their bare `error` string.
+3. **One dispatch seam with sink-failure isolation:** a sink that raises is caught,
+   logged, and does **not** propagate to the request path or the other sinks;
+   dispatch order is deterministic and test-pinned.
+4. **No second source of truth and no measurable hot-path latency added:** the event
+   is sourced once from existing request state (LiteLLM internals through the 0.5.3
+   ACL), and one build + N projections is ≤ today's N independent builds.
+5. The intended logged/served surface is **unchanged** — `dev/smoketest/` serves as
+   the parity oracle (isolated-instance run before/after on a separate dir+port,
+   live `:4000` untouched). The one accepted internal value change is **timestamp
+   convergence** (the three independently-sampled per-builder timestamps collapse to
+   one sourced-once value); it is recorded in the behavior-change register. Any other
+   field-shape change must extend the smoke harness and be registered.

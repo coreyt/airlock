@@ -92,7 +92,7 @@ gcloud iam service-accounts keys create ~/airlock-vertex.json --iam-account="$SA
 ```bash
 VERTEX_PROJECT=api-5498240749530952133-752265
 VERTEX_LOCATION=global
-VERTEX_CREDENTIALS=/home/coreyt/projects/airlock/secrets/airlock-vertex.json
+VERTEX_CREDENTIALS=<repo-root>/secrets/airlock-vertex.json
 GCS_BUCKET_NAME=airlock-vertex-batch-5498240749530952133
 ```
 

@@ -5,6 +5,53 @@ All notable changes to Airlock are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.4] — 2026-06-28
+
+Internal-quality release: **unify observability behind one canonical request event.**
+Airlock previously rebuilt the same per-request telemetry record independently in
+four-plus places (the enterprise/fathom/s3/sql loggers plus the per-request metrics);
+this release sources it **once** into a canonical `RequestEvent` and fans it out to
+every sink through a single recorder/dispatcher. Behavior-preserving — every sink emits
+field-for-field identical records — with one **operator-facing configuration change**
+(below). Closes audit Tier 3 #8 (`dev/notes/architecture-audit-0.5.0-2026-06.md`,
+Part 2 telemetry row). Design: `dev/notes/design-request-event-bus.md`.
+
+### Internal / structural (no wire change)
+
+- **One `RequestEvent` + one recorder behind every telemetry sink (UN-28).** A single
+  frozen `RequestEvent` (`airlock/callbacks/request_event.py`) is built once per request
+  — through the 0.5.3 LiteLLM ACL — and dispatched by `RequestRecorder` to each sink as
+  a pure projection (`airlock/callbacks/projections.py`). The four duplicated
+  `_build_record()`/`_fathom_properties` builders are **deleted**; each sink's emitted
+  record is proven field-for-field identical before vs after by frozen golden tests, and
+  by an isolated-instance parity smoke run. The recorder dispatches with deterministic
+  order and **per-sink failure isolation** (a raising sink never breaks the request or
+  the other sinks), installed in the enterprise logger's callback slot **before** the
+  fast monitor so guardrail metadata is captured exactly as before.
+- **Build-once is cheaper:** request enrichment (Gemini response classification, served-
+  backend attribution) runs once per request instead of once per sink.
+
+### Behavior-change register
+
+- **Internal value — timestamp convergence (accepted).** Each builder previously sampled
+  `datetime.now()` independently, so one request produced up to three slightly different
+  `timestamp`s across sinks. The event is now sampled **once**, so all sinks share one
+  `timestamp` (strictly more correct). Values converge; no field shape change.
+- **⚠️ Operator migration — telemetry callback configuration.** Telemetry sinks are no
+  longer registered individually in `config.yaml`. A single callback,
+  `airlock.callbacks.recorder.recorder_callback`, now owns all sink dispatch and must be
+  the telemetry entry in `success_callback`/`failure_callback` (kept **before**
+  `airlock.fast.monitor.proxy_monitor`). The enterprise logger and Prometheus metrics
+  are **always-on** via the recorder (no longer added to config). The optional sinks are
+  gated by env flags instead of by a `config.yaml` callback entry:
+  `AIRLOCK_ENABLE_FATHOM_LOGGER` (unchanged), and the **new**
+  `AIRLOCK_ENABLE_S3_LOGGER` / `AIRLOCK_ENABLE_SQL_LOGGER`. The emitted records and
+  Prometheus counters are byte-identical when a sink is enabled — only the **opt-in
+  mechanism** changed. The shipped `config.yaml` is already updated; custom deployments
+  that referenced `…enterprise_logger.proxy_logger`, `…s3_logger.proxy_s3_logger`,
+  `…sql_logger.proxy_sql_logger`, or `airlock.callbacks.metrics` directly must migrate to
+  the recorder callback + the env flags. See `docs/operations.md`.
+
 ## [0.5.3] — 2026-06-28
 
 Internal-quality release: decouple from LiteLLM internals, take PII off the event

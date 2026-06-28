@@ -1,0 +1,45 @@
+{
+  "pack": "0.5.4-MIGRATE-sidechannels",
+  "baseline_sha": "971c8ae",
+  "branch": "worktree-agent-a548fe6ba11eed565",
+  "head_sha": "fd0463c855548d18e7d151066f0c8834235804eb",
+  "commits": [
+    "c1db945: test(0.5.4-MIGRATE-sidechannels): RED — metrics via record_event/recorder seam",
+    "726b095: feat(0.5.4-MIGRATE-sidechannels): drive per-request metrics from RequestEvent seam",
+    "fd0463c: fix(0.5.4-MIGRATE-sidechannels): crash-safe mutation counting for non-dict items (parity with old getattr)"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "c1db945d7c89228459b9779f17e4e848995465b8",
+    "test_files": [
+      "tests/test_migrate_sidechannels.py",
+      "tests/test_metrics.py",
+      "tests/test_recorder_cutover.py"
+    ]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_migrate_sidechannels.py",
+      "tests/test_metrics.py",
+      "tests/test_recorder_cutover.py"
+    ],
+    "passed": 40,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/callbacks/metrics.py",
+    "airlock/callbacks/recorder.py",
+    "tests/test_migrate_sidechannels.py",
+    "tests/test_metrics.py",
+    "tests/test_recorder_cutover.py",
+    "dev/notes/0.5.4-MIGRATE-sidechannels-design.md"
+  ],
+  "blockers_encountered": [],
+  "additional_changes_made_in_scope": [
+    "Adapted tests/test_recorder_cutover.py sink_names assertions for the new always-on 'metrics' sink: test_no_double_emit_enterprise_once_fathom_once -> ['enterprise','metrics','fathom']; test_fathom_sink_absent_when_flag_unset -> ['enterprise','metrics'] plus an explicit 'fathom' not-in check. Intent preserved (no double-emit; fathom flag-gated), assertions not weakened.",
+    "Adapted tests/test_metrics.py: re-pointed TestAirlockMetricsCallback + TestMutationsCounter through record_event (SimpleNamespace events with asdict'd mutation dicts); removed TestSelfRegister (the _self_register symbol was deleted). Assertions preserved.",
+    "Review-nit follow-up (commit fd0463c): hardened _record_mutations_from_event to skip non-dict items (isinstance guard) — restores exact crash-safety parity with the old getattr-based helper, since _serialize's str() fallback could place a non-dict in event.mutations. Added test_mutations_non_dict_item_skipped; added an intentional-duplication comment on the two empty-mutations tests in test_metrics.py."
+  ],
+  "agent_verify_result": "pass — full no-network suite (-m 'not live'): 2562 passed, 12 skipped, 1 xpassed; 1 pre-existing unrelated failure (tests/test_fathom_init.py::test_init_engine_with_fathomdb — optional fathomdb dep not installed; fails identically at baseline 971c8ae). Targeted metrics/sidechannels/cutover: 40 passed.",
+  "next_step_for_orchestrator": "Pack 0.5.4-MIGRATE-sidechannels on branch worktree-agent-a548fe6ba11eed565 at fd0463c855548d18e7d151066f0c8834235804eb; review, verify, merge. Note pre-existing test_fathom_init fathomdb failure is environmental, not introduced by this pack."
+}

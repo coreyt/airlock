@@ -23,7 +23,7 @@ The orchestrator coordinates — it does not implement.
 6. Protect your own context — delegate all code work to subagents.
 
 **Do NOT:**
-- Edit source or test files in `/home/coreyt/projects/airlock` directly
+- Edit source or test files in `<repo-root>` directly
   (delegate to an implementer in a worktree).
 - Iterate on clippy/fmt errors (delegate to a cleanup implementer).
 - Read large source files (delegate to an Explore agent).
@@ -126,7 +126,7 @@ Run `scripts/preflight.sh` before every agent launch — not just at
 session start, but after every agent completion, merge, or failure.
 
 ```bash
-cd /home/coreyt/projects/airlock
+cd <repo-root>
 ./scripts/preflight.sh              # standard checks
 ./scripts/preflight.sh --baseline   # include uv run pytest baseline (slow, session start only)
 ```
@@ -183,7 +183,7 @@ canary implementer can run foreground since it's <10s.
    assert it is `main`'s HEAD (not a stale ancestor `main` has moved past), the
    failure mode that silently orphans merged work:
    ```bash
-   cd /home/coreyt/projects/airlock
+   cd <repo-root>
    ./scripts/check-worktree-base.sh {BASE_COMMIT}   # exits 1 on a stale base
    git worktree add .claude/worktrees/{BRANCH} -b {BRANCH} {BASE_COMMIT}
    ```
@@ -260,7 +260,7 @@ After each implementing agent completes:
 
 ### If tests pass and no review needed:
 ```bash
-cd /home/coreyt/projects/airlock
+cd <repo-root>
 
 # Verify the worktree has the commit the agent reported
 git -C {WORKTREE_ABSOLUTE_PATH} log --oneline -1     # expect agent's hash
@@ -291,7 +291,7 @@ git branch -d {BRANCH}    # only after the merge landed
 
 ### After every merge:
 ```bash
-cd /home/coreyt/projects/airlock
+cd <repo-root>
 df -h / | tail -1                                    # check disk
 git worktree list                                    # confirm removed
 git status --short                                   # expect clean
