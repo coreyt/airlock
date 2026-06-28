@@ -82,8 +82,8 @@ Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`. Audit source-of-record:
 | `MIGRATE-s3` | S3 logger onto `RequestEvent` (`project_s3`+sink; keep `_redact_record`, narrow fields, bare error); delete `_build_record()`; recorder sink gated by `AIRLOCK_ENABLE_S3_LOGGER` | enterprise+fathom ✅ | **CLOSED** (merge; codex PASS; frozen golden) | `dev/plans/runs/0.5.4-MIGRATE-s3-output.json` |
 | `MIGRATE-sql` | SQL logger onto `RequestEvent` (`project_sql`+sink; **JSON-string** messages/response, bare error, NO redaction); delete `_build_record()`; recorder sink gated by `AIRLOCK_ENABLE_SQL_LOGGER` | enterprise+fathom ✅ | **CLOSED** (merge; sonnet-fallback PASS; frozen golden) | `dev/plans/runs/0.5.4-MIGRATE-sql-output.json` |
 | `MIGRATE-sidechannels` | Per-request metrics (requests_total both paths / request_duration+mutations success-only) fed from the seam; metrics is an unconditional recorder sink; standalone guardrail metrics out of scope | enterprise+fathom ✅ | **CLOSED** (merge; sonnet-fallback PASS + crash-safety fix) | `dev/plans/runs/0.5.4-MIGRATE-sidechannels-output.json` |
-| `VERIFY` | Cross-sink equivalence harness + isolated-instance parity run | all MIGRATE-* | NOT_STARTED | `dev/plans/runs/0.5.4-VERIFY-output.json` |
-| `DOCS` | UN + as-built design note + changelog/behavior-change register | VERIFY | NOT_STARTED | `dev/plans/runs/0.5.4-DOCS-output.json` |
+| `VERIFY` | Cross-sink equivalence harness + isolated-instance parity run | all MIGRATE-* | **CLOSED** (smoke GREEN + harness merged; self-verified) | `0.5.4-VERIFY-harness-output.json` + `0.5.4-VERIFY-smoke-20260628T191444Z.md` |
+| `DOCS` | UN-28 + as-built design note + changelog/behavior-change register | VERIFY | **CLOSED** (orchestrator-authored; mkdocs --strict + config parity green) | CHANGELOG.md + operations.md + design note AS-BUILT |
 
 States (furthest witnessed wins): `WORKTREE_CREATED` → `IMPLEMENTING` →
 `IMPLEMENTED` → `REVIEWED` → `MERGED` → `CLOSED` → `CLEANED`.
