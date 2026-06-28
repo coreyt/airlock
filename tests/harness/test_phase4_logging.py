@@ -13,6 +13,20 @@ import pytest
 pytestmark = pytest.mark.harness
 
 
+# The historical ``AirlockLogger._build_record`` builder was deleted in the 0.5.4
+# cutover; telemetry now flows event -> projection -> sink. This shim re-points the
+# legacy record-shape assertions through the live path (field equivalence is also
+# locked by tests/test_projections_equiv.py against the frozen goldens).
+def _build_record(kwargs, response_obj, start_time, end_time, *, success):
+    from airlock.callbacks.projections import project_enterprise
+    from airlock.callbacks.request_event import build_request_event
+
+    event = build_request_event(
+        kwargs, response_obj, start_time, end_time, success=success
+    )
+    return project_enterprise(event)
+
+
 class TestSuccessRecord:
     def test_all_fields_present(
         self,
@@ -20,10 +34,8 @@ class TestSuccessRecord:
         mock_response_obj,
         mock_start_end_times,
     ):
-        from airlock.callbacks.enterprise_logger import AirlockLogger
-
         start, end = mock_start_end_times
-        record = AirlockLogger._build_record(
+        record = _build_record(
             mock_logger_kwargs, mock_response_obj, start, end, success=True
         )
         required = [
@@ -48,10 +60,8 @@ class TestSuccessRecord:
         mock_response_obj,
         mock_start_end_times,
     ):
-        from airlock.callbacks.enterprise_logger import AirlockLogger
-
         start, end = mock_start_end_times
-        record = AirlockLogger._build_record(
+        record = _build_record(
             mock_logger_kwargs, mock_response_obj, start, end, success=True
         )
         assert record["success"] is True
@@ -63,12 +73,8 @@ class TestFailureRecord:
         mock_failure_kwargs,
         mock_start_end_times,
     ):
-        from airlock.callbacks.enterprise_logger import AirlockLogger
-
         start, end = mock_start_end_times
-        record = AirlockLogger._build_record(
-            mock_failure_kwargs, None, start, end, success=False
-        )
+        record = _build_record(mock_failure_kwargs, None, start, end, success=False)
         assert record["success"] is False
         assert record.get("error") is not None
 
@@ -88,8 +94,6 @@ class TestMCPLogging:
         self,
         mock_start_end_times,
     ):
-        from airlock.callbacks.enterprise_logger import AirlockLogger
-
         start, end = mock_start_end_times
         kwargs = {
             "model": "unknown",
@@ -100,15 +104,13 @@ class TestMCPLogging:
                 "metadata": {"mcp_server_name": "filesystem"},
             },
         }
-        record = AirlockLogger._build_record(kwargs, None, start, end, success=True)
+        record = _build_record(kwargs, None, start, end, success=True)
         assert record.get("call_type") == "call_mcp_tool"
 
     def test_mcp_tool_name_logged(
         self,
         mock_start_end_times,
     ):
-        from airlock.callbacks.enterprise_logger import AirlockLogger
-
         start, end = mock_start_end_times
         kwargs = {
             "model": "unknown",
@@ -118,15 +120,13 @@ class TestMCPLogging:
             "litellm_call_id": "mcp-call-2",
             "litellm_params": {"metadata": {}},
         }
-        record = AirlockLogger._build_record(kwargs, None, start, end, success=True)
+        record = _build_record(kwargs, None, start, end, success=True)
         assert record.get("mcp_tool_name") == "read_file"
 
     def test_mcp_server_name_logged(
         self,
         mock_start_end_times,
     ):
-        from airlock.callbacks.enterprise_logger import AirlockLogger
-
         start, end = mock_start_end_times
         kwargs = {
             "model": "unknown",
@@ -137,7 +137,7 @@ class TestMCPLogging:
                 "metadata": {"mcp_server_name": "filesystem"},
             },
         }
-        record = AirlockLogger._build_record(kwargs, None, start, end, success=True)
+        record = _build_record(kwargs, None, start, end, success=True)
         assert record.get("mcp_server_name") == "filesystem"
 
 
@@ -146,8 +146,6 @@ class TestGuardrailMetadata:
         self,
         mock_start_end_times,
     ):
-        from airlock.callbacks.enterprise_logger import AirlockLogger
-
         start, end = mock_start_end_times
         kwargs = {
             "model": "claude-sonnet",
@@ -159,15 +157,13 @@ class TestGuardrailMetadata:
                 },
             },
         }
-        record = AirlockLogger._build_record(kwargs, None, start, end, success=True)
+        record = _build_record(kwargs, None, start, end, success=True)
         assert "airlock_pii_redacted" in record
 
     def test_enforcement_metadata(
         self,
         mock_start_end_times,
     ):
-        from airlock.callbacks.enterprise_logger import AirlockLogger
-
         start, end = mock_start_end_times
         kwargs = {
             "model": "claude-sonnet",
@@ -179,15 +175,13 @@ class TestGuardrailMetadata:
                 },
             },
         }
-        record = AirlockLogger._build_record(kwargs, None, start, end, success=True)
+        record = _build_record(kwargs, None, start, end, success=True)
         assert "airlock_enforcement" in record
 
     def test_observation_metadata(
         self,
         mock_start_end_times,
     ):
-        from airlock.callbacks.enterprise_logger import AirlockLogger
-
         start, end = mock_start_end_times
         kwargs = {
             "model": "claude-sonnet",
@@ -199,7 +193,7 @@ class TestGuardrailMetadata:
                 },
             },
         }
-        record = AirlockLogger._build_record(kwargs, None, start, end, success=True)
+        record = _build_record(kwargs, None, start, end, success=True)
         assert "airlock_observation" in record
 
 

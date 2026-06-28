@@ -210,17 +210,19 @@ def test_fathom_record_event_normal_write():
 
 
 # ---------------------------------------------------------------------------
-# 6. Dormancy — importing recorder does NOT install recorder_callback into litellm
+# 6. Activation — the 2b-ii cutover installs recorder_callback into litellm
 # ---------------------------------------------------------------------------
-def test_recorder_module_is_dormant():
+def test_recorder_module_is_live():
+    """Pack 2b-ii cutover: the recorder is no longer dormant — it self-registers
+    into all four litellm callback lists (the single live telemetry callback)."""
     import litellm
 
     from airlock.callbacks import recorder as recorder_mod
 
     cb = recorder_mod.recorder_callback
     assert isinstance(cb, RequestRecorderCallback)
-    assert cb not in litellm.success_callback
-    assert cb not in litellm.failure_callback
-    assert cb not in litellm._async_success_callback
-    assert cb not in litellm._async_failure_callback
-    assert cb not in litellm.logging_callback_manager._get_all_callbacks()
+    assert cb in litellm.logging_callback_manager._get_all_callbacks()
+    # installed into both sync and async lists (config populates sync; the proxy's
+    # async path needs the async lists)
+    assert cb in litellm._async_success_callback
+    assert cb in litellm._async_failure_callback

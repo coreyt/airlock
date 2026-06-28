@@ -545,8 +545,8 @@ litellm_settings:
   # NOTE: these must point at module-level *instances*, not classes.
   # LiteLLM's get_instance_fn does getattr — classes fail isinstance(cb, CustomLogger).
   callbacks: ["airlock.callbacks.model_override_headers.proxy_model_override_headers"]
-  success_callback: ["airlock.callbacks.enterprise_logger.proxy_logger", "airlock.fast.monitor.proxy_monitor"] # , "airlock.callbacks.fathom_logger.proxy_fathom_logger"]
-  failure_callback: ["airlock.callbacks.enterprise_logger.proxy_logger", "airlock.fast.monitor.proxy_monitor"] # , "airlock.callbacks.fathom_logger.proxy_fathom_logger"]
+  success_callback: ["airlock.callbacks.recorder.recorder_callback", "airlock.fast.monitor.proxy_monitor"] # recorder owns enterprise+fathom dispatch (fathom gated by AIRLOCK_ENABLE_FATHOM_LOGGER); MUST stay before proxy_monitor
+  failure_callback: ["airlock.callbacks.recorder.recorder_callback", "airlock.fast.monitor.proxy_monitor"] # recorder owns enterprise+fathom dispatch (fathom gated by AIRLOCK_ENABLE_FATHOM_LOGGER); MUST stay before proxy_monitor
 
   # Budget & rate-limiting (per-user, requires virtual keys)
   # max_budget: 100.0          # USD per 30-day rolling window

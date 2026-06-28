@@ -19,9 +19,30 @@ from airlock.callbacks.enterprise_logger import (
     write_batch_record,
     write_precall_block_record,
 )
+from airlock.callbacks.projections import project_enterprise
+from airlock.callbacks.request_event import build_request_event
 from airlock.transparency import record_mutation, record_redaction
 
 _UNSET = object()
+
+
+# The historical ``AirlockLogger._build_record`` / ``log_*_event`` builders were
+# deleted in the 0.5.4 cutover; telemetry now flows event -> projection -> sink.
+# These thin shims re-point the legacy behavior tests through the live path so their
+# assertions still pin the SAME emitted record (field-for-field equivalence is also
+# locked by tests/test_projections_equiv.py against the frozen goldens).
+def _build_record(kwargs, response_obj, start_time, end_time, *, success):
+    event = build_request_event(
+        kwargs, response_obj, start_time, end_time, success=success
+    )
+    return project_enterprise(event)
+
+
+def _emit(logger_inst, kwargs, response_obj, start_time, end_time, *, success):
+    event = build_request_event(
+        kwargs, response_obj, start_time, end_time, success=success
+    )
+    logger_inst.record_event(event)
 
 
 # ---------------------------------------------------------------------------
@@ -59,14 +80,14 @@ class TestSerialize:
 
 
 # ---------------------------------------------------------------------------
-# AirlockLogger._build_record()
+# _build_record()
 # ---------------------------------------------------------------------------
 class TestBuildRecord:
     def test_success_record_has_all_fields(
         self, mock_logger_kwargs, mock_response_obj, mock_start_end_times
     ):
         start, end = mock_start_end_times
-        record = AirlockLogger._build_record(
+        record = _build_record(
             mock_logger_kwargs, mock_response_obj, start, end, success=True
         )
 
@@ -89,16 +110,14 @@ class TestBuildRecord:
         self, mock_logger_kwargs, mock_response_obj, mock_start_end_times
     ):
         start, end = mock_start_end_times
-        record = AirlockLogger._build_record(
+        record = _build_record(
             mock_logger_kwargs, mock_response_obj, start, end, success=True
         )
         assert record["duration_ms"] == 1500
 
     def test_failure_record_has_error(self, mock_failure_kwargs, mock_start_end_times):
         start, end = mock_start_end_times
-        record = AirlockLogger._build_record(
-            mock_failure_kwargs, None, start, end, success=False
-        )
+        record = _build_record(mock_failure_kwargs, None, start, end, success=False)
         assert record["success"] is False
         assert record["error"] == "Model timeout after 300s"
         assert record["error_type"] == "Exception"
@@ -110,9 +129,7 @@ class TestBuildRecord:
     ):
         monkeypatch.setenv("AIRLOCK_CLIENT", "dashboard-test-client")
         start, end = mock_start_end_times
-        record = AirlockLogger._build_record(
-            mock_failure_kwargs, None, start, end, success=False
-        )
+        record = _build_record(mock_failure_kwargs, None, start, end, success=False)
         assert record["airlock_client"] == "dashboard-test-client"
 
     def test_record_prefers_incoming_airlock_client_header(
@@ -124,7 +141,7 @@ class TestBuildRecord:
             "headers": {"X-Airlock-Client": "incoming-client"},
         }
         start, end = mock_start_end_times
-        record = AirlockLogger._build_record(kwargs, None, start, end, success=False)
+        record = _build_record(kwargs, None, start, end, success=False)
         assert record["airlock_client"] == "incoming-client"
 
     def test_blank_failure_marked_eval(self, mock_logger_kwargs, mock_start_end_times):
@@ -143,7 +160,7 @@ class TestBuildRecord:
             ],
             "exception": Exception(),
         }
-        record = AirlockLogger._build_record(kwargs, None, start, end, success=False)
+        record = _build_record(kwargs, None, start, end, success=False)
         assert record["error"] == "Evaluation request failed before provider call"
         assert record["error_type"] == "Exception"
         assert record["failure_category"] == "eval"
@@ -158,16 +175,14 @@ class TestBuildRecord:
                 {"role": "user", "content": "Evaluation question: Did it work?"}
             ],
         }
-        record = AirlockLogger._build_record(kwargs, None, start, end, success=False)
+        record = _build_record(kwargs, None, start, end, success=False)
         assert record["error"] == "Evaluation request failed before provider call"
         assert record["error_type"] is None
         assert record["failure_category"] == "eval"
 
     def test_missing_response_obj(self, mock_logger_kwargs, mock_start_end_times):
         start, end = mock_start_end_times
-        record = AirlockLogger._build_record(
-            mock_logger_kwargs, None, start, end, success=True
-        )
+        record = _build_record(mock_logger_kwargs, None, start, end, success=True)
         assert record["response"] is None
         assert record.get("prompt_tokens") is None or record.get("prompt_tokens") == 0
 
@@ -175,13 +190,11 @@ class TestBuildRecord:
         start, end = mock_start_end_times
         response = MagicMock()
         response.usage = None
-        record = AirlockLogger._build_record(
-            mock_logger_kwargs, response, start, end, success=True
-        )
+        record = _build_record(mock_logger_kwargs, response, start, end, success=True)
         assert "prompt_tokens" not in record or record.get("prompt_tokens", 0) == 0
 
     def test_missing_start_end_times(self, mock_logger_kwargs, mock_response_obj):
-        record = AirlockLogger._build_record(
+        record = _build_record(
             mock_logger_kwargs, mock_response_obj, None, None, success=True
         )
         assert record["duration_ms"] is None
@@ -197,7 +210,7 @@ class TestBuildRecord:
                 }
             },
         }
-        record = AirlockLogger._build_record(kwargs, None, None, None, success=True)
+        record = _build_record(kwargs, None, None, None, success=True)
         assert record["user"] == "bob"
 
     def test_airlock_metadata_included(self):
@@ -220,7 +233,7 @@ class TestBuildRecord:
                 }
             },
         }
-        record = AirlockLogger._build_record(kwargs, None, None, None, success=True)
+        record = _build_record(kwargs, None, None, None, success=True)
         assert "airlock_semantic" in record
         assert record["airlock_semantic"]["status"] == "passed"
         assert record["airlock_semantic"]["results"][0]["name"] == "injection"
@@ -287,7 +300,7 @@ class TestPrecallBlockRecord:
                 }
             },
         }
-        record = AirlockLogger._build_record(kwargs, None, None, None, success=True)
+        record = _build_record(kwargs, None, None, None, success=True)
         assert "airlock_semantic" in record
         assert "some_internal_field" not in record
 
@@ -296,9 +309,7 @@ class TestPrecallBlockRecord:
     ):
         """When no airlock_* metadata exists, no extra keys are added."""
         start, end = mock_start_end_times
-        record = AirlockLogger._build_record(
-            mock_logger_kwargs, None, start, end, success=True
-        )
+        record = _build_record(mock_logger_kwargs, None, start, end, success=True)
         airlock_keys = [k for k in record if k.startswith("airlock_")]
         assert set(airlock_keys) == {"airlock_client", "airlock_provider"}
 
@@ -316,7 +327,7 @@ class TestPrecallBlockRecord:
             "litellm_params": {"metadata": {"airlock_observation": observation}},
         }
         start, end = mock_start_end_times
-        record = AirlockLogger._build_record(kwargs, None, start, end, success=True)
+        record = _build_record(kwargs, None, start, end, success=True)
         assert record["airlock_observation"] == observation
 
     def test_observation_absent_not_in_record(
@@ -324,9 +335,7 @@ class TestPrecallBlockRecord:
     ):
         """Without observation metadata, no airlock_observation key appears."""
         start, end = mock_start_end_times
-        record = AirlockLogger._build_record(
-            mock_logger_kwargs, None, start, end, success=True
-        )
+        record = _build_record(mock_logger_kwargs, None, start, end, success=True)
         assert "airlock_observation" not in record
 
     def test_enforcement_in_record(self, mock_start_end_times):
@@ -338,7 +347,7 @@ class TestPrecallBlockRecord:
             "litellm_params": {"metadata": {"airlock_enforcement": enforcement}},
         }
         start, end = mock_start_end_times
-        record = AirlockLogger._build_record(kwargs, None, start, end, success=True)
+        record = _build_record(kwargs, None, start, end, success=True)
         assert record["airlock_enforcement"] == enforcement
 
     def test_missing_client_normalized_in_record(self, mock_start_end_times):
@@ -348,7 +357,7 @@ class TestPrecallBlockRecord:
             "litellm_params": {"metadata": {}},
         }
         start, end = mock_start_end_times
-        record = AirlockLogger._build_record(kwargs, None, start, end, success=True)
+        record = _build_record(kwargs, None, start, end, success=True)
         assert record["airlock_client"] == "no_client"
         assert record["airlock_provider"] == "openai"
 
@@ -376,7 +385,7 @@ class TestPrecallBlockRecord:
                 "completion_tokens_details": {"reasoning_tokens": 5, "text_tokens": 0}
             },
         }
-        record = AirlockLogger._build_record(kwargs, response, start, end, success=True)
+        record = _build_record(kwargs, response, start, end, success=True)
         assert record["airlock_gemini"]["mode"] == "deep_reasoning"
         assert record["airlock_gemini_response"]["output_shape"] == "thought_only"
         assert record["airlock_response_headers"]["X-Airlock-Provider-Mode"] == "gemini"
@@ -439,7 +448,7 @@ class TestCallbackMethods:
     ):
         start, end = mock_start_end_times
         logger = AirlockLogger()
-        logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
+        _emit(logger, mock_logger_kwargs, mock_response_obj, start, end, success=True)
 
         today = datetime.date.today().isoformat()
         log_path = log_dir / f"airlock-{today}.jsonl"
@@ -452,7 +461,7 @@ class TestCallbackMethods:
     ):
         start, end = mock_start_end_times
         logger = AirlockLogger()
-        logger.log_failure_event(mock_failure_kwargs, None, start, end)
+        _emit(logger, mock_failure_kwargs, None, start, end, success=False)
 
         today = datetime.date.today().isoformat()
         log_path = log_dir / f"airlock-{today}.jsonl"
@@ -468,34 +477,10 @@ class TestCallbackMethods:
         logger = AirlockLogger()
 
         with caplog.at_level(logging.WARNING, logger="airlock.logger"):
-            logger.log_failure_event(mock_failure_kwargs, None, start, end)
+            _emit(logger, mock_failure_kwargs, None, start, end, success=False)
 
         assert "client=dashboard-test-client" in caplog.text
         assert "category=provider" in caplog.text
-
-    async def test_async_log_success_delegates(
-        self, log_dir, mock_logger_kwargs, mock_response_obj, mock_start_end_times
-    ):
-        start, end = mock_start_end_times
-        logger = AirlockLogger()
-        await logger.async_log_success_event(
-            mock_logger_kwargs, mock_response_obj, start, end
-        )
-
-        today = datetime.date.today().isoformat()
-        log_path = log_dir / f"airlock-{today}.jsonl"
-        assert log_path.exists()
-
-    async def test_async_log_failure_delegates(
-        self, log_dir, mock_failure_kwargs, mock_start_end_times
-    ):
-        start, end = mock_start_end_times
-        logger = AirlockLogger()
-        await logger.async_log_failure_event(mock_failure_kwargs, None, start, end)
-
-        today = datetime.date.today().isoformat()
-        log_path = log_dir / f"airlock-{today}.jsonl"
-        assert log_path.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -519,7 +504,7 @@ class TestMCPLogging:
         }
 
         logger = AirlockLogger()
-        logger.log_success_event(kwargs, None, start, end)
+        _emit(logger, kwargs, None, start, end, success=True)
 
         today = datetime.date.today().isoformat()
         log_path = log_dir / f"airlock-{today}.jsonl"
@@ -535,7 +520,7 @@ class TestMCPLogging:
         """Regular LLM calls should NOT have MCP fields in the record."""
         start, end = mock_start_end_times
         logger = AirlockLogger()
-        logger.log_success_event(mock_logger_kwargs, mock_response_obj, start, end)
+        _emit(logger, mock_logger_kwargs, mock_response_obj, start, end, success=True)
 
         today = datetime.date.today().isoformat()
         log_path = log_dir / f"airlock-{today}.jsonl"
@@ -763,8 +748,13 @@ class TestDiskFullHandling:
         with mock_patch("builtins.open", m):
             with caplog.at_level(logging.ERROR, logger="airlock.logger"):
                 # Should NOT raise
-                logger_inst.log_success_event(
-                    mock_logger_kwargs, mock_response_obj, start, end
+                _emit(
+                    logger_inst,
+                    mock_logger_kwargs,
+                    mock_response_obj,
+                    start,
+                    end,
+                    success=True,
                 )
 
     def test_log_failure_event_survives_disk_full(
@@ -789,7 +779,7 @@ class TestDiskFullHandling:
         logger_inst = AirlockLogger()
         with mock_patch("builtins.open", m):
             with caplog.at_level(logging.ERROR, logger="airlock.logger"):
-                logger_inst.log_failure_event(mock_failure_kwargs, None, start, end)
+                _emit(logger_inst, mock_failure_kwargs, None, start, end, success=False)
 
 
 # ---------------------------------------------------------------------------
@@ -955,7 +945,7 @@ class TestTransparencyRecord:
             "messages": [],
             "litellm_params": {"metadata": {}},
         }
-        record = AirlockLogger._build_record(kwargs, response, start, end, success=True)
+        record = _build_record(kwargs, response, start, end, success=True)
         assert record["served"]["provider"] == "bedrock"
         assert record["served"]["region"] == "us-east-1"
         assert record["served"]["response_cost"] == 0.0123
@@ -973,7 +963,7 @@ class TestTransparencyRecord:
             "response_cost": 0.5,
             "litellm_params": {"metadata": {}},
         }
-        record = AirlockLogger._build_record(kwargs, response, start, end, success=True)
+        record = _build_record(kwargs, response, start, end, success=True)
         assert record["served"]["response_cost"] == 0.5
         assert record["served"]["backend_kind"] == "native"
         assert record["attribution"] == "served"
@@ -986,7 +976,7 @@ class TestTransparencyRecord:
             "messages": [],
             "litellm_params": {"metadata": {}},
         }
-        record = AirlockLogger._build_record(kwargs, response, start, end, success=True)
+        record = _build_record(kwargs, response, start, end, success=True)
         served = record["served"]
         assert served is None or served["provider"] is None
         assert record["attribution"] == "inferred"
@@ -1000,7 +990,7 @@ class TestTransparencyRecord:
             "messages": [],
             "litellm_params": {"metadata": {}},
         }
-        record = AirlockLogger._build_record(kwargs, None, start, end, success=True)
+        record = _build_record(kwargs, None, start, end, success=True)
         assert record["served"] is None
         assert record["attribution"] == "inferred"
 
@@ -1030,7 +1020,7 @@ class TestTransparencyRecord:
             "messages": [],
             "litellm_params": {"metadata": metadata},
         }
-        record = AirlockLogger._build_record(kwargs, None, start, end, success=True)
+        record = _build_record(kwargs, None, start, end, success=True)
         muts = record["mutations"]
         assert isinstance(muts, list) and len(muts) == 2
         # Order preserved.
@@ -1054,7 +1044,7 @@ class TestTransparencyRecord:
             "messages": [],
             "litellm_params": {"metadata": {}},
         }
-        record = AirlockLogger._build_record(kwargs, None, start, end, success=True)
+        record = _build_record(kwargs, None, start, end, success=True)
         assert record["mutations"] == []
 
     def test_record_type_unchanged(self, mock_start_end_times):
@@ -1065,5 +1055,5 @@ class TestTransparencyRecord:
             "messages": [],
             "litellm_params": {"metadata": {}},
         }
-        record = AirlockLogger._build_record(kwargs, response, start, end, success=True)
+        record = _build_record(kwargs, response, start, end, success=True)
         assert record["record_type"] == "request"

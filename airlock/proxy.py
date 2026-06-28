@@ -198,14 +198,8 @@ def _prepare_runtime_config(config_path: str) -> tuple[str, str | None]:
         print(f"Background health checks {mode} by AIRLOCK_BACKGROUND_HEALTH_CHECKS.")
 
     if _fathom_logger_enabled():
-        litellm_settings = config.setdefault("litellm_settings", {})
-        fathom_callback = "airlock.callbacks.fathom_logger.proxy_fathom_logger"
-        for key in ("success_callback", "failure_callback"):
-            callbacks = list(litellm_settings.get(key) or [])
-            if fathom_callback not in callbacks:
-                callbacks.append(fathom_callback)
-                litellm_settings[key] = callbacks
-                changed = True
+        # The recorder (airlock.callbacks.recorder) owns fathom dispatch now, gated by
+        # the same AIRLOCK_ENABLE_FATHOM_LOGGER flag — no config-callback append needed.
         print("Fathom logger enabled for startup (AIRLOCK_ENABLE_FATHOM_LOGGER=1).")
 
     if not changed:

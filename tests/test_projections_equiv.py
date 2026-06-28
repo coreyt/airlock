@@ -1,33 +1,48 @@
-"""Golden equivalence tests for Pack 0.5.4-MIGRATE-entfathom-project.
+"""Golden equivalence tests for Pack 0.5.4-MIGRATE-entfathom-project/cutover.
 
 Prove the PURE projections in ``airlock.callbacks.projections`` reproduce the
-LIVE builders field-for-field:
+historical builder output field-for-field:
 
-* ``project_enterprise(event)`` == ``AirlockLogger._build_record(...)``
-* ``project_fathom(event)``     == ``_fathom_properties(...)``
+* ``project_enterprise(event)`` == frozen ``AirlockLogger._build_record(...)`` golden
+* ``project_fathom(event)``     == frozen ``_fathom_properties(...)`` golden
 
 …ignoring ONLY ``timestamp`` (the one registered convergence, design §3.4),
 across a representative request set + the 7-flag ``AIRLOCK_FATHOM_STORE_*``
 matrix. No network: inputs are built in-process.
 
-The event and the old function are built from the SAME inputs. ``kwargs`` is
-deep-copied per call so the in-place Gemini enrich can't cross-contaminate, while
-the raw response object is SHARED so ``_serialize``/``str(obj)`` is identical on
-both sides (the only divergence is ``timestamp``).
+ORACLE FREEZE (pack 2b-ii cutover): the goldens in
+``tests/fixtures/0.5.4-entfathom-golden.json`` were captured ONCE from the live
+``_build_record``/``_fathom_properties`` builders (verified exact) and the builders
+were then DELETED. The equivalence proof therefore no longer depends on the live
+builders — it pins the projections to the captured historical shape. ``_FakeResponse``
+carries a deterministic ``__repr__`` so ``_serialize(resp)`` is process-stable and
+freezable; both sides normalize datetimes via ``json default=_serialize``.
 """
 
 from __future__ import annotations
 
-import copy
 import datetime
+import json
+from pathlib import Path
 
 import pytest
 
-from airlock.callbacks.enterprise_logger import AirlockLogger
-from airlock.callbacks.fathom_logger import _fathom_properties
+from airlock.callbacks.enterprise_logger import _serialize
 from airlock.callbacks.projections import project_enterprise, project_fathom
 from airlock.callbacks.request_event import build_request_event
 from airlock.transparency import Mutation
+
+_GOLDEN = json.loads(
+    (Path(__file__).parent / "fixtures" / "0.5.4-entfathom-golden.json").read_text()
+)
+
+
+def _jsonify(record: dict) -> dict:
+    """Strip ``timestamp`` and JSON-normalize (datetimes -> isoformat) for comparison
+    against the frozen goldens, exactly as the goldens were captured."""
+    record = dict(record)
+    record.pop("timestamp", None)
+    return json.loads(json.dumps(record, default=_serialize))
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +69,14 @@ class _FakeResponse:
     def __init__(self, *, prompt=3, completion=5, total=8, content="hi") -> None:
         self.usage = _FakeUsage(prompt, completion, total)
         self.choices = [_FakeChoice(content)]
+        self._tag = (
+            f"prompt={prompt} completion={completion} total={total} content={content!r}"
+        )
+
+    def __repr__(self) -> str:
+        # Deterministic (no memory address) so ``_serialize(resp) == str(resp)`` is
+        # stable across processes — required to FREEZE the projection goldens.
+        return f"_FakeResponse({self._tag})"
 
 
 def _ts(secs: float) -> datetime.datetime:
@@ -207,48 +230,29 @@ _ENV_MATRIX = [
 ]
 
 
-def _enterprise_pair(inputs):
+def _enterprise_projection(inputs):
     kwargs, resp, start, end, success = inputs
-    expected = AirlockLogger._build_record(
-        copy.deepcopy(kwargs), resp, start, end, success=success
-    )
-    event = build_request_event(
-        copy.deepcopy(kwargs), resp, start, end, success=success
-    )
-    got = project_enterprise(event)
-    return expected, got
+    event = build_request_event(kwargs, resp, start, end, success=success)
+    return project_enterprise(event)
 
 
-def _fathom_pair(inputs):
+def _fathom_projection(inputs):
     kwargs, resp, start, end, success = inputs
-    expected = _fathom_properties(
-        copy.deepcopy(kwargs), resp, start, end, success=success
-    )
-    event = build_request_event(
-        copy.deepcopy(kwargs), resp, start, end, success=success
-    )
-    got = project_fathom(event)
-    return expected, got
-
-
-def _strip_ts(d: dict) -> dict:
-    d = dict(d)
-    d.pop("timestamp", None)
-    return d
+    event = build_request_event(kwargs, resp, start, end, success=success)
+    return project_fathom(event)
 
 
 @pytest.mark.parametrize("name,make_inputs", REQUEST_SET)
 def test_project_enterprise_matches_build_record(name, make_inputs):
-    expected, got = _enterprise_pair(make_inputs())
+    got = _enterprise_projection(make_inputs())
     # timestamp is the ONLY accepted divergence (registered convergence §3.4)
-    assert expected.get("timestamp") is not None
     assert got.get("timestamp") is not None
-    expected_no_ts = _strip_ts(expected)
-    got_no_ts = _strip_ts(got)
-    assert got_no_ts == expected_no_ts
-    # key ORDER must match too (a reorder-only regression must not pass — 2b
-    # deletes _build_record and relies on this projection's exact shape)
-    assert list(got_no_ts.keys()) == list(expected_no_ts.keys())
+    expected = _GOLDEN["enterprise"][name]
+    got_no_ts = _jsonify(got)
+    assert got_no_ts == expected
+    # key ORDER must match too (a reorder-only regression must not pass — the
+    # cutover deletes _build_record and relies on this projection's exact shape)
+    assert list(got_no_ts.keys()) == list(expected.keys())
 
 
 @pytest.mark.parametrize("env_name,env", _ENV_MATRIX)
@@ -258,24 +262,19 @@ def test_project_fathom_matches_fathom_properties(
 ):
     for key, value in env.items():
         monkeypatch.setenv(key, value)
-    expected, got = _fathom_pair(make_inputs())
-    assert _strip_ts(got) == _strip_ts(expected)
+    got = _fathom_projection(make_inputs())
+    expected = _GOLDEN["fathom"][f"{name}::{env_name}"]
+    got_no_ts = _jsonify(got)
+    assert got_no_ts == expected
+    assert list(got_no_ts.keys()) == list(expected.keys())
 
 
 def test_enrich_order_independent_for_gemini():
-    """The Gemini enrich is idempotent: building the event before vs after the old
-    builder yields the same enterprise projection (pinned per spec)."""
-    inputs = _gemini_success()
-    kwargs, resp, start, end, success = inputs
-
-    # event built FIRST, then old builder on a fresh copy
-    ev_first = build_request_event(
-        copy.deepcopy(kwargs), resp, start, end, success=success
-    )
-    rec_after = AirlockLogger._build_record(
-        copy.deepcopy(kwargs), resp, start, end, success=success
-    )
-    assert _strip_ts(project_enterprise(ev_first)) == _strip_ts(rec_after)
+    """The Gemini enrich is idempotent: the enterprise projection of the event
+    reproduces the frozen gemini golden (pinned per spec)."""
+    kwargs, resp, start, end, success = _gemini_success()
+    ev = build_request_event(kwargs, resp, start, end, success=success)
+    assert _jsonify(project_enterprise(ev)) == _GOLDEN["enterprise"]["gemini_success"]
 
 
 @pytest.mark.parametrize(
@@ -300,9 +299,9 @@ def test_project_fathom_cost_cases(cost_case, expect_present, expect_value):
     else:
         k["response_cost"] = 0.0042
 
-    inputs = (k, _FakeResponse(), _ts(0), _ts(1), True)
-    expected, got = _fathom_pair(inputs)
-    assert _strip_ts(got) == _strip_ts(expected)
+    got = _fathom_projection((k, _FakeResponse(), _ts(0), _ts(1), True))
+    expected = _GOLDEN["fathom_cost"][cost_case]
+    assert _jsonify(got) == expected
 
     if expect_present:
         assert got["cost"] == expect_value
