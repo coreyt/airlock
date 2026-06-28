@@ -819,28 +819,12 @@ guardrails:
 # MCP Servers
 # ---------------------------------------------------------------------------
 mcp_servers:
-  # --- Azure DevOps (stdio) ---
-  ado_mcp:
-    transport: stdio
-    command: /home/coreyt/projects/ado-mcp/.venv/bin/ado-mcp
-    args: ["--profile", "full"]
-    env:
-      ADO_ORG_URL: os.environ/ADO_ORG_URL
-      ADO_PAT: os.environ/ADO_PAT
-
-  # --- Armada GraphRAG (stdio) --- DISABLED: server hangs during MCP init
-  # armada:
-  #   transport: stdio
-  #   command: /home/coreyt/projects/armada/cartographer/.venv/bin/armada-mcp
-  #   args: []
-  #   env:
-  #     ARMADA_PROFILE: essential
-
-  # --- Monospace Design TUI (stdio) ---
-  mono_tui:
-    transport: stdio
-    command: python3
-    args: ["/home/coreyt/projects/monospace-design-tui/mcp-server/server.py"]
+  # NOTE: machine-specific MCP servers with absolute local command paths (e.g. ones
+  # under a developer's home directory) do NOT belong in this tracked config. Keep
+  # them in a gitignored `config.local.yaml` (see `config.local.yaml.example`) and
+  # activate it locally — e.g. `include: ["config.local.yaml"]` (litellm merges it;
+  # note: the file must exist or startup fails) or point AIRLOCK_CONFIG at a local
+  # config that includes it.
 
   # --- NewsCatcher CatchAll (stdio) ---
   # Web search with NLP enrichment via CatchAll API (jobs-based, async).

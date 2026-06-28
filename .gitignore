@@ -55,3 +55,10 @@ site/
 
 # Smoke-test isolated runtime (copied config/.env, test state) — never commit
 dev/smoketest/.runtime/
+
+# Machine-specific config override (personal MCP servers, host paths) — 0.5.4
+config.local.yaml
+
+# Local agent/tooling state (machine-specific; contains absolute paths) — 0.5.4
+.wake/shared/coreyt.jsonl
+agents/.aural/
