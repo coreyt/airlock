@@ -25,6 +25,8 @@ import threading
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from litellm.integrations.custom_logger import CustomLogger
+
 from airlock.callbacks.enterprise_logger import (
     _get_airlock_client,
     _normalize_failure,
@@ -245,6 +247,7 @@ def build_request_event(
 class _Registration:
     name: str
     sink: Sink
+    async_only: bool = False
 
 
 class RequestRecorder:
@@ -262,10 +265,17 @@ class RequestRecorder:
         self._sinks: list[_Registration] = []
         self._lock = threading.Lock()
 
-    def register(self, sink: Sink, *, name: str) -> None:
-        """Append a sink; dispatch order equals registration order (deterministic)."""
+    def register(self, sink: Sink, *, name: str, async_only: bool = False) -> None:
+        """Append a sink; dispatch order equals registration order (deterministic).
+
+        ``async_only=True`` marks a sink that fires only on async dispatches
+        (``dispatch(..., is_async=True)``) and is skipped on sync dispatches —
+        preserving fathom's async-only firing surface (§5a).
+        """
         with self._lock:
-            self._sinks.append(_Registration(name=name, sink=sink))
+            self._sinks.append(
+                _Registration(name=name, sink=sink, async_only=async_only)
+            )
 
     @property
     def sinks(self) -> list[Sink]:
@@ -277,14 +287,21 @@ class RequestRecorder:
         with self._lock:
             return [reg.name for reg in self._sinks]
 
-    def dispatch(self, event: RequestEvent) -> None:
-        """Fan ``event`` out to every sink in order; never raise (telemetry safety)."""
+    def dispatch(self, event: RequestEvent, *, is_async: bool = True) -> None:
+        """Fan ``event`` out to every sink in order; never raise (telemetry safety).
+
+        ``async_only`` sinks are skipped when ``is_async=False`` (sync dispatch).
+        ``is_async`` defaults to True so existing ``dispatch(event)`` callers are
+        unaffected.
+        """
         # Snapshot the sink set under the lock, then iterate the snapshot OUTSIDE the
         # lock so a slow/raising sink never holds it and a concurrent/reentrant
         # register() can't perturb an in-flight dispatch.
         with self._lock:
             sinks = tuple(self._sinks)
         for reg in sinks:
+            if reg.async_only and not is_async:
+                continue
             try:
                 reg.sink(event)
             except Exception:  # one failing sink must not break the request or others
@@ -294,3 +311,82 @@ class RequestRecorder:
                     exc_info=True,
                 )
         return None
+
+
+class RequestRecorderCallback(CustomLogger):
+    """The single LiteLLM seam callback: build one event, dispatch to the recorder.
+
+    Sync callbacks dispatch with ``is_async=False`` (async-only sinks skip);
+    async callbacks offload the build+dispatch to a thread (mirroring the loggers'
+    ``to_thread`` pattern) and dispatch with ``is_async=True``. This pack only
+    constructs the callback — it is NOT installed into LiteLLM here (pack 2b-ii).
+    """
+
+    def __init__(self, recorder: RequestRecorder) -> None:
+        super().__init__()
+        self._recorder = recorder
+
+    def _record(
+        self,
+        kwargs: dict,
+        response_obj: Any,
+        start_time: Any,
+        end_time: Any,
+        *,
+        success: bool,
+        is_async: bool,
+    ) -> None:
+        event = build_request_event(
+            kwargs, response_obj, start_time, end_time, success=success
+        )
+        self._recorder.dispatch(event, is_async=is_async)
+
+    def log_success_event(
+        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
+        self._record(
+            kwargs, response_obj, start_time, end_time, success=True, is_async=False
+        )
+
+    def log_failure_event(
+        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
+        self._record(
+            kwargs, response_obj, start_time, end_time, success=False, is_async=False
+        )
+
+    async def async_log_success_event(
+        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
+        import asyncio
+        import functools
+
+        await asyncio.to_thread(
+            functools.partial(
+                self._record,
+                kwargs,
+                response_obj,
+                start_time,
+                end_time,
+                success=True,
+                is_async=True,
+            )
+        )
+
+    async def async_log_failure_event(
+        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
+        import asyncio
+        import functools
+
+        await asyncio.to_thread(
+            functools.partial(
+                self._record,
+                kwargs,
+                response_obj,
+                start_time,
+                end_time,
+                success=False,
+                is_async=True,
+            )
+        )

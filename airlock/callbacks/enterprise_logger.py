@@ -401,6 +401,33 @@ class AirlockLogger(CustomLogger):
         )
 
     # ------------------------------------------------------------------
+    # Event sink (0.5.4-MIGRATE) — dormant until pack 2b-ii cutover.
+    # ------------------------------------------------------------------
+    def record_event(self, event: Any) -> None:
+        """Enterprise sink: reproduce today's success/failure output via the projection."""
+        from airlock.callbacks.projections import project_enterprise
+
+        record = project_enterprise(event)
+        _write_log(record)
+        if event.success:
+            logger.info(
+                "request_logged model=%s user=%s tokens=%s",
+                record["model"],
+                record.get("user"),
+                record.get("total_tokens"),
+            )
+        else:
+            logger.warning(
+                "request_failed model=%s user=%s client=%s category=%s error_type=%s error=%s",
+                record["model"],
+                record.get("user"),
+                record.get("airlock_client"),
+                record.get("failure_category"),
+                record.get("error_type"),
+                record.get("error"),
+            )
+
+    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
     @staticmethod
