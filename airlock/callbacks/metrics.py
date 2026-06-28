@@ -155,6 +155,11 @@ def _record_mutations_from_event(mutations: list) -> None:
     except TypeError:
         return
     for m in iterator:
+        # event.mutations is normally the asdict'd list of dicts, but _serialize's
+        # str() fallback could yield a non-dict — skip it gracefully (the old
+        # getattr-based version was safe for any item type; preserve that parity).
+        if not isinstance(m, dict):
+            continue
         field = m.get("field")
         op = m.get("op")
         if field is None or op is None:

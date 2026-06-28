@@ -217,6 +217,9 @@ class TestMutationsCounter:
             == 1
         )
 
+    # Post-migration both of these reduce to event.mutations == []: build_request_event
+    # converges absent and explicit-empty airlock_mutations to the same empty list, so
+    # the apparent duplication is intentional (one guards no-crash, one guards no-increment).
     def test_absent_mutations_no_crash(self, fresh_metrics):
         cb = AirlockMetricsCallback()
         cb.record_event(_event(success=True, mutations=[]))

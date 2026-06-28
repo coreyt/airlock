@@ -180,6 +180,24 @@ def test_mutations_skip_missing_field_or_op(fresh_metrics):
     assert len(total_samples) == 1
 
 
+def test_mutations_non_dict_item_skipped(fresh_metrics):
+    # _serialize's str() fallback could place a non-dict (e.g. a bare string) into
+    # event.mutations; it must be skipped without raising — parity with the old
+    # getattr-based helper, which tolerated any item type.
+    mutations = ["not-a-dict", {"field": "model", "op": "rewrite"}]
+    AirlockMetricsCallback().record_event(_event(success=True, mutations=mutations))
+
+    assert (
+        fresh_metrics["mutations_total"]
+        .labels(field="model", op="rewrite")
+        ._value.get()
+        == 1
+    )
+    samples = list(fresh_metrics["mutations_total"].collect())[0].samples
+    total_samples = [s for s in samples if s.name.endswith("_total")]
+    assert len(total_samples) == 1
+
+
 def test_mutations_not_counted_on_failure(fresh_metrics):
     mutations = [{"field": "model", "op": "rewrite"}]
     AirlockMetricsCallback().record_event(_event(success=False, mutations=mutations))
