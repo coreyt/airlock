@@ -140,18 +140,23 @@ def record_threat_block() -> None:
         _metrics["threat_blocks"].inc()
 
 
-def _record_mutations(metadata: dict) -> None:
-    """Increment mutations_total per ledger Mutation (field/op bounded labels)."""
+def _record_mutations_from_event(mutations: list) -> None:
+    """Increment mutations_total per asdict'd ledger mutation (field/op labels).
+
+    ``event.mutations`` is the ``dataclasses.asdict``'d form (list of dicts with
+    ``field``/``op`` keys), so this reads via dict access — behavior-identical to the
+    old ``getattr``-based ``_record_mutations`` (same field/op values, same skip rule
+    when either is None, same no-crash on a non-iterable).
+    """
     if "mutations_total" not in _metrics:
         return
-    ledger = metadata.get("airlock_mutations") or []
     try:
-        iterator = iter(ledger)
+        iterator = iter(mutations)
     except TypeError:
         return
     for m in iterator:
-        field = getattr(m, "field", None)
-        op = getattr(m, "op", None)
+        field = m.get("field")
+        op = m.get("op")
         if field is None or op is None:
             continue
         _metrics["mutations_total"].labels(field=field, op=op).inc()
@@ -170,79 +175,32 @@ def set_circuit_breaker_state(model: str, state: str) -> None:
 # LiteLLM callback
 # ---------------------------------------------------------------------------
 class AirlockMetricsCallback(CustomLogger):
-    """LiteLLM callback that records Prometheus metrics."""
+    """Records the per-request Prometheus metrics from a ``RequestEvent``.
 
-    def log_success_event(
-        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
-    ) -> None:
-        if not _PROM_AVAILABLE:
-            return
-
-        metadata = kwargs.get("litellm_params", {}).get("metadata", {}) or {}
-        model = kwargs.get("model", "unknown")
-        user = (
-            metadata.get("user_api_key_alias")
-            or metadata.get("user_api_key_user_id")
-            or "unknown"
-        )
-
-        _metrics["requests_total"].labels(model=model, user=user, success="true").inc()
-
-        if start_time and end_time:
-            duration_s = (end_time - start_time).total_seconds()
-            _metrics["request_duration"].labels(model=model).observe(duration_s)
-
-        _record_mutations(metadata)
-
-    async def async_log_success_event(
-        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
-    ) -> None:
-        self.log_success_event(kwargs, response_obj, start_time, end_time)
-
-    def log_failure_event(
-        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
-    ) -> None:
-        if not _PROM_AVAILABLE:
-            return
-
-        metadata = kwargs.get("litellm_params", {}).get("metadata", {}) or {}
-        model = kwargs.get("model", "unknown")
-        user = (
-            metadata.get("user_api_key_alias")
-            or metadata.get("user_api_key_user_id")
-            or "unknown"
-        )
-
-        _metrics["requests_total"].labels(model=model, user=user, success="false").inc()
-
-    async def async_log_failure_event(
-        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
-    ) -> None:
-        self.log_failure_event(kwargs, response_obj, start_time, end_time)
-
-
-# Module-level instance for config.yaml callback registration.
-# LiteLLM's get_instance_fn does getattr — it needs an instance, not a class.
-# We also self-register into the async callback lists because the proxy runs
-# async but config's success_callback key only populates the sync list.
-metrics_callback = AirlockMetricsCallback()
-
-
-def _self_register() -> None:
-    """Ensure metrics_callback is in both sync and async callback lists.
-
-    LiteLLM's logging_callback_manager dedupes, so repeat calls are idempotent.
+    Driven via the recorder seam (``record_event``) rather than LiteLLM callbacks:
+    ``requests_total`` fires on BOTH success and failure; ``request_duration`` and
+    the mutation counter fire on success only — identical to the old success/failure
+    callbacks.
     """
-    try:
-        import litellm
 
-        mgr = litellm.logging_callback_manager
-        mgr.add_litellm_success_callback(metrics_callback)
-        mgr.add_litellm_failure_callback(metrics_callback)
-        mgr.add_litellm_async_success_callback(metrics_callback)
-        mgr.add_litellm_async_failure_callback(metrics_callback)
-    except Exception:
-        logger.warning("metrics self-registration deferred — litellm not fully loaded")
+    def record_event(self, event: Any) -> None:
+        if not _PROM_AVAILABLE:
+            return
+
+        model = event.model
+        user = event.user or "unknown"
+        _metrics["requests_total"].labels(
+            model=model, user=user, success="true" if event.success else "false"
+        ).inc()
+
+        if event.success:
+            if event.start_time and event.end_time:
+                duration_s = (event.end_time - event.start_time).total_seconds()
+                _metrics["request_duration"].labels(model=model).observe(duration_s)
+            _record_mutations_from_event(event.mutations)
 
 
-_self_register()
+# Module-level instance registered as an unconditional recorder sink (see
+# airlock.callbacks.recorder). metrics is always-on; its per-request counters are
+# dispatched through the recorder, not self-registered into LiteLLM's callback lists.
+metrics_callback = AirlockMetricsCallback()
