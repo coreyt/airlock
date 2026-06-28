@@ -6,7 +6,7 @@
 > witnesses (worktree list, `output.json`, `*-review-*.md`, merge commits) and
 > trust the witnesses over this file on any conflict.
 
-_Last updated: 2026-06-28 (kickoff scaffold) · base branch: `main` (0.5.1/0.5.2/0.5.3 shipped + tagged)_
+_Last updated: 2026-06-28 (kickoff gate answered → Phase A done → DESIGN gate in flight) · base branch: `main`; working branch: `feat/0.5.4-eventbus` @ base `57010d1`_
 
 Release: **observability event-bus unification — one `RequestEvent` model + one
 recorder/dispatcher behind every telemetry sink.** Plan: `dev/plans/0.5.4-plan.md`.
@@ -15,18 +15,20 @@ Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`. Audit source-of-record:
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** none — release not yet started.
-- **Next action:** **HITL kickoff** (§6: confirm branch, the next-free UN number,
-  MIGRATE parallel-safety). Then Phase A (allocate the UN), then **Phase B**: author
-  `dev/notes/design-request-event-bus.md` (canonical `RequestEvent` shape + dispatch
-  seam + verified builder inventory) and run the **codex design gate (PASS
-  required)** before any code. Then Phase E starting with `EVENT`.
+- **In flight:** **DESIGN** (Phase B) — design note finalized, READY FOR CODEX GATE.
+- **Done:** kickoff HITL answered (branch `feat/0.5.4-eventbus`, UN-28,
+  sequential/small-batch MIGRATE); Phase A complete (UN-28 in `dev/user-needs.md`;
+  plan's UN-27 collision fixed).
+- **Next action:** run the **codex design gate** over
+  `dev/notes/design-request-event-bus.md` + anchored modules →
+  `dev/plans/runs/0.5.4-EVENTBUS-design-review-<ts>.md` with Orchestrator triage.
+  **PASS required** before any Phase-E pack. Then Phase E starting with `EVENT`.
 
 ## 2. Pack scoreboard
 
 | Pack | Goal (1 line) | Depends on | State | Witness |
 |------|---------------|------------|-------|---------|
-| `DESIGN` | `design-request-event-bus.md` + codex design-review PASS | — | NOT_STARTED | `dev/notes/design-request-event-bus.md` + `dev/plans/runs/0.5.4-EVENTBUS-design-review-<ts>.md` |
+| `DESIGN` | `design-request-event-bus.md` + codex design-review PASS | — | IN_FLIGHT (note ready; codex gate next) | `dev/notes/design-request-event-bus.md` + `dev/plans/runs/0.5.4-EVENTBUS-design-review-<ts>.md` |
 | `EVENT` | Canonical `RequestEvent` + recorder/dispatcher seam (registration, ordering, per-sink failure isolation) | DESIGN | NOT_STARTED | `dev/plans/runs/0.5.4-EVENT-output.json` |
 | `MIGRATE-enterprise` | Enterprise logger onto `RequestEvent`; delete its `_build_record()` | EVENT | NOT_STARTED | `dev/plans/runs/0.5.4-MIGRATE-enterprise-output.json` |
 | `MIGRATE-fathom` | Fathom logger onto `RequestEvent`; delete `_build_record()` | EVENT | NOT_STARTED | `dev/plans/runs/0.5.4-MIGRATE-fathom-output.json` |
@@ -63,14 +65,22 @@ small disjoint batches** (one sink per worktree). `VERIFY` after all MIGRATE-*;
 
 ## 6. Open HITL questions
 
-| # | Question | Recommendation | Blocking? |
-|---|----------|----------------|-----------|
-| 1 | Working branch for 0.5.4? | a fresh `feat/0.5.4-eventbus` off `main` | kickoff |
-| 2 | UN number (plan's "UN-27" collides with 0.5.3) | allocate **UN-28** (next-free) | Phase A |
-| 3 | MIGRATE parallel-safety (sinks share telemetry wiring) | sequential or small disjoint batches; confirm in the design note | kickoff/design |
+| # | Question | Resolution | Status |
+|---|----------|------------|--------|
+| 1 | Working branch for 0.5.4? | `feat/0.5.4-eventbus` off `main` @ `57010d1` | ✅ answered 2026-06-28 |
+| 2 | UN number (plan's "UN-27" collides with 0.5.3) | **UN-28** (next-free; in `user-needs.md`) | ✅ answered 2026-06-28 |
+| 3 | MIGRATE parallel-safety (sinks share telemetry wiring) | sequential / small disjoint batches: [enterprise+fathom], [s3], [sql], [sidechannels] | ✅ answered 2026-06-28 |
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-28 — **Kickoff gate answered + Phase A done.** Branch
+  `feat/0.5.4-eventbus` off `main`; **UN-28** allocated in `dev/user-needs.md` and
+  the plan's `UN-27` collision fixed; MIGRATE runs **sequential / small disjoint
+  batches** ([enterprise+fathom] coupled — fathom reuses `AirlockLogger._build_record`
+  — then [s3], [sql], [sidechannels]). Design note finalized (branch + timestamp
+  convergence RESOLVED; seam-shape=one fan-out callback, redaction=per-sink, metrics
+  standalone helpers OUT OF SCOPE — all PROPOSED to the codex gate). DESIGN now
+  awaiting the codex design gate (PASS required before any Phase-E pack).
 - 2026-06-28 — **Scaffolded for `/goal complete 0.5.4`:** authored this board + the
   orchestrator prompt (the plan already had the lifecycle/acceptance/DoD spine +
   pack ladder). Flagged the plan's `UN-27` placeholder as a collision with 0.5.3 →
