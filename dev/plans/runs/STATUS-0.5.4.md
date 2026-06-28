@@ -106,6 +106,19 @@ small disjoint batches** (one sink per worktree). `VERIFY` after all MIGRATE-*;
 
 ## 7. Recent decisions (newest on top)
 
+- 2026-06-28 — **enterprise+fathom CLOSED → MIGRATE-s3. ⚠️ BEHAVIOR-CHANGE-REGISTER
+  ITEM (s3/sql opt-in mechanism).** Today s3/sql are opt-in via a deployment adding
+  `proxy_s3_logger`/`proxy_sql_logger` to config.yaml `success_callback` (they have no
+  `_self_register`, not in default config). With the recorder as the SOLE callback,
+  that per-sink config opt-in no longer exists. **Decision:** gate the recorder's s3/sql
+  sink registration on **`AIRLOCK_ENABLE_S3_LOGGER`/`AIRLOCK_ENABLE_SQL_LOGGER`** env
+  flags (consistent with fathom's `AIRLOCK_ENABLE_FATHOM_LOGGER`). The emitted record is
+  byte-identical when enabled; only the **opt-in mechanism** changes (config-entry → env
+  flag). This is a deployment-facing change → **MUST be in the DOCS behavior-change
+  register + release notes (migration note)**, and surfaced at sign-off for human review.
+  s3/sql register as NORMAL recorder sinks (success+failure; not async-only). The
+  per-sink write gates stay (`AIRLOCK_S3_BUCKET` for s3; engine for sql). VERIFY's
+  isolated parity run validates no unintended divergence.
 - 2026-06-28 — **2b-i CLOSED → 2b-ii cutover authored (registration ordering + fathom
   gating researched).** Verified facts pinned into the 2b-ii prompt: (i) **ordering**
   guaranteed by config-entry-order → import-order → `_self_register` append; monitor
