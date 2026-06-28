@@ -1,0 +1,74 @@
+{
+  "pack": "0.5.3-LATENCY",
+  "baseline_sha": "afcd071",
+  "branch": "feat/0.5.3-LATENCY",
+  "head_sha": "dbb305c21926bd557bd36678ce415f734a73e920",
+  "commits": [
+    "5467b39: docs(0.5.3-LATENCY): design memo (offload + text cache + vLLM TTL)",
+    "e28caa2: test(0.5.3-LATENCY): RED — PII offload concurrency, post-redaction text cache, vLLM TTL+prewarm",
+    "dbb305c: perf(0.5.3-LATENCY): Presidio off the event loop; shared post-redaction text cache; vLLM TTL"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "e28caa2d14396a26d3e8b53c317c132f102174a2",
+    "test_files": [
+      "tests/test_pii_concurrency.py",
+      "tests/test_pii_guard.py",
+      "tests/test_extract.py",
+      "tests/test_local_vllm_router.py"
+    ]
+  },
+  "design": {
+    "offload_mechanism": "pii_guard.async_pre_call_hook wraps the synchronous scrub work in `await asyncio.to_thread(...)` — the MCP-arguments scrub and the messages scrub are offloaded as two SEQUENTIAL awaits (never concurrent), so the request-local mapping/counters dicts are never shared across threads. _scrub_messages builds new message dicts ({**msg, 'content': ...}) and data['messages'] is reassigned after the await. Redaction entities/thresholds/format unchanged → byte-identical output + mapping + counters (parity test).",
+    "cache_contract": "airlock/text_extract.py extract_text(data, call_type) is cache-aware: returns data['metadata']['_airlock_text'] when present (isinstance(metadata, dict) and key in metadata), else computes from the CURRENT messages and stores it. New request = new data = fresh metadata = fresh cache (no cross-request leakage).",
+    "post_redaction_order_argument": "Guard order (config.yaml:745+) runs airlock-pii-guard FIRST (the only pre_call guard that mutates messages), then keyword, then fast-guardian. pii_guard calls refresh_text_cache(data, call_type) UNCONDITIONALLY after both to_thread awaits complete (pii_guard.py:255), so the cache holds POST-redaction text. When PII is disabled the hook early-returns before refresh, so the first downstream caller (keyword) computes+caches from the unchanged (= unredacted) messages. Either way keyword + guardian see the correct current text and extraction runs once per request. Pinned by TestTextCachePostRedaction + a once-per-request spy.",
+    "vllm_ttl_and_prewarm": "local_vllm_router._DEFAULT_TTL 5.0 -> 30.0 (+ docstring/env-default mentions). prewarm() populates the /models cache best-effort and swallows `except Exception` so a cold cache still resolves correctly on first request; non-vLLM aliases never hit this path. Implemented as an idempotent method the router can call lazily; module-level startup wiring intentionally deferred to avoid editing the DO-NOT-TOUCH proxy_bootstrap.py (noted here per prompt §4 escalation guidance)."
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_pii_concurrency.py (2 passed — N concurrent AIRLOCK_PII_ENABLED requests do not serialize; event-loop heartbeat keeps ticking via a monkeypatched slow analyzer)",
+      "tests/test_pii_guard.py (redaction byte-parity + mapping/counters identical after offload)",
+      "tests/test_extract.py (post-redaction cache order + once-per-request + independent per-request caches)",
+      "tests/test_local_vllm_router.py (30s default TTL + env override; prewarm populates; prewarm swallows failure)"
+    ],
+    "regression_set": "tests/test_pii_guard.py tests/test_extract.py tests/test_keyword_guard.py tests/test_fast_guardian.py tests/test_local_vllm_router.py = 230 passed",
+    "full_no_network_suite": {
+      "passed": 2428,
+      "failed": 1,
+      "skipped": 107,
+      "deselected": 5,
+      "xpassed": 1,
+      "failing_ids": ["tests/test_fathom_init.py::test_init_engine_with_fathomdb"],
+      "note": "The single failure is the known pre-existing fathom env/db failure documented at baseline and in 0.5.3-RACE-output.json — unrelated to this pack."
+    }
+  },
+  "parity_evidence": "Presidio redaction output, mapping, and counters byte-identical before vs after the offload (asserted in test_pii_guard.py); only threading + per-request caching changed.",
+  "concurrency_evidence": "test_pii_concurrency.py proves the event loop is not blocked during Presidio work (heartbeat ticks continue; concurrent requests overlap rather than serialize).",
+  "files_changed": [
+    "airlock/guardrails/pii_guard.py",
+    "airlock/text_extract.py",
+    "airlock/guardrails/keyword_guard.py",
+    "airlock/fast/guardian.py",
+    "airlock/guardrails/local_vllm_router.py",
+    "tests/test_pii_guard.py",
+    "tests/test_extract.py",
+    "tests/test_local_vllm_router.py",
+    "tests/test_pii_concurrency.py",
+    "dev/notes/0.5.3-LATENCY-design.md"
+  ],
+  "blockers_encountered": [],
+  "additional_changes_made_in_scope": [
+    "Added tests/test_pii_concurrency.py (new file, permitted by the pack prompt)."
+  ],
+  "agent_verify_result": "pass (full no-network suite: 2428 passed, 1 failed [known pre-existing fathom env], 107 skipped, 1 xpassed; targeted + 230-test regression set green; ruff check + format clean on all changed files)",
+  "review": {
+    "reviewer": "code-reviewer subagent (sonnet) — codex fallback (codex bwrap sandbox unavailable)",
+    "verdict": "PASS",
+    "promoted_to": "dev/plans/runs/0.5.3-LATENCY-review-20260628T142435Z.md",
+    "nits": [
+      "local_vllm_router.py:140 # pragma: no cover is contradicted by test_prewarm_swallows_failure (harmless)",
+      "test_local_vllm_router.py:220 test name oversells what it asserts",
+      "design memo references an unshipped module-level prewarm helper (intentional deferral)"
+    ]
+  },
+  "next_step_for_orchestrator": "Merge feat/0.5.3-LATENCY -> main (no-ff); CLOSE on STATUS-0.5.3; then 0.5.3 release sign-off (version bump 0.5.2->0.5.3, CHANGELOG, tag v0.5.3 local; isolated-port smoke as parity+latency oracle)."
+}
