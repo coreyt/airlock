@@ -15,8 +15,8 @@ Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`. Audit source-of-record:
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** **MIGRATE-sql** (Phase E, pack 4). MIGRATE-s3 CLOSED (merge; `project_s3`
-  + env-gated sink; codex PASS).
+- **In flight:** **MIGRATE-sidechannels** (Phase E, pack 5, last MIGRATE). s3 + sql CLOSED.
+  (codex reviewer rate-limited until ~14:14 → sonnet `code-reviewer` fallback in use.)
 - **enterprise+fathom FULLY MIGRATED** (2a+2b-i+2b-ii all CLOSED): the recorder is the
   single live telemetry callback in enterprise's slot (before monitor); enterprise &
   fathom are projection-backed sinks; `_build_record`/`_base_record`/`_fathom_properties`
@@ -67,7 +67,7 @@ Orchestrator: `dev/plans/prompts/0.5.4-ORCHESTRATOR.md`. Audit source-of-record:
 | `MIGRATE-entfathom-wire` (2b-i) | Extend recorder (async_only + is_async); add recorder callback + `record_event` sink methods on enterprise & fathom; wire the module-level recorder — **dormant** | 2a ✅ | **CLOSED** (merge `29ca578`; codex PASS; 11 tests; dormancy verified) | `dev/plans/runs/0.5.4-MIGRATE-entfathom-wire-output.json` |
 | `MIGRATE-entfathom-cutover` (2b-ii) | Register recorder in enterprise's slot (before monitor); remove enterprise `_self_register`+config + fathom `_self_register_async`; **delete** `_build_record`/`_base_record`/`_fathom_properties`/old callback methods | 2b-i ✅ | **CLOSED** (merge `41448df`; codex CONCERN→both closed; 2516 suite green) | `dev/plans/runs/0.5.4-MIGRATE-entfathom-cutover-output.json` |
 | `MIGRATE-s3` | S3 logger onto `RequestEvent` (`project_s3`+sink; keep `_redact_record`, narrow fields, bare error); delete `_build_record()`; recorder sink gated by `AIRLOCK_ENABLE_S3_LOGGER` | enterprise+fathom ✅ | **CLOSED** (merge; codex PASS; frozen golden) | `dev/plans/runs/0.5.4-MIGRATE-s3-output.json` |
-| `MIGRATE-sql` | SQL logger onto `RequestEvent` (`project_sql`+sink; **JSON-string** messages/response, bare error, NO redaction); delete `_build_record()`; recorder sink gated by `AIRLOCK_ENABLE_SQL_LOGGER` | enterprise+fathom ✅ | IN_FLIGHT (authoring) | `dev/plans/runs/0.5.4-MIGRATE-sql-output.json` |
+| `MIGRATE-sql` | SQL logger onto `RequestEvent` (`project_sql`+sink; **JSON-string** messages/response, bare error, NO redaction); delete `_build_record()`; recorder sink gated by `AIRLOCK_ENABLE_SQL_LOGGER` | enterprise+fathom ✅ | **CLOSED** (merge; sonnet-fallback PASS; frozen golden) | `dev/plans/runs/0.5.4-MIGRATE-sql-output.json` |
 | `MIGRATE-sidechannels` | Mutation ledger + metrics fed from the same seam | EVENT | NOT_STARTED | `dev/plans/runs/0.5.4-MIGRATE-sidechannels-output.json` |
 | `VERIFY` | Cross-sink equivalence harness + isolated-instance parity run | all MIGRATE-* | NOT_STARTED | `dev/plans/runs/0.5.4-VERIFY-output.json` |
 | `DOCS` | UN + as-built design note + changelog/behavior-change register | VERIFY | NOT_STARTED | `dev/plans/runs/0.5.4-DOCS-output.json` |
