@@ -1,0 +1,57 @@
+{
+  "pack": "0.5.4-MIGRATE-sql",
+  "baseline_sha": "e1c6382",
+  "branch": "worktree-agent-a0583b43fc258978a",
+  "head_sha": "a3d3f4c",
+  "commits": [
+    "80c8ac5: test(0.5.4-MIGRATE-sql): RED — project_sql golden + sql recorder-sink/gating tests",
+    "a3d3f4c: feat(0.5.4-MIGRATE-sql): sql logger onto RequestEvent recorder seam"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "80c8ac5",
+    "test_files": [
+      "tests/test_migrate_sql.py",
+      "tests/test_projections_equiv.py",
+      "tests/test_sql_logger.py",
+      "tests/fixtures/0.5.4-sql-golden.json"
+    ]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_migrate_sql.py",
+      "tests/test_projections_equiv.py",
+      "tests/test_sql_logger.py"
+    ],
+    "passed": 78,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/callbacks/projections.py",
+    "airlock/callbacks/recorder.py",
+    "airlock/callbacks/sql_logger.py",
+    "dev/notes/0.5.4-MIGRATE-sql-design.md",
+    "tests/fixtures/0.5.4-sql-golden.json",
+    "tests/test_migrate_sql.py",
+    "tests/test_projections_equiv.py",
+    "tests/test_sql_logger.py"
+  ],
+  "blockers_encountered": [
+    {
+      "id": "fathom-init-preexisting-fail",
+      "description": "tests/test_fathom_init.py::test_init_engine_with_fathomdb fails in the full no-network suite (init_engine returns None — fathomdb driver not installed). Verified failing on the pre-change baseline via git stash; unrelated to this pack (fathom_init untouched).",
+      "resolution": "Not in scope — pre-existing/environmental; left as-is."
+    },
+    {
+      "id": "sql-disabled-path-needs-sqlalchemy",
+      "description": "test_disabled_path_no_engine_no_raise initially failed without sqlalchemy: _insert -> _ensure_initialized raises ImportError before the URL check (pre-existing behavior, behavior-preserving). The 'URL-unset disabled path' semantics only hold when sqlalchemy is installed.",
+      "resolution": "Guarded that single test with @pytest.mark.skipif(not _SA_AVAILABLE) (mirrors test_sql_logger's module skip). Verified GREEN with --extra sql (16 passed)."
+    }
+  ],
+  "additional_changes_made_in_scope": [
+    "sql_logger.py: dropped now-unused imports (datetime, json, _serialize from enterprise_logger) after _build_record deletion; added 'from .projections import project_sql'.",
+    "test_sql_logger.py: re-pointed log_success_event/log_failure_event tests through record_event(build_request_event(...)); renamed test_async_delegates -> test_async_dispatch_inserts (deleted async method delegated to same _insert; normal sink reaches _insert via recorder.dispatch(is_async=True)). Assertions preserved, never weakened."
+  ],
+  "agent_verify_result": "pass — targeted: 78 passed (with --extra sql: 16 passed incl. DB round-trip + disabled-path). Full no-network suite: 2553 passed, 98 skipped, 1 xpassed, 1 failed (test_fathom_init::test_init_engine_with_fathomdb — pre-existing, unrelated). Lint+format clean on all changed files.",
+  "next_step_for_orchestrator": "Pack 0.5.4-MIGRATE-sql on branch worktree-agent-a0583b43fc258978a at a3d3f4c; review, verify, merge. DOCS owns the AIRLOCK_ENABLE_SQL_LOGGER register entry (opt-in mechanism change)."
+}
