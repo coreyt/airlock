@@ -360,3 +360,38 @@ def test_recorder_frozen_event_is_passed_through():
     assert received == [event]
     with pytest.raises(Exception):
         event.model = "mutated"  # frozen dataclass
+
+
+# ---------------------------------------------------------------------------
+# Snapshot stability — reentrant register() during dispatch must not perturb
+# the in-flight dispatch (sink list snapshotted under lock).
+# ---------------------------------------------------------------------------
+def test_reentrant_register_during_dispatch_is_snapshot_stable():
+    calls = []
+    recorder = RequestRecorder()
+
+    def late_sink(_e):
+        calls.append("LATE")
+
+    def registers_late_sink(_e):
+        calls.append("A")
+        # register a new sink from INSIDE a dispatch
+        recorder.register(late_sink, name="LATE")
+
+    recorder.register(registers_late_sink, name="A")
+    recorder.register(lambda e: calls.append("B"), name="B")
+
+    event = build_request_event(
+        _kwargs(), _FakeResponse(), _ts(0), _ts(1), success=True
+    )
+
+    # First dispatch: snapshot was taken before the reentrant register(), so the
+    # newly-registered LATE sink must NOT run in this same dispatch.
+    recorder.dispatch(event)
+    assert calls == ["A", "B"]
+    assert "LATE" in recorder.sink_names
+
+    # Subsequent dispatch DOES include the newly-registered sink.
+    calls.clear()
+    recorder.dispatch(event)
+    assert calls == ["A", "B", "LATE"]

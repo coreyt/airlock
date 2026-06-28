@@ -21,6 +21,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -259,22 +260,31 @@ class RequestRecorder:
 
     def __init__(self) -> None:
         self._sinks: list[_Registration] = []
+        self._lock = threading.Lock()
 
     def register(self, sink: Sink, *, name: str) -> None:
         """Append a sink; dispatch order equals registration order (deterministic)."""
-        self._sinks.append(_Registration(name=name, sink=sink))
+        with self._lock:
+            self._sinks.append(_Registration(name=name, sink=sink))
 
     @property
     def sinks(self) -> list[Sink]:
-        return [reg.sink for reg in self._sinks]
+        with self._lock:
+            return [reg.sink for reg in self._sinks]
 
     @property
     def sink_names(self) -> list[str]:
-        return [reg.name for reg in self._sinks]
+        with self._lock:
+            return [reg.name for reg in self._sinks]
 
     def dispatch(self, event: RequestEvent) -> None:
         """Fan ``event`` out to every sink in order; never raise (telemetry safety)."""
-        for reg in self._sinks:
+        # Snapshot the sink set under the lock, then iterate the snapshot OUTSIDE the
+        # lock so a slow/raising sink never holds it and a concurrent/reentrant
+        # register() can't perturb an in-flight dispatch.
+        with self._lock:
+            sinks = tuple(self._sinks)
+        for reg in sinks:
             try:
                 reg.sink(event)
             except Exception:  # one failing sink must not break the request or others
