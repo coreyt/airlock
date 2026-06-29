@@ -2,7 +2,7 @@
   "pack": "0.5.5-IMPL-admission",
   "baseline_sha": "64f9615",
   "branch": "worktree-agent-a3179da79d697c93b",
-  "head_sha": "ddfc8ad3fa93fbd0eaeb76c91034ad5168f9c8cd",
+  "head_sha": "523aaf5e7322eefe112bbeb4081c1aca377e2e3a",
   "commits": [
     "5ebd6af: docs(0.5.5-IMPL-admission): design memo — module layout, startup wiring, header wiring decision",
     "c9f18cc: test(0.5.5-IMPL-admission): RED — target tests for AdmissionConfig/Store/Gate (module not yet created)",
@@ -88,5 +88,5 @@
     "AdmissionConfig dataclass is defined in BOTH settings.py (for load_airlock_settings integration) and admission.py (for standalone use). The settings.py version is the canonical one used by AirlockSettings; admission.py imports it from settings.py via configure_admission() at runtime."
   ],
   "agent_verify_result": "pass — 16/16 target tests pass; full suite 2428 passed (1 pre-existing fathomdb env failure)",
-  "next_step_for_orchestrator": "Pack 0.5.5-IMPL-admission on branch worktree-agent-a3179da79d697c93b at ddfc8ad3fa93fbd0eaeb76c91034ad5168f9c8cd; review, verify, merge. Follow-up: wire X-Airlock-Admission response header via transparency.py (requires modifying that file, which is in DO NOT TOUCH for this pack)."
+  "next_step_for_orchestrator": "Pack 0.5.5-IMPL-admission on branch worktree-agent-a3179da79d697c93b at 523aaf5e7322eefe112bbeb4081c1aca377e2e3a; review, verify, merge. Follow-up: wire X-Airlock-Admission response header via transparency.py (requires modifying that file, which is in DO NOT TOUCH for this pack)."
 }
