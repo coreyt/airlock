@@ -6,9 +6,9 @@ import threading
 import time
 from unittest.mock import patch
 
+import pytest
 
 from airlock.fast.state import (
-    BreakerPolicy,
     CircuitState,
     ClientState,
     McpToolState,
@@ -23,6 +23,15 @@ from airlock.fast.state import (
     checkpoint_state,
     restore_state,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_store():
+    from airlock.fast.state import set_store
+
+    set_store(StateStore())
+    yield
+    set_store(None)
 
 
 # ---------------------------------------------------------------------------
@@ -834,7 +843,9 @@ class TestBreakerPolicy:
         store = StateStore()
         cp = store.get_client_provider("key:b", "openai")
         cp.rate_limit_times.append(time.time() - 400)  # outside the window
-        out = store.record_provider_rate_limit("key:b", "openai", time.time(), "r", "RL")
+        out = store.record_provider_rate_limit(
+            "key:b", "openai", time.time(), "r", "RL"
+        )
         assert out["client_quarantined"] is False  # only 1 in-window 429
 
     def test_per_client_precedence(self):
@@ -866,7 +877,9 @@ class TestBreakerPolicy:
         )
         store = StateStore()
         store.record_provider_rate_limit("key:e1", "openai", time.time(), "r", "RL")
-        out = store.record_provider_rate_limit("key:e2", "openai", time.time(), "r", "RL")
+        out = store.record_provider_rate_limit(
+            "key:e2", "openai", time.time(), "r", "RL"
+        )
         assert out["provider_quarantined"] is False  # both exempt -> no escalation
         assert store.get_provider("openai").is_quarantined() is False
 
@@ -879,7 +892,9 @@ class TestBreakerPolicy:
             }
         )
         store = StateStore()
-        out = store.record_provider_rate_limit("key:off", "openai", time.time(), "r", "RL")
+        out = store.record_provider_rate_limit(
+            "key:off", "openai", time.time(), "r", "RL"
+        )
         assert out["client_quarantined"] is False
         assert store.get_client_provider("key:off", "openai").is_quarantined() is False
 
@@ -925,7 +940,9 @@ class TestBreakerPolicy:
         cp = store.get_client_provider("key:b", "openai")
         cp._half_open_probe = True
         # A failed probe re-arms immediately even though threshold (99) is unmet.
-        out = store.record_provider_rate_limit("key:b", "openai", time.time(), "r", "RL")
+        out = store.record_provider_rate_limit(
+            "key:b", "openai", time.time(), "r", "RL"
+        )
         assert out["client_quarantined"] is True
         assert cp.is_quarantined() is True
 
@@ -968,10 +985,14 @@ class TestBreakerPolicyFixes:
         store = StateStore()
         # disabled client + one normal client = only 1 eligible -> no escalation
         store.record_provider_rate_limit("key:off", "openai", time.time(), "r", "RL")
-        out = store.record_provider_rate_limit("c-normal", "openai", time.time(), "r", "RL")
+        out = store.record_provider_rate_limit(
+            "c-normal", "openai", time.time(), "r", "RL"
+        )
         assert out["provider_quarantined"] is False
         # a second normal client -> 2 eligible -> escalate
-        out = store.record_provider_rate_limit("c-normal2", "openai", time.time(), "r", "RL")
+        out = store.record_provider_rate_limit(
+            "c-normal2", "openai", time.time(), "r", "RL"
+        )
         assert out["provider_quarantined"] is True
 
     def test_per_client_bucket_floor_excludes_from_escalation(self):
@@ -1019,6 +1040,7 @@ class TestStateProvider:
         # First call to get_store() returns a StateStore
         # Second call returns the same instance (lazy init, not re-created)
         from airlock.fast.state import get_store, set_store
+
         set_store(None)  # reset
         s1 = get_store()
         s2 = get_store()
@@ -1026,7 +1048,8 @@ class TestStateProvider:
         assert isinstance(s1, StateStore)
 
     def test_set_store_redirects_proxy(self):
-        from airlock.fast.state import get_store, set_store, store
+        from airlock.fast.state import set_store, store
+
         fresh = StateStore()
         set_store(fresh)
         # proxy must delegate to fresh
@@ -1035,6 +1058,7 @@ class TestStateProvider:
 
     def test_set_store_none_resets(self):
         from airlock.fast.state import get_store, set_store
+
         fresh = StateStore()
         set_store(fresh)
         set_store(None)
@@ -1043,14 +1067,15 @@ class TestStateProvider:
 
     def test_proxy_repr_does_not_raise(self):
         from airlock.fast.state import store
+
         r = repr(store)
         assert "_StoreProxy" in r
 
     def test_injection_isolation(self):
         from airlock.fast.state import get_store, set_store, store
+
         set_store(StateStore())
         store.get_client("isolation_a")
-        clients_1 = set(get_store().all_clients().keys())
 
         set_store(StateStore())
         clients_2 = set(get_store().all_clients().keys())

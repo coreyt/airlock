@@ -1642,7 +1642,38 @@ def restore_state(state_store: StateStore, path: str) -> None:
     log.info("Restored circuit breaker state for %d models from %s", len(models), path)
 
 
-store = StateStore()
+_default_store: "StateStore | None" = None
+
+
+def get_store() -> "StateStore":
+    """Return the active StateStore (injected or default singleton)."""
+    global _default_store
+    if _default_store is None:
+        _default_store = StateStore()
+    return _default_store
+
+
+def set_store(s: "StateStore | None") -> None:
+    """Inject (or clear) the active StateStore. Pass None to reset to default."""
+    global _default_store
+    _default_store = s
+
+
+class _StoreProxy:
+    """Transparent proxy so `from .state import store` callers need no changes.
+
+    All attribute access is forwarded to the active store returned by get_store().
+    `set_store(fresh)` re-routes all existing `store.X` calls immediately.
+    """
+
+    def __getattr__(self, name: str):
+        return getattr(get_store(), name)
+
+    def __repr__(self) -> str:
+        return f"<_StoreProxy wrapping {get_store()!r}>"
+
+
+store = _StoreProxy()
 
 
 # ---------------------------------------------------------------------------
