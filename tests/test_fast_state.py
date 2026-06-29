@@ -1009,3 +1009,50 @@ class TestBreakerPolicyFixes:
         monkeypatch.setenv("AIRLOCK_BREAKER_OVERRIDES", '{"clients":[]}')
         configure_breaker({})  # must not raise
         assert policy_for("x").rate_limit_threshold == 1
+
+
+# ---------------------------------------------------------------------------
+# StateProvider — injection seam
+# ---------------------------------------------------------------------------
+class TestStateProvider:
+    def test_get_store_returns_default_singleton(self):
+        # First call to get_store() returns a StateStore
+        # Second call returns the same instance (lazy init, not re-created)
+        from airlock.fast.state import get_store, set_store
+        set_store(None)  # reset
+        s1 = get_store()
+        s2 = get_store()
+        assert s1 is s2
+        assert isinstance(s1, StateStore)
+
+    def test_set_store_redirects_proxy(self):
+        from airlock.fast.state import get_store, set_store, store
+        fresh = StateStore()
+        set_store(fresh)
+        # proxy must delegate to fresh
+        _ = store.get_client("redirect_test")
+        assert "redirect_test" in fresh.all_clients()
+
+    def test_set_store_none_resets(self):
+        from airlock.fast.state import get_store, set_store
+        fresh = StateStore()
+        set_store(fresh)
+        set_store(None)
+        s = get_store()
+        assert s is not fresh
+
+    def test_proxy_repr_does_not_raise(self):
+        from airlock.fast.state import store
+        r = repr(store)
+        assert "_StoreProxy" in r
+
+    def test_injection_isolation(self):
+        from airlock.fast.state import get_store, set_store, store
+        set_store(StateStore())
+        store.get_client("isolation_a")
+        clients_1 = set(get_store().all_clients().keys())
+
+        set_store(StateStore())
+        clients_2 = set(get_store().all_clients().keys())
+        # Fresh store has no clients from previous inject
+        assert "isolation_a" not in clients_2
