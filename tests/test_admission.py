@@ -18,7 +18,6 @@ from airlock.fast.admission import (
     AdmissionConfig,
     AdmissionGate,
     AdmissionStore,
-    configure_admission,
 )
 from airlock.fast.settings import load_airlock_settings
 
@@ -101,7 +100,10 @@ class TestAdmissionStore:
 class TestAdmissionGate:
     def _gate(self, rpm=60, boost_multiplier=1.5, concurrency=10):
         cfg = AdmissionConfig(
-            enabled=True, rpm=rpm, concurrency=concurrency, boost_multiplier=boost_multiplier
+            enabled=True,
+            rpm=rpm,
+            concurrency=concurrency,
+            boost_multiplier=boost_multiplier,
         )
         store = AdmissionStore()
         return AdmissionGate(cfg, store)
@@ -131,7 +133,7 @@ class TestAdmissionGate:
         now = time.time()
         for i in range(90):
             allowed, _ = gate.check("carol", boost=True, now=now)
-            assert allowed is True, f"Request {i+1} should be admitted"
+            assert allowed is True, f"Request {i + 1} should be admitted"
         # 91st request
         allowed, retry_after = gate.check("carol", boost=True, now=now)
         assert allowed is False
@@ -195,13 +197,16 @@ class TestAdmissionGateDisabled:
             # We verify the hook runs without raising and does NOT stamp admission metadata
             # by mocking out all the heavy dependencies
             with (
-                patch("airlock.fast.guardian.resolve_guardrail_decision"),
+                patch("airlock.guardrail_overrides.resolve_guardrail_decision"),
                 patch("airlock.fast.guardian.assess_threat") as mock_threat,
                 patch("airlock.fast.guardian.alias_table") as mock_alias,
                 patch("airlock.fast.guardian.store") as mock_store,
                 patch("airlock.fast.guardian.check_model_with_filters") as mock_cb,
                 patch("airlock.fast.guardian.apply_routing", return_value=data),
-                patch("airlock.fast.guardian.apply_gemini_request_semantics", return_value=data),
+                patch(
+                    "airlock.fast.guardian.apply_gemini_request_semantics",
+                    return_value=data,
+                ),
                 patch("airlock.fast.guardian.normalize_reasoning_effort"),
                 patch("airlock.fast.guardian.detect_dropped_params", return_value=[]),
                 patch("airlock.fast.guardian.compute_priority") as mock_prio,
@@ -215,13 +220,20 @@ class TestAdmissionGateDisabled:
                 )
                 mock_store.all_providers.return_value = {}
                 mock_store.get_client_provider.return_value = MagicMock(
-                    is_quarantined=lambda t: False
+                    is_quarantined=lambda t: False,
+                    cooldown_remaining=lambda t: 0.0,
+                    last_reason=None,
+                )
+                mock_store.get_provider.return_value = MagicMock(
+                    is_quarantined=lambda t: False,
+                    cooldown_remaining=lambda t: 0.0,
+                    last_reason=None,
                 )
                 mock_cb.return_value = MagicMock(allowed=True)
                 mock_prio.return_value = MagicMock(score=0.1, boost=False, reasons=[])
 
                 guardian = guardian_mod.AirlockFastGuardian()
-                result = asyncio.get_event_loop().run_until_complete(
+                result = asyncio.run(
                     guardian.async_pre_call_hook(
                         _FakeKey(), DualCache(), data, "completion"
                     )
@@ -262,21 +274,32 @@ class TestGuardianIntegration:
         )
         mock_store.all_providers.return_value = {}
         mock_store.get_client_provider.return_value = MagicMock(
-            is_quarantined=lambda t: False
+            is_quarantined=lambda t: False,
+            cooldown_remaining=lambda t: 0.0,
+            last_reason=None,
+        )
+        mock_store.get_provider.return_value = MagicMock(
+            is_quarantined=lambda t: False,
+            cooldown_remaining=lambda t: 0.0,
+            last_reason=None,
         )
         return mock_store
 
     def _run_hook(self, guardian, data, key):
         from litellm import DualCache
 
-        return asyncio.get_event_loop().run_until_complete(
+        return asyncio.run(
             guardian.async_pre_call_hook(key, DualCache(), data, "completion")
         )
 
     def test_admission_stamps_metadata_on_admit(self):
         """Gate admits → data["metadata"]["airlock_admission"]["action"] == "admitted"."""
         from airlock.fast import guardian as guardian_mod
-        from airlock.fast.admission import AdmissionConfig, AdmissionGate, AdmissionStore
+        from airlock.fast.admission import (
+            AdmissionConfig,
+            AdmissionGate,
+            AdmissionStore,
+        )
 
         cfg = AdmissionConfig(enabled=True, rpm=60)
         gate = AdmissionGate(cfg, AdmissionStore())
@@ -284,7 +307,7 @@ class TestGuardianIntegration:
 
         with patch.object(guardian_mod, "_admission_gate", gate):
             with (
-                patch("airlock.fast.guardian.resolve_guardrail_decision"),
+                patch("airlock.guardrail_overrides.resolve_guardrail_decision"),
                 patch("airlock.fast.guardian.assess_threat") as mock_threat,
                 patch("airlock.fast.guardian.alias_table") as mock_alias,
                 patch("airlock.fast.guardian.store", self._mock_store()),
@@ -312,7 +335,11 @@ class TestGuardianIntegration:
     def test_admission_raises_429_on_shed(self):
         """Gate sheds → hook raises ValueError containing 'Too many requests'."""
         from airlock.fast import guardian as guardian_mod
-        from airlock.fast.admission import AdmissionConfig, AdmissionGate, AdmissionStore
+        from airlock.fast.admission import (
+            AdmissionConfig,
+            AdmissionGate,
+            AdmissionStore,
+        )
 
         # Set rpm=0 so every request is shed
         cfg = AdmissionConfig(enabled=True, rpm=0)
@@ -321,7 +348,7 @@ class TestGuardianIntegration:
 
         with patch.object(guardian_mod, "_admission_gate", gate):
             with (
-                patch("airlock.fast.guardian.resolve_guardrail_decision"),
+                patch("airlock.guardrail_overrides.resolve_guardrail_decision"),
                 patch("airlock.fast.guardian.assess_threat") as mock_threat,
                 patch("airlock.fast.guardian.alias_table"),
                 patch("airlock.fast.guardian.store", self._mock_store()),
@@ -345,7 +372,11 @@ class TestGuardianIntegration:
     def test_gate_fails_open(self):
         """Gate configured but check() always raises → hook returns data normally."""
         from airlock.fast import guardian as guardian_mod
-        from airlock.fast.admission import AdmissionConfig, AdmissionGate, AdmissionStore
+        from airlock.fast.admission import (
+            AdmissionConfig,
+            AdmissionGate,
+            AdmissionStore,
+        )
 
         cfg = AdmissionConfig(enabled=True, rpm=60)
         store = AdmissionStore()
@@ -356,7 +387,7 @@ class TestGuardianIntegration:
 
         with patch.object(guardian_mod, "_admission_gate", gate):
             with (
-                patch("airlock.fast.guardian.resolve_guardrail_decision"),
+                patch("airlock.guardrail_overrides.resolve_guardrail_decision"),
                 patch("airlock.fast.guardian.assess_threat") as mock_threat,
                 patch("airlock.fast.guardian.alias_table") as mock_alias,
                 patch("airlock.fast.guardian.store", self._mock_store()),

@@ -382,6 +382,9 @@ def main() -> None:
     # swap), monitor (near-limit warn) and circuit-breaker (failover) consumers read
     # their budgets/failover map from this snapshot via get_settings() (0.5.1-SET-unify).
     configure_settings(config)
+    from airlock.fast.admission import configure_admission
+
+    configure_admission(config)
     # Load per-client circuit-breaker policy once at startup (CC-2); defaults to a
     # no-op when unconfigured (CC-3). Provider budget caps now flow through
     # configure_settings above (the monitor reads get_settings().provider_budgets).

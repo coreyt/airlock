@@ -43,6 +43,7 @@ from airlock.client_identity import (
 from airlock.gemini_interface import apply_gemini_request_semantics
 from airlock.text_extract import extract_text, is_batch_call, is_mcp_call
 
+from .admission import _admission_gate, AdmissionGate  # noqa: F401
 from .circuit_breaker import check_model_with_filters
 from .model_alias import alias_table
 from .priority import compute_priority
@@ -280,6 +281,33 @@ class AirlockFastGuardian(CustomGuardrail):
                 "Request blocked due to unusual activity. "
                 f"Please retry after {int(threat.backoff_seconds)} seconds."
             )
+
+        # ---- Step 2.5: Admission gate (C1 — off-by-default) ----
+        if _admission_gate is not None:
+            _priority_for_gate = compute_priority(client)
+            try:
+                admitted, retry_after = _admission_gate.check(
+                    client_id, boost=_priority_for_gate.boost, now=now
+                )
+            except Exception:
+                logger.warning(
+                    "admission gate check raised — failing open", exc_info=True
+                )
+                admitted, retry_after = True, 0.0
+            if not admitted:
+                logger.warning(
+                    "admission_shed client=%s retry_after=%.1fs", client_id, retry_after
+                )
+                data.setdefault("metadata", {})["airlock_admission"] = {
+                    "action": "shed",
+                    "retry_after": round(retry_after, 1),
+                }
+                raise ValueError(
+                    f"Too many requests. Please retry after {int(retry_after) + 1} seconds."
+                )
+            data.setdefault("metadata", {})["airlock_admission"] = {
+                "action": "admitted"
+            }
 
         # Routing and circuit breaker are model-specific — skip for MCP and
         # batch/file calls (the latter carry no top-level model).
