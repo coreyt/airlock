@@ -1081,3 +1081,69 @@ class TestStateProvider:
         clients_2 = set(get_store().all_clients().keys())
         # Fresh store has no clients from previous inject
         assert "isolation_a" not in clients_2
+
+
+class TestStateSplit:
+    def test_state_core_importable(self):
+        from airlock.fast._state_core import StateStore, ClientState, BreakerPolicy
+
+        assert all(isinstance(c, type) for c in [StateStore, ClientState, BreakerPolicy])
+
+    def test_state_spend_importable(self):
+        from airlock.fast._state_spend import SpendStore, ProviderSpend
+
+        assert isinstance(SpendStore, type) and isinstance(ProviderSpend, type)
+
+    def test_state_mcp_importable(self):
+        from airlock.fast._state_mcp import McpServerState, McpServerHealth
+
+        assert isinstance(McpServerState, type) and isinstance(McpServerHealth, type)
+
+    def test_state_persistence_importable(self):
+        from airlock.fast._state_persistence import checkpoint_state, restore_state
+
+        assert callable(checkpoint_state) and callable(restore_state)
+
+    def test_facade_all_names_accessible(self):
+        from airlock.fast import state
+
+        for name in [
+            "StateStore",
+            "ClientState",
+            "SpendStore",
+            "ProviderSpend",
+            "McpServerState",
+            "McpServerHealth",
+            "McpToolState",
+            "ModelState",
+            "ProviderRateLimitState",
+            "ClientProviderState",
+            "ProviderState",
+            "CircuitState",
+            "BreakerPolicy",
+            "configure_breaker",
+            "policy_for",
+            "checkpoint_state",
+            "restore_state",
+            "checkpoint_spend",
+            "restore_spend",
+            "get_store",
+            "set_store",
+            "store",
+            "normalize_client_id",
+            "NO_CLIENT_ID",
+            "WINDOW_SECONDS",
+            "tail_jsonl",
+        ]:
+            assert hasattr(state, name), f"{name} missing from state facade"
+
+    def test_no_circular_imports(self):
+        import subprocess
+        import sys
+
+        result = subprocess.run(
+            [sys.executable, "-c", "from airlock.fast import state; print('ok')"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
