@@ -14,26 +14,16 @@ import asyncio
 import logging
 import threading
 from collections import deque
-from dataclasses import dataclass
 
 logger = logging.getLogger("airlock.fast.admission")
 
 
 # ---------------------------------------------------------------------------
-# AdmissionConfig
+# AdmissionConfig — re-exported from settings for a single canonical definition
 # ---------------------------------------------------------------------------
-@dataclass(frozen=True)
-class AdmissionConfig:
-    """Configuration knobs for the C1 admission gate.
-
-    All fields default to off/permissive so that an unconfigured gate is safe
-    to instantiate without any side-effects.
-    """
-
-    enabled: bool = False
-    rpm: int = 60
-    concurrency: int = 10
-    boost_multiplier: float = 1.5
+# Import here so callers can use `from airlock.fast.admission import AdmissionConfig`
+# while settings.py remains the single definition site (no duplicate class).
+from airlock.fast.settings import AdmissionConfig  # noqa: E402, F401
 
 
 # ---------------------------------------------------------------------------
