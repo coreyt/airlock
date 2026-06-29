@@ -784,13 +784,13 @@ import pytest  # noqa: E402
 @pytest.fixture(autouse=True)
 def _reset_breaker_config():
     """Snapshot/restore module breaker config so tests don't leak policy."""
-    import airlock.fast.state as st
+    import airlock.fast._state_core as _core
 
-    saved_default, saved_clients = st._breaker_default, st._breaker_clients
-    st._breaker_default = st.BreakerPolicy()
-    st._breaker_clients = {}
+    saved_default, saved_clients = _core._breaker_default, _core._breaker_clients
+    _core._breaker_default = _core.BreakerPolicy()
+    _core._breaker_clients = {}
     yield
-    st._breaker_default, st._breaker_clients = saved_default, saved_clients
+    _core._breaker_default, _core._breaker_clients = saved_default, saved_clients
 
 
 class TestBreakerPolicy:
@@ -1087,7 +1087,9 @@ class TestStateSplit:
     def test_state_core_importable(self):
         from airlock.fast._state_core import StateStore, ClientState, BreakerPolicy
 
-        assert all(isinstance(c, type) for c in [StateStore, ClientState, BreakerPolicy])
+        assert all(
+            isinstance(c, type) for c in [StateStore, ClientState, BreakerPolicy]
+        )
 
     def test_state_spend_importable(self):
         from airlock.fast._state_spend import SpendStore, ProviderSpend
