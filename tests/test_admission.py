@@ -193,7 +193,7 @@ class TestAdmissionGateDisabled:
             org_id = None
             metadata = {}
 
-        with patch.object(guardian_mod, "_admission_gate", None):
+        with patch("airlock.fast.admission._admission_gate", None):
             # We verify the hook runs without raising and does NOT stamp admission metadata
             # by mocking out all the heavy dependencies
             with (
@@ -305,7 +305,7 @@ class TestGuardianIntegration:
         gate = AdmissionGate(cfg, AdmissionStore())
         data = self._base_data()
 
-        with patch.object(guardian_mod, "_admission_gate", gate):
+        with patch("airlock.fast.admission._admission_gate", gate):
             with (
                 patch("airlock.guardrail_overrides.resolve_guardrail_decision"),
                 patch("airlock.fast.guardian.assess_threat") as mock_threat,
@@ -346,7 +346,7 @@ class TestGuardianIntegration:
         gate = AdmissionGate(cfg, AdmissionStore())
         data = self._base_data()
 
-        with patch.object(guardian_mod, "_admission_gate", gate):
+        with patch("airlock.fast.admission._admission_gate", gate):
             with (
                 patch("airlock.guardrail_overrides.resolve_guardrail_decision"),
                 patch("airlock.fast.guardian.assess_threat") as mock_threat,
@@ -385,7 +385,7 @@ class TestGuardianIntegration:
         gate.check = MagicMock(side_effect=RuntimeError("gate broken"))
         data = self._base_data()
 
-        with patch.object(guardian_mod, "_admission_gate", gate):
+        with patch("airlock.fast.admission._admission_gate", gate):
             with (
                 patch("airlock.guardrail_overrides.resolve_guardrail_decision"),
                 patch("airlock.fast.guardian.assess_threat") as mock_threat,

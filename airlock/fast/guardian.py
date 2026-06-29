@@ -43,7 +43,7 @@ from airlock.client_identity import (
 from airlock.gemini_interface import apply_gemini_request_semantics
 from airlock.text_extract import extract_text, is_batch_call, is_mcp_call
 
-from .admission import _admission_gate, AdmissionGate  # noqa: F401
+from . import admission as _admission_mod
 from .circuit_breaker import check_model_with_filters
 from .model_alias import alias_table
 from .priority import compute_priority
@@ -283,10 +283,10 @@ class AirlockFastGuardian(CustomGuardrail):
             )
 
         # ---- Step 2.5: Admission gate (C1 — off-by-default) ----
-        if _admission_gate is not None:
+        if _admission_mod._admission_gate is not None:
             _priority_for_gate = compute_priority(client)
             try:
-                admitted, retry_after = _admission_gate.check(
+                admitted, retry_after = _admission_mod._admission_gate.check(
                     client_id, boost=_priority_for_gate.boost, now=now
                 )
             except Exception:
