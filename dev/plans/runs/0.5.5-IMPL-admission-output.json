@@ -1,0 +1,92 @@
+{
+  "pack": "0.5.5-IMPL-admission",
+  "baseline_sha": "64f9615",
+  "branch": "worktree-agent-a3179da79d697c93b",
+  "head_sha": "523aaf5e7322eefe112bbeb4081c1aca377e2e3a",
+  "commits": [
+    "5ebd6af: docs(0.5.5-IMPL-admission): design memo — module layout, startup wiring, header wiring decision",
+    "c9f18cc: test(0.5.5-IMPL-admission): RED — target tests for AdmissionConfig/Store/Gate (module not yet created)",
+    "ef72f64: feat(0.5.5): C1 admission gate — per-client RPM token bucket + semaphore concurrency cap (IMPL-admission)",
+    "c399a46: chore(0.5.5-IMPL-admission): consolidate AdmissionConfig to single definition in settings.py; write output.json",
+    "f1614a2: chore(0.5.5-IMPL-admission): update output.json head_sha to final commit c399a46",
+    "ddfc8ad: chore(0.5.5-IMPL-admission): finalize output.json with true head SHA f1614a2"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": "c9f18cc",
+    "test_files": ["tests/test_admission.py"]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_admission.py::TestAdmissionConfig::test_defaults",
+      "tests/test_admission.py::TestAdmissionConfig::test_from_settings_loader",
+      "tests/test_admission.py::TestAdmissionStore::test_record_and_count",
+      "tests/test_admission.py::TestAdmissionStore::test_window_excludes_old",
+      "tests/test_admission.py::TestAdmissionStore::test_reset_clears",
+      "tests/test_admission.py::TestAdmissionStore::test_concurrent_correctness",
+      "tests/test_admission.py::TestAdmissionGate::test_admit_under_limit",
+      "tests/test_admission.py::TestAdmissionGate::test_shed_over_limit",
+      "tests/test_admission.py::TestAdmissionGate::test_boost_raises_cap",
+      "tests/test_admission.py::TestAdmissionGate::test_fail_open_on_error",
+      "tests/test_admission.py::TestAdmissionGate::test_retry_after_positive",
+      "tests/test_admission.py::TestAdmissionGate::test_429_not_a_hang",
+      "tests/test_admission.py::TestAdmissionGateDisabled::test_none_gate_skipped",
+      "tests/test_admission.py::TestGuardianIntegration::test_admission_stamps_metadata_on_admit",
+      "tests/test_admission.py::TestGuardianIntegration::test_admission_raises_429_on_shed",
+      "tests/test_admission.py::TestGuardianIntegration::test_gate_fails_open"
+    ],
+    "passed": 16,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/fast/admission.py",
+    "airlock/fast/guardian.py",
+    "airlock/fast/settings.py",
+    "airlock/proxy.py",
+    "tests/test_admission.py",
+    "dev/notes/0.5.5-IMPL-admission-design.md"
+  ],
+  "startup_wiring": {
+    "location": "airlock/proxy.py after configure_settings(config)",
+    "call": "from airlock.fast.admission import configure_admission; configure_admission(config)"
+  },
+  "header_wiring_status": {
+    "metadata_stamped": true,
+    "transparency_py_investigation": "transparency.py reads from metadata['airlock_response_headers'] to set response headers. It is in DO NOT TOUCH. To wire X-Airlock-Admission as a response header, the guardian would need to add metadata['airlock_response_headers']['X-Airlock-Admission'] in the Step 2.5 block. Escalated as follow-up — not done in this pack.",
+    "header_follow_up_required": true
+  },
+  "metrics_status": "skipped — no metrics emitted in this pack per scope discipline",
+  "regression": {
+    "total_passed": 2428,
+    "total_failed": 1,
+    "failing_ids": ["tests/test_fathom_init.py::test_init_engine_with_fathomdb"],
+    "failure_note": "Pre-existing fathomdb environment failure; present before this pack"
+  },
+  "blockers_encountered": [
+    {
+      "id": "B1",
+      "description": "Worktree branch was at b068391 (0.5.4), missing ENABLE-stateprovider + ENABLE-statesplit prereqs (commit 64f9615 on main)",
+      "resolution": "Fast-forwarded worktree branch to 64f9615 via git merge main (clean fast-forward, no conflicts)"
+    },
+    {
+      "id": "B2",
+      "description": "resolve_guardrail_decision is a deferred import inside async_pre_call_hook; patch('airlock.fast.guardian.resolve_guardrail_decision') fails with AttributeError",
+      "resolution": "Patched via 'airlock.guardrail_overrides.resolve_guardrail_decision' (the source module) instead"
+    },
+    {
+      "id": "B3",
+      "description": "_mock_store() in integration tests didn't configure get_provider(), causing MagicMock truthy is_quarantined → _raise_provider_protection called → TypeError comparing MagicMock with int",
+      "resolution": "Added get_provider.return_value with is_quarantined=lambda t: False, cooldown_remaining=lambda t: 0.0 to _mock_store() and to test_none_gate_skipped inline mock"
+    },
+    {
+      "id": "B4",
+      "description": "asyncio.get_event_loop().run_until_complete() fails in Python 3.10+ when previous tests closed the event loop ('There is no current event loop')",
+      "resolution": "Changed to asyncio.run() which always creates a fresh event loop"
+    }
+  ],
+  "additional_changes_made_in_scope": [
+    "AdmissionConfig dataclass is defined in BOTH settings.py (for load_airlock_settings integration) and admission.py (for standalone use). The settings.py version is the canonical one used by AirlockSettings; admission.py imports it from settings.py via configure_admission() at runtime."
+  ],
+  "agent_verify_result": "pass — 16/16 target tests pass; full suite 2428 passed (1 pre-existing fathomdb env failure)",
+  "next_step_for_orchestrator": "Pack 0.5.5-IMPL-admission on branch worktree-agent-a3179da79d697c93b at 523aaf5e7322eefe112bbeb4081c1aca377e2e3a; review, verify, merge. Follow-up: wire X-Airlock-Admission response header via transparency.py (requires modifying that file, which is in DO NOT TOUCH for this pack)."
+}

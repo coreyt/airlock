@@ -29,6 +29,24 @@ from litellm.types.utils import BudgetConfig
 
 logger = logging.getLogger("airlock.fast.settings")
 
+
+# ---------------------------------------------------------------------------
+# AdmissionConfig — C1 admission gate knobs (d-027 through d-030)
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class AdmissionConfig:
+    """Configuration for the C1 in-loop admission gate.
+
+    Off-by-default (enabled=False). Config key: airlock_settings.admission.
+    Env override: AIRLOCK_ADMISSION (JSON).
+    """
+
+    enabled: bool = False
+    rpm: int = 60
+    concurrency: int = 10
+    boost_multiplier: float = 1.5
+
+
 # ---------------------------------------------------------------------------
 # Defaults.
 #   cost tiers:       router._DEFAULT_COST_TIERS
@@ -94,6 +112,7 @@ class AirlockSettings:
     session_ttl: int = _DEFAULT_SESSION_TTL
     smart_thresholds: tuple[float, float] = _DEFAULT_SMART_THRESHOLDS
     budget_warn_ratio: float = _DEFAULT_BUDGET_WARN_RATIO
+    admission: AdmissionConfig = field(default_factory=AdmissionConfig)
 
 
 # ---------------------------------------------------------------------------
@@ -285,6 +304,43 @@ def _load_smart_thresholds(
     return _DEFAULT_SMART_THRESHOLDS
 
 
+def _load_admission(airlock_settings: dict, env: Mapping[str, str]) -> AdmissionConfig:
+    """Load AdmissionConfig with env > config > default precedence.
+
+    Env override: AIRLOCK_ADMISSION (JSON dict with keys matching AdmissionConfig).
+    Config key: airlock_settings.admission (mapping).
+    Malformed input falls back to the next level; never raises.
+    """
+    raw = env.get("AIRLOCK_ADMISSION")
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return AdmissionConfig(
+                    enabled=bool(parsed.get("enabled", False)),
+                    rpm=int(parsed.get("rpm", 60)),
+                    concurrency=int(parsed.get("concurrency", 10)),
+                    boost_multiplier=float(parsed.get("boost_multiplier", 1.5)),
+                )
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+        logger.warning("Invalid AIRLOCK_ADMISSION, falling back to config/defaults")
+
+    block = airlock_settings.get("admission")
+    if isinstance(block, dict):
+        try:
+            return AdmissionConfig(
+                enabled=bool(block.get("enabled", False)),
+                rpm=int(block.get("rpm", 60)),
+                concurrency=int(block.get("concurrency", 10)),
+                boost_multiplier=float(block.get("boost_multiplier", 1.5)),
+            )
+        except (TypeError, ValueError):
+            logger.warning("Invalid airlock_settings.admission, using defaults")
+
+    return AdmissionConfig()
+
+
 def _load_budget_warn_ratio(airlock_settings: dict, env: Mapping[str, str]) -> float:
     raw = env.get("AIRLOCK_BUDGET_WARN_RATIO")
     if raw:
@@ -335,6 +391,7 @@ def load_airlock_settings(
         session_ttl=_load_session_ttl(airlock_settings, env),
         smart_thresholds=_load_smart_thresholds(airlock_settings, env),
         budget_warn_ratio=_load_budget_warn_ratio(airlock_settings, env),
+        admission=_load_admission(airlock_settings, env),
     )
 
 
