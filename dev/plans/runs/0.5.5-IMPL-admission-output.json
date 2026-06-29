@@ -2,13 +2,14 @@
   "pack": "0.5.5-IMPL-admission",
   "baseline_sha": "64f9615",
   "branch": "worktree-agent-a3179da79d697c93b",
-  "head_sha": "f1614a2e3905b58a2a97f26f9616d05f14b93b93",
+  "head_sha": "ddfc8ad3fa93fbd0eaeb76c91034ad5168f9c8cd",
   "commits": [
     "5ebd6af: docs(0.5.5-IMPL-admission): design memo — module layout, startup wiring, header wiring decision",
     "c9f18cc: test(0.5.5-IMPL-admission): RED — target tests for AdmissionConfig/Store/Gate (module not yet created)",
     "ef72f64: feat(0.5.5): C1 admission gate — per-client RPM token bucket + semaphore concurrency cap (IMPL-admission)",
     "c399a46: chore(0.5.5-IMPL-admission): consolidate AdmissionConfig to single definition in settings.py; write output.json",
-    "f1614a2: chore(0.5.5-IMPL-admission): update output.json head_sha to final commit c399a46"
+    "f1614a2: chore(0.5.5-IMPL-admission): update output.json head_sha to final commit c399a46",
+    "ddfc8ad: chore(0.5.5-IMPL-admission): finalize output.json with true head SHA f1614a2"
   ],
   "tdd_evidence": {
     "red_commit_sha": "c9f18cc",
@@ -87,5 +88,5 @@
     "AdmissionConfig dataclass is defined in BOTH settings.py (for load_airlock_settings integration) and admission.py (for standalone use). The settings.py version is the canonical one used by AirlockSettings; admission.py imports it from settings.py via configure_admission() at runtime."
   ],
   "agent_verify_result": "pass — 16/16 target tests pass; full suite 2428 passed (1 pre-existing fathomdb env failure)",
-  "next_step_for_orchestrator": "Pack 0.5.5-IMPL-admission on branch worktree-agent-a3179da79d697c93b at f1614a2e3905b58a2a97f26f9616d05f14b93b93; review, verify, merge. Follow-up: wire X-Airlock-Admission response header via transparency.py (requires modifying that file, which is in DO NOT TOUCH for this pack)."
+  "next_step_for_orchestrator": "Pack 0.5.5-IMPL-admission on branch worktree-agent-a3179da79d697c93b at ddfc8ad3fa93fbd0eaeb76c91034ad5168f9c8cd; review, verify, merge. Follow-up: wire X-Airlock-Admission response header via transparency.py (requires modifying that file, which is in DO NOT TOUCH for this pack)."
 }
