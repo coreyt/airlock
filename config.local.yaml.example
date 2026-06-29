@@ -4,20 +4,50 @@
 # here that should NOT live in the tracked `config.yaml` — e.g. MCP servers whose
 # `command:` is an absolute path under your home directory.
 #
-# Activation: add to your local config.yaml
+# Activation: add to your local config.yaml (this line is LOCAL-ONLY — do NOT
+# commit it; config.local.yaml is gitignored, so a missing include file aborts
+# startup on a fresh checkout):
 #     include: ["config.local.yaml"]
+#
 # litellm merges included files into the main config. Caveats:
 #   - the included file MUST exist or proxy startup fails (FileNotFoundError);
 #   - a key whose value is a dict (e.g. `mcp_servers`) REPLACES the main config's
-#     value rather than deep-merging — so list every MCP server you want under
-#     `mcp_servers` here, including any you still want from config.yaml.
+#     value rather than deep-merging — so list EVERY MCP server you want under
+#     `mcp_servers` here, including any you still want from config.yaml (e.g. the
+#     bundled `newscatcher`), or it is dropped at runtime.
 #
-# Example:
+# Two more litellm rules for stdio MCP `command`/`args` (see docs/guide/mcp-servers.md):
+#   - NO variable expansion: ${HOME} / ~ / $VAR are taken literally. Use absolute paths.
+#   - Command allowlist: only basenames in {deno,docker,node,npx,python,python3,uvx}
+#     are allowed. A venv `.../bin/python` passes (basename `python`); a custom
+#     launcher (e.g. `ado-mcp`) must be added to LITELLM_MCP_STDIO_EXTRA_COMMANDS
+#     in .env.
+#
+# Example (replace /home/you with your real absolute home path):
 #
 # mcp_servers:
+#   # Script with its own venv — interpreter basename `python` is allow-listed.
 #   my_local_tool:
 #     transport: stdio
-#     command: ${HOME}/projects/my-tool/.venv/bin/my-tool
-#     args: []
+#     command: /home/you/projects/my-tool/.venv/bin/python
+#     args: ["/home/you/projects/my-tool/mcp-server/server.py"]
 #     env:
 #       MY_TOOL_TOKEN: os.environ/MY_TOOL_TOKEN
+#
+#   # Custom launcher binary — also requires, in .env:
+#   #     LITELLM_MCP_STDIO_EXTRA_COMMANDS=ado-mcp
+#   ado_mcp:
+#     transport: stdio
+#     command: /home/you/projects/ado-mcp/.venv/bin/ado-mcp
+#     args: ["--profile", "full"]
+#     env:
+#       ADO_ORG_URL: os.environ/ADO_ORG_URL
+#       ADO_PAT: os.environ/ADO_PAT
+#
+#   # Re-list bundled servers you still want (dict REPLACE, not merge).
+#   newscatcher:
+#     transport: stdio
+#     command: python3
+#     args: ["-m", "airlock.mcp_servers.newscatcher_server"]
+#     env:
+#       NEWS_CATCHER_API_KEY: os.environ/NEWS_CATCHER_API_KEY

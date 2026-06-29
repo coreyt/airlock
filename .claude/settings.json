@@ -1,4 +1,7 @@
 {
+  "attribution": {
+    "commit": ""
+  },
   "permissions": {
     "allow": [
       "Bash(git status:*)",
@@ -54,10 +57,7 @@
       "Bash(git -C * cherry-pick:*)"
     ],
     "ask": [
-      "Bash(git merge:*)",
       "Bash(git rebase:*)",
-      "Bash(git worktree add:*)",
-      "Bash(git worktree remove:*)",
       "Bash(git -C * merge:*)",
       "Bash(git -C * rebase:*)",
       "Bash(git -C * worktree add:*)",

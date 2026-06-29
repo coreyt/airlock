@@ -78,6 +78,7 @@ scheme (`http://` → `https://`).
 |------|---------|----------|
 | `config.yaml` | Model list, guardrails, router settings | Project root or `AIRLOCK_CONFIG` |
 | `.env` | API keys, master key, ports | Project root |
+| `config.local.yaml` | _Optional, gitignored._ Machine-specific overrides (MCP servers with absolute host paths), pulled in via a local-only `include:` in `config.yaml`. See [Configuration → Machine-specific overrides](getting-started/configuration.md#machine-specific-overrides-configlocalyaml). | Project root |
 
 ### Environment Variables
 
@@ -96,6 +97,7 @@ scheme (`http://` → `https://`).
 | `AIRLOCK_MAX_LOG_SIZE_MB` | No | `500` | Max size per log file before rotation |
 | `AIRLOCK_STARTUP_MODEL_DISCOVERY` | No | `0` | Opt-in provider/model discovery at startup |
 | `AIRLOCK_MCP_STARTUP_MODE` | No | `lazy` | MCP startup behavior: `off`, `lazy`, or `eager` |
+| `LITELLM_MCP_STDIO_EXTRA_COMMANDS` | No | — | Comma-separated extra command basenames allowed to launch stdio MCP servers, beyond the built-in `deno,docker,node,npx,python,python3,uvx`. Custom launcher binaries 403 at tool discovery without this. See [MCP Servers](guide/mcp-servers.md). |
 | `AIRLOCK_ENABLE_FATHOMDB` | No | `0` | Enable lazy FathomDB engine initialization |
 | `AIRLOCK_ENABLE_FATHOM_LOGGER` | No | `0` | Append the Fathom request logger at runtime without editing `config.yaml` |
 | `AIRLOCK_BLOCKED_KEYWORDS` | No | — | Comma-separated restricted phrases |
@@ -168,6 +170,35 @@ Recommended low-noise startup profile:
 AIRLOCK_STARTUP_MODEL_DISCOVERY=0
 AIRLOCK_MCP_STARTUP_MODE=lazy
 ```
+
+### Verifying MCP servers after a restart
+
+A restart re-reads config from disk **and** re-applies the current LiteLLM
+behavior — including the stdio command allowlist and `include`/`config.local.yaml`
+merge. A long-running process that predates a LiteLLM upgrade may serve MCP
+servers that a fresh restart then rejects, so always re-verify MCP after
+restarting. Because servers are launched lazily, a clean startup log does **not**
+prove they work; tool discovery happens on first client request.
+
+```bash
+# 1. Liveness (never GET /health for probes)
+curl -s http://localhost:4000/health/liveliness
+
+# 2. Models are served
+curl -s -H "Authorization: Bearer $AIRLOCK_MASTER_KEY" \
+  http://localhost:4000/v1/models | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["data"]),"models")'
+
+# 3. MCP tool discovery actually succeeds (REST helper at /mcp-rest; the bare
+#    /mcp path is the SSE streaming transport, not JSON)
+curl -s -H "Authorization: Bearer $AIRLOCK_MASTER_KEY" \
+  http://localhost:4000/mcp-rest/tools/list | python3 -m json.tool
+
+# 4. Scan stderr for per-server failures (basename allowlist 403, literal ${HOME}
+#    in a path, ModuleNotFoundError / "Connection closed" at init)
+grep -iE "allowlist|no such file|connection closed|modulenotfound" service-stderr.log | tail
+```
+
+See [MCP Servers](guide/mcp-servers.md) for the underlying constraints and fixes.
 
 ## FathomDB
 
@@ -400,6 +431,43 @@ Uses Microsoft Presidio with the `en_core_web_lg` spaCy model. Default entities:
 ### Keyword Blocking
 
 Set `AIRLOCK_BLOCKED_KEYWORDS` to a comma-separated list. Case-insensitive matching against request content.
+
+## Admission Control
+
+Per-client rate limiting and concurrency caps. Off by default — opt in per deployment.
+
+### Enabling
+
+```yaml
+# config.yaml (or config.local.yaml)
+airlock_settings:
+  admission:
+    enabled: true
+    rpm: 60              # requests per minute per client (default: 60)
+    concurrency: 10      # max concurrent in-flight per client (default: 10)
+    boost_multiplier: 1.5  # RPM multiplier for priority-boosted clients (default: 1.5)
+```
+
+Or via environment: `AIRLOCK_ADMISSION='{"enabled": true, "rpm": 30}'`
+
+### Behavior
+
+| Condition | Response |
+|-----------|----------|
+| RPM cap exceeded | HTTP 429 with `Retry-After` (seconds until token bucket refills) |
+| Concurrency cap full | HTTP 429 with `Retry-After: 1` |
+| Gate internal error | Request passes through (fail-open, warning logged) |
+
+Clients with `PrioritySignal.boost=True` receive `rpm × boost_multiplier` allowance. All other clients share the base `rpm` cap equally.
+
+The gate is inserted before routing, so MCP and batch calls are subject to the same caps as chat calls.
+
+### Known limitations (0.5.5)
+
+- `X-Airlock-Admission` response header is not yet propagated (metadata is stamped internally; header wiring is a follow-up).
+- The concurrency cap uses a non-blocking semaphore peek — it detects fully-saturated slots but does not provide exact hard accounting (full async acquire/release is a follow-up).
+
+Full ops guide: `dev/notes/ops-admission-gate.md`.
 
 ## Security Checklist
 

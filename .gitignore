@@ -59,6 +59,11 @@ dev/smoketest/.runtime/
 # Machine-specific config override (personal MCP servers, host paths) — 0.5.4
 config.local.yaml
 
+# Generated runtime config — proxy.py writes this temp file (config.yaml + env
+# overrides + model_info) for LiteLLM and normally deletes it on shutdown; a hard
+# kill can leave one behind. Never commit it.
+airlock-runtime-*.yaml
+
 # Local agent/tooling state (machine-specific; contains absolute paths) — 0.5.4
 .wake/shared/coreyt.jsonl
 agents/.aural/

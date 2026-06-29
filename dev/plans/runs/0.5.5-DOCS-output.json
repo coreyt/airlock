@@ -1,0 +1,14 @@
+{
+  "pack": "DOCS",
+  "status": "CLOSED",
+  "commit_sha": "75f7c38",
+  "files_created": [
+    "dev/notes/as-built-admission-gate-0.5.5.md",
+    "dev/notes/ops-admission-gate.md"
+  ],
+  "files_modified": [
+    "dev/user-needs.md",
+    "CHANGELOG.md"
+  ],
+  "notes": "docs/ops/ did not exist; ops guide written to dev/notes/ops-admission-gate.md instead. UN-23 and UN-24 appended at end of user-needs.md (filling the gap between UN-22 and UN-25). CHANGELOG.md 0.5.5 entry prepended before 0.5.4 section. Docs-only commit, no source code changes."
+}
