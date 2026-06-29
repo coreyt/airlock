@@ -871,3 +871,63 @@ cannot silently drift, and one failing sink cannot break the request or the othe
    convergence** (the three independently-sampled per-builder timestamps collapse to
    one sourced-once value); it is recorded in the behavior-change register. Any other
    field-shape change must extend the smoke harness and be registered.
+
+---
+
+## UN-23: Noisy-Neighbor Protection / Latency Under Load
+
+**As an** operator of a multi-client airlock proxy,
+**I need** per-client request rate limiting
+**so that** a burst from one client does not starve or delay requests from other clients.
+
+### Why
+
+Without per-client limits, a misbehaving or high-volume client can saturate the
+pre-call hook queue, increasing p99 latency for all other clients. The admission gate
+(C1) provides deterministic backpressure without queuing: excess requests are shed
+immediately with a 429 + Retry-After rather than delayed.
+
+### Stakeholders
+
+- Operators (SLA protection for multi-client deployments)
+- Client developers (predictable backpressure signal with actionable retry time)
+
+### Acceptance Criteria
+
+1. Requests from a client exceeding the configured RPM cap receive HTTP 429 with a
+   `Retry-After` header derived from the token bucket's refill time (not a fixed guess).
+2. The admission gate overhead on the non-shed path is < 1ms p99 (measured in Phase 0:
+   Δp99 = +34.55µs for the full guard chain with gate; 429 path p50 = 0.58µs).
+3. Clients with `PrioritySignal.boost=True` receive a configurable multiplier on their
+   RPM cap (default: 1.5×).
+4. The feature is off-by-default (`admission.enabled: false`); enabling it requires
+   explicit opt-in.
+5. The gate fails open: any internal error logs a warning and admits the request.
+
+---
+
+## UN-24: Per-Client Resource Fairness
+
+**As an** operator,
+**I need** per-client concurrency limits
+**so that** no single client can monopolize in-flight provider slots.
+
+### Why
+
+RPM limits protect the time axis; concurrency limits protect the throughput axis.
+A client can stay within RPM but saturate all available provider connections with
+long-running requests.
+
+### Stakeholders
+
+- Operators (throughput fairness across clients)
+
+### Acceptance Criteria
+
+1. A configurable per-client concurrency cap is enforced; excess requests are shed
+   with 429 (Retry-After ≈ 1s) without being queued.
+2. (Follow-up) The concurrency cap uses asyncio.Semaphore acquire/release for exact
+   accounting. Current implementation uses a non-blocking peek (effective for bursty
+   detection; true hard cap requires async context — tracked as follow-up).
+3. The RPM cap and concurrency cap are independently configurable via
+   `airlock_settings.admission.rpm` and `airlock_settings.admission.concurrency`.

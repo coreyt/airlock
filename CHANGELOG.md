@@ -5,6 +5,64 @@ All notable changes to Airlock are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.5] — 2026-06-28
+
+Feature release: **per-client admission gate (C1 in-loop isolation).**
+Adds a token-bucket RPM limiter and concurrency cap per client, inserted as Step 2.5
+in the guardian pre-call hook. Off-by-default; sheds excess requests with `429 +
+Retry-After` (derived from token bucket refill time, not a fixed guess). Fails open
+on internal error. Closes UN-23 (noisy-neighbor protection) and partially closes UN-24
+(per-client fairness — concurrency peek implemented; full semaphore acquire/release
+is a follow-up). Closes audit Tier 3 #7 (StateProvider injection seam) and
+Tier 3 #9 (state.py split). Design: `dev/notes/design-bulkhead-isolation.md`.
+
+### Added
+
+- **Per-client RPM admission gate (UN-23, UN-24, d-027–d-030).** `airlock/fast/admission.py`
+  provides `AdmissionStore` (token-bucket request counter keyed by client ID, 1-second
+  deque buckets, own `threading.RLock`) and `AdmissionGate` (synchronous O(1) check,
+  fail-open). Inserted between threat assessment and routing in `guardian.async_pre_call_hook`.
+  Configuration via `airlock_settings.admission` block or `AIRLOCK_ADMISSION` env (JSON).
+  Default: `enabled=false, rpm=60, concurrency=10, boost_multiplier=1.5`.
+- **PrioritySignal-tiered caps (d-027).** Clients with `boost=True` receive
+  `rpm × boost_multiplier` RPM allowance (default 1.5×). Equal-share is the default
+  (all clients at base `rpm`).
+- **Precise Retry-After (d-028).** 429 response includes `Retry-After` computed from
+  the token bucket: `max(0.1, window_s - (now % window_s))`. Not a fixed guess.
+- **`get_store` / `set_store` injection seam (Tier 3 #7).** `airlock/fast/state.py`
+  exports `get_store()`, `set_store()`, and `_StoreProxy`; the module-level `store` is
+  now a transparent proxy. Tests inject a fresh `StateStore` per function via autouse
+  fixture without touching callers.
+- **`state.py` split (Tier 3 #9).** The 1714-line god-object is split into
+  `_state_core.py`, `_state_spend.py`, `_state_mcp.py`, `_state_persistence.py`.
+  `state.py` is now a re-export facade; all 56+ existing `from airlock.fast.state import X`
+  callers work unchanged.
+
+### Configuration
+
+New `airlock_settings.admission` block (all optional; all off by default):
+
+```yaml
+airlock_settings:
+  admission:
+    enabled: false        # set true to activate
+    rpm: 60              # requests per minute per client
+    concurrency: 10      # max concurrent in-flight per client
+    boost_multiplier: 1.5  # RPM multiplier for PrioritySignal.boost=True clients
+```
+
+Or via environment: `AIRLOCK_ADMISSION='{"enabled": true, "rpm": 30}'`
+
+### Known follow-ups
+
+- `X-Airlock-Admission` response header: metadata is stamped in
+  `data["metadata"]["airlock_admission"]`; header propagation to HTTP response
+  is a follow-up (requires transparency.py wiring).
+- Concurrency cap uses a non-blocking `sem._value` peek (correctly detects full
+  semaphore; does not acquire/release, so it behaves as a burst detector rather
+  than an exact hard cap). Full `asyncio.Semaphore` acquire/release requires async
+  gate context — planned for a follow-up.
+
 ## [0.5.4] — 2026-06-28
 
 Internal-quality release: **unify observability behind one canonical request event.**
