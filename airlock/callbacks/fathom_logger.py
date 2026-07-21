@@ -14,7 +14,12 @@ from litellm.integrations.custom_logger import CustomLogger
 try:
     from fathomdb import WriteRequestBuilder
 except ImportError:
-    WriteRequestBuilder = None
+    # Optional `db` extra. Two ignore codes are needed, not one: `misc` for
+    # rebinding a name that mypy has bound to a class, and `assignment` for the
+    # None value itself. Both only surface when fathomdb IS installed — with the
+    # extra absent, mypy takes this branch and sees no conflict, which is why
+    # this is reachable only under `uv sync --extra db`.
+    WriteRequestBuilder = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger("airlock.logger")
 
