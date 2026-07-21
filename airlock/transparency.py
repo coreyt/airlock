@@ -323,7 +323,9 @@ def _coerce_bool(value: object) -> bool:
     return bool(value)
 
 
-_DEFAULTS = {
+# Annotated explicitly: the mixed value types otherwise infer as dict[str, object],
+# which mypy then rejects as defaults for the typed TransparencyConfig fields below.
+_DEFAULTS: dict[str, Any] = {
     "mutation_headers": "compact",  # off | compact | full
     "served_headers": True,
     "explain_body_optin_header": "X-Airlock-Explain",

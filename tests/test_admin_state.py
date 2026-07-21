@@ -15,7 +15,9 @@ class TestClearMutators:
         store.get_provider("openai").quarantine(now, "r", "RL")
         for c in ("c1", "c2"):
             store.get_client_provider(c, "openai").quarantine_until = now + 100
-        rec = store.clear_provider_quarantine("openai", mode="probe", actor="op", now=now)
+        rec = store.clear_provider_quarantine(
+            "openai", mode="probe", actor="op", now=now
+        )
         ps = store.get_provider("openai")
         assert ps._half_open_probe is True
         assert ps.cleared_at == now
@@ -43,7 +45,10 @@ class TestClearMutators:
         cp.quarantine_until = now + 200
         assert cp.is_quarantined(now) is True
         store.clear_provider_quarantine("openai", mode="force", now=now)
-        assert store.get_client_provider("key:victim", "openai").is_quarantined(now) is False
+        assert (
+            store.get_client_provider("key:victim", "openai").is_quarantined(now)
+            is False
+        )
 
     def test_clear_then_in_window_429_does_not_rearm(self):
         """CC-6: cleared_at floor means a post-clear 429 starts a fresh window."""
@@ -92,7 +97,9 @@ class TestAdminActionIngest:
         rec = live.clear_provider_quarantine("openai", mode="probe", now=now)
         # ...the replica (separate store, as the TUI process) ingests it
         replica = StateStore()
-        replica.get_provider("openai").quarantine_until = now + 100  # replica thought it was quarantined
+        replica.get_provider("openai").quarantine_until = (
+            now + 100
+        )  # replica thought it was quarantined
         replica.ingest_jsonl_record(rec)
         assert replica.get_provider("openai").is_quarantined() is False
 
@@ -142,7 +149,9 @@ class TestAdmStateFix1:
     def test_ingest_roundtrip_client_provider(self):
         live = StateStore()
         now = time.time()
-        rec = live.clear_client_provider_quarantine("c", "openai", mode="force", now=now)
+        rec = live.clear_client_provider_quarantine(
+            "c", "openai", mode="force", now=now
+        )
         replica = StateStore()
         replica.get_client_provider("c", "openai").quarantine_until = now + 100
         replica.ingest_jsonl_record(rec)

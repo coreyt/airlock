@@ -265,7 +265,9 @@ class AirlockPIIGuard(CustomGuardrail):
         # Batch/file routes (/v1/batches, /v1/files) invoke this hook with no
         # chat `data` (data is None / has no metadata) — nothing to hydrate.
         metadata = (data or {}).get("metadata") if isinstance(data, dict) else None
-        mapping = metadata.get("airlock_pii_map") if isinstance(metadata, dict) else None
+        mapping = (
+            metadata.get("airlock_pii_map") if isinstance(metadata, dict) else None
+        )
         if not mapping or not _hydration_enabled():
             return response
 

@@ -58,9 +58,7 @@ class TestFileStateStore:
     def test_scan_enabled_flag_is_persisted(self, tmp_path):
         s = _store(tmp_path)
         s.record_file_upload("scanned", byte_count=1)  # default True
-        s.record_file_upload(
-            "raw", byte_count=1, status=FILE_READY, scan_enabled=False
-        )
+        s.record_file_upload("raw", byte_count=1, status=FILE_READY, scan_enabled=False)
         assert s.get_file("scanned")["scan_enabled"] == 1
         assert s.get_file("raw")["scan_enabled"] == 0
 

@@ -330,9 +330,7 @@ class TestTextCachePostRedaction:
         if not presidio_available:
             pytest.skip("Presidio not available")
 
-    async def test_cache_holds_redacted_text(
-        self, mock_cache, mock_user_api_key_dict
-    ):
+    async def test_cache_holds_redacted_text(self, mock_cache, mock_user_api_key_dict):
         guard = AirlockPIIGuard()
         data = {
             "messages": [{"role": "user", "content": "Email alice@corp.com"}],

@@ -34,14 +34,23 @@ class TestAdminPost:
         with patch(
             "urllib.request.urlopen", return_value=_FakeResp(200, {"op": "x"})
         ) as m:
-            status, payload = admin_post("127.0.0.1", "4000", "/airlock/admin/providers")
+            status, payload = admin_post(
+                "127.0.0.1", "4000", "/airlock/admin/providers"
+            )
         assert status == 200 and payload["op"] == "x"
         # built an http URL on the loopback host
-        assert m.call_args[0][0].full_url == "http://127.0.0.1:4000/airlock/admin/providers"
+        assert (
+            m.call_args[0][0].full_url
+            == "http://127.0.0.1:4000/airlock/admin/providers"
+        )
 
     def test_http_error_returns_code_and_payload(self):
         err = urllib.error.HTTPError(
-            "u", 403, "forbidden", {}, io.BytesIO(json.dumps({"error": "nope"}).encode())
+            "u",
+            403,
+            "forbidden",
+            {},
+            io.BytesIO(json.dumps({"error": "nope"}).encode()),
         )
         with patch("urllib.request.urlopen", side_effect=err):
             status, payload = admin_post("127.0.0.1", "4000", "/p")

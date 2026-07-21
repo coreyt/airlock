@@ -292,9 +292,7 @@ class TestAdmHttpFix1:
         def _boom(*a, **k):
             raise RuntimeError("kaboom")
 
-        monkeypatch.setattr(
-            http_mod._state.store, "clear_provider_quarantine", _boom
-        )
+        monkeypatch.setattr(http_mod._state.store, "clear_provider_quarantine", _boom)
         s, body, _ = handle_admin_request(
             "POST",
             "/airlock/admin/providers/openai/clear-quarantine",

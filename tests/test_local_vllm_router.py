@@ -62,7 +62,9 @@ def config_file(tmp_path):
 def router(monkeypatch, config_file):
     monkeypatch.setenv("AIRLOCK_LOCAL_VLLM_BASE_URL", BASE)
     monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
-    monkeypatch.setenv("AIRLOCK_LOCAL_VLLM_CACHE_TTL_SECONDS", "0")  # disable cache in tests
+    monkeypatch.setenv(
+        "AIRLOCK_LOCAL_VLLM_CACHE_TTL_SECONDS", "0"
+    )  # disable cache in tests
     monkeypatch.delenv("AIRLOCK_LOCAL_VLLM_SWITCH_HINT", raising=False)
     return AirlockLocalVLLMRouter(guardrail_name="airlock-local-vllm-router")
 
@@ -106,14 +108,18 @@ class TestPreCall:
     async def test_passthrough_for_non_local_alias(self, router):
         _stub_loaded(router, {"qwen3.6-27b"})
         data: dict[str, Any] = {"model": "claude-opus"}
-        out = await router.async_pre_call_hook(_FakeKey(), None, data, "chat_completion")
+        out = await router.async_pre_call_hook(
+            _FakeKey(), None, data, "chat_completion"
+        )
         assert out is data
 
     @pytest.mark.asyncio
     async def test_passthrough_when_local_alias_matches_loaded(self, router):
         _stub_loaded(router, {"qwen3.6-27b"})
         data = {"model": "qwen3.6-27b"}
-        out = await router.async_pre_call_hook(_FakeKey(), None, data, "chat_completion")
+        out = await router.async_pre_call_hook(
+            _FakeKey(), None, data, "chat_completion"
+        )
         assert out is data
 
     @pytest.mark.asyncio
@@ -139,7 +145,9 @@ class TestPreCall:
     @pytest.mark.asyncio
     async def test_passthrough_when_model_empty(self, router):
         data = {"model": ""}
-        out = await router.async_pre_call_hook(_FakeKey(), None, data, "chat_completion")
+        out = await router.async_pre_call_hook(
+            _FakeKey(), None, data, "chat_completion"
+        )
         assert out is data
 
     @pytest.mark.asyncio

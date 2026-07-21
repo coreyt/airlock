@@ -108,7 +108,12 @@ class AirlockFathomLogger(CustomLogger):
             self._seen_call_ids[call_id] = now
 
             if len(self._seen_call_ids) > 4096:
-                oldest_key = min(self._seen_call_ids, key=self._seen_call_ids.get)
+                # Index rather than .get: the latter is typed as returning
+                # `float | None`, which is not a valid sort key. Every key here
+                # is present by construction, so indexing is also more correct.
+                oldest_key = min(
+                    self._seen_call_ids, key=lambda k: self._seen_call_ids[k]
+                )
                 self._seen_call_ids.pop(oldest_key, None)
 
             return False

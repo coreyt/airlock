@@ -116,7 +116,12 @@ class _StoreProxy:
         return f"<_StoreProxy wrapping {get_store()!r}>"
 
 
-store = _StoreProxy()
+# The proxy forwards every attribute to the live StateStore, so it *is* one
+# behaviourally — but mypy only sees `_StoreProxy` and rejects it wherever a
+# StateStore is expected. Declaring the public symbol as StateStore for type
+# checkers keeps call sites honest without weakening them with scattered
+# `# type: ignore`s. Runtime binding is unchanged.
+store: StateStore = _StoreProxy()  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------------------

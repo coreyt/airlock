@@ -186,8 +186,13 @@ def build_request_event(
 
     # Transparency: mutation ledger (asdict dataclasses else serialize).
     ledger = metadata.get("airlock_mutations") or []
+    # `is_dataclass` is true for the dataclass *type* as well as an instance,
+    # but asdict() only accepts an instance — hence the explicit isinstance
+    # guard rather than relying on the narrowing alone.
     mutations = [
-        dataclasses.asdict(m) if dataclasses.is_dataclass(m) else _serialize(m)
+        dataclasses.asdict(m)
+        if dataclasses.is_dataclass(m) and not isinstance(m, type)
+        else _serialize(m)
         for m in ledger
     ]
 

@@ -65,7 +65,10 @@ def _input_lines(alias: str) -> list[dict]:
             "body": {
                 "model": alias,
                 "messages": [
-                    {"role": "user", "content": "What is 2+2? Reply with just the number."},
+                    {
+                        "role": "user",
+                        "content": "What is 2+2? Reply with just the number.",
+                    },
                 ],
                 "temperature": 0,
                 "max_tokens": 16,
@@ -119,7 +122,9 @@ async def test_mistral_batch_full_lifecycle(tmp_path):
         obj = await gateway.get_batch(store, backend, batch_id)
         print(f"[e2e] +{int(waited)}s status={obj['status']}")
 
-    assert obj["status"] == "completed", f"batch ended {obj['status']}: {obj.get('errors')}"
+    assert obj["status"] == "completed", (
+        f"batch ended {obj['status']}: {obj.get('errors')}"
+    )
 
     bodies = store.staged_bodies(batch_id)
     by_id = {b["custom_id"]: b for b in bodies}

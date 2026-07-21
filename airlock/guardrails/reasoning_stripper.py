@@ -97,7 +97,7 @@ class _StreamStripper:
             if self._in_think:
                 end = self._buf.find(_END)
                 if end != -1:
-                    self._buf = self._buf[end + len(_END):]
+                    self._buf = self._buf[end + len(_END) :]
                     if self._buf.startswith("\n"):
                         self._buf = self._buf[1:]
                     self._in_think = False
@@ -105,13 +105,13 @@ class _StreamStripper:
                 # Hold back up to MAX-1 chars in case a partial end marker
                 # is split across chunks; drop the rest.
                 if len(self._buf) >= _MAX_MARKER:
-                    self._buf = self._buf[-(_MAX_MARKER - 1):]
+                    self._buf = self._buf[-(_MAX_MARKER - 1) :]
                 break
 
             start = self._buf.find(_START)
             if start != -1:
                 out.append(self._buf[:start])
-                self._buf = self._buf[start + len(_START):]
+                self._buf = self._buf[start + len(_START) :]
                 self._in_think = True
                 self.stripped_any = True
                 continue

@@ -75,7 +75,11 @@ class TestStreamStripper:
 
     def test_block_split_across_chunks(self):
         # Marker split mid-character at every plausible point.
-        chunks = [f"prefix {START[:3]}", f"{START[3:]}think part {END[:2]}", f"{END[2:]}\nfinal"]
+        chunks = [
+            f"prefix {START[:3]}",
+            f"{START[3:]}think part {END[:2]}",
+            f"{END[2:]}\nfinal",
+        ]
         assert self._run(chunks) == "prefix final"
 
     def test_only_emits_after_marker_resolves(self):
@@ -148,7 +152,13 @@ class TestStreaming:
     @pytest.mark.asyncio
     async def test_strips_streaming_chunks(self, stripper):
         async def gen():
-            for c in [f"{START}thinking ", "more ", f"thoughts{END}\n", "the ", "answer"]:
+            for c in [
+                f"{START}thinking ",
+                "more ",
+                f"thoughts{END}\n",
+                "the ",
+                "answer",
+            ]:
                 yield _delta_chunk(c)
 
         out_text: list[str] = []

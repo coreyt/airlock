@@ -52,7 +52,9 @@ def parse_ratelimit_headers(headers: object) -> dict:
     each ``None`` when the corresponding header is absent or unparseable. Returns
     an all-``None`` dict for a non-mapping / empty input.
     """
-    out = {
+    # Annotated explicitly: without it mypy infers dict[str, None] from the
+    # all-None initializer and rejects the int/float assignments below.
+    out: dict[str, int | float | None] = {
         "remaining_tokens": None,
         "remaining_requests": None,
         "limit_tokens": None,

@@ -111,9 +111,7 @@ class AirlockLocalVLLMRouter(CustomGuardrail):
     """Pre-call guardrail that fails fast when a local vLLM alias isn't loaded."""
 
     def __init__(self, **kwargs: Any) -> None:
-        super().__init__(
-            supported_event_hooks=[GuardrailEventHooks.pre_call], **kwargs
-        )
+        super().__init__(supported_event_hooks=[GuardrailEventHooks.pre_call], **kwargs)
         self._alias_map: dict[str, str] | None = None
         self._loaded_cache: tuple[float, set[str]] | None = None
         self._http = httpx.AsyncClient(timeout=httpx.Timeout(2.0, connect=1.0))
@@ -152,7 +150,9 @@ class AirlockLocalVLLMRouter(CustomGuardrail):
             data = resp.json().get("data") or []
             loaded = {m.get("id") for m in data if m.get("id")}
         except (httpx.HTTPError, ValueError) as exc:
-            logger.warning("local_vllm_router: /models query to %s failed: %s", url, exc)
+            logger.warning(
+                "local_vllm_router: /models query to %s failed: %s", url, exc
+            )
             loaded = set()  # treat as "nothing loaded" → caller will get a clear error
 
         self._loaded_cache = (now, loaded)
@@ -208,7 +208,9 @@ class AirlockLocalVLLMRouter(CustomGuardrail):
         loaded_aliases = sorted(a for a, s in aliases.items() if s in loaded)
         hint = self._format_switch_hint(requested, expected, loaded, loaded_aliases)
 
-        currently = ", ".join(sorted(loaded)) if loaded else "<vLLM unreachable or empty>"
+        currently = (
+            ", ".join(sorted(loaded)) if loaded else "<vLLM unreachable or empty>"
+        )
         msg = (
             f"Local model '{requested}' (served as '{expected}') is configured but "
             f"not currently loaded on {_base_url()}. "
