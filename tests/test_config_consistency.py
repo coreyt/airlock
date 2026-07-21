@@ -229,9 +229,7 @@ class TestNoRetiredModels:
             bare = target.split("/", 1)[1] if "/" in target else target
             if bare in RETIRED_MODEL_IDS:
                 offenders.append(f"{entry.get('model_name')} -> {target}")
-        assert not offenders, (
-            f"[{which}] Config targets retired model ids: {offenders}"
-        )
+        assert not offenders, f"[{which}] Config targets retired model ids: {offenders}"
 
 
 class TestTemplateRootParity:
@@ -636,7 +634,10 @@ class TestVersionConsistency:
 
         repo_root = Path(__file__).resolve().parent.parent
         result = subprocess.run(
-            [sys.executable, str(repo_root / "scripts" / "check-version-consistency.py")],
+            [
+                sys.executable,
+                str(repo_root / "scripts" / "check-version-consistency.py"),
+            ],
             capture_output=True,
             text=True,
         )

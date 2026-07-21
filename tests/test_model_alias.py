@@ -736,10 +736,22 @@ def family_config(tmp_path):
     """
     config = {
         "model_list": [
-            {"model_name": "fam-5.6-sol", "litellm_params": {"model": "openai/fam-5.6-sol"}},
-            {"model_name": "fam-5.6-terra", "litellm_params": {"model": "openai/fam-5.6-terra"}},
-            {"model_name": "fam-5.6-luna", "litellm_params": {"model": "openai/fam-5.6-luna"}},
-            {"model_name": "fam-5.6", "litellm_params": {"model": "openai/fam-5.6-sol"}},
+            {
+                "model_name": "fam-5.6-sol",
+                "litellm_params": {"model": "openai/fam-5.6-sol"},
+            },
+            {
+                "model_name": "fam-5.6-terra",
+                "litellm_params": {"model": "openai/fam-5.6-terra"},
+            },
+            {
+                "model_name": "fam-5.6-luna",
+                "litellm_params": {"model": "openai/fam-5.6-luna"},
+            },
+            {
+                "model_name": "fam-5.6",
+                "litellm_params": {"model": "openai/fam-5.6-sol"},
+            },
         ],
         "cost_tiers": {
             "low": ["fam-5.6-luna"],

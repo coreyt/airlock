@@ -115,8 +115,14 @@ class TestCostTierAliasEquivalence:
                     "model_name": "openai/cheap",
                     "litellm_params": {"model": "openai/cheap-1"},
                 },
-                {"model_name": "cheap-family", "litellm_params": {"model": "openai/cheap-1"}},
-                {"model_name": "spendy", "litellm_params": {"model": "openai/spendy-1"}},
+                {
+                    "model_name": "cheap-family",
+                    "litellm_params": {"model": "openai/cheap-1"},
+                },
+                {
+                    "model_name": "spendy",
+                    "litellm_params": {"model": "openai/spendy-1"},
+                },
             ],
         }
 
