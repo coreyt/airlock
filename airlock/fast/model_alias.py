@@ -33,6 +33,12 @@ _AUTO_ROUTE_THRESHOLD = 0.50  # route silently at DEBUG
 _WARN_THRESHOLD = 0.35  # route with WARNING (fuzzy)
 # Below _WARN_THRESHOLD: no match — let LiteLLM return its 400
 
+# A candidate scoring within this margin of the best is "close enough" that we
+# cannot honestly claim to know which one the caller meant. When such candidates
+# span more than one COST TIER, resolution refuses rather than guessing —
+# guessing wrong bills the caller for a model they never asked for.
+_TIER_AMBIGUITY_MARGIN = 0.10
+
 # Trailing qualifiers stripped first (latest, preview and anything after)
 _QUALIFIER_RE = re.compile(
     r"-(latest|preview)(?:[-_].*)?$",
@@ -205,6 +211,10 @@ class ModelAliasTable:
     def __init__(self) -> None:
         self._entries: list[_AliasEntry] = []
         self._exact: dict[str, str] = {}  # lowered name → alias
+        # alias (lowered) → cost tier name, from config.yaml `cost_tiers:`.
+        # Used to refuse a fuzzy match whose close candidates span more than one
+        # price tier — see _tier_ambiguous_candidates().
+        self._alias_tier: dict[str, str] = {}
         # Provider-aware index for collision-safe prefix-strip in resolve().
         # (provider_token, bare_body) → alias  (first writer wins per pair)
         self._provider_body_alias: dict[tuple[str, str], str] = {}
@@ -222,6 +232,7 @@ class ModelAliasTable:
         # stale carry-over from a previous successful load.
         self._entries = []
         self._exact = {}
+        self._alias_tier = {}
         self._provider_body_alias = {}
         self._body_providers = {}
         self._ambiguous_variants = set()
@@ -248,6 +259,17 @@ class ModelAliasTable:
             return
 
         model_list = cfg.get("model_list") or []
+
+        # Cost tiers, read from the same config we already parsed (no import of
+        # router — it would be a new cross-module dependency for one dict).
+        tiers = cfg.get("cost_tiers")
+        if isinstance(tiers, dict):
+            for tier_name, members in tiers.items():
+                if not isinstance(members, list):
+                    continue
+                for member in members:
+                    if isinstance(member, str):
+                        self._alias_tier[member.lower()] = str(tier_name)
 
         # --- Pass 1: explicit model_name keys are authoritative + immutable ---
         explicit_keys: set[str] = set()
@@ -331,6 +353,52 @@ class ModelAliasTable:
             )
         logger.info("\n".join(lines))
 
+    def _dropped_qualifiers(self, model_name: str, alias: str) -> set[str]:
+        """Meaningful tokens in the request that the matched alias does NOT have.
+
+        A qualifier is a *non-numeric* token — `mini`, `nano`, `pro`, `lite`,
+        `sol`. Numeric tokens are version/date noise (``gpt-5.6-sol-2026-07-09``
+        → ``gpt-5.6-sol``) and are expected to be dropped.
+
+        Dropping a qualifier is never safe: qualifiers are precisely how a
+        catalog distinguishes price tiers within a family, so ignoring one
+        serves a different — often far more expensive — model than the caller
+        asked for. ``gpt-5.6-mini`` scores highest against bare ``gpt-5.6``,
+        which is Sol at 5x Luna's input price.
+        """
+        extra = _tokenize(model_name) - _tokenize(alias)
+        return {t for t in extra if not t.isdigit()}
+
+    def suggest(self, model_name: str, limit: int = 5) -> list[dict[str, str | float]]:
+        """Ranked near-matches for an unresolvable name, for a helpful error.
+
+        Each item carries the alias, its fuzzy score, and its cost tier when
+        known, so the caller can be told *why* no substitution was made rather
+        than just that the model is unknown. Derived from the same scorer used
+        for resolution — never a hardcoded table — so a new model family is
+        suggested correctly with no code change.
+        """
+        if not self._loaded:
+            self.load_from_config()
+        if not isinstance(model_name, str) or not model_name:
+            return []
+        scored = sorted(
+            ((_score_match(model_name, e), e.alias) for e in self._entries),
+            reverse=True,
+        )
+        out: list[dict[str, str | float]] = []
+        for score, alias in scored[:limit]:
+            if score < _WARN_THRESHOLD:
+                break
+            out.append(
+                {
+                    "model": alias,
+                    "score": round(score, 3),
+                    "tier": self._alias_tier.get(alias.lower(), ""),
+                }
+            )
+        return out
+
     def resolve(self, model_name: str) -> str | None:
         """Resolve a model name to its configured alias.
 
@@ -407,13 +475,39 @@ class ModelAliasTable:
             return None
 
         # Slow path: fuzzy scoring against all entries
+        scored: list[tuple[float, str]] = []
         best_score = 0.0
         best_alias: str | None = None
         for entry in self._entries:
             score = _score_match(model_name, entry)
+            scored.append((score, entry.alias))
             if score > best_score:
                 best_score = score
                 best_alias = entry.alias
+
+        # Dropped-qualifier guard. Refuse to satisfy a request by IGNORING a
+        # meaningful token the caller supplied.
+        #
+        # Motivating case: OpenAI's GPT-5.6 family is named sol/terra/luna, so a
+        # caller reaching for "the cheap one" plausibly types `gpt-5.6-mini`.
+        # That scores 0.57 against bare `gpt-5.6` — which is Sol, the MOST
+        # expensive variant at 5x Luna's input price — and previously routed
+        # there silently at DEBUG. The caller is billed 5x for a model they did
+        # not name, and never told. suggest() supplies the "did you mean".
+        if best_score >= _WARN_THRESHOLD and best_alias is not None:
+            dropped = self._dropped_qualifiers(model_name, best_alias)
+            if dropped:
+                logger.warning(
+                    "model_alias_dropped_qualifier %s -> REFUSED "
+                    "(best=%s score=%.3f would ignore %s; suggestions=%s)",
+                    model_name,
+                    best_alias,
+                    best_score,
+                    sorted(dropped),
+                    [s["model"] for s in self.suggest(model_name, limit=3)],
+                )
+                # Do NOT cache — a config change may make this name real.
+                return None
 
         if best_score >= _WARN_THRESHOLD and best_alias is not None:
             self._exact[lower] = best_alias

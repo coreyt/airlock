@@ -105,15 +105,82 @@ model_list:
       model: openai/gpt-5.3-codex
       api_key: os.environ/OPENAI_API_KEY
 
+  # --- OpenAI GPT-5.6 (GA 2026-07-09) — Sol / Terra / Luna ---
+  # A FLAT PRICE-TIER TRIPLE over ONE capability envelope, not a mini/nano
+  # capability ladder: all three share 1,050,000 ctx / 128,000 max output,
+  # cutoff 2026-02-16, and an identical capability flag set. They differ only
+  # in price and quality. Luna is NOT a nano replacement — $1/$6 vs
+  # gpt-5.4-nano's $0.20/$1.25 (5x input).
+  #
+  # Long-context surcharge: >272K INPUT tokens bills 2x input / 1.5x output
+  # for the WHOLE request (sol $5->$10 in, $30->$45 out; terra $2.50->$5,
+  # $15->$22.50; luna $1->$2, $6->$9). litellm applies this automatically.
+  #
+  # ORDER IS LOAD-BEARING: `-sol` precedes bare `gpt-5.6` so dated snapshots
+  # (gpt-5.6-sol-2026-07-09) resolve to the explicit variant.
+  - model_name: gpt-5.6-sol
+    litellm_params:
+      model: openai/gpt-5.6-sol
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: gpt-5.6-terra
+    litellm_params:
+      model: openai/gpt-5.6-terra
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: gpt-5.6-luna
+    litellm_params:
+      model: openai/gpt-5.6-luna
+      api_key: os.environ/OPENAI_API_KEY
+
+  # Convenience family alias. NOTE: bare `gpt-5.6` is NOT a real OpenAI model
+  # id — verified against live GET /v1/models on 2026-07-20, which offers only
+  # sol/terra/luna. litellm's price map carries a bare entry, which is
+  # misleading. This alias is pinned to the EXPLICIT sol body so the string
+  # `gpt-5.6` is never forwarded upstream; pointing it at the floating id
+  # would 404 every request.
+  - model_name: gpt-5.6
+    litellm_params:
+      model: openai/gpt-5.6-sol
+      api_key: os.environ/OPENAI_API_KEY
+
+  # Provider-prefixed twins (0.5.2 pattern). LOAD-BEARING, not cosmetic:
+  # ModelAliasTable's _provider_body_alias uses setdefault (first-writer-wins),
+  # so without an explicit entry `openai/gpt-5.6-sol` would bind to whichever
+  # alias sharing that body appears first in this list.
+  - model_name: openai/gpt-5.6-sol
+    litellm_params:
+      model: openai/gpt-5.6-sol
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: openai/gpt-5.6-terra
+    litellm_params:
+      model: openai/gpt-5.6-terra
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: openai/gpt-5.6-luna
+    litellm_params:
+      model: openai/gpt-5.6-luna
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: openai/gpt-5.6
+    litellm_params:
+      model: openai/gpt-5.6-sol
+      api_key: os.environ/OPENAI_API_KEY
+
   # --- Google (Gemini) ---
   - model_name: gemini-flash
     litellm_params:
       model: gemini/gemini-2.5-flash
       api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
 
+  # Generic alias advanced to the 3.1 line (2026-07-20). `gemini-3.1-flash-lite`
+  # below points at the same body — this is the same generic+versioned dual
+  # listing as gpt-5 -> gpt-5.5. Clients are told which concrete model backed
+  # the alias via X-Airlock-Model-Alias, so the advance is never silent.
   - model_name: gemini-flash-lite
     litellm_params:
-      model: gemini/gemini-2.5-flash-lite
+      model: gemini/gemini-3.1-flash-lite
       api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
 
   - model_name: gemini-pro
@@ -172,7 +239,7 @@ model_list:
 
   - model_name: aistudio/gemini-flash-lite
     litellm_params:
-      model: gemini/gemini-2.5-flash-lite
+      model: gemini/gemini-3.1-flash-lite
       api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
 
   - model_name: aistudio/gemini-pro
@@ -607,6 +674,20 @@ router_settings:
     - gpt-5-mini: [gpt-5-nano, claude-haiku, gemini-flash]
     - gpt-5-nano: [claude-haiku, gemini-flash, mistral-small]
     - gpt-5-codex: [codestral, gpt-5, claude-sonnet]
+    # GPT-5.6 — intra-family first (identical 1.05M ctx + capability envelope,
+    # so the swap is genuinely transparent), then cross-provider. Chains are
+    # grouped by BODY so aliases sharing a body fail over identically.
+    # Luna deliberately does NOT fall back to claude-haiku: haiku caps at 200K
+    # vs 5.6's 1.05M, so a long-context failover would HARD-FAIL rather than
+    # degrade, turning a retryable blip into a client error.
+    - gpt-5.6-sol: [gpt-5.6-terra, gpt-5.6-luna, claude-opus]
+    - openai/gpt-5.6-sol: [gpt-5.6-terra, gpt-5.6-luna, claude-opus]
+    - gpt-5.6: [gpt-5.6-terra, gpt-5.6-luna, claude-opus]
+    - openai/gpt-5.6: [gpt-5.6-terra, gpt-5.6-luna, claude-opus]
+    - gpt-5.6-terra: [gpt-5.6-luna, gpt-5.6-sol, claude-sonnet]
+    - openai/gpt-5.6-terra: [gpt-5.6-luna, gpt-5.6-sol, claude-sonnet]
+    - gpt-5.6-luna: [gpt-5.6-terra, gemini-flash, claude-sonnet]
+    - openai/gpt-5.6-luna: [gpt-5.6-terra, gemini-flash, claude-sonnet]
     - gemini-flash: [claude-haiku, gpt-5-nano, mistral-small]
     - gemini-flash-lite: [gemini-flash, claude-haiku, gpt-5-nano]
     - gemini-pro: [claude-sonnet, gpt-5-mini, mistral-large]
@@ -641,12 +722,19 @@ cost_tiers:
     - gpt-5-nano
     - mistral-small
     - gemma-4
+    # GPT-5.6 Luna ($1/$6) — the CEILING of low, not the floor. gpt-5-nano
+    # ($0.20/$1.25) stays first so the default swap target is unchanged.
+    - gpt-5.6-luna
+    - openai/gpt-5.6-luna
   medium:
     - claude-sonnet
     - gemini-pro
     - gpt-5-mini
     - mistral-medium
     - codestral
+    # GPT-5.6 Terra ($2.50/$15) — just under claude-sonnet ($3/$15).
+    - gpt-5.6-terra
+    - openai/gpt-5.6-terra
   high:
     - claude-opus
     - gpt-5
@@ -655,6 +743,14 @@ cost_tiers:
     - mistral-large
     - magistral-medium
     - gemini-3.1-pro
+    # GPT-5.6 Sol ($5/$30) — with claude-opus ($5/$25). EVERY callable 5.6
+    # alias must appear in exactly one tier: _apply_cost_tier is a membership
+    # test that FORCE-SWAPS to tier_models[0] on a miss, so an untiered alias
+    # is silently rerouted to a different model.
+    - gpt-5.6-sol
+    - openai/gpt-5.6-sol
+    - gpt-5.6
+    - openai/gpt-5.6
 
 # ---------------------------------------------------------------------------
 # Transparency — mutation ledger + served-backend attribution (0.5.0)

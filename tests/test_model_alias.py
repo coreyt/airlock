@@ -720,3 +720,101 @@ class TestAllLoggedModels:
         assert result == expected_alias, (
             f"{logged_name} resolved to {result!r}, expected {expected_alias!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Dropped-qualifier guard (0.5.6) — the GPT-5.6 cost trap
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def family_config(tmp_path):
+    """A price-tiered family whose variants are named by word, not by size.
+
+    Mirrors OpenAI's GPT-5.6 (sol/terra/luna): a caller reaching for "the cheap
+    one" plausibly guesses `-mini`/`-nano`, names that do not exist.
+    """
+    config = {
+        "model_list": [
+            {"model_name": "fam-5.6-sol", "litellm_params": {"model": "openai/fam-5.6-sol"}},
+            {"model_name": "fam-5.6-terra", "litellm_params": {"model": "openai/fam-5.6-terra"}},
+            {"model_name": "fam-5.6-luna", "litellm_params": {"model": "openai/fam-5.6-luna"}},
+            {"model_name": "fam-5.6", "litellm_params": {"model": "openai/fam-5.6-sol"}},
+        ],
+        "cost_tiers": {
+            "low": ["fam-5.6-luna"],
+            "medium": ["fam-5.6-terra"],
+            "high": ["fam-5.6-sol", "fam-5.6"],
+        },
+    }
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(config))
+    return str(path)
+
+
+@pytest.fixture
+def family_table(family_config):
+    t = ModelAliasTable()
+    t.load_from_config(family_config)
+    return t
+
+
+class TestDroppedQualifierGuard:
+    """A request must never be satisfied by IGNORING a qualifier the caller gave.
+
+    `fam-5.6-mini` scores highest against bare `fam-5.6` — the most expensive
+    variant. Routing there silently bills the caller several times over for a
+    model they did not name. Refuse instead, and suggest.
+    """
+
+    @pytest.mark.parametrize("guess", ["fam-5.6-mini", "fam-5.6-nano", "fam-5.6-pro"])
+    def test_nonexistent_variant_is_refused(self, family_table, guess):
+        assert family_table.resolve(guess) is None, (
+            f"{guess} was silently routed — this is the cost trap"
+        )
+
+    def test_refusal_is_not_cached(self, family_table):
+        """A later config change may make the name real; don't poison the cache."""
+        family_table.resolve("fam-5.6-mini")
+        assert "fam-5.6-mini" not in family_table._exact
+
+    @pytest.mark.parametrize(
+        "name,expected",
+        [
+            ("fam-5.6-sol", "fam-5.6-sol"),
+            ("fam-5.6-terra", "fam-5.6-terra"),
+            ("fam-5.6-luna", "fam-5.6-luna"),
+            ("fam-5.6", "fam-5.6"),
+            ("FAM-5.6-SOL", "fam-5.6-sol"),
+            # Numeric/date suffixes are version noise, NOT qualifiers — these
+            # must still resolve or dated snapshots break.
+            ("fam-5.6-sol-2026-07-09", "fam-5.6-sol"),
+        ],
+    )
+    def test_real_names_still_resolve(self, family_table, name, expected):
+        assert family_table.resolve(name) == expected
+
+    def test_suggestions_are_offered(self, family_table):
+        """The refusal must be explainable — a bare error is not acceptable."""
+        suggestions = family_table.suggest("fam-5.6-mini")
+        assert suggestions, "no suggestions offered for a refused name"
+        assert all("model" in s and "score" in s for s in suggestions)
+        # Tier is what lets a client see WHY no substitution was made.
+        assert any(s.get("tier") for s in suggestions)
+
+    def test_suggestions_ranked_by_score(self, family_table):
+        scores = [s["score"] for s in family_table.suggest("fam-5.6-mini")]
+        assert scores == sorted(scores, reverse=True)
+
+
+class TestNoRegressionFromGuard:
+    """The guard must not break resolution of names that legitimately resolve."""
+
+    def test_every_configured_alias_self_resolves(self, table, sample_config):
+        with open(sample_config) as f:
+            cfg = yaml.safe_load(f)
+        for entry in cfg["model_list"]:
+            name = entry["model_name"]
+            assert table.resolve(name) == name, (
+                f"guard broke self-resolution of {name!r}"
+            )

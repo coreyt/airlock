@@ -48,6 +48,10 @@ _DEFAULT_COST_TIERS: dict[str, list[str]] = {
         "gemini-flash-lite",
         "gpt-5-nano",
         "mistral-small",
+        # GPT-5.6 Luna ($1/$6) — the CEILING of low. gpt-5-nano ($0.20/$1.25)
+        # stays first so the default swap target is unchanged.
+        "gpt-5.6-luna",
+        "openai/gpt-5.6-luna",
     ],
     "medium": [
         "claude-sonnet",
@@ -55,6 +59,8 @@ _DEFAULT_COST_TIERS: dict[str, list[str]] = {
         "gpt-5-mini",
         "mistral-medium",
         "codestral",
+        "gpt-5.6-terra",
+        "openai/gpt-5.6-terra",
     ],
     "high": [
         "claude-opus",
@@ -62,6 +68,13 @@ _DEFAULT_COST_TIERS: dict[str, list[str]] = {
         "gpt-5-pro",
         "mistral-large",
         "magistral-medium",
+        # EVERY callable 5.6 alias must be tiered: _apply_cost_tier is a
+        # membership test that FORCE-SWAPS to tier_models[0] on a miss, so an
+        # untiered alias is silently rerouted to a different model.
+        "gpt-5.6-sol",
+        "openai/gpt-5.6-sol",
+        "gpt-5.6",
+        "openai/gpt-5.6",
     ],
 }
 
@@ -284,6 +297,11 @@ def classify_complexity(text: str) -> ComplexityResult:
 # ---------------------------------------------------------------------------
 _config_cache: dict = {}
 
+# alias -> litellm_params.model ("body"), rebuilt by set_router_config. Lets the
+# cost-tier check recognise that e.g. `openai/gpt-5.6-luna` and `gpt-5.6-luna`
+# are the same underlying model, so listing one in a tier covers both.
+_alias_body_map: dict[str, str] = {}
+
 
 def set_router_config(config: dict | None) -> None:
     """Cache the loaded ``config.yaml`` so router loaders can read from it.
@@ -293,10 +311,11 @@ def set_router_config(config: dict | None) -> None:
     opt into the new config blocks. Also rebuilds the alias→provider map
     used by ``infer_provider`` so code never needs to hardcode new models.
     """
-    global _config_cache, _alias_provider_map
+    global _config_cache, _alias_provider_map, _alias_body_map
     _config_cache = dict(config) if isinstance(config, dict) else {}
 
     alias_map: dict[str, str] = {}
+    body_map: dict[str, str] = {}
     for entry in _config_cache.get("model_list", []) or []:
         if not isinstance(entry, dict):
             continue
@@ -306,7 +325,11 @@ def set_router_config(config: dict | None) -> None:
         provider = airlock_provider_for(entry)
         if provider:
             alias_map[alias] = provider
+        body = (entry.get("litellm_params") or {}).get("model")
+        if isinstance(body, str) and body:
+            body_map[alias] = body
     _alias_provider_map = alias_map
+    _alias_body_map = body_map
 
 
 def known_model_aliases() -> set[str]:
@@ -409,7 +432,17 @@ def _apply_cost_tier(tier: str, model: str) -> tuple[str, str | None]:
     if model in tier_models:
         return model, None
 
-    # Swap to first model in the tier list
+    # An alias sharing its underlying body with an in-tier model IS in-tier \u2014
+    # e.g. `openai/gpt-5.6-luna` vs `gpt-5.6-luna`, or a family alias pinned to
+    # the same body. Without this, such a request is force-swapped below to a
+    # *different* model purely because the tier list happened to name a
+    # different alias for the same thing.
+    body = _alias_body_map.get(model)
+    if body and any(_alias_body_map.get(m) == body for m in tier_models):
+        return model, None
+
+    # Genuinely out of tier \u2014 swap to the first model in the tier list. This is
+    # the intended behaviour: the caller asked to be held to a cost tier.
     new_model = tier_models[0]
     return new_model, f"cost_tier({tier}\u2192{new_model})"
 

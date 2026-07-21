@@ -266,15 +266,18 @@ def test_cost_tiers_malformed_env_falls_back_to_config() -> None:
 
 
 def test_cost_tiers_malformed_config_falls_back_to_default() -> None:
+    """A malformed block falls back to the shipped defaults.
+
+    Asserted against the constant rather than a copied literal — this test is
+    about the *fallback*, not the catalog contents, and duplicating the list
+    here just meant every model addition broke an unrelated test.
+    """
+    from airlock.fast.settings import _DEFAULT_COST_TIERS
+
     cfg = {"cost_tiers": {"low": "not-a-list"}}
     s = load_airlock_settings(cfg)
-    assert s.cost_tiers["low"] == [
-        "claude-haiku",
-        "gemini-flash",
-        "gemini-flash-lite",
-        "gpt-5-nano",
-        "mistral-small",
-    ]
+    assert s.cost_tiers["low"] == _DEFAULT_COST_TIERS["low"]
+    assert "claude-haiku" in s.cost_tiers["low"]  # sanity: real content, not empty
 
 
 # ---------------------------------------------------------------------------

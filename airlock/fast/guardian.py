@@ -496,7 +496,9 @@ class AirlockFastGuardian(CustomGuardrail):
         # Translate an off-intent / provider-invalid reasoning_effort (e.g. "none"
         # for OpenAI) to the target provider's floor BEFORE litellm's drop_params
         # silently strips it and the model falls back to its default reasoning.
-        normalize_reasoning_effort(data, target_provider)
+        # client_id is passed so the warn-only `effort_would_reject` event can be
+        # attributed to a specific caller (design §13.2) rather than a bare total.
+        normalize_reasoning_effort(data, target_provider, client_id=client_id)
         # Derived drop_params transparency (Decision 8): record each client param the
         # resolved provider does not support as an op="drop" — once per request.
         if target_provider:

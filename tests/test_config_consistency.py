@@ -147,38 +147,114 @@ class TestModelListEntries:
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(
+    params=["template", "root"],
+    scope="module",
+)
+def any_config(request, template_config, model_names, root_config, root_model_names):
+    """Each shipped config paired with its model_names, so consistency checks run
+    against BOTH. Previously these ran on the template only, which is how the
+    template drifted to a retired codex model unnoticed."""
+    if request.param == "template":
+        return request.param, template_config, model_names
+    return request.param, root_config, root_model_names
+
+
 class TestFallbackConsistency:
     """Every model referenced in fallbacks must exist in model_list."""
 
-    def test_fallback_sources_are_configured_models(self, template_config, model_names):
-        fallbacks = template_config.get("router_settings", {}).get("fallbacks", [])
+    def test_fallback_sources_are_configured_models(self, any_config):
+        which, config, names = any_config
+        fallbacks = config.get("router_settings", {}).get("fallbacks", [])
         for entry in fallbacks:
             for source_model in entry:
-                assert source_model in model_names, (
-                    f"Fallback source '{source_model}' not in model_list"
+                assert source_model in names, (
+                    f"[{which}] Fallback source '{source_model}' not in model_list"
                 )
 
-    def test_fallback_targets_are_configured_models(self, template_config, model_names):
-        fallbacks = template_config.get("router_settings", {}).get("fallbacks", [])
+    def test_fallback_targets_are_configured_models(self, any_config):
+        which, config, names = any_config
+        fallbacks = config.get("router_settings", {}).get("fallbacks", [])
         for entry in fallbacks:
             for source_model, targets in entry.items():
                 for target in targets:
-                    assert target in model_names, (
-                        f"Fallback target '{target}' (for {source_model}) not in model_list"
+                    assert target in names, (
+                        f"[{which}] Fallback target '{target}' (for {source_model}) "
+                        "not in model_list"
                     )
 
-    def test_no_orphan_fallback_entries(self, template_config, model_names):
+    def test_no_orphan_fallback_entries(self, any_config):
         """Every model in a fallback chain should exist in model_list."""
-        fallbacks = template_config.get("router_settings", {}).get("fallbacks", [])
+        which, config, names = any_config
+        fallbacks = config.get("router_settings", {}).get("fallbacks", [])
         all_referenced = set()
         for entry in fallbacks:
             all_referenced.update(entry.keys())
             for targets in entry.values():
                 all_referenced.update(targets)
 
-        orphans = all_referenced - model_names
+        orphans = all_referenced - names
         assert not orphans, (
-            f"Fallback chain references models not in model_list: {orphans}"
+            f"[{which}] Fallback chain references models not in model_list: {orphans}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Retired upstream models
+# ---------------------------------------------------------------------------
+
+# Model ids OpenAI retires for API requests on 2026-07-23. Shipping any of these
+# as a litellm_params.model target means the config breaks on that date. Extend
+# this set as upstream announces further retirements.
+RETIRED_MODEL_IDS = frozenset(
+    {
+        "gpt-5-codex",
+        "gpt-5.1-codex",
+        "gpt-5.1-codex-max",
+        "gpt-5.1-codex-mini",
+        "gpt-5.2-codex",
+    }
+)
+
+
+class TestNoRetiredModels:
+    """No shipped config may target a model id that upstream has retired."""
+
+    def test_no_retired_targets(self, any_config):
+        which, config, _names = any_config
+        offenders = []
+        for entry in config.get("model_list", []):
+            target = (entry.get("litellm_params") or {}).get("model") or ""
+            # Strip the provider prefix: "openai/gpt-5.1-codex" -> "gpt-5.1-codex"
+            bare = target.split("/", 1)[1] if "/" in target else target
+            if bare in RETIRED_MODEL_IDS:
+                offenders.append(f"{entry.get('model_name')} -> {target}")
+        assert not offenders, (
+            f"[{which}] Config targets retired model ids: {offenders}"
+        )
+
+
+class TestTemplateRootParity:
+    """The template must not drift from root on aliases they share."""
+
+    def test_shared_aliases_agree(self, template_config, root_config):
+        root_targets = {
+            e["model_name"]: (e.get("litellm_params") or {}).get("model")
+            for e in root_config.get("model_list", [])
+            if "model_name" in e
+        }
+        mismatches = []
+        for entry in template_config.get("model_list", []):
+            name = entry.get("model_name")
+            if name not in root_targets:
+                continue
+            target = (entry.get("litellm_params") or {}).get("model")
+            if target != root_targets[name]:
+                mismatches.append(
+                    f"{name}: template={target} root={root_targets[name]}"
+                )
+        assert not mismatches, (
+            "Template and root disagree on shared aliases: " + "; ".join(mismatches)
         )
 
 
@@ -280,18 +356,33 @@ class TestAliasTableCoverage:
             )
 
     def test_provider_prefixed_forms_resolve(self, model_entries):
-        """Sending 'anthropic/claude-sonnet' should resolve to 'claude-sonnet'."""
+        """A provider-prefixed body must resolve to an alias serving that SAME body.
+
+        Not necessarily to one specific alias: dual-listing (0.5.2) deliberately
+        points several aliases at one `litellm_params.model` — e.g. `gpt-5.6-sol`,
+        `openai/gpt-5.6-sol`, `gpt-5.6` and `openai/gpt-5.6` all serve
+        `openai/gpt-5.6-sol`. Which of those a body resolves to is a naming
+        preference; what must never happen is resolving to an alias backed by a
+        DIFFERENT model, which would silently serve the wrong thing.
+        """
         from airlock.fast.model_alias import ModelAliasTable
 
         table = ModelAliasTable()
         table.load_from_config(_TEMPLATE_PATH)
+
+        bodies_by_alias = {
+            e["model_name"]: e["litellm_params"]["model"] for e in model_entries
+        }
         for entry in model_entries:
-            alias = entry["model_name"]
             provider_model = entry["litellm_params"]["model"]
             resolved = table.resolve(provider_model)
-            assert resolved == alias, (
+            assert resolved is not None, (
+                f"Provider-prefixed '{provider_model}' resolved to None"
+            )
+            assert bodies_by_alias.get(resolved) == provider_model, (
                 f"Provider-prefixed '{provider_model}' resolved to '{resolved}', "
-                f"expected '{alias}'"
+                f"which is backed by '{bodies_by_alias.get(resolved)}' — "
+                f"resolution crossed to a different model"
             )
 
 

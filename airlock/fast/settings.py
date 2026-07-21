@@ -68,6 +68,10 @@ _DEFAULT_COST_TIERS: dict[str, list[str]] = {
         "gemini-flash-lite",
         "gpt-5-nano",
         "mistral-small",
+        # GPT-5.6 Luna ($1/$6) — the CEILING of low. gpt-5-nano ($0.20/$1.25)
+        # stays first so the default swap target is unchanged.
+        "gpt-5.6-luna",
+        "openai/gpt-5.6-luna",
     ],
     "medium": [
         "claude-sonnet",
@@ -75,6 +79,8 @@ _DEFAULT_COST_TIERS: dict[str, list[str]] = {
         "gpt-5-mini",
         "mistral-medium",
         "codestral",
+        "gpt-5.6-terra",
+        "openai/gpt-5.6-terra",
     ],
     "high": [
         "claude-opus",
@@ -82,6 +88,13 @@ _DEFAULT_COST_TIERS: dict[str, list[str]] = {
         "gpt-5-pro",
         "mistral-large",
         "magistral-medium",
+        # EVERY callable 5.6 alias must be tiered: _apply_cost_tier is a
+        # membership test that FORCE-SWAPS to tier_models[0] on a miss, so an
+        # untiered alias is silently rerouted to a different model.
+        "gpt-5.6-sol",
+        "openai/gpt-5.6-sol",
+        "gpt-5.6",
+        "openai/gpt-5.6",
     ],
 }
 

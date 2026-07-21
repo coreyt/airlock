@@ -97,6 +97,60 @@ class TestLoadCostTiers:
         assert reason is not None
 
 
+class TestCostTierAliasEquivalence:
+    """An alias sharing a body with an in-tier model must NOT be force-swapped.
+
+    Regression guard: `_apply_cost_tier` is a plain membership test that swaps to
+    `tier_models[0]` on a miss. Provider-prefixed twins and family aliases share a
+    `litellm_params.model` with the alias named in the tier, so without body-aware
+    matching they were silently rerouted to a *different* model.
+    """
+
+    def _config(self):
+        return {
+            "cost_tiers": {"low": ["cheap"], "high": ["spendy"]},
+            "model_list": [
+                {"model_name": "cheap", "litellm_params": {"model": "openai/cheap-1"}},
+                {
+                    "model_name": "openai/cheap",
+                    "litellm_params": {"model": "openai/cheap-1"},
+                },
+                {"model_name": "cheap-family", "litellm_params": {"model": "openai/cheap-1"}},
+                {"model_name": "spendy", "litellm_params": {"model": "openai/spendy-1"}},
+            ],
+        }
+
+    def test_prefixed_twin_is_not_swapped(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_COST_TIERS", raising=False)
+        set_router_config(self._config())
+        model, reason = _apply_cost_tier("low", "openai/cheap")
+        assert model == "openai/cheap", "prefixed twin was force-swapped"
+        assert reason is None
+
+    def test_family_alias_sharing_body_is_not_swapped(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_COST_TIERS", raising=False)
+        set_router_config(self._config())
+        model, reason = _apply_cost_tier("low", "cheap-family")
+        assert model == "cheap-family"
+        assert reason is None
+
+    def test_genuinely_out_of_tier_still_swaps(self, monkeypatch):
+        """The tier-restriction feature itself must keep working."""
+        monkeypatch.delenv("AIRLOCK_COST_TIERS", raising=False)
+        set_router_config(self._config())
+        model, reason = _apply_cost_tier("low", "spendy")
+        assert model == "cheap"
+        assert reason is not None
+
+    def test_unknown_model_still_swaps(self, monkeypatch):
+        """No body known → cannot prove in-tier → swap, as before."""
+        monkeypatch.delenv("AIRLOCK_COST_TIERS", raising=False)
+        set_router_config(self._config())
+        model, reason = _apply_cost_tier("low", "never-heard-of-it")
+        assert model == "cheap"
+        assert reason is not None
+
+
 class TestLoadSessionTtl:
     def test_default(self):
         assert _load_session_ttl() == 3600
