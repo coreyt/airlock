@@ -118,13 +118,23 @@ matters. The shipped defaults:
 
 | Tier | Default aliases (in order) |
 |------|----------------------------|
-| `low` | `claude-haiku`, `gemini-flash`, `gemini-flash-lite`, `gpt-5-nano`, `mistral-small` |
-| `medium` | `claude-sonnet`, `gemini-pro`, `gpt-5-mini`, `mistral-medium`, `codestral` |
-| `high` | `claude-opus`, `gpt-5`, `gpt-5-pro`, `mistral-large`, `magistral-medium` |
+| `low` | `claude-haiku`, `gemini-flash`, `gemini-flash-lite`, `gpt-5-nano`, `mistral-small`, `gpt-5.6-luna`, `openai/gpt-5.6-luna` |
+| `medium` | `claude-sonnet`, `gemini-pro`, `gpt-5-mini`, `mistral-medium`, `codestral`, `gpt-5.6-terra`, `openai/gpt-5.6-terra` |
+| `high` | `claude-opus`, `gpt-5`, `gpt-5-pro`, `mistral-large`, `magistral-medium`, `gpt-5.6-sol`, `openai/gpt-5.6-sol`, `gpt-5.6`, `openai/gpt-5.6` |
 
 Every alias referenced by a tier must exist in your `config.yaml`
-`model_list`. Override the tiers per-deployment with a `cost_tiers:`
-block in `config.yaml`:
+`model_list`.
+
+!!! warning "Every callable alias needs a tier"
+    Cost-tier restriction is a **membership test**: an alias that is not listed in
+    the requested tier is not left alone, it is **swapped to that tier's first
+    entry**. So an alias you forgot to tier will be served as a *different model*.
+
+    Aliases that share an underlying `litellm_params.model` are recognised as
+    equivalent — listing `gpt-5.6-luna` also covers `openai/gpt-5.6-luna` — but an
+    alias backed by a genuinely different model must be listed explicitly.
+
+Override the tiers per-deployment with a `cost_tiers:` block in `config.yaml`:
 
 ```yaml
 cost_tiers:
@@ -163,6 +173,39 @@ everywhere:
 - The **bare** name (e.g. `gemini-3.5-flash`) is a documented, ops-repointable
   **default** (AI Studio for Gemini). The **prefixed** name is the stable client
   contract — pin it when you need a guaranteed provider.
+
+### Unknown model names are refused, not guessed
+
+Airlock fuzzy-matches near-miss model names — typos and dated snapshots such as
+`gpt-5.6-sol-2026-07-09` resolve to `gpt-5.6-sol`. **But it will not satisfy a request
+by ignoring a qualifier you supplied.**
+
+A qualifier is any non-numeric token: `mini`, `nano`, `pro`, `lite`, `sol`. Those are
+precisely how a catalog distinguishes price tiers within a family, so dropping one
+would serve a different — often far more expensive — model than you named. Numeric
+tokens are version/date noise and are still dropped freely.
+
+The motivating case: OpenAI's GPT-5.6 family is named **sol / terra / luna**, not
+mini/nano/pro. A caller reaching for "the cheap 5.6" plausibly types `gpt-5.6-mini`,
+which scores highest against bare `gpt-5.6` — Sol, at **5x Luna's input price**.
+Previously that routed silently. Now:
+
+```
+POST /v1/chat/completions   { "model": "gpt-5.6-mini", ... }
+
+404  Unknown model 'gpt-5.6-mini'.
+```
+
+A `WARNING` is logged naming the request, what it would have been matched to, and the
+ranked suggestions with their cost tiers:
+
+```
+model_alias_dropped_qualifier gpt-5.6-mini -> REFUSED
+  (best=gpt-5.6 score=0.570 would ignore ['mini']; suggestions=['gpt-5.6', 'gpt-5', 'gpt-5.4'])
+```
+
+If you want a guessed name to resolve, add it to `model_list` explicitly — Airlock
+will not invent the mapping for you.
 - `smart` is a routing *directive*, not a provider model — it is never pinned and
   takes no prefix.
 

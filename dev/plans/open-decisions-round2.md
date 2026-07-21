@@ -177,10 +177,10 @@ worked and produced the six findings already folded in.
 | O-1 | Branch mixes 0.5.6 + 0.5.8 changes | 🔴 | Split; router fix waits for 0.5.8 |
 | O-2 | `gemini-flash-lite` advances silently pre-header | 🔴 | Move the advance to 0.5.8, ship with the header |
 | O-3 | `max` validity | 🔴 | Funded key, one call; don't implement until settled |
-| O-4 | Root `gemini-pro` / `gemini-flash` | 🟡 | Leave on 2.5 — 3.x is preview-only |
-| O-5 | Warn-only window length + owner | 🟡 | ≥2 weeks / ≥1 billing cycle; name a T-4 owner |
+| O-4 | Root `gemini-pro` / `gemini-flash` | ✅ **DONE** | Advanced to 3.x preview per instruction (recommendation overridden). pro→`gemini-3.1-pro-preview`, flash→`gemini-3-flash-preview`. Cost increases: +60%/+20% and +67%/+20%. `gemini-3.5-flash` rejected for flash — $1.50/$9.00 breaks the `low` tier. |
+| O-5 | Warn-only window length + owner | ✅ **DONE** | Runbook at [`runs/warn-only-measurement-window.md`](runs/warn-only-measurement-window.md). Window 2026-07-21 → 2026-08-21 (one billing cycle); owner `coreyt` by default — **reassign if wrong**; T-1..T-6 with executable commands. |
 | O-6 | Widened `X-Airlock-Model-Alias` scope | 🟢 | Confirm |
-| O-7 | Seven $0.00-cost models | 🟢 | Separate ticket |
+| O-7 | ~~Seven~~ **six** $0.00-cost models | ✅ **TICKETED** | [`notes/ticket-unpriced-models.md`](../notes/ticket-unpriced-models.md). 4 are legitimately free (self-hosted vLLM). Real bug is **1**: `enhanced/gemini-coding` hides Gemini 3.1 Pro spend ($2/$12). `tavily/web-search` is P2. |
 | O-8 | Review gate before 0.5.8 | 🟢 | One pass; codex sandbox is broken, use a subagent |
 
 **O-1 and O-2 both block a clean 0.5.6, which has a hard 2026-07-23 deadline.**

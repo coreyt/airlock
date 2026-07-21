@@ -614,3 +614,32 @@ class TestCostTierConsistency:
 
         settings_mod._configured = None
         assert load_airlock_settings({}).provider_budgets == {}
+
+
+# ---------------------------------------------------------------------------
+# Version consistency
+# ---------------------------------------------------------------------------
+
+
+class TestVersionConsistency:
+    """The version must agree across every place it is written down.
+
+    `scripts/check-version-consistency.py` has existed for a while and correctly
+    detects drift — but it was wired into nothing, so nobody ran it, and
+    `__init__.py` / `tracing.py` sat at 0.5.2 through three releases. A guard
+    that isn't executed is not a guard; this test executes it.
+    """
+
+    def test_versions_agree(self):
+        import subprocess
+        import sys
+
+        repo_root = Path(__file__).resolve().parent.parent
+        result = subprocess.run(
+            [sys.executable, str(repo_root / "scripts" / "check-version-consistency.py")],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, (
+            f"version drift detected:\n{result.stderr or result.stdout}"
+        )

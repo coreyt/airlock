@@ -169,9 +169,16 @@ model_list:
       api_key: os.environ/OPENAI_API_KEY
 
   # --- Google (Gemini) ---
+  # gemini-pro / gemini-flash advanced to the 3.x line 2026-07-20 (O-4).
+  # NOTE: these are PREVIEW ids — Google withdraws them (this config previously
+  # carried gemini-3-pro-preview, shut down 2026-03-09), so a withdrawal breaks
+  # the generic alias until it is repointed. Deliberate cost increase:
+  # pro $1.25/$10 -> $2.00/$12, flash $0.30/$2.50 -> $0.50/$3.00 per 1M.
+  # gemini-3.5-flash was REJECTED for `gemini-flash`: at $1.50/$9.00 it would be
+  # pricier than everything else in the `low` cost tier.
   - model_name: gemini-flash
     litellm_params:
-      model: gemini/gemini-2.5-flash
+      model: gemini/gemini-3-flash-preview
       api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
 
   # Generic alias advanced to the 3.1 line (2026-07-20). `gemini-3.1-flash-lite`
@@ -185,7 +192,7 @@ model_list:
 
   - model_name: gemini-pro
     litellm_params:
-      model: gemini/gemini-2.5-pro
+      model: gemini/gemini-3.1-pro-preview
       api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
 
   # --- Google (Gemini 3.5 / 3.1) ---
@@ -234,7 +241,7 @@ model_list:
   # the legacy -aistudio twins) so the prefixed name serves sync AND batch.
   - model_name: aistudio/gemini-flash
     litellm_params:
-      model: gemini/gemini-2.5-flash
+      model: gemini/gemini-3-flash-preview
       api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
 
   - model_name: aistudio/gemini-flash-lite
@@ -244,7 +251,7 @@ model_list:
 
   - model_name: aistudio/gemini-pro
     litellm_params:
-      model: gemini/gemini-2.5-pro
+      model: gemini/gemini-3.1-pro-preview
       api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
 
   - model_name: aistudio/gemini-3.5-flash

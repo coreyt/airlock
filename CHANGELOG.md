@@ -5,6 +5,81 @@ All notable changes to Airlock are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.6] — 2026-07-20
+
+Model catalog correctness + **GPT-5.6 (Sol / Terra / Luna)**. Two things drove this
+release: the shipped CLI template targeted model ids that were retired or did not
+exist, and OpenAI's GPT-5.6 family needed adding without the silent cost-substitution
+traps its sol/terra/luna naming invites.
+
+### Added
+
+- **GPT-5.6 family** — `gpt-5.6-sol` ($5/$30), `gpt-5.6-terra` ($2.50/$15),
+  `gpt-5.6-luna` ($1/$6), a bare `gpt-5.6` convenience alias, and four
+  `openai/`-prefixed twins. All share a 1,050,000-token context and 128,000-token
+  max output. Requests over 272K input tokens bill 2x input / 1.5x output for the
+  whole request.
+- Cost-tier and fallback entries for all eight callable 5.6 aliases. Luna
+  deliberately does **not** fall back to `claude-haiku`: haiku caps at 200K against
+  5.6's 1.05M, so a long-context failover would hard-fail rather than degrade.
+- `ModelAliasTable.suggest()` — ranked near-match candidates with cost tier, so a
+  rejected model name can be answered with "did you mean" rather than a bare error.
+- Warn-only detection for strict `reasoning_effort` validation: emits
+  `event=effort_would_reject` plus an advisory ledger entry. **Routing is unchanged.**
+  Measurement runbook: `dev/plans/runs/warn-only-measurement-window.md`.
+- Consistency tests that would have caught this release's bugs: fallback checks now
+  run against **both** shipped configs, a retired-model guard, a template↔root parity
+  check, and a version-drift check.
+
+### Fixed
+
+- **Template shipped broken and retiring model ids.** `gpt-5-codex` pointed at
+  `gpt-5.1-codex`, which OpenAI retires 2026-07-23. `gemini-pro` and `gemini-flash`
+  pointed at `gemini-3.1-pro` and `gemini-3-flash` — **neither exists** (only
+  `-preview` variants do), so those aliases were already failing. `claude-opus` was
+  two generations stale. Verified against live provider `/v1/models`, not litellm's
+  price map.
+- **Cost trap on guessed GPT-5.6 names.** `gpt-5.6-mini` / `-nano` / `-pro` do not
+  exist but are the obvious guesses given sol/terra/luna. They fuzzy-matched bare
+  `gpt-5.6` — **Sol, the most expensive variant** — and routed there silently at
+  DEBUG, billing 5x what the caller intended with no warning. Model resolution now
+  refuses any fuzzy match that would ignore a non-numeric token the caller supplied,
+  since qualifiers are how a catalog distinguishes price tiers. Numeric tokens remain
+  version noise, so dated snapshots (`gpt-5.6-sol-2026-07-09`) still resolve.
+- **Untiered aliases were silently rerouted.** `_apply_cost_tier` force-swaps to the
+  first model in a tier on a membership miss, so any alias absent from its tier was
+  served as a *different model*. Aliases sharing an underlying body are now recognised
+  as in-tier; genuine out-of-tier swaps still occur, as intended.
+- **Version drift.** `airlock/__init__.py` and `callbacks/tracing.py` had sat at
+  `0.5.2` since that release. `scripts/check-version-consistency.py` detected this
+  correctly but was wired into nothing, so it never ran. It is now a test.
+
+### Changed
+
+- **litellm floor raised to `>=1.93.0`.** This is about determinism, not capability:
+  with `LITELLM_LOCAL_MODEL_COST_MAP=True`, `gpt-5.6-sol` is absent on 1.89.0 and
+  records **$0.00**, while 1.93.0 prices it correctly. Silent zero-cost accounting on
+  a $5/$30 model makes budgets, provider spend, and near-limit routing all
+  under-count.
+- **`gemini-flash-lite` → `gemini-3.1-flash-lite`** (GA). Price unchanged in tier terms.
+- **`gemini-pro` → `gemini-3.1-pro-preview`** and **`gemini-flash` →
+  `gemini-3-flash-preview`**. These are **cost increases**: pro $1.25/$10 → $2.00/$12,
+  flash $0.30/$2.50 → $0.50/$3.00 per 1M. `gemini-3.5-flash` was rejected for
+  `gemini-flash` — at $1.50/$9.00 it would be pricier than everything else in the
+  `low` tier. Note these are **preview** ids and Google withdraws them; this config
+  previously carried `gemini-3-pro-preview`, shut down 2026-03-09.
+
+### Known issues
+
+- **GPT-5.6 has not served a live request.** It is listed, priced, tiered, and routed,
+  but was never exercised end-to-end — the available OpenAI key has no quota.
+- **`max` reasoning effort is treated as unsupported on a guess.** litellm sets no
+  `supports_max_reasoning_effort` flag for 5.6 and no funded key was available to
+  test it. Marked in-code for revisit; must be settled before enforcement in 0.5.8.
+- **`enhanced/gemini-coding` records $0.00** while really serving
+  `gemini-3.1-pro-preview-customtools` at $2/$12 per 1M, so that spend is invisible to
+  budgets. Pre-existing; ticketed in `dev/notes/ticket-unpriced-models.md`.
+
 ## [0.5.5] — 2026-06-28
 
 Feature release: **per-client admission gate (C1 in-loop isolation).**

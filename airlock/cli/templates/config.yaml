@@ -126,12 +126,12 @@ model_list:
   # `gemini-3.1-pro`, only `gemini-3.1-pro-preview`).
   - model_name: gemini-pro
     litellm_params:
-      model: gemini/gemini-2.5-pro
+      model: gemini/gemini-3.1-pro-preview
       api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
 
   - model_name: gemini-flash
     litellm_params:
-      model: gemini/gemini-2.5-flash
+      model: gemini/gemini-3-flash-preview
       api_key: os.environ/GOOGLE_AISTUDIO_API_KEY
 
   # Advanced to the 3.1 line (2026-07-20) — 3.1-flash-lite is GA, not preview,
