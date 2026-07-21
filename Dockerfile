@@ -6,8 +6,15 @@ WORKDIR /app
 RUN groupadd --gid 1000 airlock && \
     useradd --uid 1000 --gid airlock --shell /bin/bash --create-home airlock
 
-# Install system deps for Presidio's NLP model
-RUN pip install --no-cache-dir spacy && \
+# Install system deps for Presidio's NLP model.
+#
+# `click` is installed explicitly: spacy's CLI does `from click import
+# NoSuchOption`, but relies on typer to pull click in transitively. typer 0.27.0
+# dropped click from its dependencies (Requires: annotated-doc, rich,
+# shellingham), so `python -m spacy download` started failing with
+# ModuleNotFoundError. Not needed at runtime — only to fetch the model — but the
+# build fails without it.
+RUN pip install --no-cache-dir spacy click && \
     python -m spacy download en_core_web_lg
 
 COPY requirements.txt .
