@@ -6,25 +6,25 @@
 > witnesses (worktree list, `output.json`, `*-review-*.md`, merge commits) and
 > trust the witnesses over this file on any conflict.
 
-_Last updated: 2026-07-21T04:55:00Z · mainline: `main` @ `c1b337c`_
+_Last updated: 2026-07-21T05:20:00Z · mainline: `main` @ `25dadd0`_
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** none — release not yet kicked off.
-- **Next action:** write the pack prompts (`dev/plans/prompts/0.5.7-F1.md`,
-  `-F2.md`, `-F3.md`, `-F4.md`) from `prompts/SLICE-TEMPLATE.md`, then start.
-- **Suggested first pack:** **F-4 step 1** — it is a 30-minute determination
-  (does the inner `response_cost` survive?) that decides whether F-4 is a real fix
-  or just a regression test. Cheap, and it de-risks the largest unknown in the release.
+- **In flight:** none — **ready to kick off.** All four pack prompts written and
+  anchored to `25dadd0` (`prompts/0.5.7-F1.md` … `-F4.md`).
+- **Next action:** create worktrees and dispatch. **Suggested first: F-4 step 1** — a
+  ~30-min determination (does the inner `response_cost` survive?) that decides whether
+  F-4 is a real fix or a regression test, de-risking the biggest unknown. F-3 can start
+  in parallel. F-1 before F-2 (shared files); F-2 waits for F-1 to merge.
 
 ## 2. Pack scoreboard
 
-| Pack | Goal (1 line) | Depends on | State | Witness |
-|------|---------------|------------|-------|---------|
-| `0.5.7-F1` | Wire the `X-Airlock-Admission` response header from existing metadata | — | NOT_STARTED | — |
-| `0.5.7-F2` | Replace the non-blocking semaphore peek with true async acquire/release | F-1 (same files) | NOT_STARTED | — |
-| `0.5.7-F3` | Helpful 404 + suggestions for refused model names | — | NOT_STARTED | — |
-| `0.5.7-F4` | `enhanced/*` must not record $0.00 against real spend | — | NOT_STARTED | — |
+| Pack | Goal (1 line) | Prompt | Depends on | State | Witness |
+|------|---------------|--------|------------|-------|---------|
+| `0.5.7-F1` | `X-Airlock-Admission` header + real Retry-After on shed | `prompts/0.5.7-F1.md` | — | NOT_STARTED | — |
+| `0.5.7-F2` | True async semaphore acquire/release for concurrency cap | `prompts/0.5.7-F2.md` | **F-1 merged** (shared files) | NOT_STARTED | — |
+| `0.5.7-F3` | Helpful 404 + suggestions for refused model names | `prompts/0.5.7-F3.md` | — | NOT_STARTED | — |
+| `0.5.7-F4` | `enhanced/*` must not record $0.00 against real spend | `prompts/0.5.7-F4.md` | — | NOT_STARTED (investigation-first) | — |
 
 States (furthest witnessed wins):
 `WORKTREE_CREATED` → `IMPLEMENTING` → `IMPLEMENTED` (`output.json` + branch head past
