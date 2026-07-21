@@ -12,7 +12,10 @@ _Last updated: 2026-07-21T04:55:00Z · mainline: `main` @ `c1b337c`_
 
 - **In flight:** none — release not yet kicked off.
 - **Next action:** write the pack prompts (`dev/plans/prompts/0.5.7-F1.md`,
-  `-F2.md`, `-F3.md`) from `prompts/SLICE-TEMPLATE.md`, then start F-1 or F-3.
+  `-F2.md`, `-F3.md`, `-F4.md`) from `prompts/SLICE-TEMPLATE.md`, then start.
+- **Suggested first pack:** **F-4 step 1** — it is a 30-minute determination
+  (does the inner `response_cost` survive?) that decides whether F-4 is a real fix
+  or just a regression test. Cheap, and it de-risks the largest unknown in the release.
 
 ## 2. Pack scoreboard
 
@@ -21,6 +24,7 @@ _Last updated: 2026-07-21T04:55:00Z · mainline: `main` @ `c1b337c`_
 | `0.5.7-F1` | Wire the `X-Airlock-Admission` response header from existing metadata | — | NOT_STARTED | — |
 | `0.5.7-F2` | Replace the non-blocking semaphore peek with true async acquire/release | F-1 (same files) | NOT_STARTED | — |
 | `0.5.7-F3` | Helpful 404 + suggestions for refused model names | — | NOT_STARTED | — |
+| `0.5.7-F4` | `enhanced/*` must not record $0.00 against real spend | — | NOT_STARTED | — |
 
 States (furthest witnessed wins):
 `WORKTREE_CREATED` → `IMPLEMENTING` → `IMPLEMENTED` (`output.json` + branch head past
@@ -36,18 +40,23 @@ baseline) → `REVIEWED` (`<pack>-review-<ts>.md` with a `## Verdict:` line) →
 | Refused model name returns 404 with a usable suggestion, not litellm's generic error | F-3 | ⏳ |
 | `error.message` is self-sufficient without parsing the structured block | F-3 | ⏳ |
 | Suggestions never leak a model outside the caller's catalog | F-3 | ⏳ |
+| `gemini-coding` records non-zero cost matching the target model | F-4 | ⏳ |
+| Long-context (>200K) records the surcharged rate, not the base rate | F-4 | ⏳ |
+| Self-hosted vLLM models still record $0 — no fake pricing | F-4 | ⏳ |
 
 ## 4. Parallelization plan
 
-**F-3 runs independently of F-1/F-2.** It touches the resolution path
-(`fast/model_alias.py`, `fast/guardian.py`, `proxy_errors.py`); the admission items
-touch `fast/admission.py` and the admission metadata path. Different files, no
-`pyproject.toml`/`uv.lock` changes expected from any of the three.
+**F-3 and F-4 both run independently of F-1/F-2 and of each other.** F-4 touches
+`providers/enhanced_passthrough.py` and the cost path (`litellm_adapter.py`);
+F-3 touches resolution (`fast/model_alias.py`, `fast/guardian.py`,
+`proxy_errors.py`); admission touches `fast/admission.py`. No overlap.
+
+No `pyproject.toml` / `uv.lock` changes are expected from any of the four.
 
 **F-1 before F-2** — F-1 is smaller and self-contained; F-2 changes the gate
 interface and will touch the same files.
 
-Max 2 worktrees needed (F-1/F-2 serialized in one, F-3 in another).
+Max 3 worktrees (F-1/F-2 serialized in one, F-3 in another, F-4 in a third).
 
 > ⚠️ **Shared-surface warning:** F-1 and F-3 both add a response header. Neither may
 > invent a serializer — both reuse the `;`-joined `key=value` grammar from

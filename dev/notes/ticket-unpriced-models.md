@@ -1,7 +1,9 @@
 # Ticket: models recording $0.00 spend
 
 **Raised:** 2026-07-20 (from the 0.5.6 GPT-5.6 work)
-**Status:** open, not scheduled
+**Status:** **SCHEDULED — 0.5.7 F-4** (`dev/plans/0.5.7-plan.md`). See that item for
+the investigation-first approach; the framing below is partly superseded — see the
+correction under P1.
 **Severity:** medium — one real accounting hole, one minor
 
 ## Correction to the original framing
@@ -46,9 +48,16 @@ Consequences: provider budgets under-count, near-limit downgrade routing never
 triggers for this path, and MTD/YTD spend reporting is wrong by the full amount.
 Aliases affected: `gemini-coding`, `aistudio/gemini-coding`.
 
-**Fix direction:** the `enhanced` custom provider should attribute cost to its
-`target_model` rather than to its own synthetic name — the target is already priced,
-so this is attribution plumbing, not a pricing table. Worth checking whether other
+**Fix direction — with a correction.** This ticket assumed the fix is "attribution
+plumbing". That may be wrong, and 0.5.7 F-4 checks it first:
+`EnhancedPassthroughHandler.acompletion` ends with
+`return await litellm.acompletion(model=target_model, ...)`, returning the **inner**
+response directly. That inner call is against a priced model, so its
+`_hidden_params["response_cost"]` may already be correct and may already reach
+Airlock's reader. If so there is nothing to plumb — only a regression test to add.
+Absence of `enhanced/gemini-coding` from the cost map explains why the *outer* model
+has no price; it does not tell us whether the inner cost propagates. Determine that
+before writing a fix. Worth checking whether other
 custom providers (`tavily`) share the same defect by construction.
 
 **Note:** this is *not* GPT-5.6-related and predates that work. It surfaced only

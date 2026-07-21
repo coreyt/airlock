@@ -931,3 +931,88 @@ long-running requests.
    detection; true hard cap requires async context — tracked as follow-up).
 3. The RPM cap and concurrency cap are independently configurable via
    `airlock_settings.admission.rpm` and `airlock_settings.admission.concurrency`.
+
+---
+
+## UN-29: Never Be Silently Served — Or Billed For — A Model You Did Not Ask For
+
+**As a** client developer,
+**I need** Airlock to refuse a model name it cannot resolve confidently, rather than
+quietly substituting the nearest match,
+**so that** a typo or a wrong guess cannot bill me for a materially more expensive
+model without my knowledge.
+
+### Why
+
+Airlock fuzzy-matches near-miss model names, which is genuinely useful for typos and
+dated snapshots (`gpt-5.6-sol-2026-07-09` → `gpt-5.6-sol`). But the same mechanism
+silently substituted across *price tiers*. OpenAI's GPT-5.6 family is named
+sol/terra/luna rather than mini/nano/pro, so a developer reaching for the cheap variant
+plausibly types `gpt-5.6-mini` — which scored highest against bare `gpt-5.6`, i.e.
+**Sol, at 5× Luna's input price** — and routed there silently, logged at DEBUG.
+
+The harm is asymmetric: the convenience is worth cents, the mis-substitution costs
+multiples on every request until someone notices a bill.
+
+### Stakeholders
+
+- Client developers (predictable billing; actionable errors)
+- Operators (no unexplained spend from callers who typo'd)
+
+### Acceptance Criteria
+
+1. A fuzzy match that would **drop a non-numeric qualifier** the caller supplied
+   (`mini`, `nano`, `pro`, `lite`) is refused, not served. *(0.5.6)*
+2. Numeric tokens remain version noise — dated snapshots still resolve. *(0.5.6)*
+3. Refusal is logged at WARNING with the request, the would-be match, and the ignored
+   token. *(0.5.6)*
+4. The refusal response tells the caller what to send instead: a 404 whose
+   `error.message` is self-sufficient prose, plus ranked suggestions with cost tier.
+   *(0.5.7 F-3 — not yet shipped)*
+5. Suggestions never include a model outside the caller's permitted catalog.
+   *(0.5.7 F-3)*
+
+---
+
+## UN-30: Spend Is Never Invisible
+
+**As an** operator with budgets and near-limit routing,
+**I need** every request that incurs real cost to record that cost,
+**so that** budgets, downgrade routing, and spend reporting act on the truth rather
+than on an under-count.
+
+### Why
+
+Budget enforcement, provider-spend accounting, and near-limit downgrade routing all
+read one number. Where that number is silently zero, every mechanism built on it fails
+quietly — traffic that should have been throttled is not, and reported spend is simply
+wrong.
+
+Two concrete cases: a model whose price is absent from the cost map records $0.00
+despite serving a priced model underneath (`enhanced/gemini-coding` →
+`gemini-3.1-pro-preview-customtools` at $2/$12 per 1M), and a model that bills per
+request rather than per token never appears in a token-based cost map at all
+(`tavily/web-search`).
+
+There is a third, legitimate case that must **not** be "fixed": self-hosted models
+genuinely cost nothing upstream. The requirement is that unpriced-by-design is
+distinguishable from priced-but-unrecorded — today they are identical in the data, and
+only one of them is honest.
+
+### Stakeholders
+
+- Operators (budget correctness, accurate chargeback)
+- Finance / whoever reconciles the provider invoice
+
+### Acceptance Criteria
+
+1. A request served through an `enhanced/*` profile records the **target model's**
+   cost, including any threshold/long-context surcharge. *(0.5.7 F-4)*
+2. The fix is mechanism-level: a new `enhanced/*` profile inherits correct accounting
+   without further work. *(0.5.7 F-4)*
+3. Self-hosted models continue to record $0 — no fabricated pricing. *(0.5.7 F-4)*
+4. Long-context pricing tiers are honoured wherever upstream applies them (verified
+   for GPT-5.6's 272K and Gemini Pro's 200K thresholds). *(0.5.6 — litellm applies
+   these; Airlock inherits them, confirmed by inspection and local calculation)*
+5. Per-request-priced providers either record their cost or are explicitly documented
+   as unrecorded with a reason. *(0.5.7 F-4 step 3)*
