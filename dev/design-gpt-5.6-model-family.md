@@ -1,7 +1,17 @@
 # Design: GPT-5.6 (Sol / Terra / Luna) model family
 
-**Status:** proposed
-**Target release:** 0.5.8 (the urgent template/config hotfix ships first as **0.5.6** — see §9)
+**Status:** ✅ **IMPLEMENTED — shipped in 0.5.6** (tagged `v0.5.6`, PyPI 2026-07-21).
+**Shipped in 0.5.6:** §2 catalog, §3 alias dispositions, §4.1 twins, §4.2
+dropped-qualifier guard, §7 litellm floor, §8 tiers + fallbacks, §9 template fixes,
+§13 warn-only detection.
+**Still outstanding (0.5.7 / 0.5.8):** §4.2.2 helpful rejection response (→ 0.5.7 F-3),
+§5.1 effort *enforcement* (→ 0.5.8, gated on the §13 window), §6
+`X-Airlock-Model-Alias` (→ 0.5.8 — **live gap**, see below).
+
+> ⚠️ **Known live gap.** 0.5.6 advanced `gemini-flash-lite`, `gemini-pro` and
+> `gemini-flash` to newer generations *without* the §6 `served=` disclosure that was
+> designed to make such advances visible. Callers are on different models at different
+> prices and have not been told. Accepted knowingly to hit the 2026-07-23 deadline.
 **Date:** 2026-07-20
 **Supersedes:** nothing. Extends the 0.5.2 provider/model naming + capability
 discovery contract.

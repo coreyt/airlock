@@ -174,8 +174,8 @@ worked and produced the six findings already folded in.
 
 | # | item | status | recommendation |
 |---|---|---|---|
-| O-1 | Branch mixes 0.5.6 + 0.5.8 changes | 🔴 | Split; router fix waits for 0.5.8 |
-| O-2 | `gemini-flash-lite` advances silently pre-header | 🔴 | Move the advance to 0.5.8, ship with the header |
+| O-1 | Branch mixes 0.5.6 + 0.5.8 changes | ✅ **MOOT** | Recommendation not taken. Scope was collapsed into a single 0.5.6 instead of splitting, so there were no longer two releases to separate. The `_apply_cost_tier` fix shipped in 0.5.6. |
+| O-2 | `gemini-flash-lite` advances silently pre-header | ⚠️ **ACCEPTED, STILL OPEN** | Recommendation **overridden**: the advance shipped in 0.5.6 without the header, and `gemini-pro`/`gemini-flash` were advanced too. The silent-advance gap is real and now live in production — tracked as 0.5.8 P-6. |
 | O-3 | `max` validity | 🔴 | Funded key, one call; don't implement until settled |
 | O-4 | Root `gemini-pro` / `gemini-flash` | ✅ **DONE** | Advanced to 3.x preview per instruction (recommendation overridden). pro→`gemini-3.1-pro-preview`, flash→`gemini-3-flash-preview`. Cost increases: +60%/+20% and +67%/+20%. `gemini-3.5-flash` rejected for flash — $1.50/$9.00 breaks the `low` tier. |
 | O-5 | Warn-only window length + owner | ✅ **DONE** | Runbook at [`runs/warn-only-measurement-window.md`](runs/warn-only-measurement-window.md). Window 2026-07-21 → 2026-08-21 (one billing cycle); owner `coreyt` by default — **reassign if wrong**; T-1..T-6 with executable commands. |
