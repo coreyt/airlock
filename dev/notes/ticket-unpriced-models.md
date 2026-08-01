@@ -31,7 +31,7 @@ mis-billed.
 
 ## P1 — `enhanced/gemini-coding` hides real Gemini 3.1 Pro spend
 
-**This is the actual bug.**
+**Investigation result (0.5.7 F-4): this is not an Airlock accounting bug.**
 
 ```yaml
 model: enhanced/gemini-coding
@@ -39,26 +39,17 @@ enhanced_profile:
   target_model: gemini/gemini-3.1-pro-preview-customtools
 ```
 
-The request is really served by `gemini-3.1-pro-preview-customtools`, which litellm
-prices at **$2.00 in / $12.00 out per 1M** — and it carries 200K threshold pricing, so
-long-context calls cost more still. But `enhanced/gemini-coding` is not in the cost
-map, so `response_cost` is 0/None and **every one of those requests records $0.00**.
+The request is really served by `gemini-3.1-pro-preview-customtools`, which LiteLLM
+prices at **$2.00 in / $12.00 out per 1M** and carries 200K threshold pricing. Although
+`enhanced/gemini-coding` itself is not in the cost map, the provider returns the priced
+inner response unchanged. Its `_hidden_params["response_cost"]` reaches Airlock's
+adapter and fast monitor, which records the cost against Gemini provider spend.
 
-Consequences: provider budgets under-count, near-limit downgrade routing never
-triggers for this path, and MTD/YTD spend reporting is wrong by the full amount.
-Aliases affected: `gemini-coding`, `aistudio/gemini-coding`.
-
-**Fix direction — with a correction.** This ticket assumed the fix is "attribution
-plumbing". That may be wrong, and 0.5.7 F-4 checks it first:
-`EnhancedPassthroughHandler.acompletion` ends with
-`return await litellm.acompletion(model=target_model, ...)`, returning the **inner**
-response directly. That inner call is against a priced model, so its
-`_hidden_params["response_cost"]` may already be correct and may already reach
-Airlock's reader. If so there is nothing to plumb — only a regression test to add.
-Absence of `enhanced/gemini-coding` from the cost map explains why the *outer* model
-has no price; it does not tell us whether the inner cost propagates. Determine that
-before writing a fix. Worth checking whether other
-custom providers (`tavily`) share the same defect by construction.
+`tests/test_enhanced_cost.py` pins both a normal target cost and a higher
+long-context-derived value through the provider and accounting sink. No alias-level
+price or response-cost restamping is necessary; adding either would duplicate and risk
+drifting from LiteLLM's target-model pricing. Aliases covered: `gemini-coding` and
+`aistudio/gemini-coding`.
 
 **Note:** this is *not* GPT-5.6-related and predates that work. It surfaced only
 because the 5.6 audit enumerated unpriced bodies.
@@ -84,4 +75,5 @@ It needs a design decision, not a lookup patch:
 3. Do per-request costs flow through `response_cost` on the custom-provider path at
    all, or only token-based ones?
 
-Answering (2) generically probably fixes P1 and P2 together.
+Answering (2) is no longer needed for enhanced models; the existing inner-response
+path already provides it. P2 remains a separate custom-provider investigation.
