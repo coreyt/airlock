@@ -85,7 +85,7 @@ class AdmissionGate:
     """Synchronous O(1) admission check.
 
     - RPM check: rolling 60-second window via AdmissionStore token counts.
-    - Concurrency check: non-blocking peek at asyncio.Semaphore._value.
+    - Concurrency check: non-blocking atomic acquisition of an asyncio semaphore.
     - Fail-open: any internal exception logs a warning and returns (True, 0.0).
     """
 
@@ -93,7 +93,7 @@ class AdmissionGate:
         self._config = config
         self._store = store
         self._semaphores: dict[str, asyncio.Semaphore] = {}
-        self._sem_lock = threading.Lock()
+        self._sem_lock = threading.RLock()
 
     def _get_semaphore(self, client_id: str) -> asyncio.Semaphore:
         with self._sem_lock:
@@ -120,14 +120,39 @@ class AdmissionGate:
                 retry_after = max(0.1, window_s - (now % window_s))
                 return False, retry_after
             self._store.record_request(client_id, now)
-            # Concurrency check (non-blocking peek — no await here)
-            sem = self._get_semaphore(client_id)
-            if sem._value <= 0:
-                return False, 1.0  # retry after ~1s for concurrency shed
             return True, 0.0
         except Exception:
             logger.warning("admission gate error — failing open", exc_info=True)
             return True, 0.0
+
+    def try_acquire(self, client_id: str) -> bool | None:
+        """Acquire a client slot without queueing; ``None`` means fail open."""
+        try:
+            with self._sem_lock:
+                sem = self._get_semaphore(client_id)
+                if sem._value <= 0:
+                    return False
+                sem._value -= 1
+                return True
+        except Exception:
+            logger.warning("admission slot acquire error — failing open", exc_info=True)
+            return None
+
+    def release(self, client_id: str) -> bool:
+        """Release one acquired client slot, rejecting accidental double releases."""
+        try:
+            with self._sem_lock:
+                sem = self._get_semaphore(client_id)
+                if sem._value >= self._config.concurrency:
+                    logger.warning("admission slot double release client=%s", client_id)
+                    return False
+                sem.release()
+                return True
+        except Exception:
+            logger.warning(
+                "admission slot release error client=%s", client_id, exc_info=True
+            )
+            return False
 
 
 # ---------------------------------------------------------------------------

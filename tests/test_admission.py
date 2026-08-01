@@ -167,6 +167,54 @@ class TestAdmissionGate:
         elapsed_us = (time.monotonic() - start) * 1_000_000
         assert elapsed_us < 1000, f"Shed path took {elapsed_us:.1f}µs — too slow"
 
+    def test_concurrency_slots_are_hard_limited_and_reusable(self):
+        gate = self._gate(rpm=100, concurrency=2)
+        now = time.time()
+        for _ in range(3):
+            allowed, _ = gate.check("alice", boost=False, now=now)
+            assert allowed is True
+
+        assert gate.try_acquire("alice") is True
+        assert gate.try_acquire("alice") is True
+        assert gate.try_acquire("alice") is False
+
+        assert gate.release("alice") is True
+        assert gate.try_acquire("alice") is True
+
+    def test_double_release_is_ignored(self):
+        gate = self._gate(rpm=100, concurrency=1)
+        assert gate.try_acquire("alice") is True
+        assert gate.release("alice") is True
+        assert gate.release("alice") is False
+
+    @pytest.mark.asyncio
+    async def test_failure_callback_releases_admission_slot(self):
+        from airlock.callbacks.model_override_headers import AirlockModelOverrideHeaders
+        from airlock.fast import admission as admission_module
+
+        gate = self._gate(rpm=100, concurrency=1)
+        assert gate.try_acquire("alice") is True
+        kwargs = {
+            "litellm_params": {
+                "metadata": {
+                    "airlock_admission_slot": {
+                        "client_id": "alice",
+                        "released": False,
+                    }
+                }
+            }
+        }
+        with patch.object(admission_module, "_admission_gate", gate):
+            await AirlockModelOverrideHeaders().async_log_failure_event(
+                kwargs, None, None, None
+            )
+
+        assert (
+            kwargs["litellm_params"]["metadata"]["airlock_admission_slot"]["released"]
+            is True
+        )
+        assert gate.try_acquire("alice") is True
+
 
 # ---------------------------------------------------------------------------
 # TestAdmissionGateDisabled

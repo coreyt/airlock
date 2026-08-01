@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import logging
 from typing import Any
 
 from litellm.integrations.custom_logger import CustomLogger
@@ -21,6 +22,8 @@ from airlock.transparency import (
     served_headers,
 )
 
+logger = logging.getLogger("airlock.callbacks.model_override_headers")
+
 
 class AirlockModelOverrideHeaders(CustomLogger):
     """Expose Airlock-selected response headers on outbound HTTP responses."""
@@ -32,6 +35,7 @@ class AirlockModelOverrideHeaders(CustomLogger):
         response: Any,
         request_headers: dict[str, str] | None = None,
     ) -> dict[str, str] | None:
+        self._release_admission_slot((data or {}).get("metadata"))
         metadata = (data or {}).get("metadata") or {}
         response_headers = dict(metadata.get("airlock_response_headers") or {})
         if not response_headers and is_gemini_provider(
@@ -115,6 +119,45 @@ class AirlockModelOverrideHeaders(CustomLogger):
         # plain attribute serializes into the client-visible JSON.
         response.airlock = {"mutations": [asdict(m) for m in ledger]}
         return response
+
+    async def async_log_success_event(
+        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
+        self._release_admission_slot(
+            ((kwargs or {}).get("litellm_params") or {}).get("metadata")
+        )
+
+    async def async_log_failure_event(
+        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
+        self._release_admission_slot(
+            ((kwargs or {}).get("litellm_params") or {}).get("metadata")
+        )
+
+    @staticmethod
+    def _release_admission_slot(metadata: Any) -> None:
+        if not isinstance(metadata, dict):
+            return
+        slot = metadata.get("airlock_admission_slot")
+        if not isinstance(slot, dict) or slot.get("released"):
+            return
+        client_id = slot.get("client_id")
+        if not isinstance(client_id, str) or not client_id:
+            return
+        try:
+            from airlock.fast import admission as admission_module
+
+            gate = admission_module._admission_gate
+            if gate is None:
+                return
+            if gate.release(client_id):
+                slot["released"] = True
+            else:
+                logger.warning("admission slot release failed client=%s", client_id)
+        except Exception:
+            logger.warning(
+                "admission slot release raised client=%s", client_id, exc_info=True
+            )
 
     @staticmethod
     def _explain_opted_in(data: dict, header_name: str) -> bool:

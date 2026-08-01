@@ -290,10 +290,17 @@ class AirlockFastGuardian(CustomGuardrail):
         # ---- Step 2.5: Admission gate (C1 — off-by-default) ----
         if _admission_mod._admission_gate is not None:
             _priority_for_gate = compute_priority(client)
+            acquired_slot = False
             try:
                 admitted, retry_after = _admission_mod._admission_gate.check(
                     client_id, boost=_priority_for_gate.boost, now=now
                 )
+                if admitted:
+                    acquired = _admission_mod._admission_gate.try_acquire(client_id)
+                    if acquired is False:
+                        admitted, retry_after = False, 1.0
+                    elif acquired is True:
+                        acquired_slot = True
             except Exception:
                 logger.warning(
                     "admission gate check raised — failing open", exc_info=True
@@ -314,6 +321,11 @@ class AirlockFastGuardian(CustomGuardrail):
             data.setdefault("metadata", {})["airlock_admission"] = {
                 "action": "admitted"
             }
+            if acquired_slot:
+                data["metadata"]["airlock_admission_slot"] = {
+                    "client_id": client_id,
+                    "released": False,
+                }
 
         # Routing and circuit breaker are model-specific — skip for MCP and
         # batch/file calls (the latter carry no top-level model).
