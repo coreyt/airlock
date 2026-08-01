@@ -21,7 +21,9 @@ updates:
       - dependency-name: newscatcher-catchall-sdk
         versions: [">=2"]
       - dependency-name: textual
-        versions: [">=7"]
+        # Textual 6.12+ requires Rich 14, while the validated LiteLLM 1.94.1
+        # baseline requires Rich <14. Revisit after the LiteLLM migration.
+        versions: [">=6.12"]
     groups:
       core-proxy:
         patterns:
