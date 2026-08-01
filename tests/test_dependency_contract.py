@@ -107,4 +107,4 @@ def test_dependabot_respects_deferred_migration_boundaries() -> None:
     assert ignored["fathomdb"]["versions"] == [">=0.4"]
     assert ignored["mistralai"]["versions"] == [">=2"]
     assert ignored["newscatcher-catchall-sdk"]["versions"] == [">=2"]
-    assert ignored["textual"]["versions"] == [">=6.12"]
+    assert ignored["textual"]["versions"] == [">=6.11"]

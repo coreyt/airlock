@@ -53,7 +53,7 @@ optional-extra metadata only to enable automation.
 The uv updater uses `increase-if-necessary` plus a no-major policy. Explicit
 ignores retain the four deferred migration boundaries even where zero-major
 versioning would otherwise make Dependabot treat a breaking change as a minor
-update. Textual 6.12+ is also deferred: it requires Rich 14 while the validated
+update. Textual 6.11+ is also deferred: it requires Rich 14 while the validated
 LiteLLM 1.94.1 baseline requires Rich below 14. Compatible releases continue to
 refresh `uv.lock` in the review groups.
 
