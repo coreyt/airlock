@@ -333,13 +333,14 @@ class TestGuardianIntegration:
         assert admission["action"] == "admitted"
 
     def test_admission_raises_429_on_shed(self):
-        """Gate sheds → hook raises ValueError containing 'Too many requests'."""
+        """Gate sheds → hook raises the typed Airlock 429 exception."""
         from airlock.fast import guardian as guardian_mod
         from airlock.fast.admission import (
             AdmissionConfig,
             AdmissionGate,
             AdmissionStore,
         )
+        from airlock.proxy_errors import AirlockAdmissionShed
 
         # Set rpm=0 so every request is shed
         cfg = AdmissionConfig(enabled=True, rpm=0)
@@ -366,7 +367,7 @@ class TestGuardianIntegration:
                 mock_prio.return_value = MagicMock(score=0.1, boost=False, reasons=[])
 
                 guardian = guardian_mod.AirlockFastGuardian()
-                with pytest.raises(ValueError, match="Too many requests"):
+                with pytest.raises(AirlockAdmissionShed, match="Too many requests"):
                     self._run_hook(guardian, data, self._fake_key())
 
     def test_gate_fails_open(self):

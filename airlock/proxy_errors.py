@@ -81,6 +81,14 @@ class AirlockModelNotFound(Exception):
         super().__init__(message)
 
 
+class AirlockAdmissionShed(RateLimitError):
+    """A local admission-gate rejection with an honest retry time."""
+
+    def __init__(self, message: str, *, retry_after: float) -> None:
+        super().__init__(message=message, llm_provider="airlock", model="admission")
+        self.retry_after = float(retry_after)
+
+
 def retry_after_seconds(cooldown_seconds: float) -> int:
     """Whole-second ``Retry-After`` value, at least 1."""
     return max(1, math.ceil(cooldown_seconds))
@@ -130,6 +138,28 @@ def model_not_found_response_payload(exc: AirlockModelNotFound) -> tuple[dict, d
     return body, {"X-Airlock-Model-Suggestion": header} if header else {}
 
 
+def admission_shed_response_payload(exc: AirlockAdmissionShed) -> tuple[dict, dict]:
+    """Build the OpenAI-compatible response for local admission shedding."""
+    retry_after = retry_after_seconds(exc.retry_after)
+    body = {
+        "error": {
+            "message": sanitize_reason(str(exc), 500),
+            "type": "airlock_admission",
+            "code": "admission_shed",
+            "param": None,
+            "airlock": {
+                "source": "admission",
+                "retry_after": retry_after,
+            },
+        }
+    }
+    headers = {
+        "Retry-After": str(retry_after),
+        "X-Airlock-Admission": f"shed; retry_after={retry_after}",
+    }
+    return body, headers
+
+
 async def airlock_provider_blocked_handler(request: Any, exc: Exception):
     """FastAPI exception handler → 429 with Retry-After + enriched body."""
     from fastapi.responses import JSONResponse
@@ -146,6 +176,15 @@ async def airlock_model_not_found_handler(request: Any, exc: Exception):
     assert isinstance(exc, AirlockModelNotFound)
     body, headers = model_not_found_response_payload(exc)
     return JSONResponse(status_code=404, content=body, headers=headers)
+
+
+async def airlock_admission_shed_handler(request: Any, exc: Exception):
+    """FastAPI exception handler → local admission 429 with Retry-After."""
+    from fastapi.responses import JSONResponse
+
+    assert isinstance(exc, AirlockAdmissionShed)
+    body, headers = admission_shed_response_payload(exc)
+    return JSONResponse(status_code=429, content=body, headers=headers)
 
 
 def install_airlock_error_handlers_on_proxy_app() -> bool:
@@ -171,5 +210,8 @@ def install_airlock_error_handlers_on_proxy_app() -> bool:
     if not getattr(app.state, "airlock_model_not_found_handler_installed", False):
         app.add_exception_handler(AirlockModelNotFound, airlock_model_not_found_handler)
         app.state.airlock_model_not_found_handler_installed = True
+    if not getattr(app.state, "airlock_admission_shed_handler_installed", False):
+        app.add_exception_handler(AirlockAdmissionShed, airlock_admission_shed_handler)
+        app.state.airlock_admission_shed_handler_installed = True
     app.state.airlock_error_handlers_installed = True
     return True

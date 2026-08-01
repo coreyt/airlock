@@ -81,6 +81,10 @@ class AirlockModelOverrideHeaders(CustomLogger):
             if header_val:
                 response_headers["X-Airlock-Mutations"] = header_val
 
+        admission = metadata.get("airlock_admission") or {}
+        if admission.get("action") == "admitted":
+            response_headers["X-Airlock-Admission"] = "admitted"
+
         if not response_headers:
             return None
 
