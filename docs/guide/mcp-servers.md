@@ -63,9 +63,9 @@ command: ${HOME}/projects/my-tool/.venv/bin/python
 command: /home/alice/projects/my-tool/.venv/bin/python
 ```
 
-Because absolute host paths are machine-specific, keep servers that use them in a
-gitignored [`config.local.yaml`](#machine-specific-servers-configlocalyaml), not
-in the tracked `config.yaml`.
+Because absolute host paths are machine-specific, keep servers that use them in
+[`config.local.yaml`](#machine-specific-servers-configlocalyaml), not in the
+shared `config.yaml`; leave those local additions uncommitted.
 
 ## Command resolution patterns
 
@@ -128,16 +128,17 @@ errors are fatal; see [Operations → Startup Validation](../operations.md)).
 
 MCP servers with absolute host paths (a venv interpreter or a custom binary under
 someone's home directory) do **not** belong in the tracked `config.yaml`. Keep
-them in a gitignored `config.local.yaml` and pull it in with LiteLLM's `include:`
-(start from `config.local.yaml.example`):
+them in `config.local.yaml` and pull it in with LiteLLM's `include:` (start from
+`config.local.yaml.example`). The repository ships an empty mapping as the
+default; keep machine-specific additions as uncommitted local edits:
 
 ```yaml
-# config.yaml — LOCAL-ONLY line; see the caveat below before committing
+# config.yaml — tracked include; config.local.yaml defaults to {}
 include: ["config.local.yaml"]
 ```
 
 ```yaml
-# config.local.yaml (gitignored, machine-specific)
+# config.local.yaml (machine-specific local override; do not commit additions)
 mcp_servers:
   ado_mcp:
     transport: stdio
@@ -161,11 +162,10 @@ Three things to get right, or servers silently disappear on the next restart:
    values like `mcp_servers`. So `config.local.yaml` must list **every** MCP
    server you want at runtime, including ones already in `config.yaml` (e.g.
    `newscatcher`) — anything you leave out is dropped.
-2. **`include:` must NOT be committed in `config.yaml`.** `config.local.yaml` is
-   gitignored, and a missing include file aborts startup (`FileNotFoundError`) on
-   a fresh checkout. Keep the `include:` line as a local, uncommitted edit. (It
-   also re-appears as a working-tree change after every `git pull` that touches
-   `config.yaml` — re-add it if a pull reverts it.)
+2. **Keep machine-specific content uncommitted.** The tracked
+   `config.local.yaml` starts as `{}` so the include is safe on a fresh checkout.
+   Local server definitions are a deliberate working-tree customization and must
+   not contain credentials; use `os.environ/VAR_NAME` for secrets.
 3. **Use absolute paths and mind the allowlist** in `config.local.yaml` exactly as
    in `config.yaml` — the constraints above apply equally to included files.
 

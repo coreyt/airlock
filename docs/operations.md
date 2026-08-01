@@ -78,7 +78,7 @@ scheme (`http://` → `https://`).
 |------|---------|----------|
 | `config.yaml` | Model list, guardrails, router settings | Project root or `AIRLOCK_CONFIG` |
 | `.env` | API keys, master key, ports | Project root |
-| `config.local.yaml` | _Optional, gitignored._ Machine-specific overrides (MCP servers with absolute host paths), pulled in via a local-only `include:` in `config.yaml`. See [Configuration → Machine-specific overrides](getting-started/configuration.md#machine-specific-overrides-configlocalyaml). | Project root |
+| `config.local.yaml` | Empty tracked fallback plus uncommitted machine-specific overrides (MCP servers with absolute host paths), pulled in via `include:` in `config.yaml`. See [Configuration → Machine-specific overrides](getting-started/configuration.md#machine-specific-overrides-configlocalyaml). | Project root |
 
 ### Environment Variables
 

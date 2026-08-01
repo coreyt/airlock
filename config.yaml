@@ -4,6 +4,13 @@
 # This is the main configuration file for the Airlock LLM proxy.
 # Copy to config.yaml and fill in your API keys (or set them as env vars).
 
+# Pull in machine-specific MCP servers from config.local.yaml. The repository
+# ships it as an empty mapping so fresh checkouts start normally; local MCP
+# overrides are uncommitted edits. LiteLLM REPLACES the mcp_servers dict with
+# the included file's, so an override must list ALL runtime MCP servers (incl.
+# a copy of the newscatcher block below).
+include: ["config.local.yaml"]
+
 # ---------------------------------------------------------------------------
 # Model definitions
 # ---------------------------------------------------------------------------
@@ -924,10 +931,10 @@ guardrails:
 mcp_servers:
   # NOTE: machine-specific MCP servers with absolute local command paths (e.g. ones
   # under a developer's home directory) do NOT belong in this tracked config. Keep
-  # them in a gitignored `config.local.yaml` (see `config.local.yaml.example`) and
-  # activate it locally — e.g. `include: ["config.local.yaml"]` (litellm merges it;
-  # note: the file must exist or startup fails) or point AIRLOCK_CONFIG at a local
-  # config that includes it.
+  # them in `config.local.yaml` (see `config.local.yaml.example`). The repository
+  # ships an empty fallback for the tracked include; keep machine-specific additions
+  # uncommitted. LiteLLM merges it, and a local `mcp_servers` mapping replaces this
+  # entire mapping, so it must repeat the servers that should remain enabled.
 
   # --- NewsCatcher CatchAll (stdio) ---
   # Web search with NLP enrichment via CatchAll API (jobs-based, async).

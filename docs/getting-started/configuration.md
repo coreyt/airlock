@@ -16,13 +16,13 @@ Key sections:
 ## Machine-specific overrides (`config.local.yaml`)
 
 Settings that must not live in the tracked `config.yaml` — chiefly MCP servers
-whose `command:` is an absolute path under a developer's home directory — go in a
-gitignored `config.local.yaml`. Copy `config.local.yaml.example` and pull it in
-with LiteLLM's include:
+whose `command:` is an absolute path under a developer's home directory — go in
+`config.local.yaml`. The repository ships an empty mapping there so the shared
+include works on a fresh checkout; add machine-specific content as a local,
+uncommitted edit (start from `config.local.yaml.example`).
 
 ```yaml
-# config.yaml — LOCAL-ONLY, do NOT commit (config.local.yaml is gitignored, and a
-# missing include file aborts startup on a fresh checkout)
+# config.yaml — tracked include; config.local.yaml defaults to {}
 include: ["config.local.yaml"]
 ```
 

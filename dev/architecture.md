@@ -578,21 +578,19 @@ keeps secrets out of the config file and source control.
 ### Machine-Specific Overrides (`config.local.yaml`)
 
 Host-specific settings that must not enter source control — chiefly MCP servers
-whose `command:` is an absolute path under a developer's home directory — live in
-a gitignored `config.local.yaml`, pulled into `config.yaml` with LiteLLM's
-`include:`. Key design facts (LiteLLM-imposed, verified in
+whose `command:` is an absolute path under a developer's home directory — are
+uncommitted additions to `config.local.yaml`, pulled into `config.yaml` with
+LiteLLM's `include:`. The repository tracks an empty `{}` fallback so fresh
+checkouts start normally. Key design facts (LiteLLM-imposed, verified in
 `litellm/proxy/proxy_server.py::_process_includes`):
 
 - **List keys extend; dict keys replace.** An included file's `mcp_servers` (a
   dict) *overwrites* the main config's wholesale — it does not deep-merge. So
   `config.local.yaml` must enumerate **every** runtime MCP server, including
   bundled ones (`newscatcher`).
-- **The `include:` line is local-only.** Committing it breaks fresh checkouts:
-  `config.local.yaml` is gitignored, and a missing include file aborts startup.
-  This is a known fragility — `config.yaml` is tracked, so the local `include:`
-  edit re-surfaces on every pull that touches it. (A future improvement is to
-  have `proxy.py::_prepare_runtime_config` auto-merge `config.local.yaml` when
-  present, removing the need to edit the tracked file.)
+- **The tracked placeholder is intentionally empty.** The committed `{}` has no
+  effect on the primary config. A local `mcp_servers` mapping replaces the main
+  mapping wholesale, so it must enumerate every server that should remain active.
 
 ### MCP stdio launch constraints (LiteLLM)
 
@@ -654,7 +652,7 @@ User-facing detail: [`docs/guide/mcp-servers.md`]. Constraint reference for agen
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt && pip install -e .
+pip install -e .
 python -m spacy download en_core_web_lg
 airlock  # or: python -m airlock.proxy
 ```

@@ -56,8 +56,9 @@ site/
 # Smoke-test isolated runtime (copied config/.env, test state) — never commit
 dev/smoketest/.runtime/
 
-# Machine-specific config override (personal MCP servers, host paths) — 0.5.4
-config.local.yaml
+# ``config.local.yaml`` is tracked as an empty fallback so the committed
+# ``config.yaml`` include works on a fresh checkout. Local MCP overrides remain
+# uncommitted working-tree changes.
 
 # Generated runtime config — proxy.py writes this temp file (config.yaml + env
 # overrides + model_info) for LiteLLM and normally deletes it on shutdown; a hard

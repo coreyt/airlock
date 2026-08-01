@@ -1,16 +1,15 @@
 # config.local.yaml.example — template for machine-specific config overrides.
 #
-# Copy to `config.local.yaml` (gitignored) and put deployment/host-specific settings
-# here that should NOT live in the tracked `config.yaml` — e.g. MCP servers whose
-# `command:` is an absolute path under your home directory.
+# The repository already tracks `config.local.yaml` as an empty `{}` fallback.
+# Add deployment/host-specific settings there as an uncommitted local edit — e.g.
+# MCP servers whose `command:` is an absolute path under your home directory.
 #
-# Activation: add to your local config.yaml (this line is LOCAL-ONLY — do NOT
-# commit it; config.local.yaml is gitignored, so a missing include file aborts
-# startup on a fresh checkout):
+# Activation is already in the tracked config.yaml:
 #     include: ["config.local.yaml"]
 #
 # litellm merges included files into the main config. Caveats:
-#   - the included file MUST exist or proxy startup fails (FileNotFoundError);
+#   - the included file is supplied as a tracked empty mapping so fresh checkouts
+#     start normally;
 #   - a key whose value is a dict (e.g. `mcp_servers`) REPLACES the main config's
 #     value rather than deep-merging — so list EVERY MCP server you want under
 #     `mcp_servers` here, including any you still want from config.yaml (e.g. the
