@@ -6,26 +6,32 @@
 > witnesses (worktree list, `output.json`, `*-review-*.md`, merge commits) and
 > trust the witnesses over this file on any conflict.
 
-_Last updated: 2026-08-01T16:00:00Z · mainline: `main` @ `a5c8b2d`_
+_Last updated: 2026-08-01T20:00:00Z · mainline: `main` @ `b6e15df`_
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** none — all planned implementation packs are merged to `main`.
-- **Next action:** conduct release review and use the normal 0.5.7 release checklist.
+- **In flight:** none — all planned implementation packs are closed on `main`.
+- **Closeout:** 0.5.7 is an internal odd-numbered release train. It has changelog,
+  build, and CI evidence but is deliberately **not version-bumped, tagged, or
+  published**. Follow-on work continues in 0.5.8.
 
 ## 2. Pack scoreboard
 
 | Pack | Goal (1 line) | Prompt | Depends on | State | Witness |
 |------|---------------|--------|------------|-------|---------|
-| `0.5.7-F1` | `X-Airlock-Admission` header + real Retry-After on shed | `prompts/0.5.7-F1.md` | — | MERGED | `runs/0.5.7-F1-output.json`; `ac7dd74` |
-| `0.5.7-F2` | True async semaphore acquire/release for concurrency cap | `prompts/0.5.7-F2.md` | **F-1 merged** | MERGED | `runs/0.5.7-F2-output.json`; `a5c8b2d` |
-| `0.5.7-F3` | Helpful 404 + suggestions for refused model names | `prompts/0.5.7-F3.md` | — | MERGED | `runs/0.5.7-F3-output.json`; `f2d777b` |
-| `0.5.7-F4` | `enhanced/*` must not record $0.00 against real spend | `prompts/0.5.7-F4.md` | — | MERGED (no production fix) | `runs/0.5.7-F4-output.json`; `157c343` |
+| `0.5.7-F1` | `X-Airlock-Admission` header + real Retry-After on shed | `prompts/0.5.7-F1.md` | — | CLOSED | `runs/0.5.7-F1-output.json`; `ac7dd74` |
+| `0.5.7-F2` | True async semaphore acquire/release for concurrency cap | `prompts/0.5.7-F2.md` | **F-1 merged** | CLOSED | `runs/0.5.7-F2-output.json`; `a5c8b2d`; stream-slot regression `5a76926` |
+| `0.5.7-F3` | Helpful 404 + suggestions for refused model names | `prompts/0.5.7-F3.md` | — | CLOSED | `runs/0.5.7-F3-output.json`; `f2d777b` |
+| `0.5.7-F4` | `enhanced/*` must not record $0.00 against real spend | `prompts/0.5.7-F4.md` | — | CLOSED (no production fix) | `runs/0.5.7-F4-output.json`; `157c343` |
 
 States (furthest witnessed wins):
 `WORKTREE_CREATED` → `IMPLEMENTING` → `IMPLEMENTED` (`output.json` + branch head past
 baseline) → `REVIEWED` (`<pack>-review-<ts>.md` with a `## Verdict:` line) →
 `MERGED` → `CLOSED` → `CLEANED`.
+
+The closeout review found two admission-slot lifetime defects; both are fixed by
+`5a76926` and the same focused test coverage. No new provider/API behavior was
+introduced by the closeout.
 
 ## 3. Acceptance / requirement scoreboard
 
@@ -77,13 +83,15 @@ Max 3 worktrees (F-1/F-2 serialized in one, F-3 in another, F-4 in a third).
 
 **Repo health at kickoff:**
 
-- CI green on all four jobs (`test`, `lint`, `docker`, `security`) as of `8159116`.
+- CI green on all four product jobs (`test`, `lint`, `docker`, `security`) as of the
+  2026-08-01 dependency workflow validation; Dependabot updater health is tracked
+  separately from release acceptance.
   This was **not** true before 0.5.6 — `lint` and `docker` had been red since
   ~2026-06-29. Keep them green; a red board hides new failures, which is exactly how
   17 mypy errors accumulated unnoticed.
 - Suite: 2695 passed, 106 skipped.
-- `config.yaml` carries a **local-only, uncommitted** `include: ["config.local.yaml"]`
-  line. It must stay in the working tree and out of every commit — use `git add -p`.
+- `config.local.yaml` is a tracked default-empty extension point. A machine's local
+  override is purposeful but must remain unstaged; use `git add -p` around it.
 
 ## 6. Deferred / out of scope
 

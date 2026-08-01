@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal 0.5.7 release train (not published)
+
+This odd-numbered release train is build- and CI-validated but intentionally has
+no package version bump, tag, or PyPI publication.
+
+### Added
+
+- `X-Airlock-Admission: admitted` on admitted requests; shed requests return the
+  real token-bucket `Retry-After` value.
+- A client-visible, self-contained 404 suggestion for refused model qualifiers,
+  including structured suggestions that respect the available model catalog.
+- `X-Airlock-Model-Alias` makes configured generic aliases transparent: clients see
+  the actual served LiteLLM body and a directly callable newer/current-generation
+  alias without any routing change.
+
+### Fixed
+
+- Admission concurrency slots now remain held until streaming success or failure
+  callbacks finish, preventing a live stream from being admitted out of its cap.
+- A pre-call rejection can no longer retain an admission slot before LiteLLM has a
+  chance to dispatch completion callbacks.
+
 ### Changed
 
 - Maintenance: the container now installs Airlock directly from `pyproject.toml`;

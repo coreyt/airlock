@@ -6,12 +6,14 @@ dropped-qualifier guard, §7 litellm floor, §8 tiers + fallbacks, §9 template 
 §13 warn-only detection.
 **Still outstanding (0.5.7 / 0.5.8):** §4.2.2 helpful rejection response (→ 0.5.7 F-3),
 §5.1 effort *enforcement* (→ 0.5.8, gated on the §13 window), §6
-`X-Airlock-Model-Alias` (→ 0.5.8 — **live gap**, see below).
+`X-Airlock-Model-Alias` (implemented 2026-08-01; see §6 below).
 
-> ⚠️ **Known live gap.** 0.5.6 advanced `gemini-flash-lite`, `gemini-pro` and
+> ✅ **Resolved 2026-08-01.** 0.5.6 advanced `gemini-flash-lite`, `gemini-pro` and
 > `gemini-flash` to newer generations *without* the §6 `served=` disclosure that was
-> designed to make such advances visible. Callers are on different models at different
-> prices and have not been told. Accepted knowingly to hit the 2026-07-23 deadline.
+> designed to make such advances visible. `model_successors` now opts those aliases
+> into `X-Airlock-Model-Alias`, which reports the observed served body and a directly
+> callable versioned alias. The original gap was accepted knowingly to hit the
+> 2026-07-23 deadline.
 **Date:** 2026-07-20
 **Supersedes:** nothing. Extends the 0.5.2 provider/model naming + capability
 discovery contract.

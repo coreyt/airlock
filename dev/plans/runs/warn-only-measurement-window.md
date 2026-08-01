@@ -72,6 +72,18 @@ grep -h "reasoning_effort_would_reject" logs/airlock-*.log | head -3
 it is not a documentation gap, and it should be fixed in week 1 rather than discovered
 at T-4.
 
+### T-2 verification — 2026-08-01
+
+**Code-path result: verified.** `reasoning_effort_would_reject` is appended to the
+mutation ledger by `airlock.reasoning_effort`, emitted in `X-Airlock-Mutations`, and
+serialized by the canonical `RequestEvent` recorder. Focused tests cover the warning,
+ledger marker, response header, and recorder projection.
+
+**Population result: not available yet.** The local `logs/` hits are validation/harness
+traffic, not a trustworthy production cohort, so they must not be used for T-4 counts.
+Keep the window open through 2026-08-21 and collect the production records with the
+commands below before making an enforcement decision.
+
 ## T-3 — Observe
 
 No action. Let the window run. Do not enforce early on a small sample; a low count in

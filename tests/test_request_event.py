@@ -246,6 +246,27 @@ def test_mutations_serialized_from_dataclasses():
     assert ev.mutations[0]["after"] == "gpt-4o-mini"
 
 
+def test_would_reject_marker_reaches_request_event_stream():
+    """The warn-only measurement marker must be queryable beyond process logs."""
+    marker = Mutation(
+        field="reasoning_effort_would_reject",
+        op="inject",
+        before="max",
+        after="max",
+        stage="pre_call",
+        source="reasoning_effort.validate",
+        reason="unsupported by gpt-5.6-sol",
+    )
+    event = build_request_event(
+        _kwargs(metadata={"airlock_mutations": [marker]}),
+        _FakeResponse(),
+        _ts(0),
+        _ts(1),
+        success=True,
+    )
+    assert event.mutations[0]["field"] == "reasoning_effort_would_reject"
+
+
 def test_served_and_attribution_from_attribute_served_backend(monkeypatch):
     served = ServedBackend(
         provider="openai",

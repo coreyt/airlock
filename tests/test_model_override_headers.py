@@ -9,6 +9,7 @@ from litellm import ModelResponse
 from airlock.callbacks.model_override_headers import (
     AirlockModelOverrideHeaders,
 )
+from airlock.fast.settings import configure_settings
 from airlock.transparency import Mutation, configure_transparency
 
 
@@ -249,6 +250,107 @@ class TestServedHeaders:
 
         assert result["X-Airlock-Model-Override"] == "claude-haiku"
         assert result["X-Airlock-Served-By"] == "anthropic"
+
+    async def test_model_alias_uses_original_request_and_actual_served_body(self):
+        """A routing rewrite must not change which public alias is disclosed."""
+        hook = AirlockModelOverrideHeaders()
+        response = SimpleNamespace(
+            _hidden_params={
+                "custom_llm_provider": "openai",
+                "model_id": "openai/gpt-5.5",
+            }
+        )
+        data = {
+            "model": "gpt-5-mini",  # Simulates a later routing rewrite.
+            "metadata": {
+                "airlock_request": {"requested_model": "gpt-5"},
+            },
+        }
+        configure_settings({"model_successors": {"gpt-5": "openai/gpt-5.6-sol"}})
+        try:
+            result = await hook.async_post_call_response_headers_hook(
+                data=data,
+                user_api_key_dict=None,
+                response=response,
+            )
+        finally:
+            configure_settings(None)
+
+        assert result is not None
+        assert result["X-Airlock-Model-Alias"] == (
+            "requested=gpt-5;served=openai/gpt-5.5;newer=openai/gpt-5.6-sol"
+        )
+        assert data["model"] == "gpt-5-mini"
+
+    async def test_model_alias_works_for_streaming_response_wrapper(self):
+        hook = AirlockModelOverrideHeaders()
+        # Streaming wrappers expose the provider on the instance, not necessarily
+        # in _hidden_params. The actual model id remains available at header flush.
+        response = SimpleNamespace(
+            _hidden_params={"model_id": "gemini/gemini-3.1-flash-lite"},
+            custom_llm_provider="gemini",
+        )
+        configure_settings(
+            {"model_successors": {"gemini-flash-lite": "gemini-3.1-flash-lite"}}
+        )
+        try:
+            result = await hook.async_post_call_response_headers_hook(
+                data={
+                    "metadata": {
+                        "airlock_request": {"requested_model": "gemini-flash-lite"}
+                    }
+                },
+                user_api_key_dict=None,
+                response=response,
+            )
+        finally:
+            configure_settings(None)
+
+        assert result is not None
+        assert result["X-Airlock-Model-Alias"] == (
+            "requested=gemini-flash-lite;served=gemini/gemini-3.1-flash-lite;"
+            "newer=gemini-3.1-flash-lite"
+        )
+
+    async def test_model_alias_omitted_without_a_matching_successor(self):
+        hook = AirlockModelOverrideHeaders()
+        response = SimpleNamespace(
+            _hidden_params={
+                "custom_llm_provider": "openai",
+                "model_id": "openai/gpt-5.5",
+            }
+        )
+        configure_settings(None)
+        result = await hook.async_post_call_response_headers_hook(
+            data={"metadata": {"airlock_request": {"requested_model": "gpt-5"}}},
+            user_api_key_dict=None,
+            response=response,
+        )
+
+        assert result is not None
+        assert "X-Airlock-Model-Alias" not in result
+
+    async def test_model_alias_is_gated_with_served_headers(self):
+        hook = AirlockModelOverrideHeaders()
+        response = SimpleNamespace(
+            _hidden_params={
+                "custom_llm_provider": "openai",
+                "model_id": "openai/gpt-5.5",
+            }
+        )
+        configure_settings({"model_successors": {"gpt-5": "openai/gpt-5.6-sol"}})
+        configure_transparency({"transparency": {"served_headers": False}})
+        try:
+            result = await hook.async_post_call_response_headers_hook(
+                data={"metadata": {"airlock_request": {"requested_model": "gpt-5"}}},
+                user_api_key_dict=None,
+                response=response,
+            )
+        finally:
+            configure_settings(None)
+            configure_transparency(None)
+
+        assert result is None
 
     async def test_null_metadata_in_request_does_not_crash(self):
         """Regression: data["metadata"]=None must not raise TypeError on stash."""

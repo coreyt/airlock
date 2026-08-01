@@ -550,6 +550,20 @@ class TestRootConfigReferenceIntegrity:
         assert not dupes, f"Duplicate model_names in root config: {set(dupes)}"
 
 
+class TestModelSuccessorConsistency:
+    """Alias disclosure must never advertise a name the config cannot serve."""
+
+    def test_successor_keys_and_values_are_configured_models(self, any_config):
+        which, config, names = any_config
+        for requested, successor in (config.get("model_successors") or {}).items():
+            assert requested in names, (
+                f"[{which}] model_successors key '{requested}' not in model_list"
+            )
+            assert successor in names, (
+                f"[{which}] model_successors value '{successor}' not in model_list"
+            )
+
+
 class TestRootConfigBatchKeys:
     """Consolidated prefixed batch aliases AND legacy twins both resolve via the
     Airlock Batch Gateway with the right backend/provider_model."""

@@ -64,6 +64,23 @@ Controlled by `transparency.mutation_headers` (`off` | `compact` | `full`,
 default `compact`). See
 [Observability → Response headers](../guide/observability.md#response-headers).
 
+### `X-Airlock-Model-Alias`
+
+For a generic alias explicitly enabled in `model_successors`, this advisory header
+discloses the concrete LiteLLM model body that actually served the request and a
+directly callable successor/current-generation alias:
+
+```
+X-Airlock-Model-Alias: requested=gpt-5;served=openai/gpt-5.5;newer=openai/gpt-5.6-sol
+```
+
+`requested` is the model name the client sent, even if Airlock later routes or
+fails over the request. `served` is read from the response rather than inferred;
+if Airlock cannot determine it, the header is omitted. `newer` is configuration
+data from `model_successors`, never a proxy guess. It is CR/LF-safe, byte-bounded
+using the same budget as `X-Airlock-Mutations`, and is suppressed with
+`transparency.served_headers: false`.
+
 ## Protection-state headers
 
 | Header | Meaning | Emitted when |

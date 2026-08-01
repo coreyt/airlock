@@ -767,6 +767,20 @@ cost_tiers:
     - openai/gpt-5.6
 
 # ---------------------------------------------------------------------------
+# Model alias disclosure — client-visible, advisory only
+# ---------------------------------------------------------------------------
+# A configured key opts the alias into X-Airlock-Model-Alias. The header always
+# reports the actual LiteLLM model id that served the request; the value is a
+# directly callable successor/current-generation alias for clients that want to
+# pin their choice. Both sides are checked against model_list by the test suite.
+# AIRLOCK_MODEL_SUCCESSORS accepts the same mapping as JSON and takes precedence.
+model_successors:
+  gpt-5: openai/gpt-5.6-sol
+  gemini-flash: gemini-3-flash
+  gemini-flash-lite: gemini-3.1-flash-lite
+  gemini-pro: gemini-3.1-pro
+
+# ---------------------------------------------------------------------------
 # Transparency — mutation ledger + served-backend attribution (0.5.0)
 # ---------------------------------------------------------------------------
 # All additive and backward-compatible — absent → body and behavior unchanged

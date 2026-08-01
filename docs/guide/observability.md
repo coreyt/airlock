@@ -62,7 +62,7 @@ unsupported one as an `op: drop` mutation with reason
 
 ## Response headers
 
-Three headers surface the transparency data by default. They are additive to the
+Four headers surface the transparency data by default. They are additive to the
 existing `X-Airlock-*` catalog — see the
 [response-header reference](../reference/response-headers.md) for the full list.
 
@@ -108,6 +108,21 @@ Three rules make this safe to ship on by default:
 Set `transparency.mutation_headers: off` to suppress the header entirely, or
 `full` to disable the compaction allowlist semantics described above (`compact` is
 the default).
+
+### `X-Airlock-Model-Alias`
+
+Generic aliases can be configured to disclose their concrete served model and a
+directly callable newer/current-generation alias. For example:
+
+```
+X-Airlock-Model-Alias: requested=gemini-flash-lite;served=gemini/gemini-3.1-flash-lite;newer=gemini-3.1-flash-lite
+```
+
+This is advisory only: it does not affect routing. The `requested` value remains
+the original client model even after a routing rewrite; `served` comes from the
+actual response. Configure only aliases you want to disclose via the top-level
+`model_successors` map. As with served-provider headers, setting
+`transparency.served_headers: false` suppresses it.
 
 ### `X-Airlock-Explain: 1` — opt-in body envelope
 
@@ -240,6 +255,10 @@ transparency:
   explain_body_optin_header: X-Airlock-Explain
   attribute_accounting_to_served: true
   mutation_header_budget_bytes: 256
+
+# Optional: enables X-Airlock-Model-Alias for these requested aliases.
+model_successors:
+  gpt-5: openai/gpt-5.6-sol
 ```
 
 Invalid values fall back to the defaults with a logged warning, and a config-free

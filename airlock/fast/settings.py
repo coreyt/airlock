@@ -99,6 +99,7 @@ _DEFAULT_COST_TIERS: dict[str, list[str]] = {
 }
 
 _DEFAULT_FAILOVER_MAP: dict[str, list[str]] = {}
+_DEFAULT_MODEL_SUCCESSORS: dict[str, str] = {}
 
 _DEFAULT_SESSION_TTL = 3600  # 1 hour
 _DEFAULT_SMART_THRESHOLDS = (0.30, 0.60)
@@ -119,6 +120,9 @@ class AirlockSettings:
     provider_budgets: dict[str, float] = field(default_factory=dict)
     budget_windows: dict[str, float] = field(default_factory=dict)
     failover_map: dict[str, list[str]] = field(default_factory=dict)
+    # Requested public alias -> directly callable successor alias.  Empty means
+    # model-alias disclosure is disabled; never infer an upgrade from a body name.
+    model_successors: dict[str, str] = field(default_factory=dict)
     cost_tiers: dict[str, list[str]] = field(
         default_factory=lambda: dict(_DEFAULT_COST_TIERS)
     )
@@ -269,6 +273,47 @@ def _load_cost_tiers(config: dict, env: Mapping[str, str]) -> dict[str, list[str
     return dict(_DEFAULT_COST_TIERS)
 
 
+def _validate_model_successors(value: object) -> dict[str, str] | None:
+    """Validate the optional alias-disclosure map without guessing coercions."""
+    if not isinstance(value, dict):
+        return None
+    if not all(
+        isinstance(requested, str)
+        and requested
+        and isinstance(successor, str)
+        and successor
+        for requested, successor in value.items()
+    ):
+        return None
+    return dict(value)
+
+
+def _load_model_successors(config: dict, env: Mapping[str, str]) -> dict[str, str]:
+    """Load ``model_successors`` with env > config > empty precedence."""
+    raw = env.get("AIRLOCK_MODEL_SUCCESSORS")
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            logger.warning(
+                "Invalid AIRLOCK_MODEL_SUCCESSORS JSON, falling back to config/defaults"
+            )
+        else:
+            validated = _validate_model_successors(parsed)
+            if validated is not None:
+                return validated
+            logger.warning("AIRLOCK_MODEL_SUCCESSORS has wrong shape, falling back")
+
+    configured = config.get("model_successors")
+    if configured is not None:
+        validated = _validate_model_successors(configured)
+        if validated is not None:
+            return validated
+        logger.warning("Invalid model_successors in config, using empty default")
+
+    return dict(_DEFAULT_MODEL_SUCCESSORS)
+
+
 def _load_session_ttl(airlock_settings: dict, env: Mapping[str, str]) -> int:
     raw = env.get("AIRLOCK_SESSION_TTL")
     if raw:
@@ -385,7 +430,8 @@ def load_airlock_settings(
 
     ``env`` defaults to ``os.environ``; it is injectable for testing. Reads keys in
     place: ``router_settings.provider_budget_config`` (budgets/windows),
-    ``router_settings.fallbacks`` (failover map), top-level ``cost_tiers``, and the
+    ``router_settings.fallbacks`` (failover map), top-level ``cost_tiers`` and
+    ``model_successors``, and the
     ``airlock_settings`` block (session_ttl / smart_thresholds / budget_warn_ratio).
     """
     if env is None:
@@ -401,6 +447,7 @@ def load_airlock_settings(
         budget_windows=budget_windows,
         failover_map=_load_failover_map(router_settings, env),
         cost_tiers=_load_cost_tiers(config, env),
+        model_successors=_load_model_successors(config, env),
         session_ttl=_load_session_ttl(airlock_settings, env),
         smart_thresholds=_load_smart_thresholds(airlock_settings, env),
         budget_warn_ratio=_load_budget_warn_ratio(airlock_settings, env),

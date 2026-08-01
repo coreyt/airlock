@@ -33,6 +33,7 @@ def _clear_env(monkeypatch):
         "AIRLOCK_PROVIDER_BUDGETS",
         "AIRLOCK_FAILOVER_MAP",
         "AIRLOCK_COST_TIERS",
+        "AIRLOCK_MODEL_SUCCESSORS",
         "AIRLOCK_SESSION_TTL",
         "AIRLOCK_SMART_THRESHOLDS",
         "AIRLOCK_BUDGET_WARN_RATIO",
@@ -278,6 +279,30 @@ def test_cost_tiers_malformed_config_falls_back_to_default() -> None:
     s = load_airlock_settings(cfg)
     assert s.cost_tiers["low"] == _DEFAULT_COST_TIERS["low"]
     assert "claude-haiku" in s.cost_tiers["low"]  # sanity: real content, not empty
+
+
+# ---------------------------------------------------------------------------
+# model_successors
+# ---------------------------------------------------------------------------
+def test_model_successors_from_config() -> None:
+    s = load_airlock_settings({"model_successors": {"gpt-5": "openai/gpt-5.6-sol"}})
+    assert s.model_successors == {"gpt-5": "openai/gpt-5.6-sol"}
+
+
+def test_model_successors_env_overrides_config() -> None:
+    s = load_airlock_settings(
+        {"model_successors": {"gpt-5": "from-config"}},
+        env={"AIRLOCK_MODEL_SUCCESSORS": '{"gpt-5":"from-env"}'},
+    )
+    assert s.model_successors == {"gpt-5": "from-env"}
+
+
+def test_model_successors_malformed_input_falls_back_to_empty() -> None:
+    s = load_airlock_settings(
+        {"model_successors": {"gpt-5": 3}},
+        env={"AIRLOCK_MODEL_SUCCESSORS": "not-json{"},
+    )
+    assert s.model_successors == {}
 
 
 # ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ from airlock.transparency import (
     ServedBackend,
     attribute_served_backend,
     classify_backend_kind,
+    model_alias_header,
     served_headers,
 )
 
@@ -93,6 +94,40 @@ def test_model_id_fallback_chain() -> None:
         _resp({"custom_llm_provider": "openai", "received_model_id": "got-it"})
     )
     assert s2.model_id == "got-it"
+
+
+def test_model_alias_header_is_safe_and_byte_bounded() -> None:
+    served = ServedBackend(
+        provider="openai",
+        api_base_host=None,
+        region=None,
+        model_id="openai/gpt-5.5\r\nignored",
+        response_cost=None,
+        backend_kind="native",
+    )
+    full = model_alias_header(
+        "gpt-5\r\nignored", served, "openai/gpt-5.6-sol\r\nignored"
+    )
+    assert "\r" not in full
+    assert "\n" not in full
+    assert full == (
+        "requested=gpt-5ignored;served=openai/gpt-5.5ignored;"
+        "newer=openai/gpt-5.6-solignored"
+    )
+    bounded = model_alias_header("gpt-5", served, "openai/gpt-5.6-sol", 20)
+    assert len(bounded.encode("utf-8")) <= 20
+
+
+def test_model_alias_header_omits_unknown_served_model() -> None:
+    served = ServedBackend(
+        provider="openai",
+        api_base_host=None,
+        region=None,
+        model_id=None,
+        response_cost=None,
+        backend_kind="native",
+    )
+    assert model_alias_header("gpt-5", served, "openai/gpt-5.6-sol") == ""
 
 
 def test_streaming_provider_from_wrapper_attribute() -> None:

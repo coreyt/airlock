@@ -274,6 +274,11 @@ def _mutation_token(m: Mutation) -> str:
 def mutations_header(ledger: list[Mutation], budget_bytes: int = 256) -> str:
     """Render the ledger to a compact, content-safe, byte-bounded header value."""
     tokens = [_mutation_token(m) for m in ledger]
+    return _bounded_header_tokens(tokens, budget_bytes)
+
+
+def _bounded_header_tokens(tokens: list[str], budget_bytes: int) -> str:
+    """Serialize ``;``-joined tokens within the common response-header budget."""
     full = ";".join(tokens)
     if len(full.encode("utf-8")) <= budget_bytes:
         return full
@@ -307,8 +312,29 @@ def model_suggestion_header(
         f"suggested={_header_safe(suggested)}",
         "reason=dropped_qualifier",
     ]
-    full = ";".join(tokens)
-    return full if len(full.encode("utf-8")) <= budget_bytes else ""
+    return _bounded_header_tokens(tokens, budget_bytes)
+
+
+def model_alias_header(
+    requested: str,
+    served: ServedBackend | None,
+    successor: str | None,
+    budget_bytes: int = 256,
+) -> str:
+    """Render additive alias guidance from the actual served model identity.
+
+    The optional successor is configuration data, never inferred.  No actual model
+    id means no header: clients should not be told a guess about what served them.
+    """
+    if not requested or served is None or not served.model_id:
+        return ""
+    tokens = [
+        f"requested={_header_safe(requested)}",
+        f"served={_header_safe(served.model_id)}",
+    ]
+    if successor:
+        tokens.append(f"newer={_header_safe(successor)}")
+    return _bounded_header_tokens(tokens, budget_bytes)
 
 
 def served_headers(s: ServedBackend | None) -> dict[str, str]:

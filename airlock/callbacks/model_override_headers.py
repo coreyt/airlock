@@ -9,6 +9,7 @@ from typing import Any
 from litellm.integrations.custom_logger import CustomLogger
 
 from airlock.litellm_adapter import merge_additional_headers
+from airlock.fast.settings import get_settings
 from airlock.proxy_bootstrap import bootstrap_airlock_proxy
 from airlock.gemini_interface import (
     build_gemini_response_headers,
@@ -18,6 +19,7 @@ from airlock.gemini_interface import (
 from airlock.transparency import (
     attribute_served_backend,
     get_transparency_config,
+    model_alias_header,
     mutations_header,
     served_headers,
 )
@@ -74,6 +76,21 @@ class AirlockModelOverrideHeaders(CustomLogger):
         cfg = get_transparency_config()
         if cfg.served_headers:
             response_headers.update(served_headers(served))
+            request = metadata.get("airlock_request") or {}
+            requested = request.get("requested_model")
+            if isinstance(requested, str):
+                successor = get_settings().model_successors.get(requested)
+                # The configured successor map is deliberately also the opt-in
+                # surface.  With no matching entry, do not expose a guessed alias.
+                if successor:
+                    alias = model_alias_header(
+                        requested,
+                        served,
+                        successor,
+                        cfg.mutation_header_budget_bytes,
+                    )
+                    if alias:
+                        response_headers["X-Airlock-Model-Alias"] = alias
 
         # X-Airlock-Mutations (OBS-headers Part A): serialize the pre/during-call
         # ledger via the allowlist-aware, byte-bounded serializer (CC-T2). Additive

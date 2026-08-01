@@ -40,6 +40,28 @@ sweep.
 
 These are intentionally separate API-level changes, not lockfile updates.
 
+### Follow-up sequencing — revisited 2026-08-01
+
+No deferred migration is part of the 0.5.7 internal train. Keep the compatibility
+caps until each item has its own design, implementation, and focused CI group. The
+recommended order is:
+
+1. **Textual 7/8** — first investigate the Rich 14/LiteLLM compatibility boundary,
+   then migrate the active TUI rendering and event-loop surface with its regression
+   suite. Dependabot has already demonstrated that this is not a patch-only update.
+2. **Mistral 2.x** — update the isolated batch adapter's moved client import and
+   `batch.jobs` calls, then run the Mistral batch unit suite (and an opt-in live
+   round-trip when credentials are available).
+3. **NewsCatcher 3.x** — update the optional MCP search client and its polling/error
+   handling, with MCP server tests. Its isolation makes it lower risk than the TUI
+   and batch-client migrations.
+4. **FathomDB 0.8** — first settle the storage API/schema direction against the
+   existing Fathom design notes, then perform a storage migration and integration
+   suite. Do not treat the version cap as a mechanical package update.
+
+Tavily accounting remains intentionally set aside and is not folded into any of these
+dependency migrations.
+
 ## Automation policy
 
 `.github/dependabot.yml` opens weekly grouped updates for the root `uv` manifest
