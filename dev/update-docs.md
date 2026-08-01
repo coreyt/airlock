@@ -138,12 +138,12 @@ the diff changed surface without one, that is a gap to flag.
 ### Step 1 — Establish the epoch and read the diff
 ```
 git log --oneline $EPOCH..$HEAD
-git diff --stat $EPOCH..$HEAD -- airlock/ tests/ config.yaml .env.example pyproject.toml requirements.txt
+git diff --stat $EPOCH..$HEAD -- airlock/ tests/ config.yaml .env.example pyproject.toml uv.lock
 git diff --name-status $EPOCH..$HEAD -- airlock/
 ```
 Note new/removed modules, datastore schema changes (`grep -n 'CREATE TABLE' airlock/datastore.py`),
 new/changed CLI commands or flags, new/changed `config.yaml` keys or defaults, new
-HTTP routes, and any new dependency (`pyproject.toml` / `requirements.txt`).
+HTTP routes, and any new dependency (`pyproject.toml` / `uv.lock`).
 
 ### Step 2 — Classify the completed work
 For each change decide which docs it touches:
@@ -156,7 +156,7 @@ For each change decide which docs it touches:
 | **New / changed `config.yaml` key, default, or env var** | `config.yaml` inline comments; `docs/getting-started/configuration.md`; `.env.example`; every doc quoting that value (grep it) |
 | **Changed guardrail / routing / advisor / batch behaviour** | the owning `dev/feature-*.md`/`design-*.md`; `docs/guide/{guardrails,routing,advisor,batch,vertex-batch}.md` |
 | **Datastore schema / `CREATE TABLE` change** | `dev/design-fathom-storage-model.md`; `dev/plan-fathom-storage-implementation.md`; `docs/guide/fathom-storage.md` |
-| **New dependency** (`pyproject.toml`, `requirements.txt`) | `dev/architecture.md`; if it touches the spaCy/Presidio PII model, the `Makefile` note + `docs/getting-started/installation.md` |
+| **New dependency** (`pyproject.toml`, `uv.lock`) | `dev/architecture.md`; if it touches the spaCy/Presidio PII model, the `Makefile` note + `docs/getting-started/installation.md` |
 | **TUI change** | `dev/tui-design.md` / `dev/tui-flow-screen.md`; `docs/guide/tui.md` |
 | **New / changed tests** | the owning `*-test-plan*.md`; `dev/requirements.md` "Traces to" prose if coverage shifted |
 | **Behaviour-compat event** (documented behaviour change) | `CHANGELOG.md` + `docs/changelog.md`; narrative line in `PROGRESS.md` |
@@ -205,7 +205,7 @@ After `dev/` is correct:
 ### Step 6 — Verify (gate before declaring done)
 - **Factual:** every `file:line`, symbol, flag, default, config key, schema/`CREATE
   TABLE`, and citation matches `$HEAD` source; dependency claims match
-  `pyproject.toml`/`requirements.txt`.
+  `pyproject.toml`/`uv.lock`.
 - **CLI parity:** `uv run airlock --help` commands/flags == `docs/guide/cli.md`.
 - **Config parity:** `config.yaml` keys/defaults == `docs/getting-started/configuration.md` == `.env.example`.
 - **Health-route correctness:** no doc recommends `GET /health` for liveness/probes —

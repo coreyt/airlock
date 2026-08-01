@@ -17,11 +17,9 @@ RUN groupadd --gid 1000 airlock && \
 RUN pip install --no-cache-dir spacy click && \
     python -m spacy download en_core_web_lg
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
 COPY . .
 RUN pip install --no-cache-dir -e .
+RUN python scripts/check_docker_dependencies.py
 
 # Ensure log directory exists and is writable
 RUN mkdir -p /app/logs && chown -R airlock:airlock /app/logs

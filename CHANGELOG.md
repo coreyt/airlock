@@ -5,6 +5,17 @@ All notable changes to Airlock are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Maintenance: the container now installs Airlock directly from `pyproject.toml`;
+  the duplicate `requirements.txt` path is removed. The locked LiteLLM baseline is
+  1.94.1, with a build-time check that the image satisfies Airlock's declared
+  LiteLLM requirement.
+- Compatibility boundaries are explicit while their API migrations are deferred:
+  `fathomdb<0.4`, `mistralai<2`, `newscatcher-catchall-sdk<2`, and `textual<7`.
+
 ## [0.5.6] — 2026-07-20
 
 Model catalog correctness + **GPT-5.6 (Sol / Terra / Luna)**. Two things drove this

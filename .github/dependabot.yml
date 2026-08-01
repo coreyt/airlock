@@ -1,0 +1,44 @@
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      core-proxy:
+        patterns:
+          - litellm
+          - presidio-*
+          - fastapi
+          - python-dotenv
+          - pyyaml
+          - sqlalchemy
+          - prometheus-client
+          - textual
+      optional-integrations:
+        patterns:
+          - boto3
+          - botocore
+          - google-auth
+          - google-genai
+          - opentelemetry-*
+          - tavily-python
+          - mistralai
+          - newscatcher-catchall-sdk
+          - fathomdb
+      developer-tooling:
+        patterns:
+          - pytest
+          - pytest-*
+          - mkdocs
+          - mkdocs-*
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
