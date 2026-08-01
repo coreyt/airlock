@@ -6,20 +6,17 @@ WORKDIR /app
 RUN groupadd --gid 1000 airlock && \
     useradd --uid 1000 --gid airlock --shell /bin/bash --create-home airlock
 
-# Install system deps for Presidio's NLP model.
-#
-# `click` is installed explicitly: spacy's CLI does `from click import
-# NoSuchOption`, but relies on typer to pull click in transitively. typer 0.27.0
-# dropped click from its dependencies (Requires: annotated-doc, rich,
-# shellingham), so `python -m spacy download` started failing with
-# ModuleNotFoundError. Not needed at runtime — only to fetch the model — but the
-# build fails without it.
-RUN pip install --no-cache-dir spacy click && \
-    python -m spacy download en_core_web_lg
-
 COPY . .
-RUN pip install --no-cache-dir -e .
-RUN python scripts/check_docker_dependencies.py
+
+# `uv.lock` is the container's dependency pin set. Pip only bootstraps the
+# pinned uv executable; uv then resolves the same core environment as CI/local.
+RUN pip install --no-cache-dir "uv==0.11.6" && \
+    uv sync --locked --no-dev && \
+    . scripts/tool-versions.sh && \
+    uv pip install --python .venv/bin/python "$AIRLOCK_SPACY_MODEL_URL" && \
+    uv run python scripts/check_docker_dependencies.py
+
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Ensure log directory exists and is writable
 RUN mkdir -p /app/logs && chown -R airlock:airlock /app/logs

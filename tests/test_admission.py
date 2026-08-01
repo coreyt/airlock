@@ -431,6 +431,41 @@ class TestGuardianIntegration:
         admission = result["metadata"]["airlock_admission"]
         assert admission["action"] == "admitted"
 
+    def test_pre_call_model_rejection_does_not_consume_a_concurrency_slot(self):
+        """Pre-provider failures never rely on completion callbacks to release."""
+        from airlock.fast import guardian as guardian_mod
+        from airlock.fast.admission import (
+            AdmissionConfig,
+            AdmissionGate,
+            AdmissionStore,
+        )
+        from airlock.proxy_errors import AirlockModelNotFound
+
+        gate = AdmissionGate(
+            AdmissionConfig(enabled=True, rpm=60, concurrency=1), AdmissionStore()
+        )
+        data = self._base_data()
+
+        with patch("airlock.fast.admission._admission_gate", gate):
+            with (
+                patch("airlock.guardrail_overrides.resolve_guardrail_decision"),
+                patch("airlock.fast.guardian.assess_threat") as mock_threat,
+                patch("airlock.fast.guardian.alias_table") as mock_alias,
+                patch("airlock.fast.guardian.store", self._mock_store()),
+            ):
+                mock_threat.return_value = MagicMock(blocked=False)
+                mock_alias.resolve.return_value = None
+                mock_alias.suggest.return_value = [
+                    {"model": "gpt-5.6-luna", "score": 0.9, "tier": "standard"}
+                ]
+
+                with pytest.raises(AirlockModelNotFound):
+                    self._run_hook(
+                        guardian_mod.AirlockFastGuardian(), data, self._fake_key()
+                    )
+
+        assert gate._semaphores == {}
+
     def test_admission_raises_429_on_shed(self):
         """Gate sheds → hook raises the typed Airlock 429 exception."""
         from airlock.fast import guardian as guardian_mod

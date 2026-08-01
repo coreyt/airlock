@@ -37,7 +37,7 @@ The deployment runs as non-root (UID 1000), sets resource limits (250m-1 CPU, 51
 python -m venv /opt/airlock/.venv
 source /opt/airlock/.venv/bin/activate
 pip install -e ".[metrics,tracing]"
-pip install spacy && python -m spacy download en_core_web_lg
+pip install "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"
 
 # Copy config
 cp config.yaml /opt/airlock/
@@ -515,10 +515,10 @@ WantedBy=multi-user.target
 ## Upgrading
 
 1. Back up `config.yaml` and `.env`
-2. Pull the new version: `git pull && pip install -e .`
+2. Pull the new version: `git pull && ./scripts/setup.sh`
 3. Run `airlock post` to validate configuration against the new version
 4. Restart the proxy: `systemctl restart airlock` or `docker compose up --build -d`
-5. Check `/health` endpoint and review startup warnings in stderr
+5. Check `/health/liveliness` and review startup warnings in stderr
 
 ### Breaking Changes
 

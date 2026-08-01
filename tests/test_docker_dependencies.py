@@ -16,8 +16,13 @@ def test_docker_installs_the_project_and_runs_dependency_check():
     dockerfile = (ROOT / "Dockerfile").read_text()
 
     assert "requirements.txt" not in dockerfile
-    assert "pip install --no-cache-dir -e ." in dockerfile
-    assert "python scripts/check_docker_dependencies.py" in dockerfile
+    assert 'pip install --no-cache-dir "uv==0.11.6"' in dockerfile
+    assert "uv sync --locked --no-dev" in dockerfile
+    assert (
+        'uv pip install --python .venv/bin/python "$AIRLOCK_SPACY_MODEL_URL"'
+        in dockerfile
+    )
+    assert "uv run python scripts/check_docker_dependencies.py" in dockerfile
 
 
 def test_litellm_requirement_has_validated_floor_and_upper_bound():

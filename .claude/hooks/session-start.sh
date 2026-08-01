@@ -8,8 +8,6 @@ fi
 
 cd "$CLAUDE_PROJECT_DIR"
 
-# Install the project in editable mode (pulls in pydantic, mcp, etc.)
-pip install -e .
-
-# Install test runner
-pip install pytest
+# Use the committed lock instead of a mutable pip-resolved environment.
+uv sync --locked --extra test
+make ensure-spacy

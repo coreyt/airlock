@@ -29,6 +29,8 @@ for arg in "$@"; do
 done
 
 cd "$PROJECT_ROOT"
+# shellcheck source=tool-versions.sh
+. scripts/tool-versions.sh
 
 echo "==> Airlock developer setup"
 
@@ -51,18 +53,18 @@ if [ "$USE_PIP" = true ]; then
 
   echo "==> Installing airlock with all extras..."
   pip install --upgrade pip
-  pip install -e ".[test,metrics,tracing,search,s3,sql]"
+  pip install -e ".[db,s3,sql,metrics,tui,search,vertex,aistudio,mistral,tracing,test,docs]"
 else
   echo "==> Installing airlock with all extras (uv)..."
-  uv sync --all-extras
+  uv sync --locked --all-extras
 fi
 
 # ---------- spaCy model for Presidio PII ----------
 echo "==> Downloading spaCy language model (en_core_web_lg)..."
 if [ "$USE_PIP" = true ]; then
-  python -m spacy download en_core_web_lg
+  pip install "$AIRLOCK_SPACY_MODEL_URL"
 else
-  uv run python -m spacy download en_core_web_lg
+  uv pip install --python .venv/bin/python "$AIRLOCK_SPACY_MODEL_URL"
 fi
 
 # ---------- airlock init ----------
@@ -88,7 +90,7 @@ echo "==> Running test suite..."
 if [ "$USE_PIP" = true ]; then
   python -m pytest tests/ -x -q --tb=short
 else
-  uv run pytest tests/ -x -q --tb=short
+  uv run pytest tests/ -x -q --tb=short -m "not live"
 fi
 
 # ---------- Done ----------

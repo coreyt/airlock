@@ -124,8 +124,8 @@ LiteLLM's `vertex_ai` provider needs `google-auth` (for token minting and GCS),
 which `litellm[proxy]` does not pull in. It's packaged as the `vertex` extra:
 
 ```bash
-make sync          # uv sync --all-extras + restores the spaCy PII model
-# or: uv sync --extra vertex
+make sync          # uv sync --locked --all-extras + restores the spaCy PII model
+# or: uv sync --locked --extra vertex && make ensure-spacy
 ```
 
 ## 6. Configure `.env`

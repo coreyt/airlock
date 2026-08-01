@@ -33,11 +33,10 @@ for arg in "$@"; do
 done
 
 # ---------------------------------------------------------------------------
-# Pinned versions — keep in sync with ci.yml
+# Pinned tools and the out-of-lock spaCy model — shared with CI/Docker/setup.
 # ---------------------------------------------------------------------------
-RUFF_VERSION="0.15.9"
-MYPY_VERSION="1.20.0"
-PIP_AUDIT_VERSION="2.7.3"
+# shellcheck source=tool-versions.sh
+. "$SCRIPT_DIR/tool-versions.sh"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -70,8 +69,9 @@ run_or_fail() {
 # Ensure deps + linters installed
 # ---------------------------------------------------------------------------
 step "Install dependencies"
-uv sync --extra test --extra db
-uv pip install "ruff==$RUFF_VERSION" "mypy==$MYPY_VERSION"
+uv sync --locked --all-extras
+make ensure-spacy
+uv pip install "ruff==$AIRLOCK_RUFF_VERSION" "mypy==$AIRLOCK_MYPY_VERSION"
 pass "Dependencies synced"
 
 # ---------------------------------------------------------------------------
@@ -114,7 +114,7 @@ fi
 # Lint: YAML
 # ---------------------------------------------------------------------------
 step "YAML lint"
-uv pip install yamllint 2>&1 | grep -v "already" || true
+uv pip install "yamllint==$AIRLOCK_YAMLLINT_VERSION" 2>&1 | grep -v "already" || true
 YAMLLINT_CONF=$(mktemp)
 cat > "$YAMLLINT_CONF" <<'YAMLEOF'
 extends: default
@@ -161,7 +161,7 @@ if command -v mkdocs &>/dev/null; then
         fail "mkdocs build --strict"
     fi
 else
-    skip "mkdocs" "not installed (pip install mkdocs)"
+    skip "mkdocs" "not installed (uv sync --locked --extra docs)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -187,7 +187,7 @@ fi
 # Test (mirrors ci.yml test job)
 # ---------------------------------------------------------------------------
 step "Tests"
-run_or_fail "pytest" uv run pytest --tb=short -q
+run_or_fail "pytest" uv run pytest --tb=short -q -m "not live"
 
 # ---------------------------------------------------------------------------
 # Docker (mirrors ci.yml docker job)
@@ -208,11 +208,11 @@ fi
 # Security (mirrors ci.yml security job)
 # ---------------------------------------------------------------------------
 step "Security audit"
-uv pip install "pip-audit==$PIP_AUDIT_VERSION" 2>&1 | grep -v "already satisfied" || true
+uv pip install "pip-audit==$AIRLOCK_PIP_AUDIT_VERSION" 2>&1 | grep -v "already satisfied" || true
 if uv run pip-audit; then
     pass "pip-audit"
 else
-    echo "  ~ pip-audit found warnings (non-blocking, matches CI behavior)"
+    fail "pip-audit"
 fi
 
 # ---------------------------------------------------------------------------

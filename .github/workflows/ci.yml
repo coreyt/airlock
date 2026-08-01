@@ -29,11 +29,10 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --extra test --extra db
+          uv sync --locked --all-extras
 
       - name: Download spaCy model
-        run: |
-          uv run python -m spacy download en_core_web_lg
+        run: make ensure-spacy
 
       - name: Verify presidio + spaCy available
         run: |
@@ -42,7 +41,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          uv run pytest --cov=airlock --cov-report=xml --cov-report=term-missing
+          uv run pytest -m "not live" --cov=airlock --cov-report=xml --cov-report=term-missing
 
       - name: Upload coverage report
         if: always()
@@ -67,10 +66,11 @@ jobs:
 
       - name: Install dependencies and linters
         run: |
-          uv sync --extra test --extra db
+          uv sync --locked --all-extras
           # Pin linter versions so CI is reproducible and a new ruff/mypy
           # release can't silently turn the build red on an unrelated PR.
-          uv pip install "ruff==0.15.9" "mypy==1.20.0"
+          . scripts/tool-versions.sh
+          uv pip install "ruff==$AIRLOCK_RUFF_VERSION" "mypy==$AIRLOCK_MYPY_VERSION"
 
       - name: Ruff check
         run: uv run ruff check airlock/ tests/
@@ -106,6 +106,7 @@ jobs:
 
       - name: Install and audit
         run: |
-          uv sync --extra db
-          uv pip install "pip-audit==2.7.3"
-          uv run pip-audit || echo "pip-audit found warnings (non-blocking)"
+          uv sync --locked --all-extras
+          . scripts/tool-versions.sh
+          uv pip install "pip-audit==$AIRLOCK_PIP_AUDIT_VERSION"
+          uv run pip-audit

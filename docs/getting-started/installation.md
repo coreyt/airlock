@@ -4,7 +4,7 @@
 
 ```bash
 pip install airlock-llm
-python -m spacy download en_core_web_lg   # required for PII redaction
+pip install "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"  # required for PII redaction
 airlock init
 ```
 
@@ -27,7 +27,7 @@ git clone https://github.com/coreyt/airlock && cd airlock
 ```
 
 Everything in the standard setup, plus optional extras, install verification, and a
-test suite run. The uv path (`uv sync --all-extras`) installs **all** extras
+test suite run. The uv path (`uv sync --locked --all-extras`) installs **all** extras
 (`db`, `s3`, `sql`, `metrics`, `tui`, `search`, `vertex`, `aistudio`, `mistral`,
 `tracing`, `test`, `docs`); pass `--pip` to use pip instead of uv.
 
@@ -36,7 +36,7 @@ test suite run. The uv path (`uv sync --all-extras`) installs **all** extras
     the **`mistral`** extra, and Vertex AI batch needs the **`vertex`** extra. The
     uv dev setup includes all three; install on their own with
     `pip install 'airlock-llm[aistudio]'` / `'airlock-llm[mistral]'` /
-    `'airlock-llm[vertex]'` (or `uv sync --extra mistral`).
+    `'airlock-llm[vertex]'` (or `uv sync --locked --extra mistral`).
 
 ## Docker
 

@@ -3,10 +3,13 @@
 ## Scope and authority
 
 `pyproject.toml` is the only dependency manifest and `uv.lock` is the resolved
-environment record. The Docker-only `requirements.txt` duplicate was removed:
-the image installs the editable project and runs
-`scripts/check_docker_dependencies.py`, which verifies its installed LiteLLM
-version against the project requirement.
+environment record. The Docker-only `requirements.txt` duplicate was removed.
+Docker, CI, and source setup install through the committed lock; the image then
+runs `scripts/check_docker_dependencies.py`, which verifies every direct runtime
+dependency (including LiteLLM) against the project requirement. The separately
+distributed Presidio model is installed from its exact `en_core_web_lg` 3.8.0
+wheel URL, shared by `scripts/tool-versions.sh`; keeping that 382 MB model out of
+the package metadata avoids making it a mandatory download for every library user.
 
 This is a compatibility maintenance sweep. It does not change an Airlock client
 API or configuration contract.
@@ -43,17 +46,22 @@ These are intentionally separate API-level changes, not lockfile updates.
 and lock (`core-proxy`, `optional-integrations`, and `developer-tooling`) plus a
 weekly `github-actions` group. It does not configure auto-merge: every Dependabot
 PR, including security and patch updates, requires human review and the relevant
-CI group. Inline CI pins for ruff, mypy, and pip-audit remain manually managed.
+CI group. Inline CI pins for ruff, mypy, pip-audit, and yamllint remain manually
+managed in `scripts/tool-versions.sh`, rather than being added to runtime or
+optional-extra metadata only to enable automation.
 
 ## Validation
 
-- `uv lock` resolves the manifest and records LiteLLM 1.94.1.
+- `uv lock --check` verifies the manifest and records LiteLLM 1.94.1.
 - A final compatible transitive refresh resolves cleanly, and `uv sync
   --all-extras` completes from the final 187-package lock. It retains all four
   explicit migration caps and the LiteLLM 1.94.1 baseline.
-- `python scripts/check_docker_dependencies.py` passes with LiteLLM 1.94.1;
-  `tests/test_docker_dependencies.py` passes (2 tests). The Docker image builds
-  and its in-container smoke check reports the same result.
+- `make sync` completes from the final 187-package lock with all extras, then
+  restores the exact spaCy model wheel. `tests/test_dependency_contract.py` and
+  `tests/test_docker_dependencies.py` guard the shared local/CI/Docker contract.
+  The Docker image builds and its in-container smoke check imports Airlock and
+  `en_core_web_lg` 3.8.0; it reports LiteLLM 1.94.1 and all six direct runtime
+  dependencies satisfying `pyproject.toml`.
 - A wheel built with `uv build --wheel` installs cleanly into an isolated virtual
   environment and reports `airlock-llm 0.5.6`.
 - Ruff and formatting pass for Airlock and its tests. The repository-wide Ruff
@@ -64,8 +72,9 @@ CI group. Inline CI pins for ruff, mypy, and pip-audit remain manually managed.
   (110 passed), plus FathomDB/S3/SQL/metrics/tracing/Mistral/MCP/config/CLI
   integration coverage (265 passed, 2 skipped, 1 xpassed). Live provider tests
   remain opt-in.
-- `mkdocs build --strict` passes and `pip-audit` reports no known
-  vulnerabilities.
+- The complete non-live test suite, Ruff, formatting, fast-subsystem mypy, and
+  `pip-audit` pass. The audit reports no known vulnerabilities; it explicitly
+  skips the pinned GitHub spaCy wheel because it is not published on PyPI.
 - The initial `pip-audit` found 24 advisories. Compatible transitive patches,
   including aiohttp 3.14.3 and Click 8.4.2, reduced the final audit to zero
   known vulnerabilities.

@@ -14,17 +14,27 @@ from packaging.requirements import Requirement
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
-def litellm_requirement(project_file: pathlib.Path = ROOT / "pyproject.toml") -> Requirement:
-    """Return Airlock's declared LiteLLM requirement from its sole manifest."""
+def project_requirements(
+    project_file: pathlib.Path = ROOT / "pyproject.toml",
+) -> list[Requirement]:
+    """Return every direct runtime requirement from Airlock's sole manifest."""
     project = tomllib.loads(project_file.read_text())["project"]
-    for dependency in project["dependencies"]:
-        requirement = Requirement(dependency)
+    return [Requirement(dependency) for dependency in project["dependencies"]]
+
+
+def litellm_requirement(
+    project_file: pathlib.Path = ROOT / "pyproject.toml",
+) -> Requirement:
+    """Return Airlock's declared LiteLLM requirement from its sole manifest."""
+    for requirement in project_requirements(project_file):
         if requirement.name.lower() == "litellm":
             return requirement
     raise RuntimeError("pyproject.toml does not declare a LiteLLM dependency")
 
 
-def check_litellm_version(installed_version: str | None = None) -> tuple[str, Requirement]:
+def check_litellm_version(
+    installed_version: str | None = None,
+) -> tuple[str, Requirement]:
     """Verify the installed distribution satisfies the project's specifier."""
     requirement = litellm_requirement()
     version = installed_version or importlib.metadata.version("litellm")
@@ -35,9 +45,24 @@ def check_litellm_version(installed_version: str | None = None) -> tuple[str, Re
     return version, requirement
 
 
+def check_project_dependencies() -> list[tuple[str, str]]:
+    """Ensure every direct runtime dependency satisfies the manifest in Docker."""
+    installed: list[tuple[str, str]] = []
+    for requirement in project_requirements():
+        version = importlib.metadata.version(requirement.name)
+        if version not in requirement.specifier:
+            raise RuntimeError(
+                f"installed {requirement.name} {version} does not satisfy {requirement}"
+            )
+        installed.append((requirement.name, version))
+    return installed
+
+
 def main() -> int:
     version, requirement = check_litellm_version()
     print(f"LiteLLM {version} satisfies {requirement}")
+    checked = check_project_dependencies()
+    print(f"{len(checked)} direct runtime dependencies satisfy pyproject.toml")
     return 0
 
 

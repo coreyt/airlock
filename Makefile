@@ -8,22 +8,22 @@
 #
 # Always sync via `make sync` so the model is restored automatically.
 
-SPACY_MODEL := en_core_web_lg
-
 .PHONY: sync ensure-spacy verify test
 
 sync: ## Sync all deps and restore the spaCy model uv prunes
-	uv sync --all-extras
+	uv sync --locked --all-extras
 	$(MAKE) ensure-spacy
 
 ensure-spacy: ## Re-download the spaCy PII model if a uv sync pruned it (idempotent)
-	@uv run python -c "import $(SPACY_MODEL)" >/dev/null 2>&1 \
-		&& echo "spaCy model $(SPACY_MODEL) present" \
-		|| uv run python -m spacy download $(SPACY_MODEL)
+	@. scripts/tool-versions.sh; \
+	uv run python -c "import $$AIRLOCK_SPACY_MODEL" >/dev/null 2>&1 \
+		&& echo "spaCy model $$AIRLOCK_SPACY_MODEL==$$AIRLOCK_SPACY_MODEL_VERSION present" \
+		|| uv pip install --python .venv/bin/python "$$AIRLOCK_SPACY_MODEL_URL"
 
 verify: ## Fail fast if the spaCy PII model is missing (CI / preflight gate)
-	@uv run python -c "import $(SPACY_MODEL)" >/dev/null 2>&1 \
-		|| { echo "ERROR: $(SPACY_MODEL) missing — Presidio PII guard will fail. Run 'make ensure-spacy'."; exit 1; }
+	@. scripts/tool-versions.sh; \
+	uv run python -c "import $$AIRLOCK_SPACY_MODEL" >/dev/null 2>&1 \
+		|| { echo "ERROR: $$AIRLOCK_SPACY_MODEL missing — Presidio PII guard will fail. Run 'make ensure-spacy'."; exit 1; }
 
 test: ## Run the test suite
-	uv run python -m pytest -q
+	uv run python -m pytest -q -m "not live"

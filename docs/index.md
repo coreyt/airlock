@@ -43,7 +43,7 @@ Airlock sits between your developers and LLM providers, giving you visibility an
 
 ```bash
 pip install airlock-llm
-python -m spacy download en_core_web_lg
+pip install "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"
 airlock init
 # Edit .env with your API keys
 airlock tui --start

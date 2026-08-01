@@ -287,46 +287,6 @@ class AirlockFastGuardian(CustomGuardrail):
                 f"Please retry after {int(threat.backoff_seconds)} seconds."
             )
 
-        # ---- Step 2.5: Admission gate (C1 — off-by-default) ----
-        if _admission_mod._admission_gate is not None:
-            _priority_for_gate = compute_priority(client)
-            acquired_slot = False
-            try:
-                admitted, retry_after = _admission_mod._admission_gate.check(
-                    client_id, boost=_priority_for_gate.boost, now=now
-                )
-                if admitted:
-                    acquired = _admission_mod._admission_gate.try_acquire(client_id)
-                    if acquired is False:
-                        admitted, retry_after = False, 1.0
-                    elif acquired is True:
-                        acquired_slot = True
-            except Exception:
-                logger.warning(
-                    "admission gate check raised — failing open", exc_info=True
-                )
-                admitted, retry_after = True, 0.0
-            if not admitted:
-                logger.warning(
-                    "admission_shed client=%s retry_after=%.1fs", client_id, retry_after
-                )
-                data.setdefault("metadata", {})["airlock_admission"] = {
-                    "action": "shed",
-                    "retry_after": round(retry_after, 1),
-                }
-                raise AirlockAdmissionShed(
-                    f"Too many requests. Please retry after {int(retry_after) + 1} seconds.",
-                    retry_after=retry_after,
-                )
-            data.setdefault("metadata", {})["airlock_admission"] = {
-                "action": "admitted"
-            }
-            if acquired_slot:
-                data["metadata"]["airlock_admission_slot"] = {
-                    "client_id": client_id,
-                    "released": False,
-                }
-
         # Routing and circuit breaker are model-specific — skip for MCP and
         # batch/file calls (the latter carry no top-level model).
         if not mcp and not batch:
@@ -559,5 +519,44 @@ class AirlockFastGuardian(CustomGuardrail):
                 priority.score,
                 priority.reasons,
             )
+
+        # ---- Step 4.5: Admission gate (C1 — off-by-default) ----
+        # Acquire immediately before returning to LiteLLM. Earlier pre-call work
+        # can reject (for example a refused model name) and LiteLLM deliberately
+        # does not dispatch completion callbacks for those failures; acquiring
+        # above would leak an in-flight slot.
+        if _admission_mod._admission_gate is not None:
+            try:
+                admitted, retry_after = _admission_mod._admission_gate.check(
+                    client_id, boost=priority.boost, now=now
+                )
+                if admitted:
+                    acquired = _admission_mod._admission_gate.try_acquire(client_id)
+                    if acquired is False:
+                        admitted, retry_after = False, 1.0
+            except Exception:
+                logger.warning(
+                    "admission gate check raised — failing open", exc_info=True
+                )
+                admitted, retry_after = True, 0.0
+                acquired = None
+            if not admitted:
+                logger.warning(
+                    "admission_shed client=%s retry_after=%.1fs", client_id, retry_after
+                )
+                metadata["airlock_admission"] = {
+                    "action": "shed",
+                    "retry_after": round(retry_after, 1),
+                }
+                raise AirlockAdmissionShed(
+                    f"Too many requests. Please retry after {int(retry_after) + 1} seconds.",
+                    retry_after=retry_after,
+                )
+            metadata["airlock_admission"] = {"action": "admitted"}
+            if acquired is True:
+                metadata["airlock_admission_slot"] = {
+                    "client_id": client_id,
+                    "released": False,
+                }
 
         return data

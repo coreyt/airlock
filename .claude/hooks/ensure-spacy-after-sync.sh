@@ -11,6 +11,8 @@
 # is actually missing. Never fails the tool call (always exits 0).
 set -uo pipefail
 cd "${CLAUDE_PROJECT_DIR:-.}" || exit 0
+# shellcheck source=../../scripts/tool-versions.sh
+. scripts/tool-versions.sh 2>/dev/null || exit 0
 
 cmd="$(cat | python3 -c 'import sys,json
 try:
@@ -20,12 +22,12 @@ except Exception:
 
 case "$cmd" in
   *"uv sync"*)
-    if ! uv run python -c "import en_core_web_lg" >/dev/null 2>&1; then
+    if ! uv run python -c "import $AIRLOCK_SPACY_MODEL" >/dev/null 2>&1; then
       echo "[airlock] uv sync pruned en_core_web_lg — restoring for the Presidio PII guard..." >&2
-      if uv run python -m spacy download en_core_web_lg >/dev/null 2>&1; then
-        echo "[airlock] en_core_web_lg restored." >&2
+      if uv pip install --python .venv/bin/python "$AIRLOCK_SPACY_MODEL_URL" >/dev/null 2>&1; then
+        echo "[airlock] $AIRLOCK_SPACY_MODEL==$AIRLOCK_SPACY_MODEL_VERSION restored." >&2
       else
-        echo "[airlock] WARNING: could not restore en_core_web_lg. Run: uv run python -m spacy download en_core_web_lg" >&2
+        echo "[airlock] WARNING: could not restore $AIRLOCK_SPACY_MODEL. Run: make ensure-spacy" >&2
       fi
     fi
     ;;
