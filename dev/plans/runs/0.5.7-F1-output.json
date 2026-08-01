@@ -1,0 +1,45 @@
+{
+  "pack": "0.5.7-F1",
+  "baseline_sha": "1cf87f6",
+  "branch": "main",
+  "head_sha": "ac7dd74",
+  "commits": [
+    "74e1826: docs(0.5.7): record admission response design (F-1)",
+    "f2d777b: fix(0.5.7): guard alias suggestions against non-list results (also contains the shared guardian shed hunk)",
+    "ac7dd74: feat(0.5.7): X-Airlock-Admission header + real Retry-After on shed (F-1)"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": null,
+    "test_files": ["tests/test_admission.py", "tests/test_admission_headers.py"]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_admission.py",
+      "tests/test_admission_headers.py",
+      "tests/test_proxy_errors.py",
+      "tests/test_model_override_headers.py",
+      "tests/test_fast_guardian.py"
+    ],
+    "passed": 92,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/callbacks/model_override_headers.py",
+    "airlock/fast/guardian.py",
+    "airlock/proxy_errors.py",
+    "dev/notes/0.5.7-F1-design.md",
+    "tests/test_admission.py",
+    "tests/test_admission_headers.py"
+  ],
+  "blockers_encountered": [
+    {
+      "id": "shared-file-staging",
+      "description": "The F3 mock-compatibility correction and F1 guardian shed change shared guardian.py; the already-correct F1 hunk was committed with the correction.",
+      "resolution": "Kept the local commit instead of rewriting history, verified the combined targeted admission and guardian suite, and recorded both commits."
+    }
+  ],
+  "additional_changes_made_in_scope": [],
+  "agent_verify_result": "pass — ruff and format clean; 92 targeted tests passed",
+  "next_step_for_orchestrator": "F1 is complete on main at ac7dd74; continue with dependent F2."
+}

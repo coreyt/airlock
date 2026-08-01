@@ -1,0 +1,39 @@
+{
+  "pack": "0.5.7-F3",
+  "baseline_sha": "157c343",
+  "branch": "main",
+  "head_sha": "f2d777b",
+  "commits": [
+    "ff63390: docs(0.5.7): record model suggestion design (F-3)",
+    "1cf87f6: feat(0.5.7): helpful 404 + suggestions for refused model names (F-3)",
+    "f2d777b: fix(0.5.7): guard alias suggestions against non-list results"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": null,
+    "test_files": ["tests/test_model_suggestion.py"]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_model_suggestion.py",
+      "tests/test_fast_guardian.py",
+      "tests/test_model_alias.py",
+      "tests/test_model_override_headers.py"
+    ],
+    "passed": 169,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/fast/guardian.py",
+    "airlock/proxy_errors.py",
+    "airlock/transparency.py",
+    "dev/notes/0.5.7-F3-design.md",
+    "tests/test_model_suggestion.py"
+  ],
+  "blockers_encountered": [],
+  "additional_changes_made_in_scope": [
+    "No client-specific model entitlement catalogue exists; suggestions are limited to the configured alias table, which is the current caller catalogue."
+  ],
+  "agent_verify_result": "pass — ruff and format clean; 169 targeted tests passed, and the existing admission/guardian integration tests pass after the compatibility correction",
+  "next_step_for_orchestrator": "F3 is complete on main at f2d777b; continue F1 then F2."
+}

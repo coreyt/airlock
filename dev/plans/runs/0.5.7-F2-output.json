@@ -1,0 +1,40 @@
+{
+  "pack": "0.5.7-F2",
+  "baseline_sha": "ac7dd74",
+  "branch": "main",
+  "head_sha": "a5c8b2d",
+  "commits": [
+    "800b6ed: docs(0.5.7): record concurrency cap design (F-2)",
+    "a5c8b2d: feat(0.5.7): true async semaphore concurrency cap (F-2)"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": null,
+    "test_files": ["tests/test_admission.py"]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_admission.py",
+      "tests/test_admission_headers.py",
+      "tests/test_fast_guardian.py",
+      "tests/test_model_override_headers.py",
+      "tests/test_proxy_errors.py"
+    ],
+    "passed": 95,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "airlock/callbacks/model_override_headers.py",
+    "airlock/fast/admission.py",
+    "airlock/fast/guardian.py",
+    "dev/notes/0.5.7-F2-design.md",
+    "tests/test_admission.py"
+  ],
+  "blockers_encountered": [],
+  "additional_changes_made_in_scope": [
+    "The non-blocking acquisition decrements the semaphore while holding the gate lock; it intentionally never queues an awaitable semaphore acquire.",
+    "Release runs from success, failure, and response-header paths; shared metadata prevents duplicate release."
+  ],
+  "agent_verify_result": "pass — ruff and format clean; 95 targeted tests passed",
+  "next_step_for_orchestrator": "F2 is complete on main at a5c8b2d; update the release board and run the final cross-pack suite."
+}

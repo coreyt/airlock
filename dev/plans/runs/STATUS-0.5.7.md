@@ -6,25 +6,21 @@
 > witnesses (worktree list, `output.json`, `*-review-*.md`, merge commits) and
 > trust the witnesses over this file on any conflict.
 
-_Last updated: 2026-07-21T05:20:00Z · mainline: `main` @ `25dadd0`_
+_Last updated: 2026-08-01T16:00:00Z · mainline: `main` @ `a5c8b2d`_
 
 ## 1. Current pack in flight + next action
 
-- **In flight:** none — **ready to kick off.** All four pack prompts written and
-  anchored to `25dadd0` (`prompts/0.5.7-F1.md` … `-F4.md`).
-- **Next action:** create worktrees and dispatch. **Suggested first: F-4 step 1** — a
-  ~30-min determination (does the inner `response_cost` survive?) that decides whether
-  F-4 is a real fix or a regression test, de-risking the biggest unknown. F-3 can start
-  in parallel. F-1 before F-2 (shared files); F-2 waits for F-1 to merge.
+- **In flight:** none — all planned implementation packs are merged to `main`.
+- **Next action:** conduct release review and use the normal 0.5.7 release checklist.
 
 ## 2. Pack scoreboard
 
 | Pack | Goal (1 line) | Prompt | Depends on | State | Witness |
 |------|---------------|--------|------------|-------|---------|
-| `0.5.7-F1` | `X-Airlock-Admission` header + real Retry-After on shed | `prompts/0.5.7-F1.md` | — | NOT_STARTED | — |
-| `0.5.7-F2` | True async semaphore acquire/release for concurrency cap | `prompts/0.5.7-F2.md` | **F-1 merged** (shared files) | NOT_STARTED | — |
-| `0.5.7-F3` | Helpful 404 + suggestions for refused model names | `prompts/0.5.7-F3.md` | — | NOT_STARTED | — |
-| `0.5.7-F4` | `enhanced/*` must not record $0.00 against real spend | `prompts/0.5.7-F4.md` | — | NOT_STARTED (investigation-first) | — |
+| `0.5.7-F1` | `X-Airlock-Admission` header + real Retry-After on shed | `prompts/0.5.7-F1.md` | — | MERGED | `runs/0.5.7-F1-output.json`; `ac7dd74` |
+| `0.5.7-F2` | True async semaphore acquire/release for concurrency cap | `prompts/0.5.7-F2.md` | **F-1 merged** | MERGED | `runs/0.5.7-F2-output.json`; `a5c8b2d` |
+| `0.5.7-F3` | Helpful 404 + suggestions for refused model names | `prompts/0.5.7-F3.md` | — | MERGED | `runs/0.5.7-F3-output.json`; `f2d777b` |
+| `0.5.7-F4` | `enhanced/*` must not record $0.00 against real spend | `prompts/0.5.7-F4.md` | — | MERGED (no production fix) | `runs/0.5.7-F4-output.json`; `157c343` |
 
 States (furthest witnessed wins):
 `WORKTREE_CREATED` → `IMPLEMENTING` → `IMPLEMENTED` (`output.json` + branch head past
@@ -35,14 +31,14 @@ baseline) → `REVIEWED` (`<pack>-review-<ts>.md` with a `## Verdict:` line) →
 
 | Requirement | Pack | Status |
 |-------------|------|--------|
-| `X-Airlock-Admission: admitted` / `shed; retry_after=N` reaches the client | F-1 | ⏳ |
-| Concurrency cap is an exact hard limit, not an approximation | F-2 | ⏳ |
-| Refused model name returns 404 with a usable suggestion, not litellm's generic error | F-3 | ⏳ |
-| `error.message` is self-sufficient without parsing the structured block | F-3 | ⏳ |
-| Suggestions never leak a model outside the caller's catalog | F-3 | ⏳ |
-| `gemini-coding` records non-zero cost matching the target model | F-4 | ⏳ |
-| Long-context (>200K) records the surcharged rate, not the base rate | F-4 | ⏳ |
-| Self-hosted vLLM models still record $0 — no fake pricing | F-4 | ⏳ |
+| `X-Airlock-Admission: admitted` / `shed; retry_after=N` reaches the client | F-1 | ✅ |
+| Concurrency cap is an exact hard limit, not an approximation | F-2 | ✅ |
+| Refused model name returns 404 with a usable suggestion, not litellm's generic error | F-3 | ✅ |
+| `error.message` is self-sufficient without parsing the structured block | F-3 | ✅ |
+| Suggestions never leak a model outside the caller's catalog | F-3 | ✅ (current catalog is global) |
+| `gemini-coding` records non-zero cost matching the target model | F-4 | ✅ (already propagated) |
+| Long-context (>200K) records the surcharged rate, not the base rate | F-4 | ✅ (inner cost preserved) |
+| Self-hosted vLLM models still record $0 — no fake pricing | F-4 | ✅ |
 
 ## 4. Parallelization plan
 

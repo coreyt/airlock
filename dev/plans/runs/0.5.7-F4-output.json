@@ -1,0 +1,42 @@
+{
+  "pack": "0.5.7-F4",
+  "baseline_sha": "6511b76",
+  "branch": "main",
+  "head_sha": "157c343",
+  "commits": [
+    "313188b: docs(0.5.7): record enhanced cost investigation (F-4)",
+    "157c343: test(0.5.7): pin enhanced cost propagation; correct ticket (F-4)"
+  ],
+  "tdd_evidence": {
+    "red_commit_sha": null,
+    "test_files": ["tests/test_enhanced_cost.py"]
+  },
+  "tests": {
+    "targeted": [
+      "tests/test_enhanced_cost.py",
+      "tests/test_enhanced_passthrough.py",
+      "tests/test_fast_monitor.py"
+    ],
+    "passed": 46,
+    "failed": 0,
+    "failing_ids": []
+  },
+  "files_changed": [
+    "dev/notes/0.5.7-F4-design.md",
+    "dev/notes/ticket-unpriced-models.md",
+    "tests/test_enhanced_cost.py"
+  ],
+  "blockers_encountered": [
+    {
+      "id": "unexpected-green",
+      "description": "The first regression measurement passed without a production change: the enhanced handler preserves the inner response object and its response_cost.",
+      "resolution": "Recorded the no-fix finding, added a regression test through provider-spend accounting, and corrected the ticket."
+    }
+  ],
+  "additional_changes_made_in_scope": [
+    "No enhanced provider code was changed because target-model pricing, including long-context pricing, already survives to Airlock accounting.",
+    "Tavily per-request billing remains a separate deferred investigation; self-hosted vLLM zero costs remain intentional."
+  ],
+  "agent_verify_result": "pass — ruff and format clean; 46 targeted tests passed",
+  "next_step_for_orchestrator": "F4 is complete on main at 157c343; update the release board and continue F3/F1/F2."
+}
