@@ -5,6 +5,23 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Keep declared compatibility windows authoritative. Dependabot still refreshes
+    # uv.lock for releases admitted by pyproject.toml, but must not widen a range
+    # merely to make a major/API migration fit.
+    versioning-strategy: increase-if-necessary
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # Dependabot treats 0.x minor changes as non-major, but these are deliberate
+      # API-migration boundaries and must not be widened automatically either.
+      - dependency-name: fathomdb
+        versions: [">=0.4"]
+      - dependency-name: mistralai
+        versions: [">=2"]
+      - dependency-name: newscatcher-catchall-sdk
+        versions: [">=2"]
+      - dependency-name: textual
+        versions: [">=7"]
     groups:
       core-proxy:
         patterns:

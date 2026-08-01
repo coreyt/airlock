@@ -50,6 +50,11 @@ CI group. Inline CI pins for ruff, mypy, pip-audit, and yamllint remain manually
 managed in `scripts/tool-versions.sh`, rather than being added to runtime or
 optional-extra metadata only to enable automation.
 
+The uv updater uses `increase-if-necessary` plus a no-major policy. Explicit
+ignores retain the four deferred migration boundaries even where zero-major
+versioning would otherwise make Dependabot treat a breaking change as a minor
+update. Compatible releases continue to refresh `uv.lock` in the review groups.
+
 ## Validation
 
 - `uv lock --check` verifies the manifest and records LiteLLM 1.94.1.

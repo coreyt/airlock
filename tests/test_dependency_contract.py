@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pathlib
 
+import yaml
+
 from scripts.check_docker_dependencies import project_requirements
 
 
@@ -91,3 +93,18 @@ def test_managed_spacy_installs_use_the_pinned_wheel_not_spacys_mutable_catalog(
         contents = (ROOT / relative_path).read_text()
         assert "AIRLOCK_SPACY_MODEL_URL" in contents, relative_path
         assert "python -m spacy download" not in contents, relative_path
+
+
+def test_dependabot_respects_deferred_migration_boundaries() -> None:
+    config = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
+    uv_update = next(
+        update for update in config["updates"] if update["package-ecosystem"] == "uv"
+    )
+
+    assert uv_update["versioning-strategy"] == "increase-if-necessary"
+    ignored = {entry["dependency-name"]: entry for entry in uv_update["ignore"]}
+    assert ignored["*"]["update-types"] == ["version-update:semver-major"]
+    assert ignored["fathomdb"]["versions"] == [">=0.4"]
+    assert ignored["mistralai"]["versions"] == [">=2"]
+    assert ignored["newscatcher-catchall-sdk"]["versions"] == [">=2"]
+    assert ignored["textual"]["versions"] == [">=7"]
