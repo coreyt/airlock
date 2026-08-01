@@ -6,7 +6,7 @@
 > witnesses (worktree list, `output.json`, `*-review-*.md`, merge commits) and
 > trust the witnesses over this file on any conflict.
 
-_Last updated: 2026-08-01T20:00:00Z · mainline: `main` @ `b6e15df`_
+_Last updated: 2026-08-01T20:48:00Z · mainline: `main` @ `1062343`_
 
 ## 1. Current pack in flight + next action
 
@@ -77,19 +77,19 @@ Max 3 worktrees (F-1/F-2 serialized in one, F-3 in another, F-4 in a third).
   store, that blocks the whole measurement and is far cheaper to find now than at T-4.
 - **GPT-5.6 has never served a live request** — listed, priced, tiered, routed, but
   never exercised end to end (no quota on the available key).
-- **Live gap:** `gemini-flash-lite` / `gemini-pro` / `gemini-flash` advanced generation
-  in 0.5.6 with no client-facing disclosure. Fix is 0.5.8 P-6
-  (`X-Airlock-Model-Alias`) — flagged there as "do NOT defer again".
+- **Resolved follow-up:** `gemini-flash-lite` / `gemini-pro` / `gemini-flash` now use
+  the 0.5.8 P-6 `X-Airlock-Model-Alias` disclosure when configured.
 
 **Repo health at kickoff:**
 
-- CI green on all four product jobs (`test`, `lint`, `docker`, `security`) as of the
-  2026-08-01 dependency workflow validation; Dependabot updater health is tracked
-  separately from release acceptance.
+- GitHub Actions run `30715371208` is green on all four product jobs (`test`, `lint`,
+  `docker`, `security`) for `1062343`; Dependabot updater health is tracked separately
+  from release acceptance.
   This was **not** true before 0.5.6 — `lint` and `docker` had been red since
   ~2026-06-29. Keep them green; a red board hides new failures, which is exactly how
   17 mypy errors accumulated unnoticed.
-- Suite: 2695 passed, 106 skipped.
+- Local release gate: 2733 passed, 106 deselected, 1 xpassed; Ruff, formatting, fast
+  subsystem mypy, `pip-audit`, and `uv build` also pass.
 - `config.local.yaml` is a tracked default-empty extension point. A machine's local
   override is purposeful but must remain unstaged; use `git add -p` around it.
 
