@@ -35,7 +35,6 @@ class AirlockModelOverrideHeaders(CustomLogger):
         response: Any,
         request_headers: dict[str, str] | None = None,
     ) -> dict[str, str] | None:
-        self._release_admission_slot((data or {}).get("metadata"))
         metadata = (data or {}).get("metadata") or {}
         response_headers = dict(metadata.get("airlock_response_headers") or {})
         if not response_headers and is_gemini_provider(

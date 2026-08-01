@@ -215,6 +215,57 @@ class TestAdmissionGate:
         )
         assert gate.try_acquire("alice") is True
 
+    @pytest.mark.asyncio
+    async def test_response_headers_do_not_release_an_inflight_admission_slot(self):
+        from airlock.callbacks.model_override_headers import AirlockModelOverrideHeaders
+        from airlock.fast import admission as admission_module
+
+        gate = self._gate(rpm=100, concurrency=1)
+        assert gate.try_acquire("alice") is True
+        data = {
+            "metadata": {
+                "airlock_admission": {"action": "admitted"},
+                "airlock_admission_slot": {"client_id": "alice", "released": False},
+            }
+        }
+        with patch.object(admission_module, "_admission_gate", gate):
+            await AirlockModelOverrideHeaders().async_post_call_response_headers_hook(
+                data=data,
+                user_api_key_dict=None,
+                response=MagicMock(_hidden_params={}),
+            )
+
+        assert data["metadata"]["airlock_admission_slot"]["released"] is False
+        assert gate.try_acquire("alice") is False
+
+    @pytest.mark.asyncio
+    async def test_success_callback_releases_admission_slot(self):
+        from airlock.callbacks.model_override_headers import AirlockModelOverrideHeaders
+        from airlock.fast import admission as admission_module
+
+        gate = self._gate(rpm=100, concurrency=1)
+        assert gate.try_acquire("alice") is True
+        kwargs = {
+            "litellm_params": {
+                "metadata": {
+                    "airlock_admission_slot": {
+                        "client_id": "alice",
+                        "released": False,
+                    }
+                }
+            }
+        }
+        with patch.object(admission_module, "_admission_gate", gate):
+            await AirlockModelOverrideHeaders().async_log_success_event(
+                kwargs, None, None, None
+            )
+
+        assert (
+            kwargs["litellm_params"]["metadata"]["airlock_admission_slot"]["released"]
+            is True
+        )
+        assert gate.try_acquire("alice") is True
+
 
 # ---------------------------------------------------------------------------
 # TestAdmissionGateDisabled
