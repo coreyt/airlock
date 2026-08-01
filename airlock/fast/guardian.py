@@ -33,7 +33,11 @@ from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
 from airlock.callbacks.enterprise_logger import write_precall_block_record
-from airlock.proxy_errors import AirlockProviderBlocked, sanitize_reason
+from airlock.proxy_errors import (
+    AirlockModelNotFound,
+    AirlockProviderBlocked,
+    sanitize_reason,
+)
 from airlock.reasoning_effort import normalize_reasoning_effort
 from airlock.transparency import detect_dropped_params, record_mutation
 from airlock.client_identity import (
@@ -314,6 +318,10 @@ class AirlockFastGuardian(CustomGuardrail):
         if not mcp and not batch:
             # ---- Step 2.5a: Model alias resolution ----
             resolved = alias_table.resolve(model_name)
+            if resolved is None:
+                suggestions = alias_table.suggest(model_name)
+                if suggestions:
+                    raise AirlockModelNotFound(model_name, suggestions)
             if resolved and resolved != model_name:
                 logger.info(
                     "model_alias %s -> %s",

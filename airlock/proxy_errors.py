@@ -18,6 +18,7 @@ from typing import Any
 from litellm import RateLimitError
 
 from airlock.litellm_adapter import resolve_proxy_app
+from airlock.transparency import model_suggestion_header
 
 # Redact key-like tokens (provider keys, bearer tokens, long secret-ish strings)
 # before any upstream reason text is echoed back to the client.
@@ -64,6 +65,22 @@ class AirlockProviderBlocked(RateLimitError):
         self.client_id = client_id
 
 
+class AirlockModelNotFound(Exception):
+    """A refused near-match, rendered as an OpenAI-shaped 404."""
+
+    def __init__(
+        self, requested_model: str, suggestions: list[dict[str, str | float]]
+    ) -> None:
+        self.requested_model = requested_model
+        self.suggestions = suggestions
+        models = [str(item["model"]) for item in suggestions if item.get("model")]
+        message = (
+            f"Model '{requested_model}' is not available. "
+            f"Try '{models[0]}'. Alternatives: {', '.join(models[1:]) or 'none'}."
+        )
+        super().__init__(message)
+
+
 def retry_after_seconds(cooldown_seconds: float) -> int:
     """Whole-second ``Retry-After`` value, at least 1."""
     return max(1, math.ceil(cooldown_seconds))
@@ -98,6 +115,21 @@ def block_response_payload(exc: AirlockProviderBlocked) -> tuple[dict, dict]:
     return body, headers
 
 
+def model_not_found_response_payload(exc: AirlockModelNotFound) -> tuple[dict, dict]:
+    """Build an OpenAI-compatible 404 for a refused near-match."""
+    body = {
+        "error": {
+            "message": sanitize_reason(str(exc), 500),
+            "type": "invalid_request_error",
+            "code": "model_not_found",
+            "param": "model",
+            "airlock": {"suggestions": exc.suggestions},
+        }
+    }
+    header = model_suggestion_header(exc.requested_model, exc.suggestions)
+    return body, {"X-Airlock-Model-Suggestion": header} if header else {}
+
+
 async def airlock_provider_blocked_handler(request: Any, exc: Exception):
     """FastAPI exception handler → 429 with Retry-After + enriched body."""
     from fastapi.responses import JSONResponse
@@ -105,6 +137,15 @@ async def airlock_provider_blocked_handler(request: Any, exc: Exception):
     assert isinstance(exc, AirlockProviderBlocked)
     body, headers = block_response_payload(exc)
     return JSONResponse(status_code=429, content=body, headers=headers)
+
+
+async def airlock_model_not_found_handler(request: Any, exc: Exception):
+    """FastAPI exception handler → an enriched model-not-found response."""
+    from fastapi.responses import JSONResponse
+
+    assert isinstance(exc, AirlockModelNotFound)
+    body, headers = model_not_found_response_payload(exc)
+    return JSONResponse(status_code=404, content=body, headers=headers)
 
 
 def install_airlock_error_handlers_on_proxy_app() -> bool:
@@ -122,8 +163,13 @@ def install_airlock_error_handlers_on_proxy_app() -> bool:
     app = resolve_proxy_app()
     if not isinstance(app, FastAPI):
         return False
-    if getattr(app.state, "airlock_error_handlers_installed", False):
-        return True
-    app.add_exception_handler(AirlockProviderBlocked, airlock_provider_blocked_handler)
+    if not getattr(app.state, "airlock_provider_blocked_handler_installed", False):
+        app.add_exception_handler(
+            AirlockProviderBlocked, airlock_provider_blocked_handler
+        )
+        app.state.airlock_provider_blocked_handler_installed = True
+    if not getattr(app.state, "airlock_model_not_found_handler_installed", False):
+        app.add_exception_handler(AirlockModelNotFound, airlock_model_not_found_handler)
+        app.state.airlock_model_not_found_handler_installed = True
     app.state.airlock_error_handlers_installed = True
     return True

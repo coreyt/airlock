@@ -293,6 +293,24 @@ def mutations_header(ledger: list[Mutation], budget_bytes: int = 256) -> str:
     return ""
 
 
+def model_suggestion_header(
+    requested: str, suggestions: list[dict[str, str | float]], budget_bytes: int = 256
+) -> str:
+    """Render the compact model-suggestion header without exposing unsafe text."""
+    if not suggestions:
+        return ""
+    suggested = suggestions[0].get("model")
+    if not isinstance(suggested, str) or not suggested:
+        return ""
+    tokens = [
+        f"requested={_header_safe(requested)}",
+        f"suggested={_header_safe(suggested)}",
+        "reason=dropped_qualifier",
+    ]
+    full = ";".join(tokens)
+    return full if len(full.encode("utf-8")) <= budget_bytes else ""
+
+
 def served_headers(s: ServedBackend | None) -> dict[str, str]:
     """X-Airlock-Served-By/-Region; {} when provider is unknown (omit, never guess)."""
     if s is None or s.provider is None:
