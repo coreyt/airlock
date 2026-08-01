@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pathlib
+import tomllib
 
 import yaml
 
@@ -105,6 +106,18 @@ def test_dependabot_respects_deferred_migration_boundaries() -> None:
     ignored = {entry["dependency-name"]: entry for entry in uv_update["ignore"]}
     assert ignored["*"]["update-types"] == ["version-update:semver-major"]
     assert ignored["fathomdb"]["versions"] == [">=0.4"]
-    assert ignored["mistralai"]["versions"] == [">=2"]
+    assert "mistralai" not in ignored
     assert ignored["newscatcher-catchall-sdk"]["versions"] == [">=2"]
-    assert ignored["textual"]["versions"] == [">=6.11"]
+    assert ignored["textual"]["versions"] == [">=6.3"]
+
+
+def test_mistral_v2_and_textual_rich_boundaries_are_declared() -> None:
+    manifest = tomllib.loads((ROOT / "pyproject.toml").read_text())
+
+    assert (
+        "mistralai>=2.0.0,<3" in manifest["project"]["optional-dependencies"]["mistral"]
+    )
+    assert manifest["project"]["dependencies"].count("textual>=6.2.1,<6.3") == 1
+    assert manifest["project"]["optional-dependencies"]["tui"] == [
+        "textual>=6.2.1,<6.3"
+    ]

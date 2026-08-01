@@ -139,7 +139,7 @@ class MistralBackend:
 
     # lazy SDK ----------------------------------------------------------
     def _import_mistral(self):
-        from mistralai import Mistral  # noqa: PLC0415  (lazy: optional 'mistral' extra)
+        from mistralai.client import Mistral  # noqa: PLC0415  (lazy: optional 'mistral' extra)
 
         return Mistral
 

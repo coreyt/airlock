@@ -16,14 +16,12 @@ updates:
       # API-migration boundaries and must not be widened automatically either.
       - dependency-name: fathomdb
         versions: [">=0.4"]
-      - dependency-name: mistralai
-        versions: [">=2"]
       - dependency-name: newscatcher-catchall-sdk
         versions: [">=2"]
       - dependency-name: textual
-        # Textual 6.11+ requires Rich 14, while the validated LiteLLM 1.94.1
+        # Textual 6.3+ requires Rich 14, while the validated LiteLLM 1.94.1
         # baseline requires Rich <14. Revisit after the LiteLLM migration.
-        versions: [">=6.11"]
+        versions: [">=6.3"]
     groups:
       core-proxy:
         patterns:

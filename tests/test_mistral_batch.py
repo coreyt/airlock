@@ -312,6 +312,27 @@ class TestFetch:
 # Lazy SDK: clear error when mistralai missing
 # ---------------------------------------------------------------------------
 class TestLazySDK:
+    def test_v2_sdk_contract_is_available(self):
+        """Pin the public v2 surface the lazy adapter calls without a live request."""
+        import importlib.metadata
+        import inspect
+
+        pytest.importorskip("mistralai")
+        assert importlib.metadata.version("mistralai").startswith("2.")
+
+        backend = MistralBackend(api_key="x")
+        Mistral = backend._import_mistral()
+        client = Mistral(api_key="x")
+        assert callable(client.files.upload)
+        assert callable(client.files.download)
+        assert callable(client.batch.jobs.create)
+        assert callable(client.batch.jobs.get)
+        assert callable(client.batch.jobs.cancel)
+        assert callable(client.batch.jobs.list)
+        assert {"endpoint", "input_files", "model", "metadata"} <= set(
+            inspect.signature(client.batch.jobs.create).parameters
+        )
+
     async def test_missing_sdk_raises_clear_error(self, monkeypatch):
         backend = MistralBackend(api_key="x")
 

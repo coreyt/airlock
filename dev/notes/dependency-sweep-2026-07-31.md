@@ -20,7 +20,7 @@ API or configuration contract.
 | --- | --- |
 | Core proxy | LiteLLM 1.94.1; Presidio Analyzer/Anonymizer 2.2.364; python-dotenv 1.2.2; PyYAML 6.0.3; Textual 6.2.1 |
 | Core/test support | FastAPI 0.141.1; SQLAlchemy 2.0.51; Prometheus client 0.26.0; pytest 9.1.1; pytest-asyncio 1.4.0; pytest-cov 7.1.0 |
-| Provider/integration extras | FathomDB 0.3.1; boto3 1.43.62; Google Auth 2.56.2; Google GenAI 2.16.0; Tavily 0.7.27; NewsCatcher 1.5.1; Mistral 1.12.4; OpenTelemetry API/SDK 1.44.0 |
+| Provider/integration extras | FathomDB 0.3.1; boto3 1.43.62; Google Auth 2.56.2; Google GenAI 2.16.0; Tavily 0.7.27; NewsCatcher 1.5.1; Mistral 2.8.0; OpenTelemetry API/SDK 1.39.1 |
 | Docs | MkDocs 1.6.1; MkDocs Material 9.7.7 |
 
 The transitive refresh also selects patched aiohttp 3.14.3, idna 3.18,
@@ -34,33 +34,55 @@ sweep.
 | Deferred migration | Current boundary | Follow-up required |
 | --- | --- | --- |
 | FathomDB 0.8 | `fathomdb<0.4` | Storage API design/migration and FathomDB integration tests. |
-| Mistral 2.x | `mistralai<2` | Update the batch adapter import/client API and Mistral batch tests. |
+| Mistral 3.x | `mistralai>=2,<3` | Reassess the batch client API and focused Mistral batch tests. |
 | NewsCatcher 3.x | `newscatcher-catchall-sdk<2` | Update search client API and integration tests. |
-| Textual 7/8 | `textual<7` | Dedicated TUI rendering/event-loop migration and TUI regression suite. |
+| Textual 6.3+ / 7/8 | `textual<6.3` | Wait for a LiteLLM proxy release compatible with Rich 14, then run a dedicated TUI rendering/event-loop migration and regression suite. |
 
 These are intentionally separate API-level changes, not lockfile updates.
 
 ### Follow-up sequencing — revisited 2026-08-01
 
-No deferred migration is part of the 0.5.7 internal train. Keep the compatibility
-caps until each item has its own design, implementation, and focused CI group. The
-recommended order is:
+Mistral 2.x was completed on 2026-08-01: the lazy import moved to
+`mistralai.client.Mistral`, while the files and `batch.jobs` surface remains
+compatible; a v2 contract test guards that fact.
+Keep the remaining compatibility caps until each item has its own design,
+implementation, and focused CI group. The recommended order is:
 
-1. **Textual 7/8** — first investigate the Rich 14/LiteLLM compatibility boundary,
+1. **Textual 6.3+ / 7/8** — wait for a LiteLLM proxy release that supports Rich 14,
    then migrate the active TUI rendering and event-loop surface with its regression
-   suite. Dependabot has already demonstrated that this is not a patch-only update.
-2. **Mistral 2.x** — update the isolated batch adapter's moved client import and
-   `batch.jobs` calls, then run the Mistral batch unit suite (and an opt-in live
-   round-trip when credentials are available).
-3. **NewsCatcher 3.x** — update the optional MCP search client and its polling/error
+   suite. The resolver incompatibility is recorded separately.
+2. **NewsCatcher 3.x** — update the optional MCP search client and its polling/error
    handling, with MCP server tests. Its isolation makes it lower risk than the TUI
-   and batch-client migrations.
-4. **FathomDB 0.8** — first settle the storage API/schema direction against the
+   migration.
+3. **FathomDB 0.8** — first settle the storage API/schema direction against the
    existing Fathom design notes, then perform a storage migration and integration
    suite. Do not treat the version cap as a mechanical package update.
 
 Tavily accounting remains intentionally set aside and is not folded into any of these
 dependency migrations.
+
+### 2026-08-01 completion addendum
+
+The Mistral migration updates the optional extra to `mistralai>=2.0.0,<3` and
+changes the lazy SDK import to `mistralai.client.Mistral`. Its v2 `files` and
+`batch.jobs` operations retain the keyword interface used by Airlock; a focused
+contract test checks the import, version, operation presence, and batch-create
+parameters without a provider request. The credential-gated Mistral live test
+remains opt-in and was not run.
+
+The final all-extras resolution has 182 packages. Mistral 2.8.0 requires
+`opentelemetry-semantic-conventions>=0.60b1,<0.61`, so the shared optional
+tracing selection resolves OpenTelemetry API/SDK 1.39.1 rather than 1.44.0;
+both remain within Airlock's declared `>=1.20.0` range and the tracing suite
+passes. This resolver consequence is explicit rather than an unnoticed
+transitive downgrade.
+
+The Rich/LiteLLM investigation established a narrower Textual ceiling:
+`textual>=6.2.1,<6.3`. Textual 6.3 and later require Rich 14 while LiteLLM
+1.94.1's proxy extra caps Rich below 14. The manifest, optional TUI extra, and
+Dependabot ignore rule now express that bound; the complete Textual TUI suite
+passes. See `dev/notes/rich-litellm-textual-compat-2026-08-01.md` for the
+package-metadata evidence and the eventual migration paths.
 
 ## Automation policy
 
@@ -73,9 +95,9 @@ managed in `scripts/tool-versions.sh`, rather than being added to runtime or
 optional-extra metadata only to enable automation.
 
 The uv updater uses `increase-if-necessary` plus a no-major policy. Explicit
-ignores retain the four deferred migration boundaries even where zero-major
+ignores retain the remaining deferred migration boundaries even where zero-major
 versioning would otherwise make Dependabot treat a breaking change as a minor
-update. Textual 6.11+ is also deferred: it requires Rich 14 while the validated
+update. Textual 6.3+ is also deferred: it requires Rich 14 while the validated
 LiteLLM 1.94.1 baseline requires Rich below 14. Compatible releases continue to
 refresh `uv.lock` in the review groups.
 

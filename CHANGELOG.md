@@ -35,8 +35,14 @@ no package version bump, tag, or PyPI publication.
   the duplicate `requirements.txt` path is removed. The locked LiteLLM baseline is
   1.94.1, with a build-time check that the image satisfies Airlock's declared
   LiteLLM requirement.
-- Compatibility boundaries are explicit while their API migrations are deferred:
-  `fathomdb<0.4`, `mistralai<2`, `newscatcher-catchall-sdk<2`, and `textual<7`.
+- The optional Mistral batch integration now uses and contract-tests `mistralai`
+  2.x, updating its lazy client import to `mistralai.client.Mistral`; the batch
+  and files operations remain compatible. The next Mistral API migration is
+  explicitly capped at `<3`.
+- Compatibility boundaries remain explicit for `fathomdb<0.4` and
+  `newscatcher-catchall-sdk<2`. Textual is constrained to `<6.3`: newer Textual
+  releases require Rich 14 while LiteLLM's proxy extra currently requires Rich
+  `<14`.
 
 ## [0.5.6] — 2026-07-20
 
