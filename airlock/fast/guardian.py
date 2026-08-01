@@ -34,6 +34,7 @@ from litellm.types.guardrails import GuardrailEventHooks
 
 from airlock.callbacks.enterprise_logger import write_precall_block_record
 from airlock.proxy_errors import (
+    AirlockAdmissionShed,
     AirlockModelNotFound,
     AirlockProviderBlocked,
     sanitize_reason,
@@ -306,8 +307,9 @@ class AirlockFastGuardian(CustomGuardrail):
                     "action": "shed",
                     "retry_after": round(retry_after, 1),
                 }
-                raise ValueError(
-                    f"Too many requests. Please retry after {int(retry_after) + 1} seconds."
+                raise AirlockAdmissionShed(
+                    f"Too many requests. Please retry after {int(retry_after) + 1} seconds.",
+                    retry_after=retry_after,
                 )
             data.setdefault("metadata", {})["airlock_admission"] = {
                 "action": "admitted"
@@ -320,7 +322,7 @@ class AirlockFastGuardian(CustomGuardrail):
             resolved = alias_table.resolve(model_name)
             if resolved is None:
                 suggestions = alias_table.suggest(model_name)
-                if suggestions:
+                if isinstance(suggestions, list) and suggestions:
                     raise AirlockModelNotFound(model_name, suggestions)
             if resolved and resolved != model_name:
                 logger.info(
