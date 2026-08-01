@@ -48,18 +48,24 @@ CI group. Inline CI pins for ruff, mypy, and pip-audit remain manually managed.
 ## Validation
 
 - `uv lock` resolves the manifest and records LiteLLM 1.94.1.
-- `uv sync --all-extras` completes from the final 187-package lock.
+- A final compatible transitive refresh resolves cleanly, and `uv sync
+  --all-extras` completes from the final 187-package lock. It retains all four
+  explicit migration caps and the LiteLLM 1.94.1 baseline.
 - `python scripts/check_docker_dependencies.py` passes with LiteLLM 1.94.1;
   `tests/test_docker_dependencies.py` passes (2 tests). The Docker image builds
   and its in-container smoke check reports the same result.
 - A wheel built with `uv build --wheel` installs cleanly into an isolated virtual
   environment and reports `airlock-llm 0.5.6`.
-- Ruff and the configured fast-subsystem mypy check pass.
-- The non-live suite was invoked with all extras (2,703 selected tests; live
-  tests excluded). Focused final regressions pass: adapter (31), header (34),
-  models/batch/routing (36), guardian (38), request-event projection (20),
-  proxy bootstrap (1), FathomDB/S3/SQL (41), and
-  metrics/tracing/AI Studio/Mistral (44 passed, 1 skipped).
+- Ruff and formatting pass for Airlock and its tests. The repository-wide Ruff
+  run has four pre-existing violations in `scripts/benchmark_fathomdb.py`; the
+  current mypy configuration reports pre-existing missing-stub and source typing
+  errors, so neither is attributed to this lock-only update.
+- Post-refresh focused non-live regressions pass: core proxy and Docker checks
+  (110 passed), plus FathomDB/S3/SQL/metrics/tracing/Mistral/MCP/config/CLI
+  integration coverage (265 passed, 2 skipped, 1 xpassed). Live provider tests
+  remain opt-in.
+- `mkdocs build --strict` passes and `pip-audit` reports no known
+  vulnerabilities.
 - The initial `pip-audit` found 24 advisories. Compatible transitive patches,
   including aiohttp 3.14.3 and Click 8.4.2, reduced the final audit to zero
   known vulnerabilities.
