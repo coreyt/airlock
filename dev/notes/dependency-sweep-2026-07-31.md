@@ -16,9 +16,9 @@ API or configuration contract.
 | Group | Packages selected |
 | --- | --- |
 | Core proxy | LiteLLM 1.94.1; Presidio Analyzer/Anonymizer 2.2.364; python-dotenv 1.2.2; PyYAML 6.0.3; Textual 6.2.1 |
-| Core/test support | FastAPI 0.141.1; SQLAlchemy 2.0.51; Prometheus client 0.26.0; pytest 9.1.1; pytest-asyncio 1.3.0; pytest-cov 7.0.0 |
-| Provider/integration extras | FathomDB 0.3.1; boto3 1.43.29; Google Auth 2.54.0; Google GenAI 2.8.0; Tavily 0.7.22; NewsCatcher 1.0.0; Mistral 1.12.4; OpenTelemetry API/SDK 1.39.1 |
-| Docs | MkDocs 1.6.1; MkDocs Material 9.7.6 |
+| Core/test support | FastAPI 0.141.1; SQLAlchemy 2.0.51; Prometheus client 0.26.0; pytest 9.1.1; pytest-asyncio 1.4.0; pytest-cov 7.1.0 |
+| Provider/integration extras | FathomDB 0.3.1; boto3 1.43.62; Google Auth 2.56.2; Google GenAI 2.16.0; Tavily 0.7.27; NewsCatcher 1.5.1; Mistral 1.12.4; OpenTelemetry API/SDK 1.44.0 |
+| Docs | MkDocs 1.6.1; MkDocs Material 9.7.7 |
 
 The transitive refresh also selects patched aiohttp 3.14.3, idna 3.18,
 pyasn1 0.6.4, pydantic-settings 2.14.2, pytest 9.1.1, python-dotenv 1.2.2,
