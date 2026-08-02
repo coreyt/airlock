@@ -22,8 +22,6 @@ import httpx
 import pytest
 
 
-pytestmark = pytest.mark.live
-
 _API_KEY = os.getenv("OPENAI_API_KEY")
 _OPT_IN = os.getenv("AIRLOCK_LIVE_OPENAI_REASONING_EFFORT") == "1"
 _MODEL = os.getenv("AIRLOCK_OPENAI_REASONING_EFFORT_MODEL", "gpt-5.6-sol")
@@ -96,6 +94,7 @@ def test_max_probe_contract_is_direct_and_unmodified() -> None:
 
 
 @requires_live
+@pytest.mark.live
 def test_openai_accepts_max_reasoning_effort() -> None:
     """Provider evidence gate.  Failure is evidence, not a reason to guess."""
     assert _API_KEY is not None  # narrows for static checkers; guarded by requires_live.
