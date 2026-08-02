@@ -1,7 +1,7 @@
 # Cross-tier fuzzy measurement window — P-2b
 
-**Status:** NOT STARTED. The instrumentation exists in the working implementation,
-but this window begins only after that exact code is deployed and its event is
+**Status:** NOT STARTED. The instrumentation is committed on `main`, but this window
+begins only after that exact code is deployed and its event is
 queryable from the normal RequestEvent sink.
 
 This is deliberately separate from the 2026-07-21 → 2026-08-21 reasoning-effort

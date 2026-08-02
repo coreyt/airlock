@@ -77,12 +77,12 @@ Max 3 worktrees (F-1/F-2 serialized in one, F-3 in another, F-4 in a third).
   `runs/warn-only-measurement-window.md`. **T-2 (confirm the events are queryable, not
   just greppable) should be done in week 1** — if they are not reaching the event
   store, that blocks the whole measurement and is far cheaper to find now than at T-4.
-- **Cross-tier fuzzy resolution is not yet measured.** Current code only emits
-  `effort_would_reject`; the dropped-qualifier refusal is already enforcing and is
-  not a substitute for a `fuzzy_match_would_reject` population. P-2b needs its own
-  non-mutating instrumentation and a full observation window before it can be
-  considered for enforcement. The instrumentation is prepared on `main` but is not
-  deployed; see `dev/notes/0.5.8-enforcement-design.md` and
+- **Cross-tier fuzzy resolution is not yet measured.** The deployed effort window only
+  emits `effort_would_reject`; the dropped-qualifier refusal is already enforcing and
+  is not a substitute for a `fuzzy_match_would_reject` population. P-2b's separate
+  non-mutating instrumentation is prepared on `main` but not deployed. It needs a full
+  observation window after queryability is verified before enforcement is considered.
+  See `dev/notes/0.5.8-enforcement-design.md` and
   `runs/cross-tier-fuzzy-measurement-window.md`.
 - **GPT-5.6 has never served a live request** — listed, priced, tiered, routed, but
   never exercised end to end (no quota on the available key).

@@ -267,6 +267,28 @@ def test_would_reject_marker_reaches_request_event_stream():
     assert event.mutations[0]["field"] == "reasoning_effort_would_reject"
 
 
+def test_cross_tier_would_reject_marker_reaches_request_event_stream():
+    """P-2b measurement must be queryable from the same canonical stream."""
+    marker = Mutation(
+        field="model_alias_would_reject",
+        op="inject",
+        before=None,
+        after=None,
+        stage="pre_call",
+        source="guardian.alias_cross_tier_measurement",
+        reason="current fuzzy route 'alpha-1' (low) is close to 'alpha-2' (high)",
+    )
+    event = build_request_event(
+        _kwargs(metadata={"airlock_mutations": [marker]}),
+        _FakeResponse(),
+        _ts(0),
+        _ts(1),
+        success=True,
+    )
+    assert event.mutations[0]["field"] == "model_alias_would_reject"
+    assert event.mutations[0]["source"] == "guardian.alias_cross_tier_measurement"
+
+
 def test_served_and_attribution_from_attribute_served_backend(monkeypatch):
     served = ServedBackend(
         provider="openai",
