@@ -299,7 +299,11 @@ def _bounded_header_tokens(tokens: list[str], budget_bytes: int) -> str:
 
 
 def model_suggestion_header(
-    requested: str, suggestions: list[dict[str, str | float]], budget_bytes: int = 256
+    requested: str,
+    suggestions: list[dict[str, str | float]],
+    budget_bytes: int = 256,
+    *,
+    reason: str = "dropped_qualifier",
 ) -> str:
     """Render the compact model-suggestion header without exposing unsafe text."""
     if not suggestions:
@@ -310,7 +314,7 @@ def model_suggestion_header(
     tokens = [
         f"requested={_header_safe(requested)}",
         f"suggested={_header_safe(suggested)}",
-        "reason=dropped_qualifier",
+        f"reason={_header_safe(reason)}",
     ]
     return _bounded_header_tokens(tokens, budget_bytes)
 

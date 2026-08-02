@@ -8,10 +8,16 @@ import pytest
 
 import airlock.reasoning_effort as re_mod
 from airlock.reasoning_effort import normalize_reasoning_effort
+from airlock.reasoning_effort import validate_reasoning_effort
+from airlock.proxy_errors import (
+    AirlockInvalidReasoningEffort,
+    invalid_reasoning_effort_response_payload,
+)
 
 
 @pytest.fixture(autouse=True)
 def _enabled(monkeypatch):
+    monkeypatch.delenv("AIRLOCK_VALIDATE_REASONING_EFFORT", raising=False)
     monkeypatch.delenv("AIRLOCK_NORMALIZE_REASONING_EFFORT", raising=False)
     re_mod.reset_model_map_cache()
     yield
@@ -540,3 +546,46 @@ class TestWarnOnlyRoutingIsByteIdentical:
         assert out is data
         assert data.get("reasoning_effort", ...) == emitted
         assert data["model"] == model  # routing target never touched
+
+
+class TestEnforcingValidation:
+    """0.5.8 P-2: reject known-invalid OpenAI values without rewriting them."""
+
+    def test_known_invalid_returns_typed_400_contract(self, fake_map):
+        data = {"model": "gpt-5.4", "reasoning_effort": "none"}
+        with pytest.raises(AirlockInvalidReasoningEffort) as raised:
+            validate_reasoning_effort(data, "openai", client_id="acme-42")
+
+        assert data["reasoning_effort"] == "none"
+        body, headers = invalid_reasoning_effort_response_payload(raised.value)
+        assert headers == {}
+        assert body == {
+            "error": {
+                "message": "reasoning_effort 'none' is not supported by 'gpt-5.4'; use one of: high, low, medium, minimal.",
+                "type": "invalid_request_error",
+                "code": "invalid_reasoning_effort",
+                "param": "reasoning_effort",
+                "airlock": {
+                    "requested": "none",
+                    "model": "gpt-5.4",
+                    "supported": ["high", "low", "medium", "minimal"],
+                },
+            }
+        }
+
+    def test_known_supported_and_unknown_model_pass_through(self, fake_map):
+        supported = {"model": "gpt-5.6-sol", "reasoning_effort": "none"}
+        unknown = {"model": "my-self-hosted-llama", "reasoning_effort": "none"}
+        assert validate_reasoning_effort(supported, "openai") is supported
+        assert validate_reasoning_effort(unknown, "openai") is unknown
+
+    def test_unresolved_max_fails_open_pending_provider_probe(self, fake_map):
+        data = {"model": "gpt-5.6-sol", "reasoning_effort": "max"}
+        assert validate_reasoning_effort(data, "openai") is data
+        assert data["reasoning_effort"] == "max"
+
+    def test_escape_hatch_preserves_request_for_litellm_drop_params(self, fake_map, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_VALIDATE_REASONING_EFFORT", "0")
+        data = {"model": "gpt-5.4", "reasoning_effort": "none"}
+        assert validate_reasoning_effort(data, "openai") is data
+        assert data["reasoning_effort"] == "none"

@@ -8,9 +8,12 @@ import pytest
 from litellm import RateLimitError
 
 from airlock.proxy_errors import (
+    AirlockInvalidReasoningEffort,
     AirlockProviderBlocked,
+    airlock_invalid_reasoning_effort_handler,
     airlock_provider_blocked_handler,
     block_response_payload,
+    invalid_reasoning_effort_response_payload,
     install_airlock_error_handlers_on_proxy_app,
     retry_after_seconds,
 )
@@ -97,6 +100,26 @@ class TestHandler:
         assert payload["error"]["type"] == "airlock_circuit_breaker"
 
 
+class TestInvalidReasoningEffort:
+    def test_payload_is_openai_shaped_400(self):
+        exc = AirlockInvalidReasoningEffort(
+            "none", "openai/gpt-5.4", frozenset({"minimal", "low", "medium", "high"})
+        )
+        body, headers = invalid_reasoning_effort_response_payload(exc)
+        assert headers == {}
+        assert body["error"]["code"] == "invalid_reasoning_effort"
+        assert body["error"]["param"] == "reasoning_effort"
+        assert body["error"]["airlock"]["requested"] == "none"
+
+    async def test_handler_returns_400(self):
+        exc = AirlockInvalidReasoningEffort(
+            "none", "openai/gpt-5.4", frozenset({"minimal", "low", "medium", "high"})
+        )
+        response = await airlock_invalid_reasoning_effort_handler(None, exc)
+        assert response.status_code == 400
+        assert json.loads(response.body)["error"]["code"] == "invalid_reasoning_effort"
+
+
 class TestInstall:
     def test_returns_false_without_proxy_app(self, monkeypatch):
         import sys
@@ -117,6 +140,7 @@ class TestInstall:
         # second call is a no-op success
         assert install_airlock_error_handlers_on_proxy_app() is True
         assert AirlockProviderBlocked in app.exception_handlers
+        assert AirlockInvalidReasoningEffort in app.exception_handlers
 
 
 class TestGuardianRaisesTyped:

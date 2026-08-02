@@ -31,6 +31,15 @@ no package version bump, tag, or PyPI publication.
 
 ### Changed
 
+- OpenAI-family requests with a known-invalid `reasoning_effort` now receive an
+  OpenAI-shaped 400 (`invalid_reasoning_effort`) instead of silently being
+  normalized or dropped. `AIRLOCK_VALIDATE_REASONING_EFFORT=0` is the temporary
+  rollback; unresolved `max` continues to pass through until its provider probe is
+  conclusive.
+- Fuzzy model matches that would cross configured cost tiers now return the existing
+  OpenAI-shaped 404/suggestion response (`reason=fuzzy_match_crosses_cost_tier`),
+  rather than silently routing to a different-cost alias. Same-tier fuzzy matching
+  remains available.
 - Maintenance: the container now installs Airlock directly from `pyproject.toml`;
   the duplicate `requirements.txt` path is removed. The locked LiteLLM baseline is
   1.94.1, with a build-time check that the image satisfies Airlock's declared

@@ -205,9 +205,9 @@ header:
 X-Airlock-Model-Suggestion: requested=gpt-5.6-mini;suggested=gpt-5.6-luna;reason=dropped_qualifier
 ```
 
-This describes the current dropped-qualifier guard only. Near matches that already
-resolve across a cost tier are not yet rejected; their proposed stricter behavior is
-separately measured before any enforcement change.
+Near matches whose close candidates cross configured cost tiers are also refused in
+0.5.8. Their response uses the same 404 body and header grammar, with
+`reason=fuzzy_match_crosses_cost_tier`; same-tier fuzzy matches remain routable.
 
 A `WARNING` is logged naming the request, what it would have been matched to, and the
 ranked suggestions with their cost tiers:

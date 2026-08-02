@@ -39,7 +39,7 @@ from airlock.proxy_errors import (
     AirlockProviderBlocked,
     sanitize_reason,
 )
-from airlock.reasoning_effort import normalize_reasoning_effort
+from airlock.reasoning_effort import normalize_reasoning_effort, validate_reasoning_effort
 from airlock.transparency import detect_dropped_params, record_mutation
 from airlock.client_identity import (
     client_id_from_api_key,
@@ -299,22 +299,8 @@ class AirlockFastGuardian(CustomGuardrail):
                     raise AirlockModelNotFound(model_name, suggestions)
             if alias_resolution.cross_tier is not None:
                 cross_tier = alias_resolution.cross_tier
-                # Keep the measurement dimensions structured and content-safe so
-                # the canonical RequestEvent/JSONL stream can produce a
-                # deterministic affected-client report.  The warning remains for
-                # operator-facing logs; this metadata is the queryable record.
-                data.setdefault("metadata", {})[
-                    "airlock_cross_tier_fuzzy_measurement"
-                ] = {
-                    "requested": model_name,
-                    "served": cross_tier.served,
-                    "suggested": cross_tier.suggested,
-                    "score": cross_tier.score,
-                    "from_tier": cross_tier.from_tier,
-                    "to_tier": cross_tier.to_tier,
-                }
                 logger.warning(
-                    "event=fuzzy_match_would_reject requested=%s served=%s "
+                    "event=fuzzy_match_rejected requested=%s served=%s "
                     "suggested=%s score=%.3f from_tier=%s to_tier=%s client_id=%s",
                     model_name,
                     cross_tier.served,
@@ -324,18 +310,20 @@ class AirlockFastGuardian(CustomGuardrail):
                     cross_tier.to_tier,
                     client_id,
                 )
-                record_mutation(
-                    data["metadata"],
-                    field="model_alias_would_reject",
-                    op="inject",
-                    before=None,
-                    after=None,
-                    stage="pre_call",
-                    source="guardian.alias_cross_tier_measurement",
-                    reason=(
-                        f"current fuzzy route {cross_tier.served!r} ({cross_tier.from_tier}) "
-                        f"is close to {cross_tier.suggested!r} ({cross_tier.to_tier})"
-                    ),
+                suggestions = alias_table.suggest(model_name)
+                suggestions.sort(
+                    key=lambda item: 0 if item.get("model") == cross_tier.suggested else 1
+                )
+                if not suggestions:
+                    suggestions = [
+                        {
+                            "model": cross_tier.suggested,
+                            "score": cross_tier.score,
+                            "tier": cross_tier.to_tier,
+                        }
+                    ]
+                raise AirlockModelNotFound(
+                    model_name, suggestions, reason="fuzzy_match_crosses_cost_tier"
                 )
             if resolved and resolved != model_name:
                 logger.info(
@@ -516,12 +504,14 @@ class AirlockFastGuardian(CustomGuardrail):
         # ---- Step 4: Priority scoring ----
         target_provider = infer_provider(data.get("model") or model_name)
         data = apply_gemini_request_semantics(data, provider=target_provider)
-        # Translate an off-intent / provider-invalid reasoning_effort (e.g. "none"
-        # for OpenAI) to the target provider's floor BEFORE litellm's drop_params
-        # silently strips it and the model falls back to its default reasoning.
-        # client_id is passed so the warn-only `effort_would_reject` event can be
-        # attributed to a specific caller (design §13.2) rather than a bare total.
-        normalize_reasoning_effort(data, target_provider, client_id=client_id)
+        # P-2 deliberately rejects known-invalid OpenAI/Azure values before
+        # LiteLLM's drop_params can silently change client intent.  Unknown
+        # capability data (including unresolved ``max``) fails open.  Gemini and
+        # Anthropic preserve their established provider-specific normalization.
+        if target_provider in {"openai", "azure", "azure_ai"}:
+            validate_reasoning_effort(data, target_provider, client_id=client_id)
+        else:
+            normalize_reasoning_effort(data, target_provider, client_id=client_id)
         # Derived drop_params transparency (Decision 8): record each client param the
         # resolved provider does not support as an op="drop" — once per request.
         if target_provider:

@@ -32,6 +32,18 @@ them, so `config.local.yaml` must list **every** MCP server you want at runtime
 `${HOME}`/`~` in MCP `command`/`args`, and only launches commands whose basename is
 on its allowlist. Full rules and examples in [MCP Servers](../guide/mcp-servers.md).
 
+## Reasoning-effort validation
+
+Airlock 0.5.8 rejects a known-invalid `reasoning_effort` for OpenAI-family models
+with an OpenAI-shaped 400 rather than silently changing or dropping the value.
+Unknown/custom models, and `max` while its provider capability remains unresolved,
+pass through unchanged.
+
+Set `AIRLOCK_VALIDATE_REASONING_EFFORT=0` only as a short-term rollback: it restores
+LiteLLM's normal `drop_params` handling for OpenAI-family requests. The former
+`AIRLOCK_NORMALIZE_REASONING_EFFORT` name remains a compatibility fallback while the
+new setting is unset.
+
 ## Self-hosted / local models
 
 Airlock supports any OpenAI-compatible endpoint (vLLM, Ollama, LocalAI, etc.) using the `openai/` prefix with a custom `api_base`:
@@ -251,15 +263,23 @@ See [Batch Processing](../guide/batch.md) for the end-to-end recipe.
 | `AIRLOCK_FALLBACK_MAX_PROMPT_TOKENS` | Prompt-token size above which fallbacks are suppressed (fail fast instead of fanning out a large payload) | `60000` |
 | `AIRLOCK_JWT_SECRET` | Secret for signing/verifying admin & capability tokens. Falls back to an HMAC derivation from `AIRLOCK_MASTER_KEY` when unset. | -- |
 | `AIRLOCK_JWT_SECRET_PREV` | Previous JWT secret, accepted for verification during a rolling secret rotation | -- |
-| `AIRLOCK_NORMALIZE_REASONING_EFFORT` | Translate an off-intent / provider-invalid `reasoning_effort` (e.g. `"none"`) to the target provider's floor before `drop_params` strips it (OpenAI→`minimal`, Gemini→`disable`, Anthropic→dropped). Set `0` to disable the legacy request mutation; warn-only measurement remains active. | `1` |
+| `AIRLOCK_VALIDATE_REASONING_EFFORT` | Reject known-invalid OpenAI/Azure `reasoning_effort` values with an OpenAI-shaped 400. Set `0` for the short-term `drop_params` rollback. | `1` |
+| `AIRLOCK_NORMALIZE_REASONING_EFFORT` | Legacy compatibility fallback for validation while `AIRLOCK_VALIDATE_REASONING_EFFORT` is unset; still controls Gemini/Anthropic normalization. | `1` |
 
-### `reasoning_effort` normalization
+### `reasoning_effort` validation and normalization
 
-litellm's `drop_params: true` silently strips a `reasoning_effort` value the
-target provider's schema rejects — so a client sending `reasoning_effort: "none"`
-to an OpenAI model gets it **dropped**, and the model falls back to its *default*
-(often high) reasoning, the opposite of the intent. Airlock normalizes off-intent
-values (`none`, `off`, `disable`, …) in the pre-call hook **before** that strip:
+For OpenAI-family models, Airlock validates the client value before LiteLLM's
+`drop_params: true` can silently strip or change it. A value known invalid for the
+resolved model receives a 400 with `error.code=invalid_reasoning_effort`; known
+valid values pass unchanged. Unknown/custom model capability and unresolved `max`
+pass through unchanged rather than being rejected from incomplete information.
+
+Set `AIRLOCK_VALIDATE_REASONING_EFFORT=0` only as a short-term rollback. It restores
+LiteLLM's normal `drop_params` handling for OpenAI-family calls. The legacy
+`AIRLOCK_NORMALIZE_REASONING_EFFORT` variable is honored only when the new name is
+unset, and is deprecated for this purpose.
+
+Gemini and Anthropic retain their established provider-specific normalization:
 
 | Target provider | `"none"` becomes |
 |---|---|
@@ -267,22 +287,9 @@ values (`none`, `off`, `disable`, …) in the pre-call hook **before** that stri
 | Gemini | `disable` (thinking budget 0) |
 | Anthropic | the param is dropped (no extended thinking) |
 
-Valid values pass through unchanged; unknown providers/values are left for
-`drop_params`. Set `AIRLOCK_NORMALIZE_REASONING_EFFORT=0` to disable the legacy
-request mutation. The independent warn-only measurement remains active so this
-operational escape hatch cannot make its report look like a zero-affected population.
-
-#### Current 0.5.8 measurement state
-
-Airlock continues the normalization above today. For OpenAI-family requests it also
-records a **warn-only** `effort_would_reject` event when the value the client originally
-sent is outside LiteLLM's known capability flags for the resolved model. That event is
-recorded in the normal mutation ledger / RequestEvent path (and can appear as an
-`inject` token in `X-Airlock-Mutations`); it does **not** reject the request or change
-routing. Strict validation is deliberately gated on the measurement report, a
-per-caller disposition, and a funded verification of `reasoning_effort=max`; operators
-should use the measurement runbook rather than treat a zero log count as proof that
-the event is unavailable.
+Unknown providers/values retain their existing behavior. Historical warn-only
+measurement reports remain available for monitoring and client remediation, but no
+longer control 0.5.8 enforcement.
 
 ## Resilience & admin settings
 

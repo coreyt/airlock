@@ -1,6 +1,8 @@
 # Warn-only measurement window — RUNBOOK
 
-**Status:** ACTIVE. Started with the 0.5.6 deploy on **2026-07-20**.
+**Status:** SUPERSEDED AS A RELEASE GATE on **2026-08-02**. The report remains the
+post-release monitoring and client-remediation procedure; it no longer delays the
+0.5.8 enforcement patch.
 **Owner:** `coreyt` — *assigned by default because this is a single-maintainer repo.*
 **Reassign if that is wrong; an unowned window is the failure mode this exists to avoid.**
 

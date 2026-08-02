@@ -1,8 +1,8 @@
 # Cross-tier fuzzy measurement window — P-2b
 
-**Status:** NOT STARTED. The instrumentation is committed on `main`, but this window
-begins only after that exact code is deployed and its event is
-queryable from the normal RequestEvent sink.
+**Status:** SUPERSEDED AS A RELEASE GATE on **2026-08-02**. The deterministic
+enterprise-JSONL/query/report contract is covered in CI; a deployed observation window
+remains post-release monitoring, not a prerequisite to 0.5.8 enforcement.
 
 This is deliberately separate from the 2026-07-21 → 2026-08-21 reasoning-effort
 window. That window cannot measure fuzzy alias traffic because its deployed code has

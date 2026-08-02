@@ -6,14 +6,48 @@ import pytest
 
 from airlock.fast.guardian import AirlockFastGuardian
 from airlock.fast.model_alias import AliasResolution, CrossTierFuzzyMatch
-from airlock.callbacks.projections import project_enterprise
-from airlock.callbacks.request_event import RequestRecorder, RequestRecorderCallback
-from airlock.measurement_report import build_measurement_report
 from airlock.proxy_errors import (
+    AirlockInvalidReasoningEffort,
     AirlockModelNotFound,
     airlock_model_not_found_handler,
     model_not_found_response_payload,
 )
+
+
+@pytest.mark.asyncio
+async def test_guardian_rejects_known_invalid_reasoning_effort_before_dispatch(
+    fresh_state_store, mock_cache, mock_user_api_key_dict, monkeypatch
+) -> None:
+    """P-2 runs after final routing and before LiteLLM can drop the value."""
+    import airlock.fast.guardian as guardian_module
+
+    seen = {}
+
+    def _reject(data, provider, *, client_id):
+        seen.update(provider=provider, client_id=client_id, value=data["reasoning_effort"])
+        raise AirlockInvalidReasoningEffort(
+            "none", "gpt-5.4", frozenset({"minimal", "low", "medium", "high"})
+        )
+
+    monkeypatch.setattr(
+        guardian_module.alias_table,
+        "resolve_with_diagnostic",
+        lambda _: AliasResolution(alias="gpt-5.4"),
+    )
+    monkeypatch.setattr(guardian_module, "validate_reasoning_effort", _reject)
+    data = {
+        "messages": [{"role": "user", "content": "hi"}],
+        "model": "gpt-5.4",
+        "reasoning_effort": "none",
+    }
+
+    with pytest.raises(AirlockInvalidReasoningEffort):
+        await AirlockFastGuardian().async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+
+    assert seen["provider"] == "openai"
+    assert seen["value"] == "none"
 
 
 @pytest.mark.asyncio
@@ -82,10 +116,10 @@ async def test_genuinely_unknown_model_is_not_given_empty_suggestions(
 
 
 @pytest.mark.asyncio
-async def test_cross_tier_fuzzy_match_is_warn_only_and_ledgered(
+async def test_cross_tier_fuzzy_match_returns_404_with_suggested_alternate(
     fresh_state_store, mock_cache, mock_user_api_key_dict, monkeypatch, caplog
 ) -> None:
-    """P-2b instrumentation changes neither the alias nor the response path."""
+    """P-2b refuses a costly ambiguous fuzzy route with the existing 404 shape."""
     import airlock.fast.guardian as guardian_module
 
     detail = CrossTierFuzzyMatch(
@@ -100,40 +134,27 @@ async def test_cross_tier_fuzzy_match_is_warn_only_and_ledgered(
         "resolve_with_diagnostic",
         lambda _: AliasResolution(alias="gpt-alpha-1", cross_tier=detail),
     )
+    monkeypatch.setattr(
+        guardian_module.alias_table,
+        "suggest",
+        lambda _: [
+            {"model": "gpt-alpha-1", "score": 0.81, "tier": "low"},
+            {"model": "gpt-alpha-2", "score": 0.75, "tier": "high"},
+        ],
+    )
     data = {"messages": [{"role": "user", "content": "hi"}], "model": "gpt-alpha"}
 
     with caplog.at_level("WARNING", logger="airlock.fast.guardian"):
-        result = await AirlockFastGuardian().async_pre_call_hook(
-            mock_user_api_key_dict, mock_cache, data, "completion"
-        )
+        with pytest.raises(AirlockModelNotFound) as raised:
+            await AirlockFastGuardian().async_pre_call_hook(
+                mock_user_api_key_dict, mock_cache, data, "completion"
+            )
 
-    assert result["model"] == "gpt-alpha-1"
-    assert "event=fuzzy_match_would_reject" in caplog.text
+    body, headers = model_not_found_response_payload(raised.value)
+    assert body["error"]["code"] == "model_not_found"
+    assert body["error"]["airlock"]["suggestions"][0]["model"] == "gpt-alpha-2"
+    assert headers["X-Airlock-Model-Suggestion"] == (
+        "requested=gpt-alpha;suggested=gpt-alpha-2;reason=fuzzy_match_crosses_cost_tier"
+    )
+    assert "event=fuzzy_match_rejected" in caplog.text
     assert "client_id=" in caplog.text
-    mutation = next(
-        m
-        for m in result["metadata"]["airlock_mutations"]
-        if m.field == "model_alias_would_reject"
-    )
-    assert mutation.op == "inject"
-    assert mutation.source == "guardian.alias_cross_tier_measurement"
-    assert result["metadata"]["airlock_cross_tier_fuzzy_measurement"] == {
-        "requested": "gpt-alpha",
-        "served": "gpt-alpha-1",
-        "suggested": "gpt-alpha-2",
-        "score": 0.75,
-        "from_tier": "low",
-        "to_tier": "high",
-    }
-    # The actual async callback builds the canonical event and enterprise
-    # projection; the report consumes that projection, not a hand-built record.
-    projected = []
-    recorder = RequestRecorder()
-    recorder.register(lambda event: projected.append(project_enterprise(event)), name="test")
-    await RequestRecorderCallback(recorder).async_log_success_event(
-        result, None, None, None
-    )
-    report = build_measurement_report(projected, kind="cross-tier-fuzzy")
-    assert report.total_events == 1
-    assert report.affected_clients
-    assert report.combinations[0]["suggested"] == "gpt-alpha-2"

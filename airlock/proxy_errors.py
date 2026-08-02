@@ -69,16 +69,37 @@ class AirlockModelNotFound(Exception):
     """A refused near-match, rendered as an OpenAI-shaped 404."""
 
     def __init__(
-        self, requested_model: str, suggestions: list[dict[str, str | float]]
+        self,
+        requested_model: str,
+        suggestions: list[dict[str, str | float]],
+        *,
+        reason: str = "dropped_qualifier",
     ) -> None:
         self.requested_model = requested_model
         self.suggestions = suggestions
+        self.reason = reason
         models = [str(item["model"]) for item in suggestions if item.get("model")]
         message = (
             f"Model '{requested_model}' is not available. "
             f"Try '{models[0]}'. Alternatives: {', '.join(models[1:]) or 'none'}."
         )
         super().__init__(message)
+
+
+class AirlockInvalidReasoningEffort(Exception):
+    """A known-invalid OpenAI reasoning effort rejected before provider dispatch."""
+
+    def __init__(
+        self, requested: str, model: str, supported: frozenset[str]
+    ) -> None:
+        self.requested = requested
+        self.model = model
+        self.supported = tuple(sorted(supported))
+        options = ", ".join(self.supported)
+        super().__init__(
+            f"reasoning_effort {requested!r} is not supported by {model!r}; "
+            f"use one of: {options}."
+        )
 
 
 class AirlockAdmissionShed(RateLimitError):
@@ -134,7 +155,9 @@ def model_not_found_response_payload(exc: AirlockModelNotFound) -> tuple[dict, d
             "airlock": {"suggestions": exc.suggestions},
         }
     }
-    header = model_suggestion_header(exc.requested_model, exc.suggestions)
+    header = model_suggestion_header(
+        exc.requested_model, exc.suggestions, reason=exc.reason
+    )
     return body, {"X-Airlock-Model-Suggestion": header} if header else {}
 
 
@@ -178,6 +201,35 @@ async def airlock_model_not_found_handler(request: Any, exc: Exception):
     return JSONResponse(status_code=404, content=body, headers=headers)
 
 
+def invalid_reasoning_effort_response_payload(
+    exc: AirlockInvalidReasoningEffort,
+) -> tuple[dict, dict]:
+    """Build the stable OpenAI-shaped P-2 validation response."""
+    body = {
+        "error": {
+            "message": sanitize_reason(str(exc), 500),
+            "type": "invalid_request_error",
+            "code": "invalid_reasoning_effort",
+            "param": "reasoning_effort",
+            "airlock": {
+                "requested": exc.requested,
+                "model": exc.model,
+                "supported": list(exc.supported),
+            },
+        }
+    }
+    return body, {}
+
+
+async def airlock_invalid_reasoning_effort_handler(request: Any, exc: Exception):
+    """FastAPI exception handler → an OpenAI-compatible 400."""
+    from fastapi.responses import JSONResponse
+
+    assert isinstance(exc, AirlockInvalidReasoningEffort)
+    body, headers = invalid_reasoning_effort_response_payload(exc)
+    return JSONResponse(status_code=400, content=body, headers=headers)
+
+
 async def airlock_admission_shed_handler(request: Any, exc: Exception):
     """FastAPI exception handler → local admission 429 with Retry-After."""
     from fastapi.responses import JSONResponse
@@ -210,6 +262,11 @@ def install_airlock_error_handlers_on_proxy_app() -> bool:
     if not getattr(app.state, "airlock_model_not_found_handler_installed", False):
         app.add_exception_handler(AirlockModelNotFound, airlock_model_not_found_handler)
         app.state.airlock_model_not_found_handler_installed = True
+    if not getattr(app.state, "airlock_invalid_reasoning_effort_handler_installed", False):
+        app.add_exception_handler(
+            AirlockInvalidReasoningEffort, airlock_invalid_reasoning_effort_handler
+        )
+        app.state.airlock_invalid_reasoning_effort_handler_installed = True
     if not getattr(app.state, "airlock_admission_shed_handler_installed", False):
         app.add_exception_handler(AirlockAdmissionShed, airlock_admission_shed_handler)
         app.state.airlock_admission_shed_handler_installed = True

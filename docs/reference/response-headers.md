@@ -83,13 +83,15 @@ using the same budget as `X-Airlock-Mutations`, and is suppressed with
 
 ### `X-Airlock-Model-Suggestion`
 
-When Airlock refuses a fuzzy match because it would discard a meaningful qualifier,
-the 404 includes an OpenAI-shaped body and this compact suggestion header:
+When Airlock refuses a fuzzy match because it would discard a meaningful qualifier or
+would otherwise cross a configured cost tier, the 404 includes an OpenAI-shaped body
+and this compact suggestion header:
 
 ```
 X-Airlock-Model-Suggestion: requested=gpt-5.6-mini;suggested=gpt-5.6-luna;reason=dropped_qualifier
 ```
 
+`reason` is either `dropped_qualifier` or `fuzzy_match_crosses_cost_tier`.
 `requested` is the client input and `suggested` is the highest-ranked configured
 candidate. The header is omitted when no suggestion is available. Its values are
 CR/LF-safe and byte-bounded; the structured `error.airlock.suggestions` response body

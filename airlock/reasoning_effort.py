@@ -42,6 +42,7 @@ from typing import Any
 import yaml  # type: ignore[import-untyped]
 
 from airlock.transparency import record_mutation
+from airlock.proxy_errors import AirlockInvalidReasoningEffort
 
 logger = logging.getLogger("airlock.reasoning_effort")
 
@@ -73,6 +74,8 @@ _FLAGGED_LEVELS = {
     "max": "supports_max_reasoning_effort",
 }
 
+_KNOWN_LEVELS = frozenset(_ALWAYS_SUPPORTED | set(_FLAGGED_LEVELS))
+
 
 def _enabled() -> bool:
     return os.getenv("AIRLOCK_NORMALIZE_REASONING_EFFORT", "1").strip().lower() not in (
@@ -80,6 +83,19 @@ def _enabled() -> bool:
         "false",
         "no",
     )
+
+
+def validation_enabled() -> bool:
+    """Whether 0.5.8's OpenAI validation is active (default: on).
+
+    ``AIRLOCK_VALIDATE_REASONING_EFFORT=0`` is the explicit short-term rollback.
+    The older normalization variable remains a compatibility fallback only while
+    the new name is unset, so existing deployments can opt out deliberately.
+    """
+    raw = os.getenv("AIRLOCK_VALIDATE_REASONING_EFFORT")
+    if raw is None:
+        raw = os.getenv("AIRLOCK_NORMALIZE_REASONING_EFFORT", "1")
+    return raw.strip().lower() not in ("0", "false", "no")
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +191,61 @@ def _supported_efforts(model: str | None) -> frozenset[str] | None:
         if info.get(flag):
             levels.add(level)
     return frozenset(levels)
+
+
+def _validation_status(model: str | None, requested: str) -> tuple[bool, frozenset[str]] | None:
+    """Return ``(known_invalid, supported)`` or ``None`` when validation is unsafe.
+
+    ``max`` is intentionally fail-open while LiteLLM lacks a conclusive flag and
+    the explicit provider probe has no result.  That prevents a missing bit from
+    becoming a customer-visible 400.
+    """
+    supported = _supported_efforts(model)
+    if supported is None:
+        return None
+    if requested in supported:
+        return False, supported
+    if requested == "max":
+        return None
+    if requested in _KNOWN_LEVELS:
+        return True, supported
+    return True, supported
+
+
+def validate_reasoning_effort(
+    data: dict[str, Any], provider: str | None, client_id: str | None = None
+) -> dict[str, Any]:
+    """Enforce known-invalid OpenAI reasoning levels without rewriting requests.
+
+    Unknown/custom models and provider/model capabilities which are not positively
+    known pass through untouched.  Other providers retain their established
+    normalization behavior in the guardian.
+    """
+    raw = data.get("reasoning_effort")
+    if raw is None or provider not in _OPENAI_PROVIDERS or not validation_enabled():
+        return data
+    requested = str(raw).strip().lower()
+    model = str(data.get("model") or "unknown")
+    status = _validation_status(model, requested)
+    if status is None:
+        logger.info(
+            "reasoning_effort_validation_unresolved requested=%s model=%s client_id=%s",
+            requested,
+            model,
+            client_id,
+        )
+        return data
+    invalid, supported = status
+    if invalid:
+        logger.warning(
+            "event=reasoning_effort_rejected requested=%s model=%s supported=%s client_id=%s",
+            requested,
+            model,
+            ",".join(sorted(supported)),
+            client_id,
+        )
+        raise AirlockInvalidReasoningEffort(requested, model, supported)
+    return data
 
 
 def _warn_would_reject(
