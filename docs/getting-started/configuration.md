@@ -270,6 +270,18 @@ values (`none`, `off`, `disable`, …) in the pre-call hook **before** that stri
 Valid values pass through unchanged; unknown providers/values are left for
 `drop_params`. Disable the whole behavior with `AIRLOCK_NORMALIZE_REASONING_EFFORT=0`.
 
+#### Current 0.5.8 measurement state
+
+Airlock continues the normalization above today. For OpenAI-family requests it also
+records a **warn-only** `effort_would_reject` event when the value the client originally
+sent is outside LiteLLM's known capability flags for the resolved model. That event is
+recorded in the normal mutation ledger / RequestEvent path (and can appear as an
+`inject` token in `X-Airlock-Mutations`); it does **not** reject the request or change
+routing. Strict validation is deliberately gated on the measurement report, a
+per-caller disposition, and a funded verification of `reasoning_effort=max`; operators
+should use the measurement runbook rather than treat a zero log count as proof that
+the event is unavailable.
+
 ## Resilience & admin settings
 
 Airlock 0.5.0 adds three optional `config.yaml` blocks for the circuit breaker, the

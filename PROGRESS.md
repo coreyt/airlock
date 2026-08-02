@@ -4,9 +4,17 @@
 > work lives on the board (`dev/plans/runs/STATUS-<release>.md`), not here — see
 > `dev/plans/README.md`. Do not duplicate live pack state into this file.
 
-## Status: End-to-End Trial Ready + MCP Gateway
+## Status: Historical narrative — superseded for active planning
 
-Last updated: 2026-04-08
+Last updated: 2026-08-02
+
+This file records work that landed through earlier release trains. It is not the
+active roadmap and its old headings must not be read as current commitments. For
+current state, use [`dev/plans/runs/STATUS-0.5.7.md`](dev/plans/runs/STATUS-0.5.7.md);
+for the next release's scoped work and gates, use
+[`dev/plans/0.5.8-plan.md`](dev/plans/0.5.8-plan.md). The 0.5.7 odd-numbered
+internal train is closed under the marker tag `milestone/0.5.7-internal-closeout`,
+not a published package version.
 
 ## Planned — v0.4.0 (To-Do)
 

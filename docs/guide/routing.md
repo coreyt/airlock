@@ -196,6 +196,19 @@ POST /v1/chat/completions   { "model": "gpt-5.6-mini", ... }
 404  Unknown model 'gpt-5.6-mini'.
 ```
 
+The response is OpenAI-shaped: `error.code` is `model_not_found`, `error.param` is
+`model`, and `error.airlock.suggestions` contains ranked candidates with their tier.
+The first candidate is also available to simple clients in a bounded, content-safe
+header:
+
+```
+X-Airlock-Model-Suggestion: requested=gpt-5.6-mini;suggested=gpt-5.6-luna;reason=dropped_qualifier
+```
+
+This describes the current dropped-qualifier guard only. Near matches that already
+resolve across a cost tier are not yet rejected; their proposed stricter behavior is
+separately measured before any enforcement change.
+
 A `WARNING` is logged naming the request, what it would have been matched to, and the
 ranked suggestions with their cost tiers:
 

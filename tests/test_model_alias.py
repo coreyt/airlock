@@ -819,6 +819,51 @@ class TestDroppedQualifierGuard:
         assert scores == sorted(scores, reverse=True)
 
 
+class TestCrossTierMeasurementDetail:
+    """The future P-2b decision must use one deterministic fuzzy score pass."""
+
+    @pytest.fixture
+    def table(self, tmp_path):
+        config = {
+            "model_list": [
+                {
+                    "model_name": "alpha-1",
+                    "litellm_params": {"model": "openai/alpha-1"},
+                },
+                {
+                    "model_name": "alpha-2",
+                    "litellm_params": {"model": "openai/alpha-2"},
+                },
+            ],
+            "cost_tiers": {"low": ["alpha-1"], "high": ["alpha-2"]},
+        }
+        path = tmp_path / "config.yaml"
+        path.write_text(yaml.safe_dump(config))
+        table = ModelAliasTable()
+        table.load_from_config(path)
+        return table
+
+    def test_cross_tier_fuzzy_resolution_is_reported_and_routes_as_today(self, table):
+        result = table.resolve_with_diagnostic("alpha-3")
+
+        assert result.alias == "alpha-1"  # first configured tie remains current route
+        assert result.cross_tier is not None
+        assert result.cross_tier.served == "alpha-1"
+        assert result.cross_tier.suggested == "alpha-2"
+        assert result.cross_tier.from_tier == "low"
+        assert result.cross_tier.to_tier == "high"
+        # Cached requests retain the same measurement detail; no re-score drift.
+        assert table.resolve_with_diagnostic("alpha-3").cross_tier == result.cross_tier
+
+    def test_untiered_candidate_fails_open_for_measurement(self, table):
+        table._alias_tier.pop("alpha-2")
+
+        result = table.resolve_with_diagnostic("alpha-3")
+
+        assert result.alias == "alpha-1"
+        assert result.cross_tier is None
+
+
 class TestNoRegressionFromGuard:
     """The guard must not break resolution of names that legitimately resolve."""
 

@@ -6,14 +6,15 @@
 > witnesses (worktree list, `output.json`, `*-review-*.md`, merge commits) and
 > trust the witnesses over this file on any conflict.
 
-_Last updated: 2026-08-01T20:48:00Z · mainline: `main` @ `1062343`_
+_Last updated: 2026-08-02T00:00:00Z · closeout baseline: `40caf84`_
 
 ## 1. Current pack in flight + next action
 
 - **In flight:** none — all planned implementation packs are closed on `main`.
 - **Closeout:** 0.5.7 is an internal odd-numbered release train. It has changelog,
-  build, and CI evidence but is deliberately **not version-bumped, tagged, or
-  published**. Follow-on work continues in 0.5.8.
+  build, and CI evidence and is deliberately **not version-bumped or published**.
+  It is marked (not version-tagged) by annotated tag
+  `milestone/0.5.7-internal-closeout`. Follow-on work continues in 0.5.8.
 
 ## 2. Pack scoreboard
 
@@ -71,10 +72,18 @@ Max 3 worktrees (F-1/F-2 serialized in one, F-3 in another, F-4 in a third).
 - **`max` reasoning effort is unresolved and blocks 0.5.8 P-2.** Treated as
   unsupported on a *guess*; needs one live call with a funded OpenAI key. Not 0.5.7
   scope, but if a funded key appears during this release, settle it opportunistically.
-- **The warn-only measurement window is RUNNING: 2026-07-21 → 2026-08-21.** Runbook:
+- **The `reasoning_effort` warn-only measurement window is RUNNING: 2026-07-21 →
+  2026-08-21.** Runbook:
   `runs/warn-only-measurement-window.md`. **T-2 (confirm the events are queryable, not
   just greppable) should be done in week 1** — if they are not reaching the event
   store, that blocks the whole measurement and is far cheaper to find now than at T-4.
+- **Cross-tier fuzzy resolution is not yet measured.** Current code only emits
+  `effort_would_reject`; the dropped-qualifier refusal is already enforcing and is
+  not a substitute for a `fuzzy_match_would_reject` population. P-2b needs its own
+  non-mutating instrumentation and a full observation window before it can be
+  considered for enforcement. The instrumentation is prepared on `main` but is not
+  deployed; see `dev/notes/0.5.8-enforcement-design.md` and
+  `runs/cross-tier-fuzzy-measurement-window.md`.
 - **GPT-5.6 has never served a live request** — listed, priced, tiered, routed, but
   never exercised end to end (no quota on the available key).
 - **Resolved follow-up:** `gemini-flash-lite` / `gemini-pro` / `gemini-flash` now use

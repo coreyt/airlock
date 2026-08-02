@@ -34,9 +34,9 @@ _WARN_THRESHOLD = 0.35  # route with WARNING (fuzzy)
 # Below _WARN_THRESHOLD: no match — let LiteLLM return its 400
 
 # A candidate scoring within this margin of the best is "close enough" that we
-# cannot honestly claim to know which one the caller meant. When such candidates
-# span more than one COST TIER, resolution refuses rather than guessing —
-# guessing wrong bills the caller for a model they never asked for.
+# cannot honestly claim to know which one the caller meant. P-2b measurement uses
+# that candidate set to identify cross-cost-tier fuzzy routes before enforcement
+# is considered.
 _TIER_AMBIGUITY_MARGIN = 0.10
 
 # Trailing qualifiers stripped first (latest, preview and anything after)
@@ -121,6 +121,25 @@ class _AliasEntry:
         bare_model = _strip_provider_prefix(self.provider_model)
         self.tokens = _tokenize(self.alias) | _tokenize(bare_model)
         self.family_core = _strip_version(self.alias)
+
+
+@dataclass(frozen=True)
+class CrossTierFuzzyMatch:
+    """One current fuzzy route that P-2b would reject after measurement."""
+
+    served: str
+    suggested: str
+    score: float
+    from_tier: str
+    to_tier: str
+
+
+@dataclass(frozen=True)
+class AliasResolution:
+    """Alias result plus optional non-mutating P-2b measurement detail."""
+
+    alias: str | None
+    cross_tier: CrossTierFuzzyMatch | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -212,9 +231,13 @@ class ModelAliasTable:
         self._entries: list[_AliasEntry] = []
         self._exact: dict[str, str] = {}  # lowered name → alias
         # alias (lowered) → cost tier name, from config.yaml `cost_tiers:`.
-        # Used to refuse a fuzzy match whose close candidates span more than one
-        # price tier — see _tier_ambiguous_candidates().
+        # Used to measure a fuzzy match whose close candidates span more than one
+        # price tier.
         self._alias_tier: dict[str, str] = {}
+        # Fuzzy matches are cached in `_exact` for lookup speed. Keep their
+        # measurement detail alongside the cache so repeated requests cannot lose
+        # a would-reject event or re-score differently.
+        self._fuzzy_diagnostics: dict[str, CrossTierFuzzyMatch] = {}
         # Provider-aware index for collision-safe prefix-strip in resolve().
         # (provider_token, bare_body) → alias  (first writer wins per pair)
         self._provider_body_alias: dict[tuple[str, str], str] = {}
@@ -233,6 +256,7 @@ class ModelAliasTable:
         self._entries = []
         self._exact = {}
         self._alias_tier = {}
+        self._fuzzy_diagnostics = {}
         self._provider_body_alias = {}
         self._body_providers = {}
         self._ambiguous_variants = set()
@@ -399,24 +423,70 @@ class ModelAliasTable:
             )
         return out
 
-    def resolve(self, model_name: str) -> str | None:
-        """Resolve a model name to its configured alias.
+    def _cross_tier_fuzzy_match(
+        self,
+        model_name: str,
+        scored: list[tuple[float, str]],
+        best_alias: str,
+        best_score: float,
+    ) -> CrossTierFuzzyMatch | None:
+        """Classify one fuzzy score pass without changing its current route.
 
-        Returns the alias string if matched, or None if no confident match.
+        Missing tier data fails open: a drifted tier table is a configuration
+        problem to fix, never enough evidence to reject a client request.
         """
+        cutoff = max(_WARN_THRESHOLD, best_score - _TIER_AMBIGUITY_MARGIN)
+        candidates = [(score, alias) for score, alias in scored if score >= cutoff]
+        tiers = [self._alias_tier.get(alias.lower()) for _, alias in candidates]
+        if not candidates or any(not tier for tier in tiers):
+            if candidates and any(not tier for tier in tiers):
+                logger.warning(
+                    "model_alias_cross_tier_measurement_unclassified requested=%s "
+                    "candidates=%s",
+                    model_name,
+                    [alias for _, alias in candidates],
+                )
+            return None
+
+        best_tier = self._alias_tier[best_alias.lower()]
+        alternate = next(
+            (
+                (score, alias)
+                for score, alias in candidates
+                if self._alias_tier[alias.lower()] != best_tier
+            ),
+            None,
+        )
+        if alternate is None:
+            return None
+
+        score, alias = alternate
+        return CrossTierFuzzyMatch(
+            served=best_alias,
+            suggested=alias,
+            score=round(score, 3),
+            from_tier=best_tier,
+            to_tier=self._alias_tier[alias.lower()],
+        )
+
+    def resolve_with_diagnostic(self, model_name: str) -> AliasResolution:
+        """Resolve once and retain any non-mutating cross-tier measurement detail."""
         if not self._loaded:
             self.load_from_config()
 
         # Batch/file routes (/v1/batches, /v1/files) carry no top-level model —
         # nothing to resolve, and model_name may be None/non-str. Bail safely.
         if not isinstance(model_name, str) or not model_name:
-            return None
+            return AliasResolution(alias=None)
 
         lower = model_name.lower()
 
         # Fast path: exact match (covers alias, bare provider model, version-stripped)
         if lower in self._exact:
-            return self._exact[lower]
+            return AliasResolution(
+                alias=self._exact[lower],
+                cross_tier=self._fuzzy_diagnostics.get(lower),
+            )
 
         # Provider-aware prefix-strip — handles native + airlock-prefixed forms
         # (openai/claude-haiku, gemini/gemini-3.5-flash, vertex_ai/gemini-3.5-flash,
@@ -432,7 +502,7 @@ class ModelAliasTable:
             if resolved is not None:
                 self._exact[lower] = resolved
                 logger.debug("model_alias_prefix_strip %s -> %s", model_name, resolved)
-                return resolved
+                return AliasResolution(alias=resolved)
 
             # 2. known body: single-provider → resolve regardless of prefix;
             #    multi-provider with a non-disambiguating prefix → None (no fuzzy,
@@ -446,14 +516,14 @@ class ModelAliasTable:
                     logger.debug(
                         "model_alias_prefix_strip %s -> %s", model_name, resolved
                     )
-                    return resolved
+                    return AliasResolution(alias=resolved)
                 logger.debug(
                     "model_alias_ambiguous_prefix %s (body=%s providers=%s) -> None",
                     model_name,
                     bare,
                     sorted(providers),
                 )
-                return None
+                return AliasResolution(alias=None)
 
             # 3. bare matches a collision-safe alias/variant key (e.g. an alias
             #    name that isn't itself a litellm body) → resolve.
@@ -461,18 +531,18 @@ class ModelAliasTable:
                 resolved = self._exact[bare]
                 self._exact[lower] = resolved  # cache for O(1) on repeat calls
                 logger.debug("model_alias_prefix_strip %s -> %s", model_name, resolved)
-                return resolved
+                return AliasResolution(alias=resolved)
 
             # 4. bare is an ambiguous (dropped) multi-claimer variant → None;
             #    never let it fall into fuzzy (would silently repoint + cache).
             if bare in self._ambiguous_variants:
-                return None
+                return AliasResolution(alias=None)
 
         # An ambiguous (dropped) body with NO disambiguating prefix must NOT leak
         # into fuzzy scoring — a near-exact body match would silently pick the
         # first claimer (cross-provider repoint). Return None, do NOT cache.
         if lower in self._ambiguous_variants:
-            return None
+            return AliasResolution(alias=None)
 
         # Slow path: fuzzy scoring against all entries
         scored: list[tuple[float, str]] = []
@@ -507,10 +577,15 @@ class ModelAliasTable:
                     [s["model"] for s in self.suggest(model_name, limit=3)],
                 )
                 # Do NOT cache — a config change may make this name real.
-                return None
+                return AliasResolution(alias=None)
 
         if best_score >= _WARN_THRESHOLD and best_alias is not None:
+            cross_tier = self._cross_tier_fuzzy_match(
+                model_name, scored, best_alias, best_score
+            )
             self._exact[lower] = best_alias
+            if cross_tier is not None:
+                self._fuzzy_diagnostics[lower] = cross_tier
             if best_score >= _AUTO_ROUTE_THRESHOLD:
                 logger.debug(
                     "model_alias_resolved %s -> %s (score=%.3f)",
@@ -525,7 +600,7 @@ class ModelAliasTable:
                     best_alias,
                     best_score,
                 )
-            return best_alias
+            return AliasResolution(alias=best_alias, cross_tier=cross_tier)
 
         logger.debug(
             "model_alias_no_match %s (best=%s score=%.3f)",
@@ -533,7 +608,16 @@ class ModelAliasTable:
             best_alias,
             best_score,
         )
-        return None
+        return AliasResolution(alias=None)
+
+    def resolve(self, model_name: str) -> str | None:
+        """Resolve a model name to its configured alias.
+
+        The compatibility API returns only the alias. Call
+        :meth:`resolve_with_diagnostic` when a caller must record P-2b's
+        non-mutating cross-tier measurement result from the same scoring pass.
+        """
+        return self.resolve_with_diagnostic(model_name).alias
 
 
 # Module-level singleton

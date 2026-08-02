@@ -124,6 +124,17 @@ actual response. Configure only aliases you want to disclose via the top-level
 `model_successors` map. As with served-provider headers, setting
 `transparency.served_headers: false` suppresses it.
 
+### Current reasoning-effort measurement
+
+Before strict reasoning-effort validation can replace normalization, Airlock emits a
+WARNING-level `event=effort_would_reject` record for a known-invalid OpenAI-family
+client value. It adds an advisory ledger record (`field=reasoning_effort_would_reject`,
+`op=inject`) so the normal RequestEvent/JSONL path can be queried without exposing the
+client's prompt. The request still follows today's normalization and routing path;
+this event is evidence gathering, not a client-visible rejection. The operational
+procedure and decision gate are recorded in
+`dev/plans/runs/warn-only-measurement-window.md` in the source tree.
+
 ### `X-Airlock-Explain: 1` — opt-in body envelope
 
 Send the request header `X-Airlock-Explain: 1` to additively attach the full

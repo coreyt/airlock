@@ -81,6 +81,20 @@ data from `model_successors`, never a proxy guess. It is CR/LF-safe, byte-bounde
 using the same budget as `X-Airlock-Mutations`, and is suppressed with
 `transparency.served_headers: false`.
 
+### `X-Airlock-Model-Suggestion`
+
+When Airlock refuses a fuzzy match because it would discard a meaningful qualifier,
+the 404 includes an OpenAI-shaped body and this compact suggestion header:
+
+```
+X-Airlock-Model-Suggestion: requested=gpt-5.6-mini;suggested=gpt-5.6-luna;reason=dropped_qualifier
+```
+
+`requested` is the client input and `suggested` is the highest-ranked configured
+candidate. The header is omitted when no suggestion is available. Its values are
+CR/LF-safe and byte-bounded; the structured `error.airlock.suggestions` response body
+contains the complete ranked list.
+
 ## Protection-state headers
 
 | Header | Meaning | Emitted when |

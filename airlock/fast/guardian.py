@@ -291,11 +291,38 @@ class AirlockFastGuardian(CustomGuardrail):
         # batch/file calls (the latter carry no top-level model).
         if not mcp and not batch:
             # ---- Step 2.5a: Model alias resolution ----
-            resolved = alias_table.resolve(model_name)
+            alias_resolution = alias_table.resolve_with_diagnostic(model_name)
+            resolved = alias_resolution.alias
             if resolved is None:
                 suggestions = alias_table.suggest(model_name)
                 if isinstance(suggestions, list) and suggestions:
                     raise AirlockModelNotFound(model_name, suggestions)
+            if alias_resolution.cross_tier is not None:
+                cross_tier = alias_resolution.cross_tier
+                logger.warning(
+                    "event=fuzzy_match_would_reject requested=%s served=%s "
+                    "suggested=%s score=%.3f from_tier=%s to_tier=%s client_id=%s",
+                    model_name,
+                    cross_tier.served,
+                    cross_tier.suggested,
+                    cross_tier.score,
+                    cross_tier.from_tier,
+                    cross_tier.to_tier,
+                    client_id,
+                )
+                record_mutation(
+                    data.setdefault("metadata", {}),
+                    field="model_alias_would_reject",
+                    op="inject",
+                    before=None,
+                    after=None,
+                    stage="pre_call",
+                    source="guardian.alias_cross_tier_measurement",
+                    reason=(
+                        f"current fuzzy route {cross_tier.served!r} ({cross_tier.from_tier}) "
+                        f"is close to {cross_tier.suggested!r} ({cross_tier.to_tier})"
+                    ),
+                )
             if resolved and resolved != model_name:
                 logger.info(
                     "model_alias %s -> %s",
