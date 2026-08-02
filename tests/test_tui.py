@@ -775,6 +775,66 @@ async def test_config_apply_updates_env() -> None:
             assert os.environ.get("AIRLOCK_PII_ENTITIES") == "CREDIT_CARD,EMAIL_ADDRESS"
 
 
+def test_config_field_applicability_is_explicit() -> None:
+    """P-8: every ConfigPane control has a truthful applicability declaration."""
+    from airlock.tui.screens.config import ConfigPane, _CONFIG_FIELDS
+
+    assert _CONFIG_FIELDS
+    assert all(field.widget_id.startswith("cfg-") for field in _CONFIG_FIELDS)
+    assert "restart required" in ConfigPane._field_label("cfg-host")
+    assert "not applied by Apply" in ConfigPane._field_label("cfg-timeout")
+    assert "restart required" in ConfigPane._field_label("cfg-openai-key")
+    assert ConfigPane._field_label("cfg-enforce-mode") == "Enforcement Mode"
+
+
+async def test_config_apply_reports_no_changes() -> None:
+    """P-8: Apply without edits does not claim a runtime update."""
+    from airlock.tui.screens.config import ConfigPane
+    from textual.widgets import Static
+
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("4")
+        await pilot.pause()
+
+        app.query_one(ConfigPane)._apply_settings()
+        await pilot.pause()
+
+        status = app.query_one("#cfg-status", Static)
+        assert "No settings changed." in str(status.content)
+
+
+async def test_config_apply_reports_live_restart_and_unapplied_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """P-8: mixed updates identify each field's real effect without values."""
+    from airlock.tui.screens.config import ConfigPane
+    from textual.widgets import Input, Select, Static
+
+    monkeypatch.delenv("AIRLOCK_HOST", raising=False)
+    monkeypatch.delenv("AIRLOCK_ENFORCE_MODE", raising=False)
+
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("4")
+        await pilot.pause()
+
+        app.query_one("#cfg-enforce-mode", Select).value = "enforce"
+        app.query_one("#cfg-host", Input).value = "0.0.0.0"
+        app.query_one("#cfg-timeout", Input).value = "123"
+
+        app.query_one(ConfigPane)._apply_settings()
+        await pilot.pause()
+
+        assert os.environ["AIRLOCK_ENFORCE_MODE"] == "enforce"
+        assert os.environ["AIRLOCK_HOST"] == "0.0.0.0"
+        status = str(app.query_one("#cfg-status", Static).content)
+        assert "Effective immediately: Enforcement Mode." in status
+        assert "Proxy restart required for: Host." in status
+        assert "Not applied by this screen: Request Timeout (seconds)." in status
+        assert "0.0.0.0" not in status
+
+
 # -------------------------------------------------------------------
 # 3. Test Screen Tests
 # -------------------------------------------------------------------

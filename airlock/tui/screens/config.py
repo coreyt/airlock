@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from textual import work
@@ -37,6 +38,115 @@ _HEALTH_MAP = {
 }
 
 
+@dataclass(frozen=True)
+class _ConfigField:
+    """One ConfigPane control and the effect of applying it."""
+
+    widget_id: str
+    label: str
+    env_var: str | None
+    widget_type: str
+    restart_required: bool = False
+    applies: bool = True
+
+
+# The Config screen is a runtime-environment editor, not a config-file editor. Keep
+# this table as the one authoritative applicability contract for its controls.
+_CONFIG_FIELDS: tuple[_ConfigField, ...] = (
+    _ConfigField(
+        "cfg-anthropic-key",
+        "Anthropic API Key",
+        "ANTHROPIC_API_KEY",
+        "input",
+        True,
+        False,
+    ),
+    _ConfigField(
+        "cfg-openai-key", "OpenAI API Key", "OPENAI_API_KEY", "input", True, False
+    ),
+    _ConfigField(
+        "cfg-master-key", "Master Key", "AIRLOCK_MASTER_KEY", "input", True, False
+    ),
+    _ConfigField(
+        "cfg-enforce-mode", "Enforcement Mode", "AIRLOCK_ENFORCE_MODE", "select"
+    ),
+    _ConfigField("cfg-weight-pii", "pii_scan weight", None, "input", applies=False),
+    _ConfigField(
+        "cfg-weight-keyword", "keyword_scan weight", None, "input", applies=False
+    ),
+    _ConfigField(
+        "cfg-weight-threat", "threat_read weight", None, "input", applies=False
+    ),
+    _ConfigField("cfg-pii-enabled", "PII Guard", "AIRLOCK_PII_ENABLED", "switch"),
+    _ConfigField(
+        "cfg-pii-entities", "PII Entity Types", "AIRLOCK_PII_ENTITIES", "input"
+    ),
+    _ConfigField("cfg-kw-enabled", "Keyword Guard", "AIRLOCK_KW_ENABLED", "switch"),
+    _ConfigField(
+        "cfg-blocked-keywords", "Blocked Keywords", "AIRLOCK_BLOCKED_KEYWORDS", "input"
+    ),
+    _ConfigField(
+        "cfg-threat-block-threshold", "Block Threshold", None, "input", applies=False
+    ),
+    _ConfigField(
+        "cfg-threat-base-backoff",
+        "Base Backoff (seconds)",
+        None,
+        "input",
+        applies=False,
+    ),
+    _ConfigField(
+        "cfg-threat-max-backoff", "Max Backoff (seconds)", None, "input", applies=False
+    ),
+    _ConfigField(
+        "cfg-threat-volume-spike",
+        "Volume Spike Multiplier",
+        None,
+        "input",
+        applies=False,
+    ),
+    _ConfigField(
+        "cfg-threat-rapid-fire",
+        "Rapid-Fire Min Gap (seconds)",
+        None,
+        "input",
+        applies=False,
+    ),
+    _ConfigField(
+        "cfg-threat-payload-max", "Payload Max Chars", None, "input", applies=False
+    ),
+    _ConfigField(
+        "cfg-threat-error-rate", "Error Probe Rate", None, "input", applies=False
+    ),
+    _ConfigField(
+        "cfg-mcp-allowed",
+        "Allowed Tools (comma-separated)",
+        "AIRLOCK_MCP_ALLOWED_TOOLS",
+        "input",
+    ),
+    _ConfigField(
+        "cfg-mcp-blocked",
+        "Blocked Tools (comma-separated)",
+        "AIRLOCK_MCP_BLOCKED_TOOLS",
+        "input",
+    ),
+    _ConfigField("cfg-log-dir", "Log Directory", "AIRLOCK_LOG_DIR", "input", True),
+    _ConfigField(
+        "cfg-s3-bucket", "S3 Bucket (optional)", "AIRLOCK_S3_BUCKET", "input", True
+    ),
+    _ConfigField("cfg-sql-url", "SQL URL (optional)", "AIRLOCK_SQL_URL", "input", True),
+    _ConfigField("cfg-host", "Host", "AIRLOCK_HOST", "input", True),
+    _ConfigField("cfg-port", "Port", "AIRLOCK_PORT", "input", True),
+    _ConfigField(
+        "cfg-timeout", "Request Timeout (seconds)", None, "input", applies=False
+    ),
+    _ConfigField(
+        "cfg-failover-map", "Failover Map (JSON)", "AIRLOCK_FAILOVER_MAP", "input", True
+    ),
+)
+_CONFIG_FIELD_BY_ID = {field.widget_id: field for field in _CONFIG_FIELDS}
+
+
 class ConfigPane(Vertical):
     """Unified configuration management with tabbed sections."""
 
@@ -49,6 +159,7 @@ class ConfigPane(Vertical):
         super().__init__(id=id)
         self._mcp_manager: McpServerManager | None = mcp_manager
         self._selected_server: str = ""
+        self._applied_values: dict[str, str] = {}
 
     # ------------------------------------------------------------------
     # Compose
@@ -59,19 +170,19 @@ class ConfigPane(Vertical):
             # Tab 1 — Providers
             with TabPane("Providers", id="cfg-tab-providers"):
                 with VerticalScroll(classes="config-form"):
-                    yield Label("Anthropic API Key")
+                    yield Label(self._field_label("cfg-anthropic-key"))
                     yield Input(
                         value=self._mask_env("ANTHROPIC_API_KEY"),
                         password=True,
                         id="cfg-anthropic-key",
                     )
-                    yield Label("OpenAI API Key")
+                    yield Label(self._field_label("cfg-openai-key"))
                     yield Input(
                         value=self._mask_env("OPENAI_API_KEY"),
                         password=True,
                         id="cfg-openai-key",
                     )
-                    yield Label("Master Key")
+                    yield Label(self._field_label("cfg-master-key"))
                     yield Input(
                         value=self._mask_env("AIRLOCK_MASTER_KEY"),
                         password=True,
@@ -82,7 +193,7 @@ class ConfigPane(Vertical):
             with TabPane("Guardrails", id="cfg-tab-guardrails"):
                 with VerticalScroll(classes="config-form"):
                     # Enforcement mode
-                    yield Label("Enforcement Mode")
+                    yield Label(self._field_label("cfg-enforce-mode"))
                     yield Select(
                         [
                             ("Observe", "observe"),
@@ -96,21 +207,21 @@ class ConfigPane(Vertical):
 
                     # Signal weights
                     pii_w, kw_w, threat_w = self._load_signal_weights()
-                    yield Label("Signal Weights (orchestrator)")
-                    yield Label("pii_scan weight")
+                    yield Label("Signal Weights (orchestrator; not applied by Apply)")
+                    yield Label(self._field_label("cfg-weight-pii"))
                     yield Input(value=pii_w, id="cfg-weight-pii")
-                    yield Label("keyword_scan weight")
+                    yield Label(self._field_label("cfg-weight-keyword"))
                     yield Input(value=kw_w, id="cfg-weight-keyword")
-                    yield Label("threat_read weight")
+                    yield Label(self._field_label("cfg-weight-threat"))
                     yield Input(value=threat_w, id="cfg-weight-threat")
 
                     # Existing guardrail toggles
-                    yield Label("PII Guard")
+                    yield Label(self._field_label("cfg-pii-enabled"))
                     yield Switch(
                         value=_env_flag("AIRLOCK_PII_ENABLED"),
                         id="cfg-pii-enabled",
                     )
-                    yield Label("PII Entity Types")
+                    yield Label(self._field_label("cfg-pii-entities"))
                     yield Input(
                         value=os.getenv(
                             "AIRLOCK_PII_ENTITIES",
@@ -118,12 +229,12 @@ class ConfigPane(Vertical):
                         ),
                         id="cfg-pii-entities",
                     )
-                    yield Label("Keyword Guard")
+                    yield Label(self._field_label("cfg-kw-enabled"))
                     yield Switch(
                         value=_env_flag("AIRLOCK_KW_ENABLED"),
                         id="cfg-kw-enabled",
                     )
-                    yield Label("Blocked Keywords")
+                    yield Label(self._field_label("cfg-blocked-keywords"))
                     yield Input(
                         value=os.getenv("AIRLOCK_BLOCKED_KEYWORDS", ""),
                         id="cfg-blocked-keywords",
@@ -133,32 +244,32 @@ class ConfigPane(Vertical):
             with TabPane("Protection", id="cfg-tab-protection"):
                 with VerticalScroll(classes="config-form"):
                     threat_vals = self._load_threat_defaults()
-                    yield Label("Block Threshold")
+                    yield Label(self._field_label("cfg-threat-block-threshold"))
                     yield Input(
                         value=threat_vals["block_threshold"],
                         id="cfg-threat-block-threshold",
                     )
-                    yield Label("Base Backoff (seconds)")
+                    yield Label(self._field_label("cfg-threat-base-backoff"))
                     yield Input(
                         value=threat_vals["base_backoff"], id="cfg-threat-base-backoff"
                     )
-                    yield Label("Max Backoff (seconds)")
+                    yield Label(self._field_label("cfg-threat-max-backoff"))
                     yield Input(
                         value=threat_vals["max_backoff"], id="cfg-threat-max-backoff"
                     )
-                    yield Label("Volume Spike Multiplier")
+                    yield Label(self._field_label("cfg-threat-volume-spike"))
                     yield Input(
                         value=threat_vals["volume_spike"], id="cfg-threat-volume-spike"
                     )
-                    yield Label("Rapid-Fire Min Gap (seconds)")
+                    yield Label(self._field_label("cfg-threat-rapid-fire"))
                     yield Input(
                         value=threat_vals["rapid_fire"], id="cfg-threat-rapid-fire"
                     )
-                    yield Label("Payload Max Chars")
+                    yield Label(self._field_label("cfg-threat-payload-max"))
                     yield Input(
                         value=threat_vals["payload_max"], id="cfg-threat-payload-max"
                     )
-                    yield Label("Error Probe Rate")
+                    yield Label(self._field_label("cfg-threat-error-rate"))
                     yield Input(
                         value=threat_vals["error_rate"], id="cfg-threat-error-rate"
                     )
@@ -210,12 +321,12 @@ class ConfigPane(Vertical):
                                 "Tool", "Calls", "Err%", "Avg Latency"
                             )
                             yield tools_table
-                    yield Label("Allowed Tools (comma-separated)")
+                    yield Label(self._field_label("cfg-mcp-allowed"))
                     yield Input(
                         value=os.getenv("AIRLOCK_MCP_ALLOWED_TOOLS", ""),
                         id="cfg-mcp-allowed",
                     )
-                    yield Label("Blocked Tools (comma-separated)")
+                    yield Label(self._field_label("cfg-mcp-blocked"))
                     yield Input(
                         value=os.getenv("AIRLOCK_MCP_BLOCKED_TOOLS", ""),
                         id="cfg-mcp-blocked",
@@ -224,17 +335,17 @@ class ConfigPane(Vertical):
             # Tab 5 — Logging
             with TabPane("Logging", id="cfg-tab-logging"):
                 with VerticalScroll(classes="config-form"):
-                    yield Label("Log Directory")
+                    yield Label(self._field_label("cfg-log-dir"))
                     yield Input(
                         value=os.getenv("AIRLOCK_LOG_DIR", "./logs"),
                         id="cfg-log-dir",
                     )
-                    yield Label("S3 Bucket (optional)")
+                    yield Label(self._field_label("cfg-s3-bucket"))
                     yield Input(
                         value=os.getenv("AIRLOCK_S3_BUCKET", ""),
                         id="cfg-s3-bucket",
                     )
-                    yield Label("SQL URL (optional)")
+                    yield Label(self._field_label("cfg-sql-url"))
                     yield Input(
                         value=os.getenv("AIRLOCK_SQL_URL", ""),
                         id="cfg-sql-url",
@@ -243,24 +354,28 @@ class ConfigPane(Vertical):
             # Tab 6 — Advanced
             with TabPane("Advanced", id="cfg-tab-advanced"):
                 with VerticalScroll(classes="config-form"):
-                    yield Label("Host")
+                    yield Label(self._field_label("cfg-host"))
                     yield Input(
                         value=os.getenv("AIRLOCK_HOST", "127.0.0.1"),
                         id="cfg-host",
                     )
-                    yield Label("Port")
+                    yield Label(self._field_label("cfg-port"))
                     yield Input(
                         value=os.getenv("AIRLOCK_PORT", "4000"),
                         id="cfg-port",
                     )
-                    yield Label("Request Timeout (seconds)")
+                    yield Label(self._field_label("cfg-timeout"))
                     yield Input(value="300", id="cfg-timeout")
-                    yield Label("Failover Map (JSON)")
+                    yield Label(self._field_label("cfg-failover-map"))
                     yield Input(
                         value=os.getenv("AIRLOCK_FAILOVER_MAP", ""),
                         id="cfg-failover-map",
                     )
 
+        yield Static(
+            "* restart required after Apply · controls marked not applied are unchanged",
+            id="cfg-applicability-legend",
+        )
         yield Button("Apply Changes", id="cfg-apply", variant="primary")
         yield Static("", id="cfg-status")
 
@@ -269,6 +384,7 @@ class ConfigPane(Vertical):
     # ------------------------------------------------------------------
 
     def on_mount(self) -> None:
+        self._applied_values = self._current_values()
         self._refresh_mcp_servers()
         self.set_interval(10.0, self._refresh_mcp_servers)
 
@@ -302,40 +418,78 @@ class ConfigPane(Vertical):
     def _apply_settings(self) -> None:
         status = self.query_one("#cfg-status", Static)
         try:
-            env_map = {
-                "AIRLOCK_PII_ENTITIES": "#cfg-pii-entities",
-                "AIRLOCK_BLOCKED_KEYWORDS": "#cfg-blocked-keywords",
-                "AIRLOCK_LOG_DIR": "#cfg-log-dir",
-                "AIRLOCK_S3_BUCKET": "#cfg-s3-bucket",
-                "AIRLOCK_SQL_URL": "#cfg-sql-url",
-                "AIRLOCK_HOST": "#cfg-host",
-                "AIRLOCK_PORT": "#cfg-port",
-                "AIRLOCK_FAILOVER_MAP": "#cfg-failover-map",
-                "AIRLOCK_MCP_ALLOWED_TOOLS": "#cfg-mcp-allowed",
-                "AIRLOCK_MCP_BLOCKED_TOOLS": "#cfg-mcp-blocked",
-            }
-            for env_var, widget_id in env_map.items():
-                val = self.query_one(widget_id, Input).value.strip()
-                if val:
-                    os.environ[env_var] = val
+            current = self._current_values()
+            changed = [
+                field
+                for field in _CONFIG_FIELDS
+                if current[field.widget_id]
+                != self._applied_values.get(field.widget_id, "")
+            ]
+            if not changed:
+                status.update("[dim]No settings changed.[/]")
+                return
 
-            # Enforcement mode
-            mode_select = self.query_one("#cfg-enforce-mode", Select)
-            if mode_select.value is not None and mode_select.value != Select.BLANK:
-                os.environ["AIRLOCK_ENFORCE_MODE"] = str(mode_select.value)
+            applied: list[_ConfigField] = []
+            ignored: list[_ConfigField] = []
+            for field in changed:
+                if not field.applies or field.env_var is None:
+                    ignored.append(field)
+                    continue
 
-            # Guardrail enable switches
-            pii_switch = self.query_one("#cfg-pii-enabled", Switch)
-            kw_switch = self.query_one("#cfg-kw-enabled", Switch)
-            os.environ["AIRLOCK_PII_ENABLED"] = "true" if pii_switch.value else "false"
-            os.environ["AIRLOCK_KW_ENABLED"] = "true" if kw_switch.value else "false"
+                value = current[field.widget_id]
+                # Preserve the screen's prior contract: blank input values do not
+                # overwrite the runtime environment. Report that honestly instead of
+                # claiming the change took effect.
+                if field.widget_type == "input" and not value:
+                    ignored.append(field)
+                    continue
 
-            status.update(
-                "[green]Settings applied to runtime environment. "
-                "Restart proxy for full effect.[/]"
-            )
+                os.environ[field.env_var] = value
+                self._applied_values[field.widget_id] = value
+                applied.append(field)
+
+            status.update(self._apply_status(applied, ignored))
         except Exception as exc:
             status.update(f"[red]Error: {exc}[/]")
+
+    def _current_values(self) -> dict[str, str]:
+        """Return normalized widget values without exposing secret contents."""
+        values: dict[str, str] = {}
+        for field in _CONFIG_FIELDS:
+            if field.widget_type == "input":
+                values[field.widget_id] = self.query_one(
+                    f"#{field.widget_id}", Input
+                ).value.strip()
+            elif field.widget_type == "switch":
+                switch = self.query_one(f"#{field.widget_id}", Switch)
+                values[field.widget_id] = "true" if switch.value else "false"
+            else:
+                select = self.query_one(f"#{field.widget_id}", Select)
+                value = select.value
+                values[field.widget_id] = (
+                    "" if value is None or value == Select.BLANK else str(value)
+                )
+        return values
+
+    @staticmethod
+    def _apply_status(applied: list[_ConfigField], ignored: list[_ConfigField]) -> str:
+        """Compose an accurate, value-free Apply result for the operator."""
+        live = [field.label for field in applied if not field.restart_required]
+        restart = [field.label for field in applied if field.restart_required]
+        not_applied = [field.label for field in ignored]
+
+        lines: list[str] = []
+        if live:
+            lines.append(f"[green]Effective immediately: {', '.join(live)}.[/]")
+        if restart:
+            lines.append(
+                f"[yellow]Proxy restart required for: {', '.join(restart)}.[/]"
+            )
+        if not_applied:
+            lines.append(
+                f"[yellow]Not applied by this screen: {', '.join(not_applied)}.[/]"
+            )
+        return " ".join(lines) or "[dim]No settings were applied.[/]"
 
     # ------------------------------------------------------------------
     # MCP server table refresh
@@ -615,6 +769,17 @@ class ConfigPane(Vertical):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _field_label(widget_id: str) -> str:
+        """Render a field label with its applicability, never its value."""
+        field = _CONFIG_FIELD_BY_ID[widget_id]
+        qualifiers: list[str] = []
+        if field.restart_required:
+            qualifiers.append("restart required")
+        if not field.applies:
+            qualifiers.append("not applied by Apply")
+        return f"{field.label} ({'; '.join(qualifiers)})" if qualifiers else field.label
 
     @staticmethod
     def _mask_env(var: str) -> str:
