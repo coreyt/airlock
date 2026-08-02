@@ -24,7 +24,9 @@ async def test_guardian_rejects_known_invalid_reasoning_effort_before_dispatch(
     seen = {}
 
     def _reject(data, provider, *, client_id):
-        seen.update(provider=provider, client_id=client_id, value=data["reasoning_effort"])
+        seen.update(
+            provider=provider, client_id=client_id, value=data["reasoning_effort"]
+        )
         raise AirlockInvalidReasoningEffort(
             "none", "gpt-5.4", frozenset({"minimal", "low", "medium", "high"})
         )

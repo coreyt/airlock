@@ -76,10 +76,15 @@ def test_max_probe_contract_is_direct_and_unmodified() -> None:
         seen["payload"] = json.loads(request.content)
         return httpx.Response(
             200,
-            json={"id": "chatcmpl-contract", "choices": [{"message": {"content": "OK"}}]},
+            json={
+                "id": "chatcmpl-contract",
+                "choices": [{"message": {"content": "OK"}}],
+            },
         )
 
-    response = _probe("sk-unit-test", "gpt-5.6-sol", transport=httpx.MockTransport(handler))
+    response = _probe(
+        "sk-unit-test", "gpt-5.6-sol", transport=httpx.MockTransport(handler)
+    )
 
     assert response.status_code == 200
     assert seen["method"] == "POST"
@@ -97,7 +102,9 @@ def test_max_probe_contract_is_direct_and_unmodified() -> None:
 @pytest.mark.live
 def test_openai_accepts_max_reasoning_effort() -> None:
     """Provider evidence gate.  Failure is evidence, not a reason to guess."""
-    assert _API_KEY is not None  # narrows for static checkers; guarded by requires_live.
+    assert (
+        _API_KEY is not None
+    )  # narrows for static checkers; guarded by requires_live.
     response = _probe(_API_KEY, _MODEL)
     request_id = response.headers.get("x-request-id", "unknown")
     assert response.status_code == 200, (
@@ -108,5 +115,7 @@ def test_openai_accepts_max_reasoning_effort() -> None:
     )
     body = response.json()
     assert body.get("id"), f"OpenAI response lacked an id (request_id={request_id})"
-    assert body.get("choices"), f"OpenAI response lacked choices (request_id={request_id})"
+    assert body.get("choices"), (
+        f"OpenAI response lacked choices (request_id={request_id})"
+    )
     print(f"max reasoning-effort probe passed: model={_MODEL} request_id={request_id}")

@@ -201,7 +201,9 @@ def _supported_efforts(model: str | None) -> frozenset[str] | None:
     return frozenset(levels)
 
 
-def _validation_status(model: str | None, requested: str) -> tuple[bool, frozenset[str]] | None:
+def _validation_status(
+    model: str | None, requested: str
+) -> tuple[bool, frozenset[str]] | None:
     """Return ``(known_invalid, supported)`` or ``None`` when validation is unsafe.
 
     GPT-5.6's ``max`` support is documented by OpenAI even though the pinned LiteLLM

@@ -7,10 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Internal 0.5.7 release train (not published)
+## [0.5.8] — 2026-08-02
 
-This odd-numbered release train is build- and CI-validated but intentionally has
-no package version bump, tag, or PyPI publication.
+Published release containing the build- and CI-validated internal 0.5.7 train,
+the GPT-5.6 enforcement work, and configuration-applicability clarity.
 
 ### Added
 
@@ -21,6 +21,9 @@ no package version bump, tag, or PyPI publication.
 - `X-Airlock-Model-Alias` makes configured generic aliases transparent: clients see
   the actual served LiteLLM body and a directly callable newer/current-generation
   alias without any routing change.
+- The TUI Config screen now marks controls that require a proxy restart and identifies
+  controls that its Apply action does not change. Apply reports whether each actual
+  change is effective immediately or pending a restart, and reports no-op Applies.
 
 ### Fixed
 

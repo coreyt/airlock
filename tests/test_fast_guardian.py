@@ -598,11 +598,14 @@ class TestGuardianLedger:
         monkeypatch,
     ):
         import airlock.fast.guardian as gmod
+        from airlock.fast.model_alias import AliasResolution
 
         monkeypatch.setattr(
             gmod.alias_table,
-            "resolve",
-            lambda m: "claude-haiku" if m == "claude-sonnet" else None,
+            "resolve_with_diagnostic",
+            lambda m: AliasResolution(
+                alias="claude-haiku" if m == "claude-sonnet" else None
+            ),
         )
         data = {
             "messages": [{"role": "user", "content": "Hello"}],

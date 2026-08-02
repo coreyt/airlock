@@ -7,7 +7,11 @@ import pytest
 import airlock.reasoning_effort as reasoning_effort
 from airlock.callbacks.enterprise_logger import AirlockLogger
 from airlock.callbacks.request_event import RequestRecorder, RequestRecorderCallback
-from airlock.measurement_report import build_measurement_report, iter_jsonl_records, main
+from airlock.measurement_report import (
+    build_measurement_report,
+    iter_jsonl_records,
+    main,
+)
 
 
 def _record(
@@ -127,9 +131,7 @@ def test_cli_can_gate_on_all_dispositions(tmp_path, capsys):
         )
         == 0
     )
-    assert json.loads(capsys.readouterr().out)["dispositions"] == {
-        "batch-a": "enforce"
-    }
+    assert json.loads(capsys.readouterr().out)["dispositions"] == {"batch-a": "enforce"}
 
 
 def test_iter_jsonl_records_skips_invalid_json(tmp_path):

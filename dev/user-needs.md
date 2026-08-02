@@ -968,9 +968,9 @@ multiples on every request until someone notices a bill.
    token. *(0.5.6)*
 4. The refusal response tells the caller what to send instead: a 404 whose
    `error.message` is self-sufficient prose, plus ranked suggestions with cost tier.
-   *(0.5.7 F-3 — not yet shipped)*
+   *(0.5.8)*
 5. Suggestions never include a model outside the caller's permitted catalog.
-   *(0.5.7 F-3)*
+   *(0.5.8)*
 
 ---
 
@@ -1016,3 +1016,24 @@ only one of them is honest.
    these; Airlock inherits them, confirmed by inspection and local calculation)*
 5. Per-request-priced providers either record their cost or are explicitly documented
    as unrecorded with a reason. *(0.5.7 F-4 step 3)*
+
+---
+
+## UN-31: Truthful Runtime Configuration Applicability
+
+**As an** Airlock operator,
+**I need** the TUI to tell me which configuration edits take effect immediately and
+which need a proxy restart,
+**so that** I do not either interrupt traffic unnecessarily or assume an inactive
+setting is protecting a running proxy.
+
+### Acceptance Criteria
+
+1. Every ConfigPane control has an explicit applicability classification; controls not
+   changed by Apply are identified as such rather than presented as live.
+2. Restart-required controls are visibly marked, including provider credentials,
+   listener address, failover map, and logging destinations.
+3. Apply reports no change, live-only changes, restart-required changes, and mixed
+   changes accurately without exposing a secret or configuration value in its status.
+4. Existing live controls—enforcement mode, PII/keyword controls, and MCP tool
+   allow/block lists—continue to update the runtime environment immediately.

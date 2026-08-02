@@ -89,9 +89,7 @@ class AirlockModelNotFound(Exception):
 class AirlockInvalidReasoningEffort(Exception):
     """A known-invalid OpenAI reasoning effort rejected before provider dispatch."""
 
-    def __init__(
-        self, requested: str, model: str, supported: frozenset[str]
-    ) -> None:
+    def __init__(self, requested: str, model: str, supported: frozenset[str]) -> None:
         self.requested = requested
         self.model = model
         self.supported = tuple(sorted(supported))
@@ -262,7 +260,9 @@ def install_airlock_error_handlers_on_proxy_app() -> bool:
     if not getattr(app.state, "airlock_model_not_found_handler_installed", False):
         app.add_exception_handler(AirlockModelNotFound, airlock_model_not_found_handler)
         app.state.airlock_model_not_found_handler_installed = True
-    if not getattr(app.state, "airlock_invalid_reasoning_effort_handler_installed", False):
+    if not getattr(
+        app.state, "airlock_invalid_reasoning_effort_handler_installed", False
+    ):
         app.add_exception_handler(
             AirlockInvalidReasoningEffort, airlock_invalid_reasoning_effort_handler
         )

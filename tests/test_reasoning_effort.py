@@ -584,7 +584,9 @@ class TestEnforcingValidation:
         assert validate_reasoning_effort(data, "openai") is data
         assert data["reasoning_effort"] == "max"
 
-    def test_escape_hatch_preserves_request_for_litellm_drop_params(self, fake_map, monkeypatch):
+    def test_escape_hatch_preserves_request_for_litellm_drop_params(
+        self, fake_map, monkeypatch
+    ):
         monkeypatch.setenv("AIRLOCK_VALIDATE_REASONING_EFFORT", "0")
         data = {"model": "gpt-5.4", "reasoning_effort": "none"}
         assert validate_reasoning_effort(data, "openai") is data

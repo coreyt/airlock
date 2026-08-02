@@ -39,7 +39,10 @@ from airlock.proxy_errors import (
     AirlockProviderBlocked,
     sanitize_reason,
 )
-from airlock.reasoning_effort import normalize_reasoning_effort, validate_reasoning_effort
+from airlock.reasoning_effort import (
+    normalize_reasoning_effort,
+    validate_reasoning_effort,
+)
 from airlock.transparency import detect_dropped_params, record_mutation
 from airlock.client_identity import (
     client_id_from_api_key,
@@ -312,7 +315,9 @@ class AirlockFastGuardian(CustomGuardrail):
                 )
                 suggestions = alias_table.suggest(model_name)
                 suggestions.sort(
-                    key=lambda item: 0 if item.get("model") == cross_tier.suggested else 1
+                    key=lambda item: (
+                        0 if item.get("model") == cross_tier.suggested else 1
+                    )
                 )
                 if not suggestions:
                     suggestions = [

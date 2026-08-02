@@ -311,7 +311,9 @@ class TestAdmissionGateDisabled:
                 patch("airlock.fast.guardian.compute_priority") as mock_prio,
             ):
                 mock_threat.return_value = MagicMock(blocked=False)
-                mock_alias.resolve.return_value = None
+                mock_alias.resolve_with_diagnostic.return_value = MagicMock(
+                    alias=None, cross_tier=None
+                )
                 mock_store.get_client.return_value = MagicMock(
                     is_in_backoff=lambda: False,
                     record_request=lambda t: None,
@@ -421,7 +423,9 @@ class TestGuardianIntegration:
                 patch("airlock.fast.guardian.compute_priority") as mock_prio,
             ):
                 mock_threat.return_value = MagicMock(blocked=False)
-                mock_alias.resolve.return_value = None
+                mock_alias.resolve_with_diagnostic.return_value = MagicMock(
+                    alias=None, cross_tier=None
+                )
                 mock_cb.return_value = MagicMock(allowed=True)
                 mock_prio.return_value = MagicMock(score=0.1, boost=False, reasons=[])
 
@@ -454,7 +458,9 @@ class TestGuardianIntegration:
                 patch("airlock.fast.guardian.store", self._mock_store()),
             ):
                 mock_threat.return_value = MagicMock(blocked=False)
-                mock_alias.resolve.return_value = None
+                mock_alias.resolve_with_diagnostic.return_value = MagicMock(
+                    alias=None, cross_tier=None
+                )
                 mock_alias.suggest.return_value = [
                     {"model": "gpt-5.6-luna", "score": 0.9, "tier": "standard"}
                 ]
@@ -485,7 +491,7 @@ class TestGuardianIntegration:
             with (
                 patch("airlock.guardrail_overrides.resolve_guardrail_decision"),
                 patch("airlock.fast.guardian.assess_threat") as mock_threat,
-                patch("airlock.fast.guardian.alias_table"),
+                patch("airlock.fast.guardian.alias_table") as mock_alias,
                 patch("airlock.fast.guardian.store", self._mock_store()),
                 patch("airlock.fast.guardian.check_model_with_filters"),
                 patch("airlock.fast.guardian.apply_routing", return_value=data),
@@ -498,6 +504,9 @@ class TestGuardianIntegration:
                 patch("airlock.fast.guardian.compute_priority") as mock_prio,
             ):
                 mock_threat.return_value = MagicMock(blocked=False)
+                mock_alias.resolve_with_diagnostic.return_value = MagicMock(
+                    alias=None, cross_tier=None
+                )
                 mock_prio.return_value = MagicMock(score=0.1, boost=False, reasons=[])
 
                 guardian = guardian_mod.AirlockFastGuardian()
@@ -537,7 +546,9 @@ class TestGuardianIntegration:
                 patch("airlock.fast.guardian.compute_priority") as mock_prio,
             ):
                 mock_threat.return_value = MagicMock(blocked=False)
-                mock_alias.resolve.return_value = None
+                mock_alias.resolve_with_diagnostic.return_value = MagicMock(
+                    alias=None, cross_tier=None
+                )
                 mock_cb.return_value = MagicMock(allowed=True)
                 mock_prio.return_value = MagicMock(score=0.1, boost=False, reasons=[])
 
