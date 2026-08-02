@@ -3,14 +3,13 @@
 > The current state is derived from release evidence and commits; this board is a
 > compaction-safe pointer, not a substitute for them.
 
-_Last updated: 2026-08-02 · release candidate: `v0.5.8` (local candidate)_
+_Last updated: 2026-08-02 · released: [`v0.5.8`](https://github.com/coreyt/airlock/releases/tag/v0.5.8) @ `2bf044f`_
 
 ## Current state
 
-- **In flight:** P-9 release hygiene.
-- **Next action:** commit the release candidate, close the audited documentation issue,
-  push for GitHub Actions, then create the `v0.5.8` publishing tag only after CI is
-  green.
+- **In flight:** none — 0.5.8 is released.
+- **Next action:** begin the separately scoped follow-up release; the deferred backlog
+  in `dev/plans/0.5.8-plan.md` is not automatically accepted scope.
 
 ## Scope scoreboard
 
@@ -21,12 +20,12 @@ _Last updated: 2026-08-02 · release candidate: `v0.5.8` (local candidate)_
 | P-6 alias disclosure / P-6a / P-6b | CLOSED | `1062343`; header and interface tests |
 | P-7 documentation | CLOSED | routing/configuration docs and 0.5.8 plan |
 | P-8 config applicability (#34) | CLOSED | `5b86675`; 12 ConfigPane tests green |
-| P-9 release hygiene / #22 audit | IN PROGRESS | `0.5.8-release-evidence-2026-08-02.md` |
+| P-9 release hygiene / #22 audit | CLOSED | `2bf044f`; #22 closed; CI run `30755606843`; release run `30755862399` |
 
 ## Constraints
 
 - `config.local.yaml` is a deliberate, default-empty extension mechanism and any
   machine-local override remains unstaged.
 - Liveness validation uses `/health/liveliness` only—never `/health`.
-- The release tag triggers PyPI trusted publishing; it follows, rather than precedes,
-  a green GitHub Actions run.
+- `v0.5.8` was pushed only after CI run `30755606843` passed. Release run
+  `30755862399` then built, published to PyPI, and created the GitHub release.
