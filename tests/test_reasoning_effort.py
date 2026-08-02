@@ -579,7 +579,7 @@ class TestEnforcingValidation:
         assert validate_reasoning_effort(supported, "openai") is supported
         assert validate_reasoning_effort(unknown, "openai") is unknown
 
-    def test_unresolved_max_fails_open_pending_provider_probe(self, fake_map):
+    def test_documented_gpt_5_6_max_passes_through(self, fake_map):
         data = {"model": "gpt-5.6-sol", "reasoning_effort": "max"}
         assert validate_reasoning_effort(data, "openai") is data
         assert data["reasoning_effort"] == "max"

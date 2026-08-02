@@ -36,8 +36,9 @@ on its allowlist. Full rules and examples in [MCP Servers](../guide/mcp-servers.
 
 Airlock 0.5.8 rejects a known-invalid `reasoning_effort` for OpenAI-family models
 with an OpenAI-shaped 400 rather than silently changing or dropping the value.
-Unknown/custom models, and `max` while its provider capability remains unresolved,
-pass through unchanged.
+Unknown/custom model capability passes through unchanged. OpenAI documents `max` for
+GPT-5.6; Airlock accepts it for that configured family even though the pinned LiteLLM
+capability map has not yet exposed a conclusive flag.
 
 Set `AIRLOCK_VALIDATE_REASONING_EFFORT=0` only as a short-term rollback: it restores
 LiteLLM's normal `drop_params` handling for OpenAI-family requests. The former
@@ -271,8 +272,9 @@ See [Batch Processing](../guide/batch.md) for the end-to-end recipe.
 For OpenAI-family models, Airlock validates the client value before LiteLLM's
 `drop_params: true` can silently strip or change it. A value known invalid for the
 resolved model receives a 400 with `error.code=invalid_reasoning_effort`; known
-valid values pass unchanged. Unknown/custom model capability and unresolved `max`
-pass through unchanged rather than being rejected from incomplete information.
+valid values pass unchanged. Unknown/custom model capability passes through unchanged
+rather than being rejected from incomplete information. OpenAI documents `max` for
+GPT-5.6, which Airlock accepts model-specifically despite LiteLLM's missing flag.
 
 Set `AIRLOCK_VALIDATE_REASONING_EFFORT=0` only as a short-term rollback. It restores
 LiteLLM's normal `drop_params` handling for OpenAI-family calls. The legacy

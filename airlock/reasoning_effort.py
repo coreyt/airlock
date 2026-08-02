@@ -76,6 +76,14 @@ _FLAGGED_LEVELS = {
 
 _KNOWN_LEVELS = frozenset(_ALWAYS_SUPPORTED | set(_FLAGGED_LEVELS))
 
+# OpenAI's GPT-5.6 guidance explicitly documents ``max`` for this family
+# (https://developers.openai.com/api/docs/guides/latest-model). Keep the allow-list
+# model-granular: a missing LiteLLM flag must not make ``max`` silently valid for a
+# different model.
+_DOCUMENTED_MAX_MODELS = frozenset(
+    {"gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"}
+)
+
 
 def _enabled() -> bool:
     return os.getenv("AIRLOCK_NORMALIZE_REASONING_EFFORT", "1").strip().lower() not in (
@@ -196,15 +204,19 @@ def _supported_efforts(model: str | None) -> frozenset[str] | None:
 def _validation_status(model: str | None, requested: str) -> tuple[bool, frozenset[str]] | None:
     """Return ``(known_invalid, supported)`` or ``None`` when validation is unsafe.
 
-    ``max`` is intentionally fail-open while LiteLLM lacks a conclusive flag and
-    the explicit provider probe has no result.  That prevents a missing bit from
-    becoming a customer-visible 400.
+    GPT-5.6's ``max`` support is documented by OpenAI even though the pinned LiteLLM
+    map has no conclusive bit. Other models still fail open for ``max`` rather than
+    turning missing capability metadata into a customer-visible 400.
     """
     supported = _supported_efforts(model)
     if supported is None:
         return None
     if requested in supported:
         return False, supported
+    body = _alias_body_map().get(str(model).lower(), str(model)).lower()
+    bare_body = body.split("/", 1)[-1]
+    if requested == "max" and bare_body in _DOCUMENTED_MAX_MODELS:
+        return False, frozenset(set(supported) | {"max"})
     if requested == "max":
         return None
     if requested in _KNOWN_LEVELS:
