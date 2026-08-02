@@ -215,3 +215,14 @@ async def test_measurement_markers_round_trip_through_real_enterprise_jsonl(
     assert records[0]["success"] is success
     assert report.total_events == 1
     assert report.affected_clients == [client]
+    if kind == "cross-tier-fuzzy":
+        assert report.combinations == [
+            {
+                "count": 1,
+                "requested": "gpt-alpha",
+                "served": "gpt-alpha-1",
+                "suggested": "gpt-alpha-2",
+                "from_tier": "low",
+                "to_tier": "high",
+            }
+        ]
