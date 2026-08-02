@@ -879,6 +879,46 @@ class TestCrossTierMeasurementDetail:
         assert detail.suggested == "alpha-z"
         assert detail.score == 0.84
 
+    def test_equal_score_alternate_preserves_config_order_and_cached_detail(
+        self, tmp_path, monkeypatch
+    ):
+        config = {
+            "model_list": [
+                {
+                    "model_name": "alpha-1",
+                    "litellm_params": {"model": "openai/alpha-1"},
+                },
+                {
+                    "model_name": "alpha-z",
+                    "litellm_params": {"model": "openai/alpha-z"},
+                },
+                {
+                    "model_name": "alpha-2",
+                    "litellm_params": {"model": "openai/alpha-2"},
+                },
+            ],
+            "cost_tiers": {"low": ["alpha-1"], "high": ["alpha-z", "alpha-2"]},
+        }
+        path = tmp_path / "config.yaml"
+        path.write_text(yaml.safe_dump(config))
+        table = ModelAliasTable()
+        table.load_from_config(path)
+        import airlock.fast.model_alias as alias_module
+
+        scores = {"alpha-1": 0.9, "alpha-z": 0.8, "alpha-2": 0.8}
+        monkeypatch.setattr(
+            alias_module, "_score_match", lambda _query, entry: scores[entry.alias]
+        )
+
+        # Numeric version noise must not engage the dropped-qualifier guard.
+        first = table.resolve_with_diagnostic("alpha-4")
+        repeated = table.resolve_with_diagnostic("alpha-4")
+
+        assert first.alias == "alpha-1"
+        assert first.cross_tier is not None
+        assert first.cross_tier.suggested == "alpha-z"
+        assert repeated.cross_tier == first.cross_tier
+
 
 class TestNoRegressionFromGuard:
     """The guard must not break resolution of names that legitimately resolve."""

@@ -457,11 +457,14 @@ class ModelAliasTable:
         if not alternates:
             return None
 
-        # ``scored`` retains config order, so taking the first alternate would
-        # make the suggested safe alternative configuration-order dependent.
-        # Choose the strongest alternate-tier candidate; alias breaks an exact
-        # score tie deterministically without affecting the current route.
-        score, alias = min(alternates, key=lambda candidate: (-candidate[0], candidate[1]))
+        # Prefer the strongest alternate-tier candidate.  ``scored`` retains
+        # configured alias order, which is also the legacy deterministic tie
+        # rule for equal scores; preserve it rather than substituting a lexical
+        # tie-break that can change an existing cached suggestion.
+        alternate_score = max(score for score, _ in alternates)
+        score, alias = next(
+            candidate for candidate in alternates if candidate[0] == alternate_score
+        )
         return CrossTierFuzzyMatch(
             served=best_alias,
             suggested=alias,

@@ -4,6 +4,11 @@ import json
 
 import pytest
 
+import airlock.reasoning_effort as reasoning_effort
+from airlock.callbacks.enterprise_logger import AirlockLogger
+from airlock.callbacks.request_event import RequestRecorder, RequestRecorderCallback
+from airlock.fast.guardian import AirlockFastGuardian
+from airlock.fast.model_alias import AliasResolution, CrossTierFuzzyMatch
 from airlock.measurement_report import build_measurement_report, iter_jsonl_records, main
 
 
@@ -136,3 +141,77 @@ def test_iter_jsonl_records_skips_invalid_json(tmp_path):
     )
 
     assert list(iter_jsonl_records([path])) == [{"model": "good"}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("kind", "success"),
+    [
+        ("reasoning-effort", True),
+        ("reasoning-effort", False),
+        ("cross-tier-fuzzy", True),
+        ("cross-tier-fuzzy", False),
+    ],
+)
+async def test_measurement_markers_round_trip_through_real_enterprise_jsonl(
+    kind,
+    success,
+    tmp_path,
+    monkeypatch,
+    fresh_state_store,
+    mock_cache,
+    mock_user_api_key_dict,
+):
+    """Exercise producer → recorder callback → AirlockLogger → JSONL → report."""
+    monkeypatch.setenv("AIRLOCK_LOG_DIR", str(tmp_path))
+    client = "measurement-client"
+    if kind == "reasoning-effort":
+        monkeypatch.setattr(
+            reasoning_effort, "_supported_efforts", lambda _model: frozenset({"minimal"})
+        )
+        data = {
+            "model": "gpt-5.4",
+            "reasoning_effort": "none",
+            "metadata": {"airlock_client": client},
+        }
+        reasoning_effort.normalize_reasoning_effort(data, "openai", client)
+    else:
+        import airlock.fast.guardian as guardian_module
+
+        detail = CrossTierFuzzyMatch(
+            served="gpt-alpha-1",
+            suggested="gpt-alpha-2",
+            score=0.75,
+            from_tier="low",
+            to_tier="high",
+        )
+        monkeypatch.setattr(
+            guardian_module.alias_table,
+            "resolve_with_diagnostic",
+            lambda _: AliasResolution(alias="gpt-alpha-1", cross_tier=detail),
+        )
+        data = {
+            "messages": [{"role": "user", "content": "measurement"}],
+            "model": "gpt-alpha",
+            "metadata": {"airlock_client": client},
+        }
+        data = await AirlockFastGuardian().async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "completion"
+        )
+
+    recorder = RequestRecorder()
+    recorder.register(AirlockLogger().record_event, name="enterprise")
+    callback = RequestRecorderCallback(recorder)
+    if success:
+        await callback.async_log_success_event(data, None, None, None)
+    else:
+        data["exception"] = RuntimeError("synthetic callback failure")
+        await callback.async_log_failure_event(data, None, None, None)
+
+    records = list(iter_jsonl_records(sorted(tmp_path.glob("airlock-*.jsonl"))))
+    report = build_measurement_report(records, kind=kind)
+
+    assert len(records) == 1
+    assert records[0]["success"] is success
+    assert report.total_events == 1
+    assert report.affected_clients == [client]
