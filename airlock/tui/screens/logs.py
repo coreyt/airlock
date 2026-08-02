@@ -84,9 +84,12 @@ def _matches_snapshot(record: dict[str, Any], filters: dict[str, str]) -> bool:
         if search not in " ".join(str(record.get(key) or "") for key in keys).lower():
             return False
     try:
-        timestamp = datetime.fromisoformat(
-            str(record.get("timestamp", "")).replace("Z", "+00:00")
-        )
+        raw_timestamp = str(record.get("timestamp", ""))
+        # Older JSONL fixtures/producers occasionally emitted ``+00:00Z``.
+        # Treat it as UTC rather than dropping an otherwise valid record.
+        if raw_timestamp.endswith("+00:00Z"):
+            raw_timestamp = raw_timestamp[:-1]
+        timestamp = datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
     except ValueError:
         return False
     now = datetime.now(timezone.utc)
