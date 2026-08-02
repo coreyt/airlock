@@ -299,6 +299,20 @@ class AirlockFastGuardian(CustomGuardrail):
                     raise AirlockModelNotFound(model_name, suggestions)
             if alias_resolution.cross_tier is not None:
                 cross_tier = alias_resolution.cross_tier
+                # Keep the measurement dimensions structured and content-safe so
+                # the canonical RequestEvent/JSONL stream can produce a
+                # deterministic affected-client report.  The warning remains for
+                # operator-facing logs; this metadata is the queryable record.
+                data.setdefault("metadata", {})[
+                    "airlock_cross_tier_fuzzy_measurement"
+                ] = {
+                    "requested": model_name,
+                    "served": cross_tier.served,
+                    "suggested": cross_tier.suggested,
+                    "score": cross_tier.score,
+                    "from_tier": cross_tier.from_tier,
+                    "to_tier": cross_tier.to_tier,
+                }
                 logger.warning(
                     "event=fuzzy_match_would_reject requested=%s served=%s "
                     "suggested=%s score=%.3f from_tier=%s to_tier=%s client_id=%s",
@@ -311,7 +325,7 @@ class AirlockFastGuardian(CustomGuardrail):
                     client_id,
                 )
                 record_mutation(
-                    data.setdefault("metadata", {}),
+                    data["metadata"],
                     field="model_alias_would_reject",
                     op="inject",
                     before=None,

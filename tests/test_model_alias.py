@@ -834,8 +834,12 @@ class TestCrossTierMeasurementDetail:
                     "model_name": "alpha-2",
                     "litellm_params": {"model": "openai/alpha-2"},
                 },
+                {
+                    "model_name": "alpha-z",
+                    "litellm_params": {"model": "openai/alpha-z"},
+                },
             ],
-            "cost_tiers": {"low": ["alpha-1"], "high": ["alpha-2"]},
+            "cost_tiers": {"low": ["alpha-1"], "high": ["alpha-2", "alpha-z"]},
         }
         path = tmp_path / "config.yaml"
         path.write_text(yaml.safe_dump(config))
@@ -862,6 +866,18 @@ class TestCrossTierMeasurementDetail:
 
         assert result.alias == "alpha-1"
         assert result.cross_tier is None
+
+    def test_highest_scored_alternate_tier_candidate_is_reported(self, table):
+        detail = table._cross_tier_fuzzy_match(
+            "alpha-typo",
+            [(0.9, "alpha-1"), (0.76, "alpha-2"), (0.84, "alpha-z")],
+            "alpha-1",
+            0.9,
+        )
+
+        assert detail is not None
+        assert detail.suggested == "alpha-z"
+        assert detail.score == 0.84
 
 
 class TestNoRegressionFromGuard:

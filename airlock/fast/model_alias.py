@@ -449,18 +449,19 @@ class ModelAliasTable:
             return None
 
         best_tier = self._alias_tier[best_alias.lower()]
-        alternate = next(
-            (
-                (score, alias)
-                for score, alias in candidates
-                if self._alias_tier[alias.lower()] != best_tier
-            ),
-            None,
-        )
-        if alternate is None:
+        alternates = [
+            (score, alias)
+            for score, alias in candidates
+            if self._alias_tier[alias.lower()] != best_tier
+        ]
+        if not alternates:
             return None
 
-        score, alias = alternate
+        # ``scored`` retains config order, so taking the first alternate would
+        # make the suggested safe alternative configuration-order dependent.
+        # Choose the strongest alternate-tier candidate; alias breaks an exact
+        # score tie deterministically without affecting the current route.
+        score, alias = min(alternates, key=lambda candidate: (-candidate[0], candidate[1]))
         return CrossTierFuzzyMatch(
             served=best_alias,
             suggested=alias,

@@ -91,7 +91,26 @@ week 1 says little about a monthly caller.
 
 ## T-4 — The report (due 2026-08-21)
 
-Produce these four numbers:
+Produce the report from the canonical JSONL stream, not from formatted process logs:
+
+```bash
+cd ~/projects/airlock
+cp dev/plans/runs/measurement-dispositions.example.json /tmp/effort-dispositions.json
+# Edit the copied JSON so every reported client, including <unknown>, has one of:
+# notify, grace-extend, enforce, investigate.
+uv run python scripts/measurement-report.py reasoning-effort logs \
+  --start 2026-07-21T00:00:00+00:00 \
+  --end 2026-08-21T23:59:59+00:00 \
+  --dispositions /tmp/effort-dispositions.json \
+  --require-dispositions > /tmp/0.5.8-effort-measurement-report.json
+```
+
+The command returns non-zero until each affected client has an explicit
+disposition. It is deterministic and CI-testable, but it does **not** prove that
+the supplied records came from the deployed production window; record deployment
+identity and provenance alongside the result.
+
+The equivalent raw-log checks remain useful for spot investigation:
 
 ```bash
 cd ~/projects/airlock

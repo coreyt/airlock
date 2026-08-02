@@ -38,6 +38,22 @@ Use the normal event-store/JSONL query path for the deployed environment. Record
 exact command, sample event identifier, and result here. A source-level unit test is
 not proof that the production callback/sink wiring is live.
 
+The local/CI acceptance path proves the exact payload and JSONL-query contract before
+deployment:
+
+```bash
+uv run pytest tests/test_model_suggestion.py tests/test_request_event.py \
+  tests/test_measurement_report.py -q
+uv run python scripts/measurement-report.py cross-tier-fuzzy <exported-jsonl-or-log-dir> \
+  --start <window-start> --end <window-end> \
+  --dispositions <reviewed-client-dispositions.json> --require-dispositions
+```
+
+The report groups `requested`, `served`, `suggested`, `from_tier`, and `to_tier`, and
+fails the disposition gate until every affected client (including `<unknown>`) is
+assigned `notify`, `grace-extend`, `enforce`, or `investigate`. This local acceptance
+does not replace the deployed controlled request required by T-1.
+
 | Evidence | Value |
 |---|---|
 | Deployment SHA/release | |

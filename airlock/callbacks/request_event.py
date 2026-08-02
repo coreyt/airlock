@@ -108,7 +108,11 @@ def build_request_event(
     and ``mcp_arguments`` (§3.8).
     """
     litellm_params = kwargs.get("litellm_params", {}) or {}
-    metadata = litellm_params.get("metadata", {}) or {}
+    # Guardrails mutate the top-level request ``metadata`` object.  LiteLLM
+    # callback shapes normally also nest it under ``litellm_params``, but use
+    # the top-level object as a fallback so advisory ledger markers cannot be
+    # lost before the canonical recorder sees them.
+    metadata = litellm_params.get("metadata") or kwargs.get("metadata") or {}
     airlock_client = _get_airlock_client(metadata, kwargs)
 
     error = None

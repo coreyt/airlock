@@ -227,6 +227,32 @@ def test_guardrail_meta_collects_airlock_keys():
     assert "other" not in ev.guardrail_meta
 
 
+def test_top_level_metadata_fallback_preserves_guardrail_markers():
+    marker = Mutation(
+        field="model_alias_would_reject",
+        op="inject",
+        before=None,
+        after=None,
+        stage="pre_call",
+        source="guardian.alias_cross_tier_measurement",
+    )
+    kwargs = _kwargs()
+    kwargs["litellm_params"] = {}
+    kwargs["metadata"] = {
+        "airlock_client": "batch-a",
+        "airlock_mutations": [marker],
+        "airlock_cross_tier_fuzzy_measurement": {"requested": "alpha"},
+    }
+
+    event = build_request_event(kwargs, _FakeResponse(), _ts(0), _ts(1), success=True)
+
+    assert event.airlock_client == "batch-a"
+    assert event.mutations[0]["field"] == "model_alias_would_reject"
+    assert event.guardrail_meta["airlock_cross_tier_fuzzy_measurement"] == {
+        "requested": "alpha"
+    }
+
+
 # ---------------------------------------------------------------------------
 # 5. mutations / served / attribution
 # ---------------------------------------------------------------------------
