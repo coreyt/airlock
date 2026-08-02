@@ -18,6 +18,7 @@ from airlock.proxy import (
     _ssl_cli_args,
     _startup_model_discovery_enabled,
     _validate_config,
+    _validate_mcp_env_refs,
     _validate_master_key,
     _register_shutdown_handlers,
     _warn_observe_mode,
@@ -463,6 +464,30 @@ class TestStartupFlags:
         monkeypatch.setenv("AIRLOCK_ENABLE_MCP_SERVERS", "1")
         assert _mcp_startup_mode() == "eager"
 
+    def test_mcp_env_validation_skips_servers_disabled_for_startup(
+        self, tmp_path, monkeypatch
+    ):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            "mcp_servers:\n  demo:\n    env:\n      TOKEN: os.environ/DEMO_TOKEN\n"
+        )
+        monkeypatch.setenv("AIRLOCK_MCP_STARTUP_MODE", "off")
+        monkeypatch.delenv("DEMO_TOKEN", raising=False)
+
+        assert _validate_mcp_env_refs(str(cfg)) == []
+
+    def test_mcp_env_validation_still_checks_enabled_servers(
+        self, tmp_path, monkeypatch
+    ):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            "mcp_servers:\n  demo:\n    env:\n      TOKEN: os.environ/DEMO_TOKEN\n"
+        )
+        monkeypatch.setenv("AIRLOCK_MCP_STARTUP_MODE", "lazy")
+        monkeypatch.delenv("DEMO_TOKEN", raising=False)
+
+        assert "DEMO_TOKEN" in _validate_mcp_env_refs(str(cfg))[0]
+
     def test_background_health_checks_override_unset(self, monkeypatch):
         monkeypatch.delenv("AIRLOCK_BACKGROUND_HEALTH_CHECKS", raising=False)
         assert _background_health_checks_override() is None
@@ -521,6 +546,61 @@ class TestRuntimeConfigPreparation:
         with open(runtime_path, encoding="utf-8") as f:
             loaded = yaml.safe_load(f) or {}
         assert "mcp_servers" not in loaded
+
+    def test_mcp_off_inlines_local_overrides_without_reintroducing_mcp(
+        self, tmp_path, monkeypatch
+    ):
+        local = tmp_path / "config.local.yaml"
+        local.write_text(
+            "mcp_servers:\n"
+            "  demo:\n"
+            "    transport: stdio\n"
+            "general_settings:\n"
+            "  custom_value: local\n"
+        )
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            "include: [config.local.yaml]\n"
+            "model_list:\n"
+            "  - model_name: demo\n"
+            "    litellm_params:\n"
+            "      model: openai/demo\n"
+            "mcp_servers:\n"
+            "  root:\n"
+            "    transport: stdio\n"
+        )
+        monkeypatch.setenv("AIRLOCK_MCP_STARTUP_MODE", "off")
+
+        runtime_path, _temp_path = _prepare_runtime_config(str(cfg))
+
+        with open(runtime_path, encoding="utf-8") as f:
+            loaded = yaml.safe_load(f) or {}
+        assert "include" not in loaded
+        assert "mcp_servers" not in loaded
+        assert loaded["general_settings"]["custom_value"] == "local"
+
+    def test_prepare_runtime_config_uses_writable_temp_and_absolutizes_includes(
+        self, tmp_path, monkeypatch
+    ):
+        include = tmp_path / "config.local.yaml"
+        include.write_text("{}\n")
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            "include: [config.local.yaml]\n"
+            "model_list:\n"
+            "  - model_name: demo\n"
+            "    litellm_params:\n"
+            "      model: openai/demo\n"
+        )
+        monkeypatch.setenv("AIRLOCK_MCP_STARTUP_MODE", "eager")
+
+        runtime_path, temp_path = _prepare_runtime_config(str(cfg))
+
+        assert temp_path == runtime_path
+        assert Path(runtime_path).parent != cfg.parent
+        with open(runtime_path, encoding="utf-8") as f:
+            loaded = yaml.safe_load(f) or {}
+        assert loaded["include"] == [str(include.resolve())]
 
     def test_prepare_runtime_config_keeps_mcp_servers_in_lazy_mode(
         self, tmp_path, monkeypatch

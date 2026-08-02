@@ -51,6 +51,12 @@ def _validate_mcp_env_refs(config_path: str) -> list[str]:
 
     Returns a list of human-readable error messages for missing vars.
     """
+    # Off mode removes MCP servers from the runtime config. Validating their
+    # credentials first makes the documented startup escape hatch unusable,
+    # including for a minimal Docker liveness smoke test.
+    if _mcp_startup_mode() == "off":
+        return []
+
     with open(config_path) as f:
         cfg = yaml.safe_load(f) or {}
 
@@ -156,13 +162,61 @@ def _fathom_logger_enabled() -> bool:
     return _env_flag("AIRLOCK_ENABLE_FATHOM_LOGGER", default=False)
 
 
+def _inline_config_includes(config: dict, config_path: str) -> None:
+    """Inline local YAML includes when a runtime mode must remove a top-level key.
+
+    LiteLLM applies included files after the main file. Simply popping
+    ``mcp_servers`` from the main runtime config would therefore let a local
+    include add it back. The documented include semantics are a top-level
+    replacement, so process includes in order and update the parent mapping.
+    """
+
+    def merge_includes(target: dict, includes: object, parent: Path) -> None:
+        if isinstance(includes, str):
+            include_items = [includes]
+        elif isinstance(includes, list):
+            include_items = includes
+        elif includes is None:
+            return
+        else:
+            raise ValueError("config include must be a path or a list of paths")
+
+        for item in include_items:
+            if not isinstance(item, str):
+                raise ValueError("config include entries must be paths")
+            path = Path(item)
+            if not path.is_absolute():
+                path = parent / path
+            try:
+                with open(path, encoding="utf-8") as f:
+                    included = yaml.safe_load(f) or {}
+            except (OSError, yaml.YAMLError) as exc:
+                raise ValueError(
+                    f"could not load config include {path}: {exc}"
+                ) from exc
+            if not isinstance(included, dict):
+                raise ValueError(f"config include {path} must contain a mapping")
+            nested = included.pop("include", None)
+            merge_includes(included, nested, path.parent)
+            target.update(included)
+
+    merge_includes(
+        config, config.pop("include", None), Path(config_path).resolve().parent
+    )
+
+
 def _prepare_runtime_config(config_path: str) -> tuple[str, str | None]:
     """Apply env-driven startup overrides and return a config path for LiteLLM."""
     with open(config_path, encoding="utf-8") as f:
         config = yaml.safe_load(f) or {}
 
-    changed = False
     mcp_mode = _mcp_startup_mode()
+    # In off mode, materialize config.local.yaml first. Otherwise LiteLLM will
+    # apply that include after this function and can reintroduce mcp_servers.
+    if mcp_mode == "off":
+        _inline_config_includes(config, config_path)
+
+    changed = False
     general_settings = config.setdefault("general_settings", {})
 
     for entry in config.get("model_list", []) or []:
@@ -205,13 +259,27 @@ def _prepare_runtime_config(config_path: str) -> tuple[str, str | None]:
     if not changed:
         return config_path, None
 
+    # The proxy may run as a non-root user while its packaged config lives in a
+    # read-only application directory. Write the generated config to the system
+    # temp directory instead. LiteLLM resolves `include:` paths relative to the
+    # generated file, so make relative includes absolute before relocating it.
     config_dir = Path(config_path).resolve().parent
+    includes = config.get("include")
+    if isinstance(includes, list):
+        config["include"] = [
+            str((config_dir / item).resolve())
+            if isinstance(item, str) and not Path(item).is_absolute()
+            else item
+            for item in includes
+        ]
+    elif isinstance(includes, str) and not Path(includes).is_absolute():
+        config["include"] = str((config_dir / includes).resolve())
+
     tmp = tempfile.NamedTemporaryFile(
         mode="w",
         encoding="utf-8",
         suffix=".yaml",
         prefix="airlock-runtime-",
-        dir=config_dir,
         delete=False,
     )
     with tmp:
