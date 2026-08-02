@@ -51,8 +51,9 @@ _OPENAI_VALID = {"minimal", "low", "medium", "high"}
 _GEMINI_VALID = {"disable", "low", "medium", "high"}
 _OPENAI_PROVIDERS = {"openai", "azure", "azure_ai"}
 
-# Levels every reasoning model accepts; the litellm map carries no per-level flag
-# for these, so they are the floor of any computed support set.
+# Levels every model that LiteLLM positively identifies as reasoning-capable accepts.
+# The map carries no per-level flags for these, so they are the floor of a computed
+# support set only after the ``supports_reasoning`` precondition below succeeds.
 _ALWAYS_SUPPORTED = frozenset({"low", "medium", "high"})
 
 # Optional levels, each gated by its own litellm capability flag. Absent-or-None
@@ -162,6 +163,13 @@ def _supported_efforts(model: str | None) -> frozenset[str] | None:
     if not isinstance(info, dict):
         return None
 
+    # A dict alone is not proof that a model accepts reasoning_effort: ordinary chat
+    # models have map records too.  Fail open unless LiteLLM positively identifies a
+    # reasoning-capable model; missing metadata must not produce a false-negative
+    # measurement or a later false acceptance.
+    if info.get("supports_reasoning") is not True:
+        return None
+
     levels = set(_ALWAYS_SUPPORTED)
     for level, flag in _FLAGGED_LEVELS.items():
         if info.get(flag):
@@ -222,7 +230,7 @@ def _warn_would_reject(
         after=emitted,
         stage="pre_call",
         source="reasoning_effort.validate",
-        reason=f"{emitted!r} unsupported by {model}; supported: {levels}",
+        reason=f"requested {requested!r} unsupported by {model}; supported: {levels}",
     )
 
 
@@ -238,15 +246,17 @@ def normalize_reasoning_effort(
     sent upstream is byte-identical to what this function has always emitted —
     enforcement is a later release, gated on the measurement window (design §13).
     """
-    if not _enabled():
-        return data
     raw = data.get("reasoning_effort")
     if raw is None:
         return data
     val = str(raw).strip().lower()
     model = data.get("model")
 
-    if provider in _OPENAI_PROVIDERS:
+    # This flag controls only the legacy request mutation.  The warn-only
+    # measurement must keep running while an operator temporarily disables that
+    # mutation, otherwise a zero report could mean "detector off" instead of
+    # "no affected callers".
+    if _enabled() and provider in _OPENAI_PROVIDERS:
         if val not in _OPENAI_VALID and val in _OFF_INTENT:
             data["reasoning_effort"] = "minimal"
             record_mutation(
@@ -258,7 +268,7 @@ def normalize_reasoning_effort(
                 stage="pre_call",
                 source="reasoning_effort.normalize",
             )
-    elif provider == "gemini":
+    elif _enabled() and provider == "gemini":
         if val not in _GEMINI_VALID and (val in _OFF_INTENT or val == "minimal"):
             data["reasoning_effort"] = "disable"
             record_mutation(
@@ -270,7 +280,7 @@ def normalize_reasoning_effort(
                 stage="pre_call",
                 source="reasoning_effort.normalize",
             )
-    elif provider == "anthropic":
+    elif _enabled() and provider == "anthropic":
         # Anthropic has no reasoning_effort enum; "off" intent → no extended thinking.
         if val in _OFF_INTENT:
             data.pop("reasoning_effort", None)

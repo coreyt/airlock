@@ -170,6 +170,7 @@ class TestLedger:
 _FAKE_MODEL_MAP = {
     # 5.6-style: `none` is valid, `minimal` is REJECTED, `xhigh` valid.
     "openai/gpt-5.6-sol": {
+        "supports_reasoning": True,
         "supports_none_reasoning_effort": True,
         "supports_minimal_reasoning_effort": False,
         "supports_xhigh_reasoning_effort": True,
@@ -177,6 +178,7 @@ _FAKE_MODEL_MAP = {
     },
     # 5.4-style: `minimal` is valid, `none` is REJECTED.
     "openai/gpt-5.4": {
+        "supports_reasoning": True,
         "supports_none_reasoning_effort": False,
         "supports_minimal_reasoning_effort": True,
         "supports_xhigh_reasoning_effort": False,
@@ -369,11 +371,25 @@ class TestWouldRejectDetection:
         normalize_reasoning_effort(data, "openai")
         assert "client_id=" not in _warn_events(warns)[0].getMessage()
 
-    def test_disabled_via_env_logs_nothing(self, fake_map, warns, monkeypatch):
+    def test_disabled_normalization_still_measures(self, fake_map, warns, monkeypatch):
         monkeypatch.setenv("AIRLOCK_NORMALIZE_REASONING_EFFORT", "0")
-        data = {"model": "gpt-5.6-sol", "reasoning_effort": "max"}
+        data = {"model": "gpt-5.4", "reasoning_effort": "none"}
+        normalize_reasoning_effort(data, "openai")
+        # The operational escape hatch preserves the outgoing request, but it must
+        # never turn the measurement report into a false zero.
+        assert data["reasoning_effort"] == "none"
+        assert len(_warn_events(warns)) == 1
+        assert len(_would_reject_muts(data)) == 1
+
+    def test_known_non_reasoning_model_fails_open(self, fake_map, warns, monkeypatch):
+        # A LiteLLM map record without supports_reasoning is not sufficient evidence
+        # to decide a reasoning-effort value.  P-2 must not measure or later reject
+        # from that absence of capability metadata.
+        monkeypatch.setitem(_FAKE_MODEL_MAP, "openai/gpt-4o", {})
+        data = {"model": "openai/gpt-4o", "reasoning_effort": "max"}
         normalize_reasoning_effort(data, "openai")
         assert _warn_events(warns) == []
+        assert _would_reject_muts(data) == []
 
 
 class TestWouldRejectLedger:
