@@ -66,6 +66,39 @@ def admin_post(
     return status, payload if isinstance(payload, dict) else {"data": payload}
 
 
+def admin_get(
+    host: str, port: str, path: str, *, timeout: float = 2.0
+) -> tuple[int, dict]:
+    """Read a loopback admin snapshot. Never raises or emits an audit action."""
+    scheme, ctx = _scheme_and_context(host)
+    try:
+        req = urllib.request.Request(f"{scheme}://{host}:{port}{path}", method="GET")
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            status, raw = resp.status, (resp.read() or b"{}")
+    except urllib.error.HTTPError as exc:
+        try:
+            return exc.code, json.loads(exc.read() or b"{}")
+        except (ValueError, OSError):
+            return exc.code, {"error": f"HTTP {exc.code}"}
+    except (urllib.error.URLError, OSError) as exc:
+        return 0, {"error": str(exc)}
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        return status, {"error": "non-JSON response"}
+    return status, payload if isinstance(payload, dict) else {"data": payload}
+
+
+def provider_snapshot(host: str, port: str) -> dict | None:
+    """Return a provider snapshot, degrading silently when admin is unavailable."""
+    status, payload = admin_get(host, port, "/airlock/admin/providers")
+    return (
+        payload
+        if status == 200 and isinstance(payload.get("providers"), dict)
+        else None
+    )
+
+
 def clear_provider_quarantine(
     host: str, port: str, provider: str, mode: str = "probe"
 ) -> tuple[int, dict]:

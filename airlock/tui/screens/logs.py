@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from textual import work
+from textual.binding import Binding
 from textual.app import ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.timer import Timer
@@ -24,6 +25,94 @@ from textual.widgets import (
 )
 
 from airlock.tui.widgets.safe_data_table import _SafeDataTable
+
+
+def _analysis_days(range_value: str) -> int:
+    """Choose a deterministic analysis window for the selected log range."""
+    return {"1h": 1, "6h": 1, "today": 1, "24h": 1, "7d": 7, "custom": 31}.get(
+        range_value, 7
+    )
+
+
+_MAX_LOG_RECORDS = 5_000
+
+
+def _is_blocked_request(record: dict[str, Any]) -> bool:
+    """Recognize an Airlock policy block without conflating provider failures."""
+    enforcement = record.get("airlock_enforcement") or {}
+    protection = record.get("airlock_provider_protection") or {}
+    semantic = record.get("airlock_semantic") or {}
+    return bool(
+        enforcement.get("should_block")
+        or protection.get("action") == "blocked_429"
+        or semantic.get("status") == "blocked"
+        or record.get("failure_category") in {"guardrail_block", "admission_block"}
+    )
+
+
+def _matches_snapshot(record: dict[str, Any], filters: dict[str, str]) -> bool:
+    """Apply every supported JSONL predicate before bounded retention."""
+    model = filters["model"]
+    if model != "all" and record.get("model") != model:
+        return False
+    if filters["user"] not in (record.get("user") or "").lower():
+        return False
+    if filters["status"] == "ok" and not record.get("success"):
+        return False
+    if filters["status"] == "err" and record.get("success"):
+        return False
+    call_type = record.get("call_type")
+    if filters["type"] == "mcp" and call_type != "call_mcp_tool":
+        return False
+    if filters["type"] == "batch" and call_type != "batch":
+        return False
+    if filters["type"] == "llm" and call_type in ("call_mcp_tool", "batch"):
+        return False
+    if filters["tool"] not in (record.get("mcp_tool_name") or "").lower():
+        return False
+    search = filters["search"]
+    if search:
+        keys = (
+            "messages",
+            "response",
+            "error",
+            "model",
+            "mcp_tool_name",
+            "mcp_server_name",
+            "request_id",
+        )
+        if search not in " ".join(str(record.get(key) or "") for key in keys).lower():
+            return False
+    try:
+        timestamp = datetime.fromisoformat(
+            str(record.get("timestamp", "")).replace("Z", "+00:00")
+        )
+    except ValueError:
+        return False
+    now = datetime.now(timezone.utc)
+    if filters["range"] == "custom":
+        try:
+            start = datetime.fromisoformat(filters["start"].replace("Z", "+00:00"))
+            end = datetime.fromisoformat(filters["end"].replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        if start.utcoffset() != timedelta(0) or end.utcoffset() != timedelta(0):
+            return False
+    else:
+        start = {
+            "1h": now - timedelta(hours=1),
+            "6h": now - timedelta(hours=6),
+            "24h": now - timedelta(hours=24),
+            "7d": now - timedelta(days=7),
+            "today": now.replace(hour=0, minute=0, second=0, microsecond=0),
+        }.get(filters["range"], now - timedelta(days=7))
+        end = now
+    return bool(
+        timestamp.tzinfo
+        and start <= timestamp <= end
+        and end >= start
+        and end - start <= timedelta(days=31)
+    )
 
 
 class LogsPane(VerticalScroll):
@@ -62,8 +151,23 @@ class LogsPane(VerticalScroll):
                 allow_blank=False,
             )
             yield Input(placeholder="Tool name", id="logs-tool-filter")
+            yield Input(placeholder="Search logs (/)", id="logs-search")
         with Horizontal(id="logs-controls"):
-            yield Input(value="7", id="logs-days", type="integer", placeholder="Days")
+            yield Select(
+                [
+                    ("1 hour", "1h"),
+                    ("6 hours", "6h"),
+                    ("Today (UTC)", "today"),
+                    ("24 hours", "24h"),
+                    ("7 days", "7d"),
+                    ("Custom UTC", "custom"),
+                ],
+                value="7d",
+                id="logs-range",
+                allow_blank=False,
+            )
+            yield Input(placeholder="Start UTC (ISO)", id="logs-start-utc")
+            yield Input(placeholder="End UTC (ISO)", id="logs-end-utc")
             yield Select(
                 [("Manual", "manual"), ("1 min", "1min"), ("Real-time", "realtime")],
                 value="manual",
@@ -99,6 +203,10 @@ class LogsPane(VerticalScroll):
                     "[dim]Press 'Run Analysis' to generate a report.[/]",
                     id="logs-analysis-hyp",
                 )
+            with TabPane("Aggregation", id="tab-aggregation"):
+                yield Static(
+                    "Filter records to view aggregation.", id="logs-aggregation"
+                )
         with Collapsible(
             title="Log Entries", collapsed=False, id="logs-stream-collapsible"
         ):
@@ -126,10 +234,18 @@ class LogsPane(VerticalScroll):
             self._update_refresh_mode(str(event.value))
         else:
             self._apply_filters()
+            self._reload_with_filters()
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id in ("logs-user-filter", "logs-tool-filter"):
+        if event.input.id in (
+            "logs-user-filter",
+            "logs-tool-filter",
+            "logs-search",
+            "logs-start-utc",
+            "logs-end-utc",
+        ):
             self._apply_filters()
+            self._reload_with_filters()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "logs-run-analysis":
@@ -149,16 +265,41 @@ class LogsPane(VerticalScroll):
             self._refresh_timer = self.set_interval(1.0, self._load_logs)
         # "manual" — no timer
 
+    def _filter_snapshot(self) -> dict[str, str]:
+        """Capture widgets on the UI thread before the JSONL worker starts."""
+        return {
+            "model": str(self.query_one("#logs-model-filter", Select).value),
+            "user": self.query_one("#logs-user-filter", Input).value.strip().lower(),
+            "status": str(self.query_one("#logs-status-filter", Select).value),
+            "type": str(self.query_one("#logs-type-filter", Select).value),
+            "tool": self.query_one("#logs-tool-filter", Input).value.strip().lower(),
+            "search": self.query_one("#logs-search", Input).value.strip().lower(),
+            "range": str(self.query_one("#logs-range", Select).value),
+            "start": self.query_one("#logs-start-utc", Input).value,
+            "end": self.query_one("#logs-end-utc", Input).value,
+        }
+
+    def _reload_with_filters(self) -> None:
+        self._load_logs(self._filter_snapshot())
+
     @work(exclusive=True, thread=True)
-    def _load_logs(self) -> None:
+    def _load_logs(self, filters: dict[str, str] | None = None) -> None:
         log_dir = Path(os.getenv("AIRLOCK_LOG_DIR", "./logs"))
         records: list[dict[str, Any]] = []
         today = datetime.now(timezone.utc).date()
+        filters = filters or {
+            "model": "all",
+            "user": "",
+            "status": "all",
+            "type": "all",
+            "tool": "",
+            "search": "",
+            "range": "7d",
+            "start": "",
+            "end": "",
+        }
 
-        try:
-            days = int(self.query_one("#logs-days", Input).value)
-        except (ValueError, TypeError):
-            days = 7
+        days = 31  # range filtering below bounds the retained working set
 
         for i in range(days):
             day = today - timedelta(days=i)
@@ -170,12 +311,18 @@ class LogsPane(VerticalScroll):
                     line = line.strip()
                     if line:
                         try:
-                            records.append(json.loads(line))
+                            record = json.loads(line)
+                            if _matches_snapshot(record, filters):
+                                records.append(record)
+                            if len(records) >= _MAX_LOG_RECORDS:
+                                break
                         except json.JSONDecodeError:
                             continue
+            if len(records) >= _MAX_LOG_RECORDS:
+                break
 
         records.sort(key=lambda r: r.get("timestamp") or "", reverse=True)
-        self._records = records[:500]  # cap for UI performance
+        self._records = records  # explicit bounded client-side view
 
         # Populate model filter options. Batch/file routes (/v1/batches, /v1/files)
         # log records with no model (model is None) — coerce so sorted() doesn't
@@ -202,6 +349,7 @@ class LogsPane(VerticalScroll):
         status_val = self.query_one("#logs-status-filter", Select).value
         type_val = self.query_one("#logs-type-filter", Select).value
         tool_val = self.query_one("#logs-tool-filter", Input).value.strip().lower()
+        search = self.query_one("#logs-search", Input).value.strip().lower()
 
         filtered = self._records
         if model_val and model_val != "all":
@@ -230,9 +378,104 @@ class LogsPane(VerticalScroll):
                 for r in filtered
                 if tool_val in (r.get("mcp_tool_name") or "").lower()
             ]
+        filtered = self._filter_range(filtered)
+        if search:
+
+            def searchable(record: dict[str, Any]) -> str:
+                keys = (
+                    "messages",
+                    "response",
+                    "error",
+                    "model",
+                    "mcp_tool_name",
+                    "mcp_server_name",
+                    "request_id",
+                )
+                return " ".join(str(record.get(key) or "") for key in keys).lower()
+
+            filtered = [r for r in filtered if search in searchable(r)]
 
         self._filtered = filtered
         self._populate_table()
+        self._render_aggregation()
+
+    def _filter_range(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        value = str(self.query_one("#logs-range", Select).value)
+        now = datetime.now(timezone.utc)
+        starts = {
+            "1h": now - timedelta(hours=1),
+            "6h": now - timedelta(hours=6),
+            "24h": now - timedelta(hours=24),
+            "7d": now - timedelta(days=7),
+            "today": now.replace(hour=0, minute=0, second=0, microsecond=0),
+        }
+        if value == "custom":
+            try:
+                start = datetime.fromisoformat(
+                    self.query_one("#logs-start-utc", Input).value.replace(
+                        "Z", "+00:00"
+                    )
+                )
+                end = datetime.fromisoformat(
+                    self.query_one("#logs-end-utc", Input).value.replace("Z", "+00:00")
+                )
+                if (
+                    start.tzinfo is None
+                    or end.tzinfo is None
+                    or start.utcoffset() != timedelta(0)
+                    or end.utcoffset() != timedelta(0)
+                    or end < start
+                    or end - start > timedelta(days=31)
+                ):
+                    return []
+            except ValueError:
+                return []
+        else:
+            start, end = starts.get(value, starts["7d"]), now
+        result = []
+        for record in records:
+            try:
+                timestamp = datetime.fromisoformat(
+                    str(record.get("timestamp", "")).replace("Z", "+00:00")
+                )
+                if timestamp.tzinfo and start <= timestamp <= end:
+                    result.append(record)
+            except ValueError:
+                continue
+        return result
+
+    def _render_aggregation(self) -> None:
+        from collections import Counter
+
+        rows = self._filtered
+        models = Counter(str(r.get("model") or "unknown") for r in rows)
+        errors = Counter(
+            str(r.get("error_type") or "unknown") for r in rows if not r.get("success")
+        )
+        clients = Counter(
+            str(r.get("airlock_client") or "unknown")
+            for r in rows
+            if _is_blocked_request(r)
+        )
+        tools = Counter(
+            str(r.get("mcp_tool_name") or "unknown")
+            for r in rows
+            if r.get("mcp_tool_name")
+        )
+        text = "Requests by model: " + ", ".join(
+            f"{k}={v}" for k, v in models.most_common()
+        )
+        text += "\nErrors by type: " + ", ".join(
+            f"{k}={v}" for k, v in errors.most_common()
+        )
+        text += "\nBlocked requests by client: " + ", ".join(
+            f"{k}={v}" for k, v in clients.most_common()
+        )
+        text += "\nMCP tools: " + ", ".join(f"{k}={v}" for k, v in tools.most_common())
+        self.query_one("#logs-aggregation", Static).update(text)
+
+    def action_focus_search(self) -> None:
+        self.query_one("#logs-search", Input).focus()
 
     def _populate_table(self) -> None:
         table = self.query_one("#logs-table", _SafeDataTable)
@@ -331,14 +574,9 @@ class LogsPane(VerticalScroll):
     @work(exclusive=True, thread=True)
     def _run_analysis(self) -> None:
         """Run offline analysis and populate the analysis tabs."""
-        days_input = self.query_one("#logs-days", Input)
         status = self.query_one("#logs-analysis-status", Static)
-
-        try:
-            days = int(days_input.value)
-        except ValueError:
-            self.app.call_from_thread(status.update, "[red]Invalid number of days[/]")
-            return
+        range_value = str(self.query_one("#logs-range", Select).value)
+        days = _analysis_days(range_value)
 
         self.app.call_from_thread(status.update, "[yellow]Analyzing...[/]")
 
@@ -411,3 +649,5 @@ class LogsPane(VerticalScroll):
         self.app.call_from_thread(
             self.query_one("#logs-analysis-hyp", Static).update, hyp_text
         )
+
+    BINDINGS = [Binding("/", "focus_search", "Search", show=False)]

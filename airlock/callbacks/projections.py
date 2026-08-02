@@ -49,6 +49,10 @@ def project_enterprise(event: RequestEvent) -> dict[str, Any]:
     record["served"] = event.served
     record["attribution"] = event.attribution
     record["airlock_client"] = event.airlock_client
+    if event.programmatic_tools:
+        record["airlock_programmatic_tools"] = event.programmatic_tools
+    if event.code_inspection:
+        record["airlock_code_inspection"] = event.code_inspection
     return record
 
 

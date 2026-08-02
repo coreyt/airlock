@@ -74,6 +74,16 @@ class ClassifierResult:
     metadata: dict[str, Any] = field(default_factory=dict)  # classifier-specific extras
 
 
+@dataclass(frozen=True)
+class ClassifierMetadata:
+    """Explicit opt-in metadata used by adaptive selection."""
+
+    tags: frozenset[str] = frozenset()
+    content_types: frozenset[str] = frozenset({"text"})
+    cost_class: str = "heavy"  # light | heavy
+    min_content_length: int = 0
+
+
 class Classifier(Protocol):
     """Interface that pluggable classifiers must satisfy.
 
@@ -98,6 +108,9 @@ class OrchestratorVerdict:
     blocking_classifier: str | None  # name of the classifier that triggered the block
     results: list[ClassifierResult]
     total_duration_ms: float
+    selected: list[str] = field(default_factory=list)
+    skipped: list[dict[str, str]] = field(default_factory=list)
+    short_circuited: list[dict[str, str]] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +124,8 @@ def _fail_open() -> bool:
 async def run_classifiers(
     classifiers: list[Classifier],
     text: str,
+    *,
+    selection: str | None = None,
 ) -> OrchestratorVerdict:
     """Run all classifiers concurrently and aggregate results.
 
@@ -141,7 +156,52 @@ async def run_classifiers(
                 error=str(exc),
             )
 
-    results = await asyncio.gather(*[_safe_run(c) for c in classifiers])
+    selection = (
+        (selection or os.getenv("AIRLOCK_SEMANTIC_SELECTION", "all")).strip().lower()
+    )
+    if selection not in {"all", "adaptive"}:
+        selection = "all"
+    selected: list[Classifier] = []
+    skipped: list[dict[str, str]] = []
+    for classifier in classifiers:
+        meta = getattr(classifier, "metadata", None)
+        # Legacy classifiers must always run, even in adaptive mode.
+        if selection != "adaptive" or not isinstance(meta, ClassifierMetadata):
+            selected.append(classifier)
+        elif len(text) < meta.min_content_length:
+            skipped.append(
+                {"name": classifier.name, "reason": "below_min_content_length"}
+            )
+        elif "text" not in meta.content_types:
+            skipped.append(
+                {"name": classifier.name, "reason": "unsupported_content_type"}
+            )
+        else:
+            selected.append(classifier)
+
+    light = [
+        c
+        for c in selected
+        if isinstance(getattr(c, "metadata", None), ClassifierMetadata)
+        and c.metadata.cost_class == "light"
+    ]
+    other = [c for c in selected if c not in light]
+    results: list[ClassifierResult] = []
+    executed: list[str] = []
+    short_circuited: list[dict[str, str]] = []
+    if selection == "adaptive" and light:
+        executed.extend(c.name for c in light)
+        results.extend(await asyncio.gather(*[_safe_run(c) for c in light]))
+        if any(r.blocked for r in results):
+            short_circuited = [
+                {"name": c.name, "reason": "blocking_light_tier"} for c in other
+            ]
+        else:
+            executed.extend(c.name for c in other)
+            results.extend(await asyncio.gather(*[_safe_run(c) for c in other]))
+    else:
+        executed.extend(c.name for c in selected)
+        results.extend(await asyncio.gather(*[_safe_run(c) for c in selected]))
 
     total_duration_ms = (time.monotonic() - start) * 1000
     results_list = list(results)
@@ -158,7 +218,70 @@ async def run_classifiers(
         blocking_classifier=blocking_classifier,
         results=results_list,
         total_duration_ms=total_duration_ms,
+        selected=executed,
+        skipped=skipped,
+        short_circuited=short_circuited,
     )
+
+
+async def corpus_equivalence_report(
+    classifiers: list[Classifier], corpus: list[str]
+) -> dict[str, Any]:
+    """Compare all-classifier and adaptive verdicts over a bounded corpus.
+
+    This report is evidence only: it neither changes selection defaults nor
+    modifies guardrail configuration. Callers must retain/report mismatches.
+    """
+    skipped: dict[str, int] = {}
+    mismatches: list[dict[str, Any]] = []
+    full_latency: list[float] = []
+    adaptive_latency: list[float] = []
+    full_blocks = 0
+    adaptive_blocks = 0
+    for index, text in enumerate(corpus):
+        full = await run_classifiers(classifiers, text, selection="all")
+        adaptive = await run_classifiers(classifiers, text, selection="adaptive")
+        full_latency.append(full.total_duration_ms)
+        adaptive_latency.append(adaptive.total_duration_ms)
+        full_blocks += int(full.blocked)
+        adaptive_blocks += int(adaptive.blocked)
+        for item in adaptive.skipped:
+            name = item["name"]
+            skipped[name] = skipped.get(name, 0) + 1
+        if full.blocked != adaptive.blocked:
+            mismatches.append(
+                {
+                    "sample": index,
+                    "full_blocked": full.blocked,
+                    "adaptive_blocked": adaptive.blocked,
+                    "skipped": adaptive.skipped,
+                    "short_circuited": adaptive.short_circuited,
+                }
+            )
+
+    def _p95(values: list[float]) -> float:
+        return (
+            round(sorted(values)[min(len(values) - 1, int(len(values) * 0.95))], 2)
+            if values
+            else 0.0
+        )
+
+    return {
+        "total_samples": len(corpus),
+        "full_blocked": full_blocks,
+        "adaptive_blocked": adaptive_blocks,
+        "skipped_classifiers": skipped,
+        "mismatch_count": len(mismatches),
+        "mismatches": mismatches,
+        "latency_ms": {
+            "full_mean_ms": round(sum(full_latency) / max(len(full_latency), 1), 2),
+            "full_p95_ms": _p95(full_latency),
+            "adaptive_mean_ms": round(
+                sum(adaptive_latency) / max(len(adaptive_latency), 1), 2
+            ),
+            "adaptive_p95_ms": _p95(adaptive_latency),
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -234,6 +357,10 @@ class AirlockSemanticGuard(CustomGuardrail):
             "status": "blocked" if verdict.blocked else "passed",
             "blocking_classifier": verdict.blocking_classifier,
             "total_duration_ms": round(verdict.total_duration_ms, 2),
+            "selection": os.getenv("AIRLOCK_SEMANTIC_SELECTION", "all").lower(),
+            "selected": verdict.selected,
+            "skipped": verdict.skipped,
+            "short_circuited": verdict.short_circuited,
             "results": [
                 {
                     "name": r.name,

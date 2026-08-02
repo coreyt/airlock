@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Literal
 
 from airlock.fast.state import McpServerHealth, StateStore
+from airlock.fast.settings import get_settings
 
 _log = logging.getLogger(__name__)
 
@@ -159,14 +160,36 @@ def _check_provider_error_rate(store: StateStore) -> list[Alert]:
 
 
 def _check_provider_budget(store: StateStore) -> list[Alert]:
-    """Fire an info alert for any provider approaching its spend budget.
+    """Fire an info alert from the same configured cap/spend snapshot as TUI.
 
-    NOTE: The state store tracks cumulative spend via ProviderSpend but does
-    not yet store per-provider budget limits.  This rule is a no-op until
-    budget configuration is wired into the state store.
+    Absent or zero caps remain explicitly unalerted; the rule is observational
+    and never changes routing or budget state.
     """
-    # Budget limits are not yet tracked in StateStore — return [].
-    return []
+    alerts: list[Alert] = []
+    try:
+        settings = get_settings()
+        for provider, cap in settings.provider_budgets.items():
+            if cap <= 0:
+                continue
+            spend = store.get_provider_spend(provider).recent_spend()
+            if spend >= cap * settings.budget_warn_ratio:
+                alerts.append(
+                    Alert(
+                        rule_name="provider_budget",
+                        severity="info",
+                        title=f"{provider} spend ${spend:.2f}/${cap:.2f}",
+                        detail=(
+                            f"Provider {provider} has used {spend / cap:.0%} of its "
+                            "configured budget cap. Review capacity or routing."
+                        ),
+                        entity_type="provider",
+                        entity_id=provider,
+                        timestamp=time.time(),
+                    )
+                )
+    except Exception:
+        _log.debug("provider budget alert evaluation failed", exc_info=True)
+    return alerts
 
 
 def _check_mcp_unhealthy(store: StateStore) -> list[Alert]:

@@ -34,6 +34,8 @@ from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
 from airlock.callbacks.metrics import record_response_scan_detection
+from airlock.guardrails.orchestrator import _get_knobs
+from .code_inspection import inspect_code
 
 logger = logging.getLogger("airlock.guardrails.response_scanner")
 
@@ -239,10 +241,10 @@ class AirlockResponseScanner(CustomGuardrail):
 
         mode = _mode()
         result = _scan_text(text, mode)
-        if not result.detected_categories:
+        inspection = _attach_metadata(data, result, text)
+        code_should_block = _code_inspection_should_block(inspection)
+        if not result.detected_categories and not code_should_block:
             return response
-
-        _attach_metadata(data, result)
 
         logger.warning(
             "response_scan_detected categories=%s score=%.4f model=%s",
@@ -251,7 +253,7 @@ class AirlockResponseScanner(CustomGuardrail):
             data.get("model", "unknown"),
         )
 
-        if result.should_block and mode == "enforce":
+        if (result.should_block or code_should_block) and mode == "enforce":
             raise ValueError("Response blocked: potential injection content detected")
 
         return response
@@ -280,7 +282,7 @@ class AirlockResponseScanner(CustomGuardrail):
         if full_text:
             mode = _mode()
             result = _scan_text(full_text, mode)
-            _attach_metadata(request_data, result)
+            _attach_metadata(request_data, result, full_text)
             if result.detected_categories:
                 logger.warning(
                     "response_scan_detected_in_stream categories=%s score=%.4f mode=%s",
@@ -307,6 +309,12 @@ class AirlockResponseScanner(CustomGuardrail):
         # Attach to kwargs metadata for enterprise logger
         metadata = kwargs.setdefault("litellm_params", {}).setdefault("metadata", {})
         metadata["airlock_response_scan"] = result.to_dict()
+        inspection = inspect_code(text)
+        if inspection["code_blocks"]:
+            metadata["airlock_code_inspection"] = inspection
+
+        if mode == "enforce" and _code_inspection_should_block(inspection):
+            raise ValueError("Response blocked: generated code violates policy")
 
         if result.detected_categories:
             logger.warning(
@@ -325,6 +333,14 @@ class AirlockResponseScanner(CustomGuardrail):
 _VALID_SCAN_MODES = {"observe", "enforce"}
 
 
+def _code_inspection_should_block(inspection: dict[str, Any]) -> bool:
+    """Apply an explicit operator weight to safe post-response evidence."""
+    knobs = _get_knobs()
+    weight = float(knobs.weights.get("code_inspection", 0.0))
+    score = float(inspection.get("score", 0.0))
+    return weight > 0 and score * weight >= knobs.threshold
+
+
 def _mode() -> str:
     raw = os.getenv("AIRLOCK_RESPONSE_SCAN_MODE", "observe").strip().lower()
     if raw not in _VALID_SCAN_MODES:
@@ -335,8 +351,17 @@ def _mode() -> str:
     return raw
 
 
-def _attach_metadata(data: dict, result: ScanResult) -> None:
-    data.setdefault("metadata", {})["airlock_response_scan"] = result.to_dict()
+def _attach_metadata(
+    data: dict, result: ScanResult, response_text: str = ""
+) -> dict[str, Any]:
+    metadata = data.setdefault("metadata", {})
+    if result.detected_categories:
+        metadata["airlock_response_scan"] = result.to_dict()
+    # Observation only: this is never used by this scanner's block decision.
+    inspection = inspect_code(response_text)
+    if inspection["code_blocks"]:
+        metadata["airlock_code_inspection"] = inspection
+    return inspection
 
 
 # ---------------------------------------------------------------------------

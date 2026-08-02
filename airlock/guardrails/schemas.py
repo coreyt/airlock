@@ -56,6 +56,9 @@ def default_knobs() -> GuardrailKnobs:
             "pii_scan": 0.4,
             "keyword_scan": 0.4,
             "threat_read": 0.2,
+            # Code inspection is observation-only until an operator explicitly
+            # assigns a non-zero weight in airlock-knobs.json.
+            "code_inspection": 0.0,
         },
         threshold=0.5,
     )

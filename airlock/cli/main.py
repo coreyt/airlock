@@ -150,6 +150,18 @@ def main(argv: list[str] | None = None) -> None:
         help="Number of days of logs to analyze (default: 7).",
     )
     analyze_parser.add_argument(
+        "--llm",
+        action="store_true",
+        help="Add advisory LLM analysis if AIRLOCK_ANALYZER_MODEL is configured.",
+    )
+    analyze_parser.add_argument(
+        "--audience", choices=["ops", "security", "executive"], default="ops"
+    )
+    analyze_parser.add_argument(
+        "--semantic-corpus",
+        help="JSON corpus for all-versus-adaptive semantic equivalence evidence.",
+    )
+    analyze_parser.add_argument(
         "--json",
         action="store_true",
         dest="json_output",
@@ -459,6 +471,11 @@ def main(argv: list[str] | None = None) -> None:
             sys.argv.append("--json")
         if args.output:
             sys.argv.extend(["--output", args.output])
+        if args.llm:
+            sys.argv.append("--llm")
+            sys.argv.extend(["--audience", args.audience])
+        if args.semantic_corpus:
+            sys.argv.extend(["--semantic-corpus", args.semantic_corpus])
 
         from airlock.slow.cli import main as analyze_main
 

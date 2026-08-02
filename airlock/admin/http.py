@@ -16,6 +16,7 @@ from typing import Any
 import airlock.fast.state as _state
 from airlock.admin.policy import LOOPBACK_HOSTS, Principal, admin_enabled, decide
 from airlock.callbacks.enterprise_logger import write_admin_action_record
+from airlock.fast.settings import get_settings
 from airlock.litellm_adapter import install_asgi_middleware, resolve_proxy_app
 
 _PREFIX = "/airlock/admin/"
@@ -24,12 +25,28 @@ _PREFIX = "/airlock/admin/"
 # --- read views (no audit record) ------------------------------------------
 def _view_providers() -> dict:
     out = {}
-    for name, ps in _state.store.all_providers().items():
+    providers = _state.store.all_providers()
+    limits = _state.store.all_provider_ratelimits()
+    budgets = get_settings().provider_budgets
+    # The view is an off-hot-path snapshot: it reads the existing stores only
+    # and deliberately creates neither telemetry nor an audit action.
+    for name in sorted(set(providers) | set(limits) | set(budgets)):
+        ps = providers.get(name)
+        rl = limits.get(name)
+        spend = _state.store.get_provider_spend(name).recent_spend()
+        cap = budgets.get(name)
         out[name] = {
-            "quarantined": ps.is_quarantined(),
-            "cooldown_remaining": round(ps.cooldown_remaining(), 1),
-            "half_open": ps._half_open_probe,
-            "last_reason": ps.last_reason,
+            "quarantined": ps.is_quarantined() if ps else False,
+            "cooldown_remaining": round(ps.cooldown_remaining(), 1) if ps else 0.0,
+            "half_open": ps._half_open_probe if ps else False,
+            "last_reason": ps.last_reason if ps else "",
+            "remaining_tokens": rl.remaining_tokens if rl else None,
+            "limit_tokens": rl.limit_tokens if rl else None,
+            "remaining_requests": rl.remaining_requests if rl else None,
+            "limit_requests": rl.limit_requests if rl else None,
+            "spend_usd": round(spend, 6),
+            "budget_cap_usd": cap,
+            "budget_utilization": (round(spend / cap, 6) if cap and cap > 0 else None),
         }
     return {"providers": out}
 

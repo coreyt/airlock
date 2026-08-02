@@ -182,6 +182,15 @@ class TestLoadConfig:
 
 
 class TestProbeServer:
+    def test_probe_honors_explicit_timeout(self, config_file: Path):
+        mgr = McpServerManager()
+        mgr.load_config(config_file)
+        with patch(
+            "airlock.tui.mcp_manager.probe_http", return_value=(False, 1.0)
+        ) as probe:
+            mgr.probe_server("remote-sse", timeout=0.25)
+        assert probe.call_args.kwargs["timeout"] == 0.25
+
     def testprobe_http_healthy(self, config_file: Path):
         mgr = McpServerManager()
         mgr.load_config(config_file)

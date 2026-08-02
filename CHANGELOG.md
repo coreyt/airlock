@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal 0.5.9 milestone (not published)
+
+- Adds TUI mutation-ledger visibility, actual served-provider attribution, and
+  read-only provider headroom/spend snapshots; log navigation now supports
+  bounded ranges, keyword filtering, and client-side aggregations.
+- Adds Airlock-managed MCP readiness timeouts, safe programmatic-tool/code
+  inspection observations, and opt-in adaptive semantic classifier selection.
+- Adds advisory-only `airlock analyze --llm` with a LiteLLM-compatible path and
+  an explicitly opted-in, minimized remote Anthropic executor. LLM output never
+  changes enforcement or writes guardrail knobs.
+- Keeps the package version at 0.5.8: this is an internal milestone and is not
+  a PyPI release.
+
 ## [0.5.8] — 2026-08-02
 
 Published release containing the build- and CI-validated internal 0.5.7 train,

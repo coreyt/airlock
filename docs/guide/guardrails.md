@@ -167,4 +167,22 @@ Environment variables:
 
 The slow analyzer automatically tunes guardrail weights and thresholds based on historical signal data. Tuned values are written to `logs/airlock-knobs.json` and loaded by the orchestrator with a 30-second cache TTL.
 
+## Advisory LLM analysis
+
+`airlock analyze --llm --audience ops|security|executive` keeps the deterministic
+report as the fallback. Set `AIRLOCK_ANALYZER_MODEL` to use any LiteLLM-compatible
+model, including a local OpenAI-compatible endpoint. Findings are advisory and
+never alter knobs or enforcement.
+
+To explicitly opt into the minimized remote Anthropic executor, install
+`airlock-llm[analyzer]`, set `AIRLOCK_ANALYZER_REMOTE_SANDBOX=anthropic` and
+`AIRLOCK_ANALYZER_REMOTE_SANDBOX_CAPABILITY=code_execution`, provide
+`ANTHROPIC_API_KEY`, and optionally set `AIRLOCK_ANALYZER_REMOTE_MODEL`. The
+remote payload contains derived report aggregates only: raw messages, responses,
+credentials, and full JSONL records are omitted; textual evidence is redacted
+and capped. The remote path invokes Anthropic's server-side code-execution
+sandbox capability only; without that explicit capability opt-in, credentials,
+the optional dependency, or the provider are
+unavailable, Airlock returns the deterministic report without failing.
+
 Run `airlock analyze` to trigger a tuning cycle manually.

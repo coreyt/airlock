@@ -11,7 +11,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
+from pathlib import Path
 from dataclasses import asdict
 
 from .analyzer import analyze
@@ -123,6 +125,11 @@ def _format_text(report) -> str:
                     f"{ag['co_occurrence_count']} co-occurrences "
                     f"({ag['agreement_rate']:.0%})"
                 )
+        if sem.skip_recommendations:
+            lines.append("")
+            lines.append("    Adaptive selection recommendations (advisory):")
+            for recommendation in sem.skip_recommendations:
+                lines.append(f"      - {recommendation}")
 
     # ---- Hypotheses ----
     if report.hypotheses:
@@ -154,6 +161,19 @@ def main() -> None:
         help="Number of days of logs to analyze (default: 7)",
     )
     parser.add_argument(
+        "--llm",
+        action="store_true",
+        help="Add opt-in advisory LLM findings; deterministic report remains fallback.",
+    )
+    parser.add_argument(
+        "--audience", choices=["ops", "security", "executive"], default="ops"
+    )
+    parser.add_argument(
+        "--semantic-corpus",
+        type=Path,
+        help="JSON list of redacted text samples for all-vs-adaptive equivalence.",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         dest="json_output",
@@ -168,7 +188,44 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    report = analyze(days=args.days)
+    if args.semantic_corpus:
+        try:
+            corpus = json.loads(args.semantic_corpus.read_text())
+            if not isinstance(corpus, list) or not all(
+                isinstance(sample, str) for sample in corpus
+            ):
+                raise ValueError("corpus must be a JSON list of strings")
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            parser.error(f"invalid semantic corpus: {exc}")
+        from airlock.guardrails.semantic import (
+            corpus_equivalence_report,
+            registered_classifiers,
+        )
+
+        print(
+            json.dumps(
+                asyncio.run(
+                    corpus_equivalence_report(registered_classifiers(), corpus)
+                ),
+                indent=2,
+            )
+        )
+        return
+
+    # Preserve the deterministic report's historical call path. LLM mode is
+    # strictly advisory and must not write knob proposals, even on fallback.
+    report = (
+        analyze(days=args.days, write_knobs=False)
+        if args.llm
+        else analyze(days=args.days)
+    )
+
+    if args.llm:
+        from .analyzer_llm import analyze_with_llm
+
+        findings = analyze_with_llm(report, args.audience)
+        if findings is not None:
+            report.summary["llm_advisory_findings"] = [f.__dict__ for f in findings]
 
     if args.json_output:
         output = json.dumps(asdict(report), indent=2, default=str)

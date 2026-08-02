@@ -71,9 +71,16 @@ class FlowEntry:
 
 
 def _parse_entry(record: dict) -> FlowEntry | None:
-    """Convert a JSONL record into a FlowEntry, or None if no observation."""
+    """Convert a JSONL record into a FlowEntry when any guardrail evidence exists."""
     obs = record.get("airlock_observation")
-    if not obs or not isinstance(obs, dict):
+    if not isinstance(obs, dict):
+        obs = {}
+    if not (
+        obs
+        or record.get("mutations")
+        or record.get("airlock_enforcement")
+        or record.get("airlock_code_inspection")
+    ):
         return None
     return FlowEntry(
         timestamp=record.get("timestamp", ""),
@@ -275,6 +282,15 @@ def _render_pipeline(entry: FlowEntry) -> str:
     lines.append(f"  Model:   {escape(str(entry.model))}")
     lines.append(f"  Client:  {escape(str(entry.client_id))}")
     lines.append(f"  Success: {'✓' if entry.success else '✗'}")
+    served = entry.raw_record.get("served") or {}
+    if served:
+        lines.append(
+            f"  Served:  {escape(str(served.get('provider') or '-'))} / "
+            f"{escape(str(served.get('model_id') or served.get('backend_kind') or '-'))}"
+        )
+    lines.append(
+        f"  Attribution: {escape(str(entry.raw_record.get('attribution') or 'inferred'))}"
+    )
 
     # Check for failover
     failover = entry.raw_record.get("airlock_failover")
@@ -306,6 +322,32 @@ def _render_pipeline(entry: FlowEntry) -> str:
             f"empty_text={(entry.gemini_response or {}).get('empty_text_success', False)}"
         )
 
+    return "\n".join(lines)
+
+
+def _render_mutations(entry: FlowEntry) -> str:
+    """Render ledger evidence without ever displaying redacted values."""
+    mutations = entry.raw_record.get("mutations") or []
+    if not mutations:
+        return "[dim]No canonical mutation ledger entries.[/]"
+    lines = ["[bold]FIELD  CATEGORY  COUNT  BEFORE → AFTER[/]", "─" * 58]
+    for mutation in mutations:
+        if not isinstance(mutation, dict):
+            continue
+        field = escape(str(mutation.get("field", "unknown")))
+        category = escape(
+            str(mutation.get("category") or mutation.get("op") or "mutation")
+        )
+        # Ledger redaction records intentionally omit values.  A value marked
+        # redacted is rendered only as a marker even if a malformed producer
+        # accidentally supplied one.
+        # The TUI has no context to prove a ledger value is non-sensitive.
+        # Keep its view categorical even for non-redaction operations.
+        before = "[hidden]" if mutation.get("before") is not None else "-"
+        after = "[hidden]" if mutation.get("after") is not None else "-"
+        count = mutation.get("count")
+        count = count if isinstance(count, int) and count >= 0 else 1
+        lines.append(f"{field}  {category}  {count}  {before} → {after}")
     return "\n".join(lines)
 
 
@@ -432,6 +474,11 @@ class GuardsPane(VerticalScroll):
             with TabPane("Pipeline", id="guards-tab-pipeline"):
                 yield Static(
                     "Select a request to view pipeline stages.", id="guards-pipeline"
+                )
+            with TabPane("Mutations", id="guards-tab-mutations"):
+                yield Static(
+                    "Select a request to view safe mutation evidence.",
+                    id="guards-mutations",
                 )
             with TabPane("Raw", id="guards-tab-raw"):
                 yield Static("Select a request to view raw JSON.", id="guards-raw")
@@ -630,8 +677,10 @@ class GuardsPane(VerticalScroll):
         pipeline = self.query_one("#guards-pipeline", Static)
         raw = self.query_one("#guards-raw", Static)
         tool_result = self.query_one("#guards-tool-result", Static)
+        mutations = self.query_one("#guards-mutations", Static)
 
         signals.update(_render_signals(entry))
         pipeline.update(_render_pipeline(entry))
         raw.update(_render_raw(entry))
         tool_result.update(_render_tool_result(entry))
+        mutations.update(_render_mutations(entry))

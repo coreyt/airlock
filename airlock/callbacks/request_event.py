@@ -89,6 +89,8 @@ class RequestEvent:
     mutations: list[Any]
     served: dict[str, Any] | None
     attribution: str
+    programmatic_tools: list[str]
+    code_inspection: dict[str, Any]
 
 
 def build_request_event(
@@ -112,7 +114,15 @@ def build_request_event(
     # callback shapes normally also nest it under ``litellm_params``, but use
     # the top-level object as a fallback so advisory ledger markers cannot be
     # lost before the canonical recorder sees them.
-    metadata = litellm_params.get("metadata") or kwargs.get("metadata") or {}
+    # Both callback shapes can carry Airlock fields. Merge rather than choose
+    # one so post-call guards that mutate top-level metadata remain visible
+    # when LiteLLM supplied non-empty nested metadata.
+    metadata = litellm_params.get("metadata")
+    if metadata is None:
+        metadata = kwargs.get("metadata") or {}
+    else:
+        for key, value in (kwargs.get("metadata") or {}).items():
+            metadata.setdefault(key, value)
     airlock_client = _get_airlock_client(metadata, kwargs)
 
     error = None
@@ -187,6 +197,25 @@ def build_request_event(
         or litellm_params.get("mcp_arguments")
         or metadata.get("mcp_arguments")
     )
+    allowed_callers = (
+        kwargs.get("allowed_callers")
+        or litellm_params.get("allowed_callers")
+        or metadata.get("allowed_callers")
+        or []
+    )
+    if isinstance(allowed_callers, (str, dict)):
+        allowed_callers = [allowed_callers]
+    programmatic_tools = sorted(
+        {
+            str(item.get("name") or item.get("tool") or item.get("id") or "")
+            .strip()
+            .lower()
+            if isinstance(item, dict)
+            else str(item).strip().lower()
+            for item in allowed_callers
+        }
+        - {""}
+    )
 
     # Transparency: mutation ledger (asdict dataclasses else serialize).
     ledger = metadata.get("airlock_mutations") or []
@@ -249,6 +278,8 @@ def build_request_event(
         mutations=mutations,
         served=served,
         attribution=attribution,
+        programmatic_tools=programmatic_tools,
+        code_inspection=metadata.get("airlock_code_inspection") or {},
     )
 
 

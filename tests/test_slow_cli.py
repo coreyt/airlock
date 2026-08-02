@@ -212,6 +212,20 @@ class TestFormatText:
 # main()
 # ---------------------------------------------------------------------------
 class TestMain:
+    def test_semantic_corpus_outputs_equivalence_report(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        corpus = tmp_path / "corpus.json"
+        corpus.write_text('["safe sample"]')
+        monkeypatch.setattr(
+            "airlock.guardrails.semantic.registered_classifiers", lambda: []
+        )
+        monkeypatch.setattr(
+            "sys.argv", ["airlock-analyze", "--semantic-corpus", str(corpus)]
+        )
+        main()
+        assert json.loads(capsys.readouterr().out)["total_samples"] == 1
+
     def test_default_text_output(self, populated_log_dir, capsys):
         with patch("sys.argv", ["airlock-analyze"]):
             main()

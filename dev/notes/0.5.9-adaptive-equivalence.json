@@ -1,0 +1,18 @@
+{
+  "corpus": "dev/corpora/0.5.9-semantic-redacted.json",
+  "generated_at": "2026-08-02",
+  "registered_classifiers": 0,
+  "total_samples": 5,
+  "full_blocked": 0,
+  "adaptive_blocked": 0,
+  "skipped_classifiers": {},
+  "mismatch_count": 0,
+  "mismatches": [],
+  "latency_ms": {
+    "full_mean_ms": 0.0,
+    "full_p95_ms": 0.01,
+    "adaptive_mean_ms": 0.0,
+    "adaptive_p95_ms": 0.0
+  },
+  "interpretation": "The shipped registry has no production classifiers. This executes the release corpus mechanism but is not classifier-performance evidence; adaptive selection remains opt-in."
+}

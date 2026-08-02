@@ -79,6 +79,7 @@ class TestDefaultKnobs:
             "pii_scan": 0.4,
             "keyword_scan": 0.4,
             "threat_read": 0.2,
+            "code_inspection": 0.0,
         }
-        assert len(knobs.weights) == 3
+        assert len(knobs.weights) == 4
         assert knobs.per_guardrail == {}

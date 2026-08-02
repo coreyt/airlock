@@ -43,6 +43,8 @@ class McpServerEntry:
     )
     reader_thread: threading.Thread | None = None
     log_file: IO[str] | None = None
+    startup_timeout: int | None = None
+    config_error: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +77,24 @@ def _resolve_health_url(cfg: dict, managed_cfg: dict | None) -> str:
     if managed_cfg and managed_cfg.get("health_url"):
         return managed_cfg["health_url"]
     return cfg.get("url", "")
+
+
+def _startup_timeout(managed_cfg: dict | None) -> tuple[int | None, str | None]:
+    """Validate the optional managed readiness timeout.
+
+    ``None`` deliberately retains the historic spawn-only behaviour.
+    """
+    if not managed_cfg or "startup_timeout" not in managed_cfg:
+        return None, None
+    value = managed_cfg["startup_timeout"]
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 300:
+        return (
+            None,
+            "startup_timeout must be a positive integer between 1 and 300 seconds.",
+        )
+    if not managed_cfg.get("health_url"):
+        return None, "startup_timeout requires airlock_managed.health_url."
+    return value, None
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +139,9 @@ class McpServerManager:
             is_managed = managed_cfg is not None and isinstance(managed_cfg, dict)
             url = srv_cfg.get("url", "")
             health_url = _resolve_health_url(srv_cfg, managed_cfg)
+            startup_timeout, timeout_error = _startup_timeout(
+                managed_cfg if is_managed else None
+            )
 
             entry = McpServerEntry(
                 name=name,
@@ -128,7 +151,12 @@ class McpServerManager:
                 is_managed=is_managed,
                 managed_config=managed_cfg if is_managed else None,
                 health_url=health_url,
+                startup_timeout=startup_timeout,
             )
+            if timeout_error:
+                # Keep the entry visible to the operator; fail start with the
+                # exact configuration error instead of silently ignoring it.
+                entry.config_error = timeout_error
             self._servers[name] = entry
 
             # Seed StateStore
@@ -145,7 +173,7 @@ class McpServerManager:
 
     # -- health probing -----------------------------------------------------
 
-    def probe_server(self, name: str) -> tuple[bool, float]:
+    def probe_server(self, name: str, *, timeout: float = 5.0) -> tuple[bool, float]:
         """Probe a single server's health.
 
         Returns ``(healthy, latency_ms)``.
@@ -165,7 +193,7 @@ class McpServerManager:
         if not url:
             return False, 0.0
 
-        return probe_http(url)
+        return probe_http(url, timeout=timeout)
 
     def probe_all(self) -> dict[str, tuple[bool, float]]:
         """Health-check all configured servers (sequential)."""
@@ -211,6 +239,9 @@ class McpServerManager:
             return f"Unknown server: {name}"
         if not entry.is_managed or entry.managed_config is None:
             return f"Server '{name}' is not airlock-managed."
+        config_error = entry.config_error
+        if config_error:
+            return f"Server '{name}': {config_error}"
         if entry.process is not None and entry.process.poll() is None:
             return f"Server '{name}' is already running."
 
@@ -277,6 +308,33 @@ class McpServerManager:
             daemon=True,
         )
         entry.reader_thread.start()
+
+        # Existing managed servers remain spawn-only unless the operator opted
+        # into readiness monitoring with startup_timeout.
+        if entry.startup_timeout is not None:
+            deadline = time.monotonic() + entry.startup_timeout
+            while time.monotonic() < deadline:
+                if entry.process is None or entry.process.poll() is not None:
+                    code = (
+                        entry.process.returncode if entry.process is not None else None
+                    )
+                    self.stop_server(name)
+                    return (
+                        f"Server '{name}' exited before readiness (exit code {code})."
+                    )
+                # A probe must never outlive the configured readiness deadline.
+                remaining = max(0.01, deadline - time.monotonic())
+                healthy, latency = self.probe_server(name, timeout=remaining)
+                srv_state.record_health_check(time.time(), healthy, latency)
+                if healthy:
+                    srv_state.health = McpServerHealth.HEALTHY
+                    return None
+                time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
+            self.stop_server(name)
+            return (
+                f"Server '{name}' did not become ready at {entry.health_url} "
+                f"within {entry.startup_timeout}s; process stopped."
+            )
 
         return None
 

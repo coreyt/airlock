@@ -58,6 +58,7 @@ tui = ["textual>=6.2.1,<6.3"]
 search = ["tavily-python>=0.5.0", "newscatcher-catchall-sdk>=1.0.0,<2"]  # Newscatcher 2+ needs an API migration.
 vertex = ["google-auth>=2.0.0"]  # required by litellm vertex_ai (token minting + GCS batch staging)
 aistudio = ["google-genai>=1.0.0"]  # AI Studio Gemini batch via the Airlock Batch Gateway (lazy-imported)
+analyzer = ["anthropic>=0.40.0,<1"]  # Explicit opt-in remote analysis sandbox client (lazy-imported).
 mistral = ["mistralai>=2.0.0,<3"]  # Mistral batch via the Airlock Batch Gateway (lazy-imported). v2 uses `mistralai.client.Mistral` and retains the files/batch.jobs operations used by the adapter; locked and contract-tested.
 tracing = ["opentelemetry-api>=1.20.0", "opentelemetry-sdk>=1.20.0"]
 test = [

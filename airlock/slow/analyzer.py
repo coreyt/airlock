@@ -31,7 +31,7 @@ import logging
 import os
 import statistics
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -113,6 +113,8 @@ class SemanticInsight:
     classifier_stats: list[ClassifierStats] = field(default_factory=list)
     # Pairs of classifiers that frequently agree on blocking
     classifier_agreement: list[dict[str, Any]] = field(default_factory=list)
+    selection_stats: dict[str, dict[str, int]] = field(default_factory=dict)
+    skip_recommendations: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -502,8 +504,18 @@ def find_semantic_insights(records: list[dict]) -> SemanticInsight | None:
             "count": 0,
         }
     )
+    selection_stats: dict[str, dict[str, int]] = {
+        "selected": {},
+        "skipped": {},
+        "short_circuited": {},
+    }
 
     for r in semantic_records:
+        sem = r["airlock_semantic"]
+        for key in ("selected", "skipped", "short_circuited"):
+            for entry in sem.get(key, []):
+                name = entry if isinstance(entry, str) else entry.get("name", "unknown")
+                selection_stats[key][name] = selection_stats[key].get(name, 0) + 1
         results = r["airlock_semantic"].get("results", [])
         for cr in results:
             name = cr.get("name", "unknown")
@@ -590,12 +602,18 @@ def find_semantic_insights(records: list[dict]) -> SemanticInsight | None:
                 }
             )
 
+    recommendations = [
+        f"Review adaptive skip rule for '{name}' ({count} skipped observations); recommendation only, no automatic selection change."
+        for name, count in sorted(selection_stats["skipped"].items())
+    ]
     return SemanticInsight(
         total_evaluated=len(semantic_records),
         total_blocked=total_blocked,
         overall_block_rate=round(total_blocked / max(len(semantic_records), 1), 4),
         classifier_stats=classifier_stats,
         classifier_agreement=agreement,
+        selection_stats=selection_stats,
+        skip_recommendations=recommendations,
     )
 
 
@@ -820,7 +838,7 @@ def generate_hypotheses(
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
-def analyze(days: int = 7) -> AnalysisReport:
+def analyze(days: int = 7, *, write_knobs: bool = True) -> AnalysisReport:
     """Run the full slow analysis pipeline over the last *days* days."""
     records = _load_logs(days=days)
     now = datetime.utcnow()
@@ -836,18 +854,26 @@ def analyze(days: int = 7) -> AnalysisReport:
     )
 
     # Dimension 5 — guardrail tuning
-    from airlock.slow.tuner import tune_guardrails, write_knobs
+    from airlock.slow.tuner import tune_guardrails, write_knobs as persist_knobs
 
     knobs = tune_guardrails(records)
-    try:
-        write_knobs(knobs)
-    except OSError:
-        logger.warning("knobs_write_failed — continuing without writing")
+    if write_knobs:
+        try:
+            persist_knobs(knobs)
+        except OSError:
+            logger.warning("knobs_write_failed — continuing without writing")
 
     guardrail_tuning: dict[str, Any] = {
         "knobs_version": knobs.version,
         "weights": knobs.weights,
         "threshold": knobs.threshold,
+        "semantic_selection": {
+            "classifiers": [asdict(stats) for stats in semantic.classifier_stats]
+            if semantic
+            else [],
+            "selection_stats": semantic.selection_stats if semantic else {},
+            "skip_recommendations": semantic.skip_recommendations if semantic else [],
+        },
     }
 
     # Summary

@@ -115,6 +115,19 @@ def _enforce_color(mode: str) -> str:
     return "dim"
 
 
+def _format_headroom(snapshot: dict) -> str:
+    remaining = snapshot.get("remaining_requests")
+    limit = snapshot.get("limit_requests")
+    return f"{remaining}/{limit}" if remaining is not None and limit is not None else ""
+
+
+def _format_spend(snapshot: dict) -> str:
+    spend, cap = snapshot.get("spend_usd"), snapshot.get("budget_cap_usd")
+    if spend is None:
+        return ""
+    return f"${spend:.2f}/${cap:.2f}" if cap is not None else f"${spend:.2f}"
+
+
 def _get_datastore_engine():
     try:
         import airlock.datastore
@@ -153,6 +166,8 @@ class OverviewPane(VerticalScroll):
         self._alert_text: str = "[dim]No alerts[/]"
         self._provider_filter: str | None = None
         self._highlighted_provider: str | None = None
+        self._admin_snapshot: dict[str, dict] | None = None
+        self._admin_snapshot_at: float = 0.0
 
     # -- compose ------------------------------------------------------------
 
@@ -192,6 +207,8 @@ class OverviewPane(VerticalScroll):
             "Recovery",
             "Impacted",
             "Served via",
+            "Headroom",
+            "Spend / cap",
         )
         yield providers
 
@@ -515,6 +532,19 @@ class OverviewPane(VerticalScroll):
             return
 
         now = time.time()
+
+        # Separate-process TUI state does not receive provider spend/headroom
+        # directly. Refresh this read-only admin snapshot infrequently and
+        # degrade to blanks when the perimeter is disabled or unreachable.
+        if now - self._admin_snapshot_at >= 30:
+            try:
+                from airlock.tui.admin_client import provider_snapshot
+
+                payload = provider_snapshot(self._host, self._port)
+                self._admin_snapshot = payload.get("providers", {}) if payload else None
+            except Exception:
+                self._admin_snapshot = None
+            self._admin_snapshot_at = now
         status = "QUARANTINED" if provider.is_quarantined(now) else "HEALTHY"
         mode = provider.recent_gemini_mode() or "-"
         impacted = sorted(provider.impacted_clients())
@@ -632,10 +662,43 @@ class OverviewPane(VerticalScroll):
 
         now = time.time()
 
+        # The overview table itself needs the optional admin snapshot; do not
+        # wait for an operator to select a provider detail row.
+        if now - self._admin_snapshot_at >= 30:
+            try:
+                from airlock.tui.admin_client import provider_snapshot
+
+                payload = provider_snapshot(self._host, self._port)
+                self._admin_snapshot = payload.get("providers", {}) if payload else None
+            except Exception:
+                self._admin_snapshot = None
+            self._admin_snapshot_at = now
+
         # --- providers ---
         provider_rows: list[tuple[str, ...]] = []
         provider_keys: list[str] = []
-        for name, provider in store.all_providers().items():
+        local_providers = store.all_providers()
+        for name in sorted(set(local_providers) | set(self._admin_snapshot or {})):
+            provider = local_providers.get(name)
+            remote = (self._admin_snapshot or {}).get(name, {})
+            if provider is None:
+                # Snapshot-only state remains informative but does not invent
+                # a local health/circuit value.
+                provider_rows.append(
+                    (
+                        name,
+                        "-",
+                        "-",
+                        "-",
+                        "-",
+                        "-",
+                        classify_backend_kind(name),
+                        _format_headroom(remote),
+                        _format_spend(remote),
+                    )
+                )
+                provider_keys.append(name)
+                continue
             status = "QUARANTINED" if provider.is_quarantined(now) else "HEALTHY"
             recovery = "-"
             if provider.is_quarantined(now):
@@ -645,7 +708,17 @@ class OverviewPane(VerticalScroll):
             impacted = str(len(provider.impacted_clients()))
             served_via = classify_backend_kind(name)
             provider_rows.append(
-                (name, status, requests, err_rate, recovery, impacted, served_via),
+                (
+                    name,
+                    status,
+                    requests,
+                    err_rate,
+                    recovery,
+                    impacted,
+                    served_via,
+                    _format_headroom(remote),
+                    _format_spend(remote),
+                ),
             )
             provider_keys.append(name)
 
@@ -740,6 +813,8 @@ class OverviewPane(VerticalScroll):
                 ptable.add_row(
                     "(no providers tracked)",
                     "-",
+                    "",
+                    "",
                     "-",
                     "-",
                     "-",
