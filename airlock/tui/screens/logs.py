@@ -84,12 +84,7 @@ def _matches_snapshot(record: dict[str, Any], filters: dict[str, str]) -> bool:
         if search not in " ".join(str(record.get(key) or "") for key in keys).lower():
             return False
     try:
-        raw_timestamp = str(record.get("timestamp", ""))
-        # Older JSONL fixtures/producers occasionally emitted ``+00:00Z``.
-        # Treat it as UTC rather than dropping an otherwise valid record.
-        if raw_timestamp.endswith("+00:00Z"):
-            raw_timestamp = raw_timestamp[:-1]
-        timestamp = datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
+        timestamp = _parse_record_timestamp(record)
     except ValueError:
         return False
     now = datetime.now(timezone.utc)
@@ -116,6 +111,14 @@ def _matches_snapshot(record: dict[str, Any], filters: dict[str, str]) -> bool:
         and end >= start
         and end - start <= timedelta(days=31)
     )
+
+
+def _parse_record_timestamp(record: dict[str, Any]) -> datetime:
+    """Parse canonical UTC timestamps and the older ``+00:00Z`` spelling."""
+    raw_timestamp = str(record.get("timestamp", ""))
+    if raw_timestamp.endswith("+00:00Z"):
+        raw_timestamp = raw_timestamp[:-1]
+    return datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
 
 
 class LogsPane(VerticalScroll):
@@ -438,9 +441,7 @@ class LogsPane(VerticalScroll):
         result = []
         for record in records:
             try:
-                timestamp = datetime.fromisoformat(
-                    str(record.get("timestamp", "")).replace("Z", "+00:00")
-                )
+                timestamp = _parse_record_timestamp(record)
                 if timestamp.tzinfo and start <= timestamp <= end:
                     result.append(record)
             except ValueError:
