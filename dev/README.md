@@ -12,6 +12,7 @@ configuration, and operations.
 | Product intent and acceptance criteria | [User needs](user-needs.md) |
 | Testable product requirements | [Requirements](requirements.md) |
 | Runtime boundaries and design rationale | [Architecture](architecture.md) |
+| Approved semantic input-injection design | [Prompt-injection classifier design](notes/design-prompt-injection-classifier.md) |
 | Accepted refactoring direction | [Refactoring analysis](notes/refactoring-analysis-2026-07-31.md) |
 | Current internal delivery work | [0.5.9 plan](plans/0.5.9-plan.md) and [its status board](plans/runs/STATUS-0.5.9.md) |
 | How to operate the delivery harness | [Plans guide](plans/README.md) and [harness runbook](agent-harness-runbook.md) |
