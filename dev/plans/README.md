@@ -6,10 +6,11 @@ memory; this tree is the source of truth.
 
 ## Current work
 
-The active release is [0.5.9](0.5.9-plan.md); its only live board is
-[`runs/STATUS-0.5.9.md`](runs/STATUS-0.5.9.md). Completed trains are historical
-evidence catalogued in the [release archive](archive/README.md), not active
-roadmap commitments.
+The active release is [0.5.9](0.5.9-plan.md); its live board is
+[`runs/STATUS-0.5.9.md`](runs/STATUS-0.5.9.md) and its execution context is the
+[steward handoff](prompts/0.5.9-MASTER-HANDOFF.md). Completed trains are
+historical evidence catalogued in the [release archive](archive/README.md), not
+active roadmap commitments.
 
 ## Layout
 
