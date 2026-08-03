@@ -146,6 +146,26 @@ Or press `6` in the TUI for the Advisor screen. The advisor prefers local models
 docker compose up --build
 ```
 
+## Documentation and repository map
+
+The [documentation site](docs/index.md) is the canonical guide for users and
+operators. Start with installation, configuration, and deployment there; the
+live proxy also exposes its OpenAPI schema at `/openapi.json` and interactive
+Airlock API notes at `/airlock/docs`.
+
+| Area | Purpose |
+| --- | --- |
+| [`docs/`](docs/index.md) | Public installation, configuration, operations, and API guidance |
+| [`dev/`](dev/README.md) | Engineering requirements, architecture, designs, plans, and retained evidence |
+| [`airlock/`](airlock/) | Application source, organized by runtime subsystem |
+| [`tests/`](tests/) | Unit, configuration/contract, integration, harness, live, and stress coverage |
+| [`deploy/`](deploy/) | systemd and Kubernetes deployment assets |
+| [`scripts/`](scripts/) | Setup, verification, release, and local preflight utilities |
+
+For contribution and release expectations, see [`AGENTS.md`](AGENTS.md), the
+[developer documentation map](dev/README.md), and the
+[release-plan guide](dev/plans/README.md).
+
 ## Connecting AI tools
 
 Point any OpenAI-compatible client at `http://localhost:4000` (or your deployed Airlock URL).

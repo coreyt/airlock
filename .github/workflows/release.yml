@@ -57,6 +57,9 @@ jobs:
       - name: Run tests
         run: uv run pytest --tb=short -q -m "not live"
 
+      - name: Build strict documentation site
+        run: uv run mkdocs build --strict --site-dir /tmp/airlock-docs
+
   # Gate: verify the tag version matches pyproject.toml
   check-version:
     runs-on: ubuntu-latest

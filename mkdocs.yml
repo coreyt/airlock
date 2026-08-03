@@ -1,6 +1,6 @@
 site_name: Airlock
 site_description: Enterprise LLM proxy — logging, guardrails, and unified access for AI coding tools.
-site_url: https://github.com/coreyt/airlock
+site_url: https://coreyt.github.io/airlock/
 repo_url: https://github.com/coreyt/airlock
 repo_name: coreyt/airlock
 
@@ -63,6 +63,7 @@ nav:
       - Admin API: guide/admin-api.md
       - Troubleshooting: troubleshooting.md
   - Reference:
+      - API Reference: reference/api.md
       - Response Headers: reference/response-headers.md
   - Architecture:
       - Overview: architecture/overview.md

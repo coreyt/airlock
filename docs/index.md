@@ -1,64 +1,35 @@
-# Airlock
+# Airlock documentation
 
-Enterprise LLM proxy built on [LiteLLM](https://github.com/BerriAI/litellm) — unified access, logging, and guardrails for AI coding tools.
+Airlock is an enterprise LLM proxy built on LiteLLM. It gives AI coding tools a
+single OpenAI-compatible endpoint while adding guardrails, routing,
+observability, and operational controls.
 
-Airlock sits between your developers and LLM providers, giving you visibility and control without slowing anyone down.
+## Choose your path
 
-```
-  ┌──────────┐   ┌──────────┐   ┌──────────┐
-  │  Cursor   │   │  Claude  │   │  Copilot  │
-  │           │   │   Code   │   │           │
-  └─────┬─────┘   └─────┬────┘   └─────┬─────┘
-        │               │              │
-        └───────────┬───┘──────────────┘
-                    │
-              ┌─────▼──────┐
-              │   AIRLOCK   │  ← logging, PII guard, keyword guard
-              │  (LiteLLM)  │
-              └──────┬──────┘
-                     │
-           ┌─────────┼──────────┐
-           │         │          │
-      ┌────▼───┐ ┌───▼────┐ ┌──▼──────┐
-      │Anthropic│ │ OpenAI │ │ Internal│
-      │  API    │ │  API   │ │  RAG    │
-      └────────┘ └────────┘ └─────────┘
-```
+- **New to Airlock?** Start with [Installation](getting-started/installation.md),
+  then [Configuration](getting-started/configuration.md), then [Connecting AI
+  Tools](getting-started/connecting-tools.md).
+- **Operating a deployment?** See [Operations](operations.md),
+  [Troubleshooting](troubleshooting.md), and the [Admin API](guide/admin-api.md).
+- **Integrating a client?** Consult the live [API reference](reference/api.md),
+  [response-header reference](reference/response-headers.md), and
+  [routing guide](guide/routing.md).
+- **Evaluating the design?** Read the [architecture overview](architecture/overview.md)
+  and [system diagram](architecture/diagram.md).
 
-## What it does
+## Core capabilities
 
-| Concern | How Airlock handles it |
-|---|---|
-| **Unified access** | Single OpenAI-compatible endpoint for all providers |
-| **Logging** | Every request/response logged as structured JSONL |
-| **PII stripping** | Microsoft Presidio scrubs credit cards, SSNs, emails, etc. before they leave the network |
-| **Keyword blocking** | Custom blocklist prevents restricted project names or terms from leaking |
-| **Budget control** | Per-user/per-team spend limits via LiteLLM virtual keys |
-| **Multi-tool support** | Works with Cursor, Claude Code, GitHub Copilot, and any OpenAI-compatible client |
-| **Self-hosted models** | Route to local vLLM, Ollama, or any OpenAI-compatible endpoint alongside cloud providers |
-| **Interactive testing** | Built-in Basic Chat screen to test LLM connectivity and inspect full request/response cycles |
-| **AI advisor** | Ask an LLM about operational data — diagnose errors, tune guardrails, get config recommendations (local models preferred) |
+| Capability | Start here |
+| --- | --- |
+| Provider routing and model aliases | [Routing](guide/routing.md) |
+| PII, keyword, semantic, and response controls | [Guardrails](guide/guardrails.md) |
+| Provider protection and admission | [Rate limiting](guide/rate-limiting.md) |
+| Logs, metrics, tracing, and response transparency | [Observability](guide/observability.md) |
+| Batch workloads | [Batch processing](guide/batch.md) |
+| MCP tools | [MCP servers](guide/mcp-servers.md) |
 
-## Quick start
+## Continue reading
 
-```bash
-pip install airlock-llm
-pip install "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"
-airlock init
-# Edit .env with your API keys
-airlock tui --start
-```
-
-See [Installation](getting-started/installation.md) for detailed setup instructions.
-
-## Resilience & admin (new in 0.5.0)
-
-- [Admin API](guide/admin-api.md) — the control plane for live protection state:
-  clear a quarantine, reset a circuit, mint scoped tokens, audit log.
-- [Rate Limiting & the Circuit Breaker](guide/rate-limiting.md) — the 429 contract
-  (`Retry-After`, headers, body) and the tunable per-client circuit breaker.
-- [Provider Quota Observability](guide/provider-observability.md) — observe-only
-  rate-limit headroom and budget gauges captured from upstream providers.
-- [Observability & Transparency](guide/observability.md) — the mutation ledger,
-  served-backend attribution, and the `X-Airlock-*` response-header contract
-  ([reference](reference/response-headers.md)).
+- [CLI reference](guide/cli.md)
+- [TUI dashboard](guide/tui.md)
+- [Changelog](changelog.md)
