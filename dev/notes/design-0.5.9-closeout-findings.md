@@ -14,12 +14,12 @@ is actually true today, what "resolved" should mean, and a recommendation.
 
 Summary of recommendations:
 
-| # | Finding | Recommendation | Size |
-|---|---|---|---|
-| F-4 | Unbounded log queries | **Implement in 0.5.9** | S–M |
-| F-3 | Code-inspection weights unconnected | **Implement plumbing only**, default off | S |
-| F-1 | Advisory tool loop is not "real" | **Implement bounds; defer parameterized querying** | M |
-| F-2 | Anthropic path is not sandbox integration | **Re-scope — fix the claim, not the code** | XS |
+| # | Finding | Recommendation | Owner decision | Size |
+|---|---|---|---|---|
+| F-4 | Unbounded log queries | Implement in 0.5.9 | **In scope** | S–M |
+| F-3 | Code-inspection weights unconnected | Plumbing only, default off | **Out of scope** (drop the misleading field) | S |
+| F-1 | Advisory tool loop is not "real" | Bounds now; defer parameterized querying | Pending | M |
+| F-2 | Anthropic path is not sandbox integration | Re-scope — fix the claim | **Accepted** | XS |
 
 ---
 
@@ -315,12 +315,43 @@ F-1 Part A after. F-2 is a documentation change that can land with any of them.
 F-1 Part B and any real sandbox integration are explicitly **out of 0.5.9** and
 recorded as such.
 
-## Owner decisions required
+## Owner decisions — 2026-08-04
 
-1. Accept the F-2 re-scope (fix the claim, not the code)?
-2. Accept F-3 as plumbing-only with enforcement default off?
-3. Accept F-1 Part B deferral to 0.5.10?
+| Finding | Decision |
+|---|---|
+| **F-4** | **In scope for 0.5.9.** Implement as designed. |
+| **F-3** | **Out of scope.** Not implemented, not plumbed. See below. |
+| **F-2** | **Re-scope accepted** — fix the claim, not the code. Correct the over-promise. |
+| **F-1** | Part A/B split explained and pending; see below. |
 
-If any of these should instead be built in full for 0.5.9, that changes the
-milestone's size materially and should be said now rather than discovered at
-closeout.
+### F-3 is out of scope — what that means concretely
+
+Code inspection remains **purely observational** in 0.5.9. No signal is emitted,
+no weight is plumbed, and the orchestrator is untouched.
+
+The one thing that must still change is the misleading artifact that prompted
+the finding: `inspect_code` returns `"enforcement_weight": 0.0`, a hardcoded
+literal that no code reads. Leaving a field named `enforcement_weight` in
+persisted evidence implies a wiring that does not exist — the same category of
+over-promise as F-2. **Remove the field** rather than leave it as decoration.
+Removing it is consistent with "out of scope": it is not enforcement work, it is
+deleting a claim that enforcement exists.
+
+This must be recorded as a deliberate deferral in `0.5.9-verification.md`, not
+left to look like an oversight. If post-response enforcement on generated code
+is wanted later it needs its own observe window first, for the reason given
+above: `resource_access` matches ordinary code-assistance traffic.
+
+### F-1 remains open pending a decision
+
+The split is between a robustness fix and a feature:
+
+- **Part A** (bounds and legible failures) is small, adds no surface, and
+  changes nothing when the loop succeeds. It closes the "unbounded" half of the
+  finding.
+- **Part B** (parameterized querying) is a feature, and it **depends on F-4**:
+  giving tools real arguments without a bounded reader behind them would let a
+  model request an arbitrarily large slice, creating exactly the memory problem
+  F-4 exists to close.
+
+Recommendation stands: Part A in 0.5.9, Part B in 0.5.10.
