@@ -68,3 +68,7 @@ airlock-runtime-*.yaml
 # Local agent/tooling state (machine-specific; contains absolute paths) — 0.5.4
 .wake/shared/coreyt.jsonl
 agents/.aural/
+
+# Benchmark corpora — third-party datasets, not redistributed by Airlock.
+# See dev/corpora/README.md for provenance and licenses.
+data/
