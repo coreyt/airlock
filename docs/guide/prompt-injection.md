@@ -262,6 +262,20 @@ placeholders.
     write about security, expect false positives, and validate against your own
     traffic before leaving `observe`.
 
+!!! warning "Provider rate limits degrade coverage silently"
+    Model Armor's default quota is
+    [1,200 requests per minute per project](https://docs.cloud.google.com/model-armor/quotas).
+    Exceeding it returns `HTTP 429`, which becomes an **unavailable** verdict —
+    and unavailable fails open by default.
+
+    The failure mode is unpleasant: **coverage drops exactly when traffic is
+    heaviest**, and because it fails open, nothing blocks and nothing looks
+    broken. The adapter does not currently retry on 429.
+
+    If your peak request rate approaches the quota, request an increase, and
+    alert on the rate of `error: "http_429"` in classifier results rather than
+    waiting to notice.
+
 !!! note "Cost and latency"
     Every classified request is a billable provider call. The tripwire is free
     and can run alone. Because both tiers run `during_call`, in parallel with

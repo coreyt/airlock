@@ -14,7 +14,7 @@ Corpus format — JSONL, one object per line::
 
 Usage::
 
-    python scripts/benchmark_injection.py data/corpus.jsonl \\
+    python scripts/benchmark_injection.py data/corpora/corpus.jsonl \\
         --template projects/P/locations/us-central1/templates/T \\
         --split test --out dev/plans/runs/injection-benchmark.json
 
