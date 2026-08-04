@@ -11,8 +11,8 @@ _Last updated: 2026-08-04 · package version retained: 0.5.8_
   Pages publish workflow succeeded.
 - **Publication remains prohibited.** No PyPI upload, no public release, no
   version bump. The package stays at 0.5.8.
-- **Closeout marker not created.** One gate is open by decision rather than by
-  work; see [Remaining](#remaining).
+- **Closeout complete.** The observe-window gate was re-scoped by the owner on
+  2026-08-04 (Option 1); see [Observe-window gate](#observe-window-gate--re-scoped-2026-08-04-owner).
 - The [steward handoff](../prompts/0.5.9-MASTER-HANDOFF.md) predates the
   2026-08-04 work and is stale on the corpus, classifier, and health items.
   **This board is authoritative where they disagree.**
@@ -31,7 +31,7 @@ _Last updated: 2026-08-04 · package version retained: 0.5.8_
 | Independent review | **Complete** | [review](0.5.9-independent-review-2026-08-04.md) + [transcripts](0.5.9-independent-review-transcript.md) |
 | Observe-window tooling | Implemented | `airlock semantic-report` |
 | Final CI | **Green** | run `30931046440` on `fcc7a9a` |
-| Internal closeout marker | **Not created** | one open decision |
+| Internal closeout marker | **Created** | `milestone/0.5.9-internal-closeout` |
 
 ## Delivered 2026-08-04
 
@@ -86,30 +86,48 @@ Unrelated standing issue: local vLLM host `192.168.1.45:8000` is unreachable, so
 `qwen3-32b`, `qwen3.6-27b`, `gemma-4`, `kimi-dev`, and `vllm/*` fail. Not an
 Airlock defect.
 
-## Remaining
+## Observe-window gate — re-scoped 2026-08-04 (owner)
 
-Only one item, and it is a decision rather than work.
+The gate introduced in `3ca0c4f` made a production observe window the sole
+source of local false-positive evidence, replacing the declined local corpus.
+Model Armor was then disabled in production, so such a window yields **tripwire
+evidence only** and there is no local evidence path for the semantic tier.
 
-**The observe-window gate cannot be satisfied as written.** It was introduced
-(`3ca0c4f`) as the replacement for the declined local corpus, making a production
-observe window the sole source of local false-positive evidence. Model Armor was
-then disabled in production, so a window here yields **tripwire evidence only** —
-there is no local evidence path for the semantic tier at all.
+**Decision: Option 1 — re-scope the gate to the local tripwire.**
 
-Three coherent resolutions:
+What this accepts, stated plainly so it is not rediscovered later:
 
-1. **Re-scope the gate to the tripwire.** Accept that Model Armor ships as a
-   benchmark-validated capability this deployment does not enable, and that
-   `shadow`/`enforce` are out of scope here. Closeout proceeds.
-2. **Run a tripwire-only observe window first**, review it with
-   `airlock semantic-report`, then close out. Costs calendar time, adds real
-   local evidence for the tier that is actually running.
-3. **Stand up a non-production instance** with Model Armor enabled to gather
-   semantic-tier evidence. Largest effort; only worth it if `enforce` is a goal.
+- **Model Armor ships as a benchmark-validated capability this deployment does
+  not enable.** Its evidence is the public-corpus benchmarks
+  (`dev/corpora/README.md`), not local traffic. That is sufficient to *ship* the
+  integration; it is not sufficient to *enforce* with it.
+- **`shadow` and `enforce` are out of scope for this deployment.** Promoting
+  either would require local false-positive evidence that cannot be gathered
+  while the semantic tier is disabled here. Anyone enabling Model Armor
+  elsewhere inherits the original obligation: observe first, then decide.
+- **The tripwire runs in `observe` and its evidence is reviewable** with
+  `airlock semantic-report`. That window is no longer a closeout gate, but the
+  tool exists and the data accrues, so the evidence is there when wanted.
 
-Once that is settled, create `milestone/0.5.9-internal-closeout` on `fcc7a9a`
-(or its successor). Every other precondition — implementation, independent
-review, retained evidence, pushed commit, green CI — is met.
+The gate is therefore satisfied for the tier that is running, and explicitly
+waived — not quietly dropped — for the tier that is not.
+
+## Closeout
+
+All preconditions met: implementation complete, independent review retained and
+its findings resolved, benchmark evidence retained, all four second-review
+findings dispositioned, final commit pushed, and CI green.
+
+`milestone/0.5.9-internal-closeout` marks the closeout commit.
+
+**Correction on the way in:** the marker already existed locally, pointing at
+`5003a6d` (2026-08-02) — a commit predating the classifier, health-endpoint,
+independent-review, and closeout-findings work. It was created ahead of its
+preconditions, contrary to the handoff, and had never been pushed. It was moved
+to the true closeout commit. Any reference to the old target is wrong.
+
+Publication remains prohibited: no PyPI upload, no version bump, no `v*` tag.
+The release workflow triggers only on `v*`, so this marker cannot publish.
 
 ## Constraints
 
