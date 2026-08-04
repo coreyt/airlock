@@ -125,8 +125,20 @@ jobs:
         uses: astral-sh/setup-uv@v8.0.0
 
       - name: Install and audit
+        # Suppressions are documented, scoped, and reviewable in
+        # dev/notes/security-pip-audit-exceptions.md. Each records why it cannot
+        # be fixed, why it is unreachable in Airlock's usage, and the condition
+        # for removal. Do not add one without that assessment.
+        #
+        # cryptography 48.0.1: litellm[proxy] and presidio-anonymizer both pin
+        # <49, blocking the 49/50 fixes. All three findings need PKCS#7
+        # decryption or X.509 path validation; Airlock does neither and imports
+        # cryptography nowhere directly.
         run: |
           uv sync --locked --all-extras
           . scripts/tool-versions.sh
           uv pip install "pip-audit==$AIRLOCK_PIP_AUDIT_VERSION"
-          uv run pip-audit
+          uv run pip-audit \
+            --ignore-vuln PYSEC-2026-3552 \
+            --ignore-vuln PYSEC-2026-3553 \
+            --ignore-vuln PYSEC-2026-3554

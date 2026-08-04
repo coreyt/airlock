@@ -353,6 +353,32 @@ per provider. If `providers_answered` is `0`, the provider is failing — check
 the `error` field for `no_filter_results` (template is `INSPECT_ONLY`),
 `http_403` (IAM), or `timeout`.
 
+## Reviewing an observe window
+
+`airlock semantic-report` aggregates recorded verdicts out of the request JSONL:
+
+```bash
+airlock semantic-report --days 7          # formatted summary
+airlock semantic-report --days 30 --json  # machine-readable
+```
+
+It reports detections per classifier, tripwire category counts, provider
+confidence distribution, and — separately — **what Airlock actually did**.
+`status` is the classifier verdict; `action` is the outcome. A run showing
+detections with zero blocked requests is observe mode working correctly.
+
+Two things to look for:
+
+- **Detections on ordinary work.** These are your false positives, and they are
+  the evidence that should gate promoting the mode. Samples list request IDs and
+  never prompt text, so look them up deliberately.
+- **The `unavailable` breakdown.** Unavailability fails open, so a provider
+  outage looks like quiet, healthy traffic. `rate_limit` is called out
+  specifically because it is the one an attacker can induce.
+
+A truncated window is disclosed in the output rather than silently producing
+partial totals.
+
 ## Rollout
 
 1. **`observe`.** Collect verdicts against real traffic. Do not skip this.

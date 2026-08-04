@@ -175,6 +175,30 @@ def main(argv: list[str] | None = None) -> None:
         help="Write report to file instead of stdout.",
     )
 
+    # -- semantic-report --
+    semantic_parser = subparsers.add_parser(
+        "semantic-report",
+        help="Summarize semantic classifier verdicts from the request logs.",
+    )
+    semantic_parser.add_argument(
+        "--days", type=int, default=7, help="Days of logs to summarize (default: 7)."
+    )
+    semantic_parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="semantic_json",
+        help="Output raw JSON instead of formatted text.",
+    )
+    semantic_parser.add_argument(
+        "--samples",
+        type=int,
+        default=25,
+        help="Max detection samples to list (identifiers only, no prompt text).",
+    )
+    semantic_parser.add_argument(
+        "--output", "-o", default=None, help="Write the report to a file."
+    )
+
     # -- hooks --
     hooks_parser = subparsers.add_parser(
         "hooks",
@@ -480,6 +504,24 @@ def main(argv: list[str] | None = None) -> None:
         from airlock.slow.cli import main as analyze_main
 
         analyze_main()
+
+    elif args.command == "semantic-report":
+        import json as _json
+
+        from airlock.semantic_report import build_report, render_text
+
+        report = build_report(days=args.days, max_samples=args.samples)
+        rendered = (
+            _json.dumps(report.as_dict(), indent=2, default=str)
+            if args.semantic_json
+            else render_text(report)
+        )
+        if args.output:
+            Path(args.output).write_text(rendered + "\n", encoding="utf-8")
+            print(f"Wrote {args.output}")
+        else:
+            print(rendered)
+        raise SystemExit(0)
 
     elif args.command == "hooks":
         from airlock.cli.hooks_cmd import run_install, run_status
