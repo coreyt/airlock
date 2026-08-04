@@ -335,10 +335,11 @@ class TestSemanticGuardHook:
     async def test_no_messages_noop(self, guard):
         data = {"model": "claude-sonnet"}
         await guard.async_moderation_hook(data, MagicMock(), "completion")
-        # No crash; with no classifiers registered, still records status
-        assert (
-            data.get("metadata", {}).get("airlock_semantic", {}).get("status")
-            == "no_classifiers"
+        # No crash, and the no-op is still recorded — "ran with nothing to
+        # classify" must be distinguishable from "never ran".
+        assert data.get("metadata", {}).get("airlock_semantic", {}).get("status") in (
+            "no_classifiers",
+            "no_input",
         )
 
     async def test_empty_text_noop(self, guard):
@@ -376,7 +377,10 @@ class TestSemanticGuardHook:
         assert semantic["results"][0]["blocked"] is False
         assert semantic["total_duration_ms"] >= 0
 
-    async def test_blocking_classifier_raises(self, guard):
+    async def test_blocking_classifier_raises(self, guard, monkeypatch):
+        # Raising requires enforce mode; observe is the default (see
+        # tests/test_semantic_mode_and_input.py for the full mode contract).
+        monkeypatch.setenv("AIRLOCK_SEMANTIC_MODE", "enforce")
         register_classifier(
             StubClassifier(
                 name="injection", score=0.9, threshold=0.5, label="injection"
@@ -389,7 +393,8 @@ class TestSemanticGuardHook:
         with pytest.raises(ValueError, match="content policy"):
             await guard.async_moderation_hook(data, MagicMock(), "completion")
 
-    async def test_blocking_classifier_still_writes_metadata(self, guard):
+    async def test_blocking_classifier_still_writes_metadata(self, guard, monkeypatch):
+        monkeypatch.setenv("AIRLOCK_SEMANTIC_MODE", "enforce")
         register_classifier(
             StubClassifier(
                 name="injection", score=0.9, threshold=0.5, label="injection"
@@ -539,8 +544,9 @@ class TestMCPSemanticGuard:
         assert semantic["status"] == "passed"
         assert len(semantic["results"]) == 1
 
-    async def test_mcp_blocked_by_classifier(self, guard):
+    async def test_mcp_blocked_by_classifier(self, guard, monkeypatch):
         """A classifier that exceeds threshold should block MCP call."""
+        monkeypatch.setenv("AIRLOCK_SEMANTIC_MODE", "enforce")
         register_classifier(StubClassifier(name="injection", score=0.9, threshold=0.5))
         data = {
             "mcp_tool_name": "execute",

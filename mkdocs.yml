@@ -51,6 +51,7 @@ nav:
       - Advisor: guide/advisor.md
       - Fathom Storage: guide/fathom-storage.md
       - Guardrails: guide/guardrails.md
+      - Prompt-Injection Detection: guide/prompt-injection.md
       - Routing: guide/routing.md
       - Rate Limiting & Circuit Breaker: guide/rate-limiting.md
       - Observability & Transparency: guide/observability.md

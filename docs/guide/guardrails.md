@@ -14,7 +14,7 @@ Requests pass through 12 stages in order:
 | Fast Guardian | pre_call | Threat assessment, circuit breaker check, priority scoring |
 | Enforcer | pre_call | Binary blocking gate based on signal scores |
 | Local vLLM Router | pre_call | Fail fast when a local-vLLM alias isn't the currently loaded model |
-| Semantic Guard | during_call | LLM-based content classification |
+| Semantic Guard | during_call | Prompt-injection classification ([details](prompt-injection.md)) |
 | Orchestrator | during_call | Weighted evaluation of all signals |
 | MCP Tool Guard | pre_mcp_call | Tool name/argument filtering for MCP calls |
 | Response Scanner | post_call | Check response text for PII leaks |
@@ -30,6 +30,12 @@ Requests pass through 12 stages in order:
 | `enforce` | Block requests that exceed thresholds |
 
 Set via `AIRLOCK_ENFORCE_MODE` environment variable. Start in `observe` mode, review logs, then promote to `enforce` when confident.
+
+!!! note "The Semantic Guard has its own mode"
+    Prompt-injection classification is governed by `AIRLOCK_SEMANTIC_MODE`, not
+    `AIRLOCK_ENFORCE_MODE` — the weighted enforcer carries no semantic-classifier
+    signal, so the two settings are independent. Both default to `observe`. See
+    [Prompt-Injection Detection](prompt-injection.md).
 
 ## Per-request guardrail skips
 

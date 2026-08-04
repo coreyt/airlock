@@ -41,8 +41,7 @@ import logging
 import os
 import sys
 import time
-from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any
 
 # LiteLLM loads custom guardrails via importlib.util.spec_from_file_location
 # without registering the module in sys.modules.  Python 3.10's @dataclass
@@ -52,73 +51,68 @@ sys.modules.setdefault(__name__, type(sys)(__name__))
 from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
-from .extract import extract_text as _extract_text_unified
+# Contract types live in a neutral module so LiteLLM's file-based loading of
+# this module cannot create a second, non-matching class identity — see
+# airlock/guardrails/classifier_types.py.
+from .classifier_types import (  # noqa: F401  (re-exported for existing importers)
+    Classifier,
+    ClassifierMetadata,
+    ClassifierResult,
+    OrchestratorVerdict,
+    fail_open as _fail_open,
+)
+from .extract import extract_text as _extract_text_unified  # noqa: F401
+from airlock.text_extract import extract_direct_input
 
 logger = logging.getLogger("airlock.guardrails.semantic")
 
 
 # ---------------------------------------------------------------------------
-# Classifier protocol & result type
+# Enforcement mode
 # ---------------------------------------------------------------------------
-@dataclass
-class ClassifierResult:
-    """Verdict from a single classifier run."""
+#: Record verdicts, never raise. The initial default: a new classifier must
+#: earn enforcement with observed evidence, not assume it.
+MODE_OBSERVE = "observe"
+#: Record what *would* have been blocked, still never raise.
+MODE_SHADOW = "shadow"
+#: Raise on a positive classifier verdict.
+MODE_ENFORCE = "enforce"
 
-    name: str  # e.g. "prompt_injection", "topic_filter"
-    score: float  # 0.0 (safe) → 1.0 (violation)
-    threshold: float  # score >= threshold → block
-    blocked: bool  # convenience: score >= threshold
-    label: str  # human-readable label, e.g. "injection", "off_topic"
-    duration_ms: float  # wall-clock time for this classifier
-    error: str | None = None  # non-None if the classifier itself failed
-    metadata: dict[str, Any] = field(default_factory=dict)  # classifier-specific extras
+_MODES = (MODE_OBSERVE, MODE_SHADOW, MODE_ENFORCE)
 
-
-@dataclass(frozen=True)
-class ClassifierMetadata:
-    """Explicit opt-in metadata used by adaptive selection."""
-
-    tags: frozenset[str] = frozenset()
-    content_types: frozenset[str] = frozenset({"text"})
-    cost_class: str = "heavy"  # light | heavy
-    min_content_length: int = 0
+#: Action actually taken, recorded alongside the verdict so an observed
+#: detection can never be misread as a blocked request.
+ACTION_ALLOWED = "allowed"
+ACTION_OBSERVED = "observed"
+ACTION_WOULD_BLOCK = "would_block"
+ACTION_BLOCKED = "blocked"
 
 
-class Classifier(Protocol):
-    """Interface that pluggable classifiers must satisfy.
+def semantic_mode() -> str:
+    """Current enforcement mode, defaulting to ``observe``.
 
-    Classifiers can be sync or async — the orchestrator wraps sync callables
-    in ``asyncio.to_thread`` automatically.
+    An unrecognized value falls back to ``observe`` rather than to the previous
+    behavior of raising: a typo in configuration must not silently arm
+    enforcement.
     """
-
-    @property
-    def name(self) -> str: ...
-
-    async def classify(self, text: str) -> ClassifierResult: ...
-
-
-# ---------------------------------------------------------------------------
-# Orchestrator verdict (aggregate of all classifiers)
-# ---------------------------------------------------------------------------
-@dataclass
-class OrchestratorVerdict:
-    """Aggregate result from running all registered classifiers."""
-
-    blocked: bool
-    blocking_classifier: str | None  # name of the classifier that triggered the block
-    results: list[ClassifierResult]
-    total_duration_ms: float
-    selected: list[str] = field(default_factory=list)
-    skipped: list[dict[str, str]] = field(default_factory=list)
-    short_circuited: list[dict[str, str]] = field(default_factory=list)
+    raw = os.getenv("AIRLOCK_SEMANTIC_MODE", MODE_OBSERVE).strip().lower()
+    if raw not in _MODES:
+        logger.warning(
+            "invalid AIRLOCK_SEMANTIC_MODE=%r; falling back to %s", raw, MODE_OBSERVE
+        )
+        return MODE_OBSERVE
+    return raw
 
 
-# ---------------------------------------------------------------------------
-# Orchestrator core
-# ---------------------------------------------------------------------------
-def _fail_open() -> bool:
-    """Should classifier errors be treated as pass (True) or block (False)?"""
-    return os.getenv("AIRLOCK_SEMANTIC_BLOCK_ON_FAIL", "pass").lower() != "block"
+def resolve_action(blocked: bool, mode: str) -> str:
+    """Map a verdict plus mode onto the action actually taken."""
+    if not blocked:
+        return ACTION_ALLOWED
+    if mode == MODE_ENFORCE:
+        return ACTION_BLOCKED
+    if mode == MODE_SHADOW:
+        return ACTION_WOULD_BLOCK
+    return ACTION_OBSERVED
 
 
 async def run_classifiers(
@@ -310,6 +304,60 @@ def registered_classifiers() -> list[Classifier]:
 
 
 # ---------------------------------------------------------------------------
+# Built-in classifier bootstrap
+# ---------------------------------------------------------------------------
+_bootstrapped = False
+
+
+def bootstrap_builtin_classifiers(
+    env: dict[str, str] | None = None, *, force: bool = False
+) -> list[str]:
+    """Register the built-in prompt-injection classifiers exactly once.
+
+    Idempotent: LiteLLM may instantiate a guardrail more than once, and
+    double registration would run every classifier twice per request.
+
+    Returns the names registered, so startup diagnostics can state plainly
+    which classifiers are live. A deployment with none registered is a
+    meaningful operational fact — it means no semantic control is running —
+    and must be visible rather than inferred from silence.
+    """
+    global _bootstrapped
+    if _bootstrapped and not force:
+        return [c.name for c in _classifiers]
+
+    from .prompt_injection import build_classifiers
+
+    try:
+        built = build_classifiers(env)
+    except Exception as exc:  # noqa: BLE001 - startup must not crash the proxy
+        logger.error("classifier_bootstrap_failed error=%s", exc)
+        _bootstrapped = True
+        return [c.name for c in _classifiers]
+
+    existing = {c.name for c in _classifiers}
+    registered: list[str] = []
+    for classifier in built:
+        if classifier.name in existing:
+            continue
+        register_classifier(classifier)
+        registered.append(classifier.name)
+
+    _bootstrapped = True
+    if registered:
+        logger.info("classifier_bootstrap registered=%s", ",".join(registered))
+    else:
+        logger.info("classifier_bootstrap registered=none")
+    return [c.name for c in _classifiers]
+
+
+def reset_bootstrap() -> None:
+    """Clear bootstrap state (tests only)."""
+    global _bootstrapped
+    _bootstrapped = False
+
+
+# ---------------------------------------------------------------------------
 # LiteLLM guardrail
 # ---------------------------------------------------------------------------
 class AirlockSemanticGuard(CustomGuardrail):
@@ -326,6 +374,7 @@ class AirlockSemanticGuard(CustomGuardrail):
             GuardrailEventHooks.during_mcp_call,
         ]
         super().__init__(supported_event_hooks=supported_event_hooks, **kwargs)
+        bootstrap_builtin_classifiers()
 
     async def async_moderation_hook(
         self,
@@ -345,16 +394,40 @@ class AirlockSemanticGuard(CustomGuardrail):
             }
             return
 
-        text = _extract_text_unified(data, call_type)
-        if not text.strip():
+        # Phase A boundary: classify current user-originated text only, not a
+        # flattened transcript. See extract_direct_input for why.
+        direct = extract_direct_input(data, call_type)
+        if not direct:
+            # Record the no-op explicitly. Writing nothing would make "the
+            # guard ran and found nothing to classify" indistinguishable from
+            # "the guard never ran" in JSONL.
+            data.setdefault("metadata", {})["airlock_semantic"] = {
+                "status": "no_input",
+                "mode": semantic_mode(),
+                "action": ACTION_ALLOWED,
+                "input_kind": direct.kind,
+                "excluded_roles": list(direct.excluded_roles),
+                "results": [],
+                "total_duration_ms": 0.0,
+            }
             return
+        text = direct.text
 
         verdict = await run_classifiers(classifiers, text)
+        mode = semantic_mode()
+        action = resolve_action(verdict.blocked, mode)
 
-        # Always attach verdict to metadata — this is the learning signal
+        # Always attach verdict to metadata — this is the learning signal.
+        # ``status`` is the classifier verdict; ``action`` is what Airlock did
+        # about it. They differ in every mode except enforce, and conflating
+        # them would make observed detections look like blocked requests.
         metadata = data.setdefault("metadata", {})
         metadata["airlock_semantic"] = {
             "status": "blocked" if verdict.blocked else "passed",
+            "mode": mode,
+            "action": action,
+            "input_kind": direct.kind,
+            "excluded_roles": list(direct.excluded_roles),
             "blocking_classifier": verdict.blocking_classifier,
             "total_duration_ms": round(verdict.total_duration_ms, 2),
             "selection": os.getenv("AIRLOCK_SEMANTIC_SELECTION", "all").lower(),
@@ -404,11 +477,15 @@ class AirlockSemanticGuard(CustomGuardrail):
 
         if verdict.blocked:
             logger.warning(
-                "semantic_blocked classifier=%s total_duration_ms=%.1f",
+                "semantic_detection classifier=%s mode=%s action=%s "
+                "total_duration_ms=%.1f",
                 verdict.blocking_classifier,
+                mode,
+                action,
                 verdict.total_duration_ms,
             )
-            raise ValueError(
-                "Request blocked by content policy. "
-                "Please revise your prompt and try again."
-            )
+            if action == ACTION_BLOCKED:
+                raise ValueError(
+                    "Request blocked by content policy. "
+                    "Please revise your prompt and try again."
+                )

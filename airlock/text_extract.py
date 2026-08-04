@@ -15,6 +15,7 @@ through the same pipeline.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -30,6 +31,76 @@ def extract_text_from_messages(messages: list[dict[str, Any]]) -> str:
                 if isinstance(part, dict) and part.get("type") == "text":
                     parts.append(part.get("text", ""))
     return "\n".join(parts)
+
+
+#: Roles whose content is attacker-controlled input for Phase A classification.
+#: System and developer turns are operator-authored instructions, and assistant
+#: turns are model output — feeding either to an injection classifier invites
+#: false positives on Airlock's own system prompt. Tool/function results are
+#: untrusted but are *indirect* input: they belong to Phase B, which needs
+#: provenance at the retrieval boundary that does not exist yet.
+_DIRECT_INPUT_ROLES = frozenset({"user"})
+
+
+@dataclass(frozen=True)
+class DirectInput:
+    """Role-preserving view of the text a classifier should treat as input.
+
+    ``kind`` is ``user_prompt``, ``mcp_arguments``, or ``none``. ``excluded_roles``
+    records which roles were present but withheld, so a run can show that
+    exclusion was deliberate rather than a parsing miss.
+    """
+
+    text: str
+    kind: str
+    excluded_roles: tuple[str, ...] = ()
+
+    def __bool__(self) -> bool:
+        return bool(self.text.strip())
+
+
+def extract_direct_input(data: dict, call_type: str = "") -> DirectInput:
+    """Extract current user-originated text for Phase A injection classification.
+
+    This deliberately differs from :func:`extract_text`, which flattens every
+    message into one blob for keyword and PII scanning. Flattening is wrong for
+    an injection classifier in two ways: it hands the classifier Airlock's own
+    system prompt (which discusses attacks and reads as one), and it re-submits
+    conversation history that was already classified on the request that
+    introduced it.
+
+    Only the **most recent** user turn is returned for message-shaped requests:
+    that is the new, unclassified content in this request. Earlier user turns
+    were classified when they arrived.
+
+    Callers must invoke this *after* PII redaction — the PII guard mutates
+    ``data["messages"]`` in place, so reading the current messages yields
+    redacted text.
+    """
+    if is_mcp_call(data, call_type):
+        arguments = data.get("mcp_arguments")
+        if arguments is None:
+            return DirectInput("", "none")
+        return DirectInput("\n".join(_collect_strings(arguments)), "mcp_arguments")
+
+    messages = data.get("messages")
+    if not isinstance(messages, list):
+        return DirectInput("", "none")
+
+    excluded: set[str] = set()
+    latest: str | None = None
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role", ""))
+        if role in _DIRECT_INPUT_ROLES:
+            latest = extract_text_from_messages([message])
+        elif role:
+            excluded.add(role)
+
+    if latest is None:
+        return DirectInput("", "none", tuple(sorted(excluded)))
+    return DirectInput(latest, "user_prompt", tuple(sorted(excluded)))
 
 
 _MAX_DEPTH = 20
