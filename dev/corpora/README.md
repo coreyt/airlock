@@ -209,21 +209,51 @@ definition. It is a cheap first-tier filter, not a detector — and under adapti
 selection its detections short-circuit the semantic tier, so its narrowness is
 deliberate.
 
-## Local operational corpus — not yet built
+## Local operational corpus — will not be built
 
-Source: `logs/airlock-*.jsonl`, 13 daily files, 24,076 records, of which
-**1,654 carry message content** (median 150 chars, max 2,769, untruncated).
-Attribution: `memex` 783, `airlock` 562, `no_client` 309.
+**Decision, 2026-08-04 (owner):** skip it. The available data is insufficient.
 
-A scan for PII placeholders and for raw emails, SSNs, card numbers, and
-API-key patterns returned **zero matches of either kind**. The absence of
-placeholders means the PII guard found nothing to redact — not that content was
-stripped. Treat the text as real user content requiring review before it leaves
-the machine, even though no PII was detected.
+What exists: `logs/airlock-*.jsonl`, 13 daily files, 24,076 records, of which
+only **1,654 carry message content** (median 150 chars, max 2,769,
+untruncated), attributed `memex` 783, `airlock` 562, `no_client` 309. A scan
+for PII placeholders and for raw emails, SSNs, card numbers, and API-key
+patterns returned zero matches of either kind — the absence of placeholders
+means the PII guard found nothing to redact, not that content was stripped.
 
-Building it requires: sampling benign traffic, an explicit redaction pass,
-labeling, and owner approval. The benign arm is what produces the
-false-positive rate that decides whether `enforce` is safe.
+Roughly a third of the message-bearing records are Airlock's own self-traffic,
+and the whole set spans a month. A benign arm of that size and provenance
+cannot produce a trustworthy false-positive rate, and a rate derived from it
+would carry more authority than it deserves.
+
+### What this leaves unmeasured, and the substitute
+
+The public benchmarks measure detection quality. They do **not** measure the
+false-positive rate on *this* deployment's traffic, which is the number that
+decides whether `enforce` is safe. The benign arm of jailbreak-classification
+is OpenOrca and GPTeacher instruction prompts — general assistant traffic, not
+the code review and security discussion that dominates here. Given that
+security-adjacent prose is the known false-positive class, that benign arm
+almost certainly **under-estimates** the false-positive risk for this
+deployment.
+
+The substitute is **`observe` mode in production**, which measures exactly the
+same thing against real traffic without building a corpus at all: run the
+classifier live, block nothing, and review the verdicts it records. It is
+strictly better evidence than a sampled corpus would have been — real
+distribution, no sampling bias, no redaction pass — at the cost of needing a
+calendar window rather than an afternoon.
+
+This makes the observe window a **hard prerequisite** for `shadow` or
+`enforce`, not a recommended practice. There is now no other source of
+local false-positive evidence.
+
+Two things this requires that do not exist yet:
+
+1. The proxy must be restarted to pick up the classifier configuration; it is
+   configured in `.env` but not running.
+2. Tooling to aggregate `airlock_semantic` verdicts out of the JSONL into a
+   false-positive review — the benchmark harness reads labeled corpora, not
+   production logs.
 
 ## Running a benchmark
 

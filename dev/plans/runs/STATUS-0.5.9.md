@@ -20,7 +20,7 @@ _Last updated: 2026-08-03 · package version retained: 0.5.8_
 | TUI transparency and log navigation | Implemented | `tests/test_0_5_9_features.py` |
 | Managed MCP readiness timeout | Implemented | focused MCP/TDD tests |
 | Programmatic-tool code inspection | Implemented | safe JSONL propagation tests |
-| Adaptive semantic selection | Partial; production classifier approved, not implemented | [design](../../notes/design-prompt-injection-classifier.md); mechanism-only [prior report](../../notes/0.5.9-adaptive-equivalence.json) |
+| Adaptive semantic selection | Implemented; benchmark evidence retained, production `observe` window outstanding | [design](../../notes/design-prompt-injection-classifier.md); [corpora + results](../../corpora/README.md); `0.5.9-injection-benchmark-*.json`; [access witness](0.5.9-model-armor-access-witness.md) |
 | Advisory LLM analysis | Implemented | tool-loop, minimized remote sandbox, fallback tests |
 | Docker liveness smoke | Passed | `GET /health/liveliness` returned `"I'm alive!"` |
 | Documentation CI and Pages | Passed | `385a110`; CI `30779548856`, Pages `30779548846` |
@@ -28,9 +28,19 @@ _Last updated: 2026-08-03 · package version retained: 0.5.8_
 
 ## Remaining gates
 
-- Implement the approved [prompt-injection classifier design](../../notes/design-prompt-injection-classifier.md), including explicit semantic mode and direct-input boundary.
-- Run and retain a meaningful redacted production corpus-equivalence result;
-  the existing zero-classifier report is not performance evidence.
+- ~~Implement the approved [prompt-injection classifier design](../../notes/design-prompt-injection-classifier.md), including explicit semantic mode and direct-input boundary.~~ **Done** 2026-08-04 (`51e2270`, `45aafad`) — pluggable provider architecture, tripwire + Model Armor tiers, `observe`/`shadow`/`enforce` mode, Phase A input boundary, rate ceiling, unavailability policy.
+- ~~Run and retain a meaningful redacted production corpus-equivalence result~~
+  **Superseded** 2026-08-04. Public-benchmark evidence retained instead
+  (`0.5.9-injection-benchmark-*.json`, provenance in
+  [`dev/corpora/README.md`](../../corpora/README.md)): 662-row deepset and
+  1,306-row jailbreak corpora, both filter versions, complete paced runs.
+  The owner declined a local operational corpus as insufficient — 1,654
+  message-bearing records, a third of them Airlock self-traffic.
+- **New gate, replacing the local corpus:** a production `observe` window is now
+  the *only* source of local false-positive evidence, so it is a hard
+  prerequisite for `shadow`/`enforce` rather than a recommended practice. The
+  proxy has not been restarted, and no tooling yet aggregates `airlock_semantic`
+  verdicts from JSONL.
 - Obtain the owner-approved bounded independent automated review after the
   implementation and retain its findings/re-review.
 - Resolve or explicitly re-scope the remaining second-review blockers recorded
