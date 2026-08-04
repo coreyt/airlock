@@ -2,6 +2,17 @@
 
 The result intentionally contains categories and counts, never matched source
 text.  This makes it safe to persist alongside the canonical request record.
+
+**This is observation only — it is not wired to enforcement.** The result
+previously carried an ``enforcement_weight`` of ``0.0`` that nothing read; a
+field by that name in persisted evidence implied a wiring that did not exist,
+so it was removed (0.5.9, owner decision).
+
+Connecting inspection to post-response enforcement would need its own observe
+window first: ``resource_access`` matches any ``open(`` or ``requests.`` in a
+code block, which is entirely ordinary in code-assistance traffic. Enabling it
+as a blocking signal without evidence would generate false positives on normal
+work.
 """
 
 from __future__ import annotations
@@ -63,5 +74,4 @@ def inspect_code(text: str) -> dict[str, Any]:
         "code_blocks": len(blocks),
         "findings": findings,
         "score": min(1.0, sum(findings.values()) / 5.0),
-        "enforcement_weight": 0.0,
     }

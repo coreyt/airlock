@@ -3,9 +3,22 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
 from dataclasses import asdict, dataclass
 from typing import Any, Protocol
+
+logger = logging.getLogger("airlock.slow.analyzer_llm")
+
+#: Outcome of the most recent tool loop, so a caller (CLI, report) can explain
+#: why an advisory analysis fell back instead of silently producing nothing.
+_last_tool_loop: dict[str, Any] | None = None
+
+
+def last_tool_loop() -> dict[str, Any] | None:
+    """Metadata from the most recent advisory tool loop, or None."""
+    return _last_tool_loop
 
 
 @dataclass
@@ -115,10 +128,81 @@ def _message_content(message: Any) -> str:
     return str(content or "")
 
 
+@dataclass(frozen=True)
+class ToolLoopBudget:
+    """Explicit bounds on one advisory tool loop.
+
+    A round count alone is not a bound: three rounds against a slow model is
+    unbounded in wall-clock, which is the dimension that actually hurts a CLI
+    invocation or a TUI action.
+    """
+
+    max_rounds: int = _MAX_TOOL_ROUNDS
+    max_seconds: float = 60.0
+    max_tool_calls: int = 8  # across all rounds, not per round
+    max_result_bytes: int = 64_000  # cap on what is fed back per tool result
+
+
+#: Stop reasons. Previously every one of these returned a bare ``None``, so a
+#: fallback was indistinguishable from "the model had nothing to say".
+STOP_COMPLETED = "completed"
+STOP_MAX_ROUNDS = "max_rounds"
+STOP_TIMEOUT = "timeout"
+STOP_MAX_TOOL_CALLS = "max_tool_calls"
+STOP_DISALLOWED_TOOL = "disallowed_tool"
+STOP_BAD_ARGUMENTS = "bad_arguments"
+STOP_NO_CONTENT = "no_content"
+
+
+@dataclass
+class ToolLoopOutcome:
+    """Result of a tool loop, including why it stopped."""
+
+    content: str | None
+    stop_reason: str
+    rounds: int = 0
+    tool_calls: int = 0
+    elapsed_seconds: float = 0.0
+    truncated_results: int = 0
+
+    @property
+    def succeeded(self) -> bool:
+        return self.content is not None and self.stop_reason == STOP_COMPLETED
+
+    def as_metadata(self) -> dict[str, Any]:
+        return {
+            "stop_reason": self.stop_reason,
+            "rounds": self.rounds,
+            "tool_calls": self.tool_calls,
+            "elapsed_seconds": round(self.elapsed_seconds, 2),
+            "truncated_results": self.truncated_results,
+        }
+
+
 def _run_tool_loop(
-    client: AnalyzerLLMClient, *, model: str, audience: str, payload: dict[str, Any]
-) -> str | None:
-    """Run at most three aggregate-only tool rounds; no ambient capabilities exist."""
+    client: AnalyzerLLMClient,
+    *,
+    model: str,
+    audience: str,
+    payload: dict[str, Any],
+    budget: ToolLoopBudget | None = None,
+) -> ToolLoopOutcome:
+    """Run aggregate-only tool rounds under an explicit budget.
+
+    Returns a :class:`ToolLoopOutcome` so the caller can record *why* a
+    fallback happened. The tools remain argument-free reveals of precomputed
+    aggregates; parameterized querying is deferred to 0.5.10, where it can be
+    served by the bounded reader in :mod:`airlock.log_query`.
+    """
+    budget = budget or ToolLoopBudget()
+    started = time.monotonic()
+    rounds = 0
+    tool_calls = 0
+    truncated_results = 0
+
+    def elapsed() -> float:
+        return time.monotonic() - started
+
     messages: list[dict[str, Any]] = [
         {
             "role": "system",
@@ -137,13 +221,30 @@ def _run_tool_loop(
             ),
         },
     ]
-    for _ in range(_MAX_TOOL_ROUNDS):
+
+    def _outcome(content: str | None, reason: str) -> ToolLoopOutcome:
+        return ToolLoopOutcome(
+            content=content,
+            stop_reason=reason,
+            rounds=rounds,
+            tool_calls=tool_calls,
+            elapsed_seconds=elapsed(),
+            truncated_results=truncated_results,
+        )
+
+    for _ in range(budget.max_rounds):
+        if elapsed() > budget.max_seconds:
+            return _outcome(None, STOP_TIMEOUT)
+        rounds += 1
         message = client.complete_with_tools(
             model=model, messages=messages, tools=_analysis_tools()
         )
         calls = _tool_calls(message)
         if not calls:
-            return _message_content(message)
+            content = _message_content(message)
+            if not content:
+                return _outcome(None, STOP_NO_CONTENT)
+            return _outcome(content, STOP_COMPLETED)
         raw_tool_calls = getattr(message, "tool_calls", None)
         if raw_tool_calls is None and isinstance(message, dict):
             raw_tool_calls = message.get("tool_calls")
@@ -155,22 +256,30 @@ def _run_tool_loop(
             }
         )
         for call_id, name, arguments in calls:
+            tool_calls += 1
+            if tool_calls > budget.max_tool_calls:
+                return _outcome(None, STOP_MAX_TOOL_CALLS)
             if name not in _ALLOWED_TOOLS:
-                return None
+                return _outcome(None, STOP_DISALLOWED_TOOL)
             try:
                 parsed = json.loads(arguments)
             except json.JSONDecodeError:
-                return None
+                return _outcome(None, STOP_BAD_ARGUMENTS)
+            # Tools are argument-free by design in Phase A.
             if parsed not in ({}, None):
-                return None
+                return _outcome(None, STOP_BAD_ARGUMENTS)
+            serialized = json.dumps(payload[name], default=str)
+            if len(serialized) > budget.max_result_bytes:
+                serialized = serialized[: budget.max_result_bytes]
+                truncated_results += 1
             messages.append(
                 {
                     "role": "tool",
                     "tool_call_id": call_id,
-                    "content": json.dumps(payload[name], default=str),
+                    "content": serialized,
                 }
             )
-    return None
+    return _outcome(None, STOP_MAX_ROUNDS)
 
 
 def reduced_dataset(report: Any) -> dict[str, Any]:
@@ -286,11 +395,21 @@ def analyze_with_llm(
             if not model:
                 return None
             llm_client = client or LiteLLMAnalyzerClient()
-            raw = _run_tool_loop(
+            outcome = _run_tool_loop(
                 llm_client, model=model, audience=audience, payload=payload
             )
-            if raw is None:
+            # Record why a loop ended so a fallback is attributable rather than
+            # silent; previously every failure path returned a bare None.
+            global _last_tool_loop
+            _last_tool_loop = outcome.as_metadata()
+            if not outcome.succeeded:
+                logger.info(
+                    "analyzer_tool_loop_incomplete stop_reason=%s rounds=%d",
+                    outcome.stop_reason,
+                    outcome.rounds,
+                )
                 return None
+            raw = outcome.content
         value = json.loads(raw)
         if not isinstance(value, list):
             return None

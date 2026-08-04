@@ -90,7 +90,9 @@ def test_code_inspection_never_retains_matched_source_or_pii():
     assert result["findings"]["pii:EMAIL_ADDRESS"] == 1
     assert result["findings"]["resource_access"] == 1
     assert secret not in str(result)
-    assert result["enforcement_weight"] == 0.0
+    # No enforcement_weight: the field was always 0.0 and read by nobody, so it
+    # advertised a wiring that does not exist (0.5.9, owner decision).
+    assert "enforcement_weight" not in result
 
 
 def test_code_inspection_has_an_explicit_zero_default_knob_and_can_be_weighted():
@@ -191,7 +193,9 @@ def test_analyzer_tool_loop_allows_only_named_aggregate_queries():
             }
 
     client = Client()
-    raw = _run_tool_loop(
+    # Returns a ToolLoopOutcome since 0.5.9 (closeout finding F-1 Part A) so a
+    # fallback carries a stop reason instead of a bare None.
+    outcome = _run_tool_loop(
         client,
         model="local/test",
         audience="ops",
@@ -202,7 +206,9 @@ def test_analyzer_tool_loop_allows_only_named_aggregate_queries():
             "hypotheses": [],
         },
     )
-    assert raw and '"summary"' in raw
+    assert outcome.succeeded
+    assert outcome.content and '"summary"' in outcome.content
+    assert outcome.stop_reason == "completed"
     assert client.calls == 2
 
 

@@ -18,7 +18,7 @@ Summary of recommendations:
 |---|---|---|---|---|
 | F-4 | Unbounded log queries | Implement in 0.5.9 | **In scope** | S–M |
 | F-3 | Code-inspection weights unconnected | Plumbing only, default off | **Out of scope** (drop the misleading field) | S |
-| F-1 | Advisory tool loop is not "real" | Bounds now; defer parameterized querying | Pending | M |
+| F-1 | Advisory tool loop is not "real" | Bounds now; defer parameterized querying | **Part A in scope; Part B → 0.5.10** | M |
 | F-2 | Anthropic path is not sandbox integration | Re-scope — fix the claim | **Accepted** | XS |
 
 ---
@@ -342,7 +342,7 @@ left to look like an oversight. If post-response enforcement on generated code
 is wanted later it needs its own observe window first, for the reason given
 above: `resource_access` matches ordinary code-assistance traffic.
 
-### F-1 remains open pending a decision
+### F-1 — Part A in scope, Part B deferred to 0.5.10
 
 The split is between a robustness fix and a feature:
 

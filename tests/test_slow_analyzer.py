@@ -953,3 +953,165 @@ class TestAnalyze:
     def test_guardrail_tuning_default_without_observations(self, log_dir):
         report = analyze(days=7)
         assert report.guardrail_tuning["knobs_version"] == "default"
+
+
+# ---------------------------------------------------------------------------
+class TestToolLoopBudget:
+    """Closeout finding F-1 Part A: real bounds and legible stop reasons.
+
+    Previously the only bound was a round count, and every failure path
+    returned a bare None — indistinguishable from "the model had nothing
+    to say".
+    """
+
+    @staticmethod
+    def _client(messages):
+        """A client that replays a scripted sequence of assistant messages."""
+
+        class Scripted:
+            def __init__(self):
+                self.calls = 0
+
+            def complete(self, *, model, messages):
+                return ""
+
+            def complete_with_tools(self, *, model, messages, tools):
+                item = script[min(self.calls, len(script) - 1)]
+                self.calls += 1
+                return item
+
+        script = messages
+        return Scripted()
+
+    @staticmethod
+    def _tool_message(name, arguments="{}"):
+        return {
+            "content": "",
+            "tool_calls": [
+                {"id": "c1", "function": {"name": name, "arguments": arguments}}
+            ],
+        }
+
+    def _payload(self):
+        return {
+            "summary": {"a": 1},
+            "optimizations": [],
+            "semantic_insights": {},
+            "hypotheses": [],
+        }
+
+    def test_completed_returns_content_and_reason(self):
+        from airlock.slow.analyzer_llm import STOP_COMPLETED, _run_tool_loop
+
+        client = self._client([{"content": '[{"narrative":"ok"}]'}])
+        outcome = _run_tool_loop(
+            client, model="m", audience="ops", payload=self._payload()
+        )
+        assert outcome.stop_reason == STOP_COMPLETED
+        assert outcome.succeeded is True
+        assert outcome.rounds == 1
+
+    def test_disallowed_tool_is_named_not_silent(self):
+        from airlock.slow.analyzer_llm import STOP_DISALLOWED_TOOL, _run_tool_loop
+
+        client = self._client([self._tool_message("read_secrets")])
+        outcome = _run_tool_loop(
+            client, model="m", audience="ops", payload=self._payload()
+        )
+        assert outcome.stop_reason == STOP_DISALLOWED_TOOL
+        assert outcome.content is None
+
+    def test_bad_arguments_is_distinct_from_disallowed_tool(self):
+        from airlock.slow.analyzer_llm import STOP_BAD_ARGUMENTS, _run_tool_loop
+
+        client = self._client([self._tool_message("summary", '{"days": 30}')])
+        outcome = _run_tool_loop(
+            client, model="m", audience="ops", payload=self._payload()
+        )
+        assert outcome.stop_reason == STOP_BAD_ARGUMENTS
+
+    def test_malformed_arguments_reported(self):
+        from airlock.slow.analyzer_llm import STOP_BAD_ARGUMENTS, _run_tool_loop
+
+        client = self._client([self._tool_message("summary", "{not json")])
+        outcome = _run_tool_loop(
+            client, model="m", audience="ops", payload=self._payload()
+        )
+        assert outcome.stop_reason == STOP_BAD_ARGUMENTS
+
+    def test_max_rounds_exhausted_is_reported(self):
+        from airlock.slow.analyzer_llm import (
+            STOP_MAX_ROUNDS,
+            ToolLoopBudget,
+            _run_tool_loop,
+        )
+
+        client = self._client([self._tool_message("summary")])
+        outcome = _run_tool_loop(
+            client,
+            model="m",
+            audience="ops",
+            payload=self._payload(),
+            budget=ToolLoopBudget(max_rounds=2, max_tool_calls=99),
+        )
+        assert outcome.stop_reason == STOP_MAX_ROUNDS
+        assert outcome.rounds == 2
+
+    def test_total_tool_call_cap_applies_across_rounds(self):
+        from airlock.slow.analyzer_llm import (
+            STOP_MAX_TOOL_CALLS,
+            ToolLoopBudget,
+            _run_tool_loop,
+        )
+
+        client = self._client([self._tool_message("summary")])
+        outcome = _run_tool_loop(
+            client,
+            model="m",
+            audience="ops",
+            payload=self._payload(),
+            budget=ToolLoopBudget(max_rounds=10, max_tool_calls=2),
+        )
+        assert outcome.stop_reason == STOP_MAX_TOOL_CALLS
+        assert outcome.tool_calls == 3  # the call that exceeded the cap
+
+    def test_oversized_tool_result_is_truncated_and_counted(self):
+        from airlock.slow.analyzer_llm import ToolLoopBudget, _run_tool_loop
+
+        payload = {**self._payload(), "summary": {"blob": "x" * 10_000}}
+        client = self._client(
+            [self._tool_message("summary"), {"content": '[{"narrative":"ok"}]'}]
+        )
+        outcome = _run_tool_loop(
+            client,
+            model="m",
+            audience="ops",
+            payload=payload,
+            budget=ToolLoopBudget(max_result_bytes=500),
+        )
+        assert outcome.truncated_results == 1
+
+    def test_empty_content_is_distinct_from_success(self):
+        from airlock.slow.analyzer_llm import STOP_NO_CONTENT, _run_tool_loop
+
+        client = self._client([{"content": ""}])
+        outcome = _run_tool_loop(
+            client, model="m", audience="ops", payload=self._payload()
+        )
+        assert outcome.stop_reason == STOP_NO_CONTENT
+        assert outcome.succeeded is False
+
+    def test_metadata_is_serializable_for_reports(self):
+        from airlock.slow.analyzer_llm import _run_tool_loop
+
+        client = self._client([{"content": '[{"narrative":"ok"}]'}])
+        meta = _run_tool_loop(
+            client, model="m", audience="ops", payload=self._payload()
+        ).as_metadata()
+        assert set(meta) == {
+            "stop_reason",
+            "rounds",
+            "tool_calls",
+            "elapsed_seconds",
+            "truncated_results",
+        }

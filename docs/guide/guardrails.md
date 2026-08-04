@@ -186,9 +186,23 @@ To explicitly opt into the minimized remote Anthropic executor, install
 `ANTHROPIC_API_KEY`, and optionally set `AIRLOCK_ANALYZER_REMOTE_MODEL`. The
 remote payload contains derived report aggregates only: raw messages, responses,
 credentials, and full JSONL records are omitted; textual evidence is redacted
-and capped. The remote path invokes Anthropic's server-side code-execution
-sandbox capability only; without that explicit capability opt-in, credentials,
-the optional dependency, or the provider are
-unavailable, Airlock returns the deterministic report without failing.
+and capped. Without that explicit capability opt-in, credentials, the optional
+dependency, or the provider, Airlock returns the deterministic report without
+failing.
+
+!!! warning "\"Sandbox\" here names a provider capability, not an Airlock boundary"
+    Despite the variable name, **Airlock does not manage, verify, or retrieve
+    results from a sandbox.** It sends minimized aggregates to Anthropic's
+    Messages API with the server-side `code_execution` tool declared, and reads
+    the text answer back. It does not create a sandbox session, upload files to
+    one, fetch artifacts from one, or confirm that any code executed.
+
+    So this opt-in controls exactly one thing: **whether derived aggregates
+    leave your machine.** It is not a security boundary around analysis, and it
+    should not be relied on as one. The variable keeps its name for
+    compatibility.
+
+    True provider-sandbox integration — session lifecycle, upload, artifact
+    retrieval, attestation — is not implemented and is not planned for 0.5.x.
 
 Run `airlock analyze` to trigger a tuning cycle manually.

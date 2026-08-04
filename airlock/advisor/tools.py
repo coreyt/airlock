@@ -20,12 +20,15 @@ import dataclasses
 import json
 import logging
 from collections import Counter
-from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
-from airlock.fast.state import StateStore
 from airlock.api.queries import get_request_logs
+from airlock.fast.state import StateStore
+from airlock.log_query import LogPage, LogQuery, query_logs
+
+#: Upper bound on rows pulled from the datastore in one advisor query.
+DATASTORE_QUERY_LIMIT = 50_000
 
 logger = logging.getLogger("airlock.advisor.tools")
 
@@ -35,28 +38,23 @@ logger = logging.getLogger("airlock.advisor.tools")
 # ---------------------------------------------------------------------------
 
 
+def _load_page(
+    log_dir: str,
+    days: int = 7,
+    predicate: Callable[[dict[str, Any]], bool] | None = None,
+) -> LogPage:
+    """Bounded log scan. Callers should surface ``page.truncated``.
+
+    Previously an unbounded read of every record in the window. Advisor tools
+    are reachable from the CLI and TUI, so an operator with enough accumulated
+    history could exhaust memory simply by asking a question.
+    """
+    return query_logs(LogQuery(days=days, predicate=predicate, directory=Path(log_dir)))
+
+
 def _load_logs(log_dir: str, days: int = 7) -> list[dict[str, Any]]:
-    """Load JSONL records from the last *days* days."""
-    records: list[dict[str, Any]] = []
-    today = datetime.utcnow().date()
-    log_path = Path(log_dir)
-
-    for i in range(days):
-        day = today - timedelta(days=i)
-        file_path = log_path / f"airlock-{day.isoformat()}.jsonl"
-        if not file_path.exists():
-            continue
-        with open(file_path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    records.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
-
-    return records
+    """Backwards-compatible record list. Prefer :func:`_load_page`."""
+    return _load_page(log_dir, days=days).records
 
 
 # ---------------------------------------------------------------------------
@@ -145,17 +143,31 @@ def get_recent_errors(log_dir: str, days: int = 2) -> dict:
     except Exception:
         engine = None
 
+    truncated: dict[str, Any] = {"truncated": False, "limit_hit": None}
     if engine is not None:
-        nodes = get_request_logs(engine, limit=1000000)
+        # Was limit=1000000 — a limit in name only, and every row was
+        # materialized before filtering.
+        nodes = get_request_logs(engine, limit=DATASTORE_QUERY_LIMIT)
         records = [n.properties if hasattr(n, "properties") else n for n in nodes]
         failures = [
             r
             for r in records
             if (r.get("success") is False) or bool(r.get("error_flag"))
         ]
+        if len(records) >= DATASTORE_QUERY_LIMIT:
+            truncated = {"truncated": True, "limit_hit": "datastore_limit"}
     else:
-        records = _load_logs(log_dir, days=days)
-        failures = [r for r in records if not r.get("success")]
+        # Filter during the scan so a quiet window never materializes the
+        # successful traffic it is dominated by.
+        page = _load_page(
+            log_dir,
+            days=days,
+            predicate=lambda r: (
+                (r.get("success") is False) or bool(r.get("error_flag"))
+            ),
+        )
+        failures = page.records
+        truncated = {"truncated": page.truncated, "limit_hit": page.limit_hit}
 
     by_model: Counter = Counter()
     by_error_type: Counter = Counter()
@@ -182,6 +194,9 @@ def get_recent_errors(log_dir: str, days: int = 2) -> dict:
         "by_error_type": dict(by_error_type),
         "by_client": dict(by_client),
         "recent_samples": recent_samples,
+        # The advisor must be able to say "based on a partial window" rather
+        # than presenting a truncated scan as the whole picture.
+        "window": truncated,
     }
 
 

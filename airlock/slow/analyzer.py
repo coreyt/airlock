@@ -26,7 +26,6 @@ human-readable text.
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import os
 import statistics
@@ -35,6 +34,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+from airlock.log_query import LogPage, LogQuery, query_logs
 
 logger = logging.getLogger("airlock.slow")
 
@@ -135,27 +136,33 @@ class AnalysisReport:
 # ---------------------------------------------------------------------------
 # Log loading
 # ---------------------------------------------------------------------------
+#: Truncation state from the most recent :func:`_load_logs` call, so the report
+#: can disclose that it analysed a partial window. Module-level because the
+#: analysis pipeline threads records, not pages, through many functions.
+_last_page: LogPage | None = None
+
+
 def _load_logs(days: int = 7) -> list[dict[str, Any]]:
-    """Load JSONL records from the last *days* days."""
-    records: list[dict[str, Any]] = []
-    today = datetime.utcnow().date()
+    """Load JSONL records from the last *days* days, under explicit bounds.
 
-    for i in range(days):
-        day = today - timedelta(days=i)
-        log_path = _log_dir() / f"airlock-{day.isoformat()}.jsonl"
-        if not log_path.exists():
-            continue
-        with open(log_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    records.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
+    Previously unbounded: it read every record from every daily file into one
+    list. See :mod:`airlock.log_query` for why that was a liability rather than
+    a convenience.
+    """
+    global _last_page
+    _last_page = query_logs(LogQuery(days=days, directory=_log_dir()))
+    if _last_page.truncated:
+        logger.warning(
+            "log_window_truncated limit=%s records=%d",
+            _last_page.limit_hit,
+            len(_last_page.records),
+        )
+    return _last_page.records
 
-    return records
+
+def last_window() -> LogPage | None:
+    """Truncation state of the most recent log load, or None."""
+    return _last_page
 
 
 def _fingerprint_messages(messages: list[dict] | None) -> str:
