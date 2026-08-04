@@ -45,7 +45,7 @@ def probe_health(
     """Check if the Airlock proxy is reachable."""
     # 0.0.0.0 is a bind address, not connectable — probe via loopback
     probe_host = "127.0.0.1" if host == "0.0.0.0" else host
-    url = f"http://{probe_host}:{port}/health/liveliness?client={client}"
+    url = f"http://{probe_host}:{port}/livez?client={client}"
     headers: dict[str, str] = {}
     master_key = os.getenv("AIRLOCK_MASTER_KEY")
     if master_key:

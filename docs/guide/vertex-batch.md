@@ -170,9 +170,9 @@ systemctl --user restart airlock
 systemctl --user status airlock --no-pager
 ```
 
-!!! danger "Do not probe `GET /health`"
-    `GET /health` fires live completions to every model. Use
-    `GET /health/liveliness` for liveness.
+!!! note "Health probes are cheap"
+    Use `GET /livez` for liveness and `GET /readyz` for readiness. Since 0.5.9
+    no Airlock health endpoint makes model calls, including `GET /health`.
 
 Sync smoke test through the proxy:
 

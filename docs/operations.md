@@ -11,7 +11,7 @@ Production deployment, monitoring, and maintenance for Airlock.
 docker compose up --build -d
 
 # Verify
-curl -f http://localhost:4000/health/liveliness
+curl -f http://localhost:4000/livez
 ```
 
 The compose file mounts `config.yaml` read-only and persists logs to `./logs/`. Set `AIRLOCK_PORT` in `.env` to change the listen port.
@@ -29,7 +29,7 @@ kubectl apply -f deploy/k8s/ingress.yaml
 kubectl apply -f deploy/k8s/hpa.yaml
 ```
 
-The deployment runs as non-root (UID 1000), sets resource limits (250m-1 CPU, 512Mi-1Gi RAM), and uses `/health/liveliness` for **both liveness and readiness** probes (it makes no model calls). Never point an automated probe at `/health` — it can trigger real provider work on every poll; reserve `/health` for on-demand/manual deep checks only.
+The deployment runs as non-root (UID 1000), sets resource limits (250m-1 CPU, 512Mi-1Gi RAM), and uses `/livez` for liveness and `/readyz` for readiness. No health endpoint makes model calls, so any of them is safe to probe at any interval.
 
 ### Bare Metal / VM
 
@@ -140,20 +140,64 @@ airlock post --json                   # machine-readable output
 
 ## Health Checks
 
-| Endpoint | Purpose | Use For |
+**No Airlock health endpoint makes a model call.** Probe any of them at any
+frequency.
+
+| Endpoint | Answers | Use for |
 |----------|---------|---------|
-| `GET /health` | Full health check (**calls every provider** when `background_health_checks` is off) | On-demand deep check / dashboards only — **never automated probes** |
-| `GET /health/liveliness` | Lightweight liveness check (no model calls) | Liveness **and readiness** probes, load balancers, frequent polling |
-| `GET /health/circuits` | Per-model circuit-breaker state (JSON) | Diagnosing routing/circuit issues |
+| `GET /livez` | Is the process responsive? | Liveness probes, container restart decisions |
+| `GET /readyz` | Can it serve traffic now? | Readiness probes, load-balancer membership |
+| `GET /healthz`, `GET /health` | Aggregate status | Uptime checkers, dashboards, humans |
+| `GET /health/live`, `GET /health/ready` | Same as `/livez` / `/readyz` | MicroProfile-style tooling |
+| `GET /health/circuits` | Per-model circuit-breaker state | Diagnosing routing/circuit issues |
+| `GET /health/latest` | Cached deep per-model results | Deep checking, when `background_health_checks` is on |
+| `GET /health/liveliness`, `/health/liveness`, `/health/readiness` | Legacy LiteLLM paths, still supported | Existing manifests — prefer the canonical names above |
 
-> **Hard constraint:** liveness/readiness probes and any high-frequency poller MUST
-> use `GET /health/liveliness`. `GET /health` fires live completions to every model
-> when `background_health_checks` is off — running it on a 10–30 s probe interval
-> hammers (and bills) every provider.
+Probe endpoints are **unauthenticated** and respond as `application/health+json`
+per the [IETF health check draft](https://datatracker.ietf.org/doc/html/draft-inadarei-api-health-check-06):
 
-`/health` and `/health/liveliness` return HTTP 200 when healthy. The
-`/health/circuits` endpoint is installed by the `model_override_headers` callback
-(see [Callbacks](#callbacks)).
+```json
+{"status": "pass", "serviceId": "airlock", "version": "0.5.8",
+ "checks": {"models:available": [{"status": "pass", "observedValue": 79}]}}
+```
+
+`status` is `pass`, `warn`, or `fail`. HTTP 200 for pass and warn, **503** for
+fail. Readiness reports `warn` (200) when some model circuits are open but at
+least one can still serve — withdrawing an instance because one provider is
+rate-limited would turn a partial outage into a total one. It reports `fail`
+(503) only when nothing can serve.
+
+!!! note "`GET /health` changed in 0.5.9"
+    It previously fired a live completion to **every configured model**, making
+    the most-probed path in the ecosystem the most expensive one. It is now the
+    cheap aggregate, with no option to restore the old behavior. For deep
+    per-model results, enable `general_settings.background_health_checks: true`
+    and read the cached results from `GET /health/latest` — that loop's rate is
+    controlled by you rather than by whoever last pointed a probe at the proxy.
+
+### Probe configuration
+
+```yaml
+# Kubernetes
+livenessProbe:
+  httpGet: {path: /livez, port: http}
+readinessProbe:
+  httpGet: {path: /readyz, port: http}
+```
+
+```yaml
+# Docker Compose
+healthcheck:
+  test: ["CMD", "curl", "-f", "http://localhost:4000/livez"]
+```
+
+```bash
+# Uptime checker / load balancer
+GET /healthz    # expect 200 and {"status": "pass"}
+```
+
+The `/health/circuits` endpoint is installed by the `model_override_headers`
+callback (see [Callbacks](#callbacks)).
 
 ## Startup Modes
 
@@ -181,8 +225,8 @@ restarting. Because servers are launched lazily, a clean startup log does **not*
 prove they work; tool discovery happens on first client request.
 
 ```bash
-# 1. Liveness (never GET /health for probes)
-curl -s http://localhost:4000/health/liveliness
+# 1. Liveness
+curl -s http://localhost:4000/livez
 
 # 2. Models are served
 curl -s -H "Authorization: Bearer $AIRLOCK_MASTER_KEY" \
@@ -518,7 +562,7 @@ WantedBy=multi-user.target
 2. Pull the new version: `git pull && ./scripts/setup.sh`
 3. Run `airlock post` to validate configuration against the new version
 4. Restart the proxy: `systemctl restart airlock` or `docker compose up --build -d`
-5. Check `/health/liveliness` and review startup warnings in stderr
+5. Check `/livez` and review startup warnings in stderr
 
 ### Breaking Changes
 

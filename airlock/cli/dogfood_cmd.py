@@ -10,7 +10,7 @@ import urllib.request
 def _probe_health(host: str, port: str) -> bool:
     # 0.0.0.0 is a bind address, not connectable — probe via loopback
     probe_host = "127.0.0.1" if host == "0.0.0.0" else host
-    url = f"http://{probe_host}:{port}/health/liveliness"
+    url = f"http://{probe_host}:{port}/livez"
     try:
         urllib.request.urlopen(url, timeout=3)  # noqa: S310
         return True

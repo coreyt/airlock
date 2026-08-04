@@ -252,18 +252,23 @@ def enrich_openapi_schema(schema: dict[str, Any]) -> dict[str, Any]:
                     operation, "#/components/parameters/XAirlockClient"
                 )
                 operation.setdefault("responses", {}).setdefault(
-                    "401",
+                    "503",
                     {
                         "description": (
-                            "Unauthorized. Airlock health probes require the proxy master key "
-                            "when the proxy is configured with one."
+                            "Service unavailable. Returned when no model can serve "
+                            "traffic, or a configured database is unreachable."
                         )
                     },
                 )
                 _merge_description(
                     operation,
-                    "Airlock health probes should send `Authorization: Bearer $AIRLOCK_MASTER_KEY` "
-                    "and may send `X-Airlock-Client` for attribution.",
+                    "Aggregate health. Requires no authentication and **makes no model "
+                    "calls** — Airlock replaces LiteLLM's per-model live sweep, which made "
+                    "the most-probed path in the ecosystem the most expensive one. Responds "
+                    "as `application/health+json` with a `status` of `pass`, `warn`, or "
+                    "`fail`. Use `/livez` for liveness and `/readyz` for readiness. "
+                    "Per-model detail is at `/health/circuits`, and cached deep results at "
+                    "`/health/latest` when `background_health_checks` is enabled.",
                 )
                 continue
 

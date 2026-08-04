@@ -17,6 +17,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Adds advisory-only `airlock analyze --llm` with a LiteLLM-compatible path and
   an explicitly opted-in, minimized remote Anthropic executor. LLM output never
   changes enforcement or writes guardrail knobs.
+- Adds a pluggable semantic prompt-injection control: a local deterministic
+  tripwire plus provider-backed classifiers (Google Model Armor first) behind an
+  `InjectionProvider` seam, with an explicit `observe`/`shadow`/`enforce` mode,
+  a client-side provider rate ceiling, and a configurable policy for what
+  happens when a classifier cannot answer. Off by default.
+- **Breaking — `GET /health` no longer performs live model calls.** It
+  previously fired a completion to every configured model when
+  `background_health_checks` was off, which made the most-probed path in the
+  ecosystem the most expensive one. It now returns a cheap aggregate, and there
+  is **no flag to restore the old behavior**. For deep per-model results, enable
+  `general_settings.background_health_checks: true` and read the cached results
+  from `GET /health/latest`.
+- Adds canonical probe endpoints `GET /livez`, `/readyz`, `/healthz`,
+  `/health/live`, and `/health/ready` (plus `HEAD` on each), responding as
+  `application/health+json` with `pass`/`warn`/`fail` and HTTP 200/503.
+  Readiness now reflects router and circuit-breaker state instead of always
+  reporting healthy, and reports `warn` rather than `fail` when only some model
+  circuits are open. Legacy `/health/liveliness`, `/health/liveness`, and
+  `/health/readiness` keep their exact current bodies.
+- Fixes the Kubernetes manifest, which pointed its readiness probe at a liveness
+  endpoint.
 - Keeps the package version at 0.5.8: this is an internal milestone and is not
   a PyPI release.
 

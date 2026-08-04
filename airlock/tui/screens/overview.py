@@ -386,7 +386,7 @@ class OverviewPane(VerticalScroll):
             return
 
         probe_host = "127.0.0.1" if self._host == "0.0.0.0" else self._host
-        url = f"http://{probe_host}:{self._port}/health/liveliness"
+        url = f"http://{probe_host}:{self._port}/livez"
         master_key = os.environ.get("AIRLOCK_MASTER_KEY", "")
         req = urllib.request.Request(  # noqa: S310
             url,

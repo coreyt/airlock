@@ -112,8 +112,8 @@ LiteLLM reads `config.yaml` **once at startup** — a config edit needs a restar
 systemctl --user restart airlock
 ```
 
-!!! danger "Don't probe `GET /health`"
-    It fires live completions to every model. Use `GET /health/liveliness`.
+!!! note "Health probes are cheap"
+    Since 0.5.9 no health endpoint makes model calls. Use `GET /livez`.
 
 ---
 

@@ -52,7 +52,7 @@ The client is not sending the correct master key.
 
 **Check:**
 ```bash
-curl -H "Authorization: Bearer YOUR_KEY" http://localhost:4000/health
+curl -H "Authorization: Bearer YOUR_KEY" http://localhost:4000/healthz
 ```
 
 **Common causes:**
@@ -202,7 +202,7 @@ pip install -e ".[tui]"
 
 ### Container health check fails
 
-The health check runs `curl -f http://localhost:4000/health/liveliness` (the
+The health check runs `curl -f http://localhost:4000/livez` (the
 lightweight probe that makes no model calls).
 
 **Check:**

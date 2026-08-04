@@ -77,7 +77,10 @@ def test_enrich_openapi_schema_adds_airlock_extensions() -> None:
 
     health = schema["paths"]["/health"]["get"]
     assert {"$ref": "#/components/parameters/XAirlockClient"} in health["parameters"]
-    assert "401" in health["responses"]
+    # /health is unauthenticated and cheap since 0.5.9; 503 (nothing can serve)
+    # replaced the old 401, and the description must not imply model calls.
+    assert "503" in health["responses"]
+    assert "makes no model calls" in health["description"]
     assert AIRLOCK_DOCS_PATH in schema["info"]["description"]
 
 

@@ -411,7 +411,7 @@ Airlock defaults to low-noise startup:
 
 - `AIRLOCK_STARTUP_MODEL_DISCOVERY=0`
 - `AIRLOCK_MCP_STARTUP_MODE=lazy`
-- `/health/liveliness` for liveness probes and frequent polling
+- `/livez` for liveness probes, `/readyz` for readiness, `/healthz` for aggregate status
 
 If `AIRLOCK_MASTER_KEY` is unset or blank, Airlock strips the runtime `general_settings.master_key` entry before launching LiteLLM. That keeps local/dev runs usable without requiring LiteLLM's database-backed virtual-key flow.
 
