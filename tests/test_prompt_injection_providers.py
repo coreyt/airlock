@@ -630,3 +630,222 @@ class TestRegistryAndBuild:
             "input_injection_tripwire",
             "model_armor_prompt_injection",
         ]
+
+
+# ---------------------------------------------------------------------------
+class TestRateLimit:
+    def test_hot_path_fails_fast_without_calling_provider(self):
+        """A live request must never wait for provider budget."""
+        transport = FakeTransport()
+        provider = ModelArmorProvider(
+            template=TEMPLATE,
+            transport=transport,
+            token_provider=FakeTokenProvider(),
+            max_qpm=60,  # burst of 1
+            pace=False,
+        )
+
+        async def drive():
+            first = await provider.inspect("a")
+            second = await provider.inspect("b")
+            return first, second
+
+        first, second = asyncio.run(drive())
+        assert first.detected is False
+        assert second.detected is None
+        assert second.error == "local_rate_limit"
+        # The throttled call never left the process.
+        assert len(transport.posts) == 1
+
+    def test_local_rate_limit_is_distinct_from_http_429(self):
+        transport = FakeTransport(post_result=(429, {"error": {"code": 429}}))
+        provider = ModelArmorProvider(
+            template=TEMPLATE,
+            transport=transport,
+            token_provider=FakeTokenProvider(),
+            max_qpm=6000,
+        )
+        verdict = asyncio.run(provider.inspect("x"))
+        assert verdict.error == "http_429"
+
+    def test_disabled_when_max_qpm_is_zero(self):
+        transport = FakeTransport()
+        provider = ModelArmorProvider(
+            template=TEMPLATE,
+            transport=transport,
+            token_provider=FakeTokenProvider(),
+            max_qpm=0,
+        )
+
+        async def drive():
+            for _ in range(5):
+                await provider.inspect("x")
+
+        asyncio.run(drive())
+        assert len(transport.posts) == 5
+
+    def test_pace_mode_waits_instead_of_failing(self):
+        transport = FakeTransport()
+        provider = ModelArmorProvider(
+            template=TEMPLATE,
+            transport=transport,
+            token_provider=FakeTokenProvider(),
+            max_qpm=6000,  # 100/s → ~10ms spacing
+            pace=True,
+        )
+
+        async def drive():
+            return [await provider.inspect(str(i)) for i in range(4)]
+
+        verdicts = asyncio.run(drive())
+        assert all(v.detected is False for v in verdicts), "pacing must not drop calls"
+        assert len(transport.posts) == 4
+
+    def test_describe_reports_limit_and_mode(self):
+        provider = ModelArmorProvider(
+            template=TEMPLATE,
+            transport=FakeTransport(),
+            token_provider=FakeTokenProvider(),
+            max_qpm=600,
+        )
+        described = provider.describe()
+        assert described["max_qpm"] == "600.0"
+        assert described["rate_limit_mode"] == "fail_fast"
+
+    def test_default_ceiling_matches_documented_quota(self):
+        provider = build_from_env(
+            {
+                "AIRLOCK_MODEL_ARMOR_ENABLED": "true",
+                "AIRLOCK_MODEL_ARMOR_TEMPLATE": TEMPLATE,
+            }
+        )
+        assert provider.describe()["max_qpm"] == "1200.0"
+
+    def test_max_qpm_configurable_for_reduced_tiers(self):
+        provider = build_from_env(
+            {
+                "AIRLOCK_MODEL_ARMOR_ENABLED": "true",
+                "AIRLOCK_MODEL_ARMOR_TEMPLATE": TEMPLATE,
+                "AIRLOCK_MODEL_ARMOR_MAX_QPM": "120",
+            }
+        )
+        assert provider.describe()["max_qpm"] == "120.0"
+
+    def test_invalid_max_qpm_falls_back_to_default(self):
+        provider = build_from_env(
+            {
+                "AIRLOCK_MODEL_ARMOR_ENABLED": "true",
+                "AIRLOCK_MODEL_ARMOR_TEMPLATE": TEMPLATE,
+                "AIRLOCK_MODEL_ARMOR_MAX_QPM": "lots",
+            }
+        )
+        assert provider.describe()["max_qpm"] == "1200.0"
+
+
+# ---------------------------------------------------------------------------
+class TestUnavailabilityPolicy:
+    """Quota exhaustion is attacker-inducible, so its policy is separable."""
+
+    @pytest.mark.parametrize(
+        "error,reason",
+        [
+            ("local_rate_limit", "rate_limit"),
+            ("http_429", "rate_limit"),
+            ("timeout", "timeout"),
+            ("http_403", "auth"),
+            ("no_filter_results", "misconfigured"),
+            ("invocation_result:FAILURE", "misconfigured"),
+            ("transport_error:RuntimeError", "transport"),
+            ("no_providers_configured", "no_provider"),
+            (None, "unknown"),
+        ],
+    )
+    def test_reason_classification(self, error, reason):
+        from airlock.guardrails.prompt_injection import classify_unavailable_reason
+
+        assert classify_unavailable_reason(error) == reason
+
+    def _classify_with(self, monkeypatch, env, error="http_429"):
+        for k, v in env.items():
+            monkeypatch.setenv(k, v)
+        provider = StubProvider("p", None, available=False, error=error)
+        classifier = ProviderInjectionClassifier([provider])
+        return asyncio.run(classifier.classify("text"))
+
+    def test_defaults_to_fail_open(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_SEMANTIC_BLOCK_ON_FAIL", raising=False)
+        result = self._classify_with(monkeypatch, {})
+        assert result.blocked is False
+        assert result.metadata["unavailable_reason"] == "rate_limit"
+        assert result.metadata["unavailable_policy"] == "allow"
+
+    def test_rate_limit_can_fail_closed_independently(self, monkeypatch):
+        """Close the deliberate-exhaustion bypass without failing closed on
+        every transient provider error."""
+        result = self._classify_with(
+            monkeypatch, {"AIRLOCK_SEMANTIC_ON_RATE_LIMIT": "block"}
+        )
+        assert result.blocked is True
+        assert result.metadata["unavailable_policy"] == "block"
+
+    def test_rate_limit_override_does_not_affect_other_errors(self, monkeypatch):
+        result = self._classify_with(
+            monkeypatch, {"AIRLOCK_SEMANTIC_ON_RATE_LIMIT": "block"}, error="timeout"
+        )
+        assert result.blocked is False
+        assert result.metadata["unavailable_reason"] == "timeout"
+
+    def test_general_policy_applies_to_all_causes(self, monkeypatch):
+        result = self._classify_with(
+            monkeypatch, {"AIRLOCK_SEMANTIC_ON_UNAVAILABLE": "block"}, error="timeout"
+        )
+        assert result.blocked is True
+
+    def test_rate_limit_override_beats_general_policy(self, monkeypatch):
+        """Availability-first deployments keep serving under quota exhaustion."""
+        result = self._classify_with(
+            monkeypatch,
+            {
+                "AIRLOCK_SEMANTIC_ON_UNAVAILABLE": "block",
+                "AIRLOCK_SEMANTIC_ON_RATE_LIMIT": "allow",
+            },
+        )
+        assert result.blocked is False
+
+    def test_legacy_block_on_fail_still_honored(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_SEMANTIC_ON_UNAVAILABLE", raising=False)
+        monkeypatch.delenv("AIRLOCK_SEMANTIC_ON_RATE_LIMIT", raising=False)
+        result = self._classify_with(
+            monkeypatch, {"AIRLOCK_SEMANTIC_BLOCK_ON_FAIL": "block"}
+        )
+        assert result.blocked is True
+
+    def test_invalid_policy_value_falls_back_to_default(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_SEMANTIC_BLOCK_ON_FAIL", raising=False)
+        result = self._classify_with(
+            monkeypatch, {"AIRLOCK_SEMANTIC_ON_RATE_LIMIT": "maybe"}
+        )
+        assert result.blocked is False
+
+    def test_pacing_wait_is_not_counted_as_classifier_latency(self):
+        """Benchmark latency must stay comparable to production latency."""
+        provider = ModelArmorProvider(
+            template=TEMPLATE,
+            transport=FakeTransport(),
+            token_provider=FakeTokenProvider(),
+            max_qpm=120,  # 2/s → ~500ms spacing after the initial burst
+            pace=True,
+        )
+
+        async def drive():
+            first = await provider.inspect("a")
+            second = await provider.inspect("b")  # must wait for budget
+            return first, second
+
+        first, second = asyncio.run(drive())
+        assert second.detected is False
+        # The fake transport returns instantly; anything near the ~500ms pacing
+        # delay would mean queue time leaked into the measurement.
+        assert second.duration_ms < 100, (
+            f"pacing wait leaked into latency: {second.duration_ms}ms"
+        )

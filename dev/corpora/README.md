@@ -134,6 +134,37 @@ caveat below, not deepset's.
 The tripwire catches 15% at perfect precision. Useful as a free first tier;
 not a detector on its own.
 
+### v1 vs v3 on the well-matched corpus — complete paced runs
+
+1,306 samples each, paced to 240 QPM, 2026-08-04
+(`dev/plans/runs/0.5.9-injection-benchmark-jailbreak-ia-{1,3}-paced.json`):
+
+| | v1 (`ia-1`) | v3 (`ia-3`) |
+|---|---|---|
+| Recall | **0.781** | 0.748 |
+| Precision | 0.967 | **0.998** |
+| False-positive rate | 0.0282 | **0.0016** |
+| False positives | 18 | **1** |
+| Attacks caught | 520 / 666 | 498 / 666 |
+| F1 | 0.864 | 0.855 |
+| Unavailable | 1 (timeout) | **0** |
+| Confidence skew | HIGH 306 / MEDIUM 232 | HIGH 467 / MEDIUM 32 |
+
+**v3 remains the right choice, and the tradeoff is now explicit rather than
+inferred.** v1 catches 22 more attacks; v3 produces 17 fewer false positives.
+For a gateway where a false positive blocks legitimate work — and where the
+semantic tier is one control among several — an 18× reduction in false
+positives is worth 3 points of recall. A deployment that weights recall over
+availability could justify v1, which is why both runs are retained.
+
+This corroborates the deepset conclusion on a corpus whose labels actually
+match the task, and it is the run that should be cited for the template
+decision.
+
+**Latency figures in the paced runs are inflated** (p50 ~740 ms) because the
+pacing wait was measured as classifier latency. Fixed afterwards; use the
+unpaced run's p50 141 ms / p95 324 ms as production-representative.
+
 ### Rate limiting is a real operational constraint
 
 Both jailbreak runs hit `http_429`. A repeat at concurrency 3 produced **904 of
@@ -149,11 +180,23 @@ Two consequences:
 
 1. **Benchmarks must be throttled.** Concurrency alone does not control rate
    when responses are fast; treat 1,200 QPM as the ceiling and pace accordingly.
-2. **Production needs 429 handling.** The adapter has no retry today, so a 429
-   becomes an `unavailable` verdict, which fails open by default — meaning
-   **coverage silently degrades exactly when traffic is heaviest**. A bounded
-   retry honoring `Retry-After`, plus alerting on the unavailable rate, is the
-   obvious mitigation and is not yet implemented.
+2. **Production needs a rate ceiling and an explicit unavailability policy.**
+   Both are now implemented: `AIRLOCK_MODEL_ARMOR_MAX_QPM` caps outgoing rate
+   (failing fast on the request path rather than queuing), and
+   `AIRLOCK_SEMANTIC_ON_RATE_LIMIT` / `AIRLOCK_SEMANTIC_ON_UNAVAILABLE` decide
+   whether an unclassifiable request proceeds.
+
+   The security question behind this: quota exhaustion is the one classifier
+   failure an **attacker can induce deliberately** — flood until the budget is
+   gone, then send the payload through unclassified. Failing closed shuts that
+   bypass but turns the same flood into a denial of service. The genuine fix is
+   upstream: cap per-client RPM with the admission gate so no single client can
+   exhaust a shared budget. See `docs/guide/prompt-injection.md`.
+
+   Bounded retry honoring `Retry-After` is deliberately **not** implemented:
+   retrying into an exhausted quota adds load to an API already refusing us,
+   and on a `during_call` path it spends latency budget for a likely-failing
+   call.
 
 Recall was consistent across both runs (0.750 on 648 answered, 0.760 on 200
 answered), so the rate limiting did not bias the quality numbers — it only

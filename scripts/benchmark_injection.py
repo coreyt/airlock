@@ -100,8 +100,14 @@ async def run(args: argparse.Namespace) -> dict:
     classifiers: list = [InputInjectionTripwire()]
     provider = None
     if args.template:
+        # pace=True: this is offline batch work, so waiting for budget is
+        # correct — completing every sample matters more than finishing fast.
+        # The request path uses the opposite (fail-fast) policy.
         provider = ModelArmorProvider(
-            template=args.template, timeout_seconds=args.timeout
+            template=args.template,
+            timeout_seconds=args.timeout,
+            max_qpm=args.qpm,
+            pace=True,
         )
         classifiers.append(ProviderInjectionClassifier([provider]))
 
@@ -207,6 +213,16 @@ def main() -> None:
     parser.add_argument("--template", help="Model Armor template resource name")
     parser.add_argument("--timeout", type=float, default=5.0)
     parser.add_argument("--concurrency", type=int, default=8)
+    parser.add_argument(
+        "--qpm",
+        type=float,
+        default=300.0,
+        help=(
+            "client-side requests-per-minute ceiling; the run paces to stay "
+            "under it. Default 300 is deliberately well below Google's 1200 "
+            "default quota, since a reduced tier is common."
+        ),
+    )
     parser.add_argument("--out", help="write the JSON report here")
     args = parser.parse_args()
 

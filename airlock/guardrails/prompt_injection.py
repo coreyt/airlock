@@ -134,6 +134,73 @@ class InputInjectionTripwire:
         )
 
 
+#: Why a classifier had no verdict. Recorded per result and used to select the
+#: unavailability policy, because the causes have different threat models.
+REASON_RATE_LIMIT = "rate_limit"
+REASON_TIMEOUT = "timeout"
+REASON_AUTH = "auth"
+REASON_MISCONFIGURED = "misconfigured"
+REASON_TRANSPORT = "transport"
+REASON_NO_PROVIDER = "no_provider"
+REASON_UNKNOWN = "unknown"
+
+
+def classify_unavailable_reason(error: str | None) -> str:
+    """Map a provider error string onto a coarse cause.
+
+    The distinction that matters is **rate limit versus everything else**: quota
+    exhaustion is the only failure an attacker can deliberately induce, by
+    flooding the proxy until the provider budget is gone and the classifier
+    stops answering.
+    """
+    if not error:
+        return REASON_UNKNOWN
+    first = error.split(";")[0].strip()
+    if first in ("local_rate_limit", "http_429"):
+        return REASON_RATE_LIMIT
+    if first == "timeout":
+        return REASON_TIMEOUT
+    if first in ("http_401", "http_403"):
+        return REASON_AUTH
+    if first in (
+        "no_filter_results",
+        "pi_and_jailbreak_filter_absent",
+    ) or first.startswith(("invocation_result:", "execution_state:", "match_state:")):
+        return REASON_MISCONFIGURED
+    if first.startswith(("transport_error:", "provider_exception:")):
+        return REASON_TRANSPORT
+    if first == "no_providers_configured":
+        return REASON_NO_PROVIDER
+    return REASON_UNKNOWN
+
+
+def _policy_for(reason: str, env: dict[str, str] | None = None) -> str:
+    """Resolve the allow/block policy for an unavailable verdict.
+
+    ``AIRLOCK_SEMANTIC_ON_RATE_LIMIT`` overrides
+    ``AIRLOCK_SEMANTIC_ON_UNAVAILABLE`` for quota exhaustion only. Both default
+    to allow (fail open), and the legacy ``AIRLOCK_SEMANTIC_BLOCK_ON_FAIL``
+    still forces block when set, so existing deployments keep their behavior.
+
+    Note this only bites in ``enforce`` mode — in observe and shadow the guard
+    never raises regardless of policy.
+    """
+    source = os.environ if env is None else env
+
+    def _read(name: str) -> str | None:
+        raw = (source.get(name) or "").strip().lower()
+        return raw if raw in ("allow", "block") else None
+
+    if reason == REASON_RATE_LIMIT:
+        specific = _read("AIRLOCK_SEMANTIC_ON_RATE_LIMIT")
+        if specific:
+            return specific
+    general = _read("AIRLOCK_SEMANTIC_ON_UNAVAILABLE")
+    if general:
+        return general
+    return "allow" if fail_open() else "block"
+
+
 def _aggregate(verdicts: Sequence[ProviderVerdict], policy: str) -> bool:
     """Combine usable provider verdicts under ``policy``.
 
@@ -301,13 +368,17 @@ class ProviderInjectionClassifier:
         request_kind: str | None = None,
     ) -> ClassifierResult:
         """An unavailable classifier — explicitly not a clean verdict."""
-        blocked = not fail_open()
+        reason = classify_unavailable_reason(error)
+        policy = _policy_for(reason)
+        blocked = policy == "block"
         metadata: dict[str, object] = {
             "tier": "heavy",
             "aggregation": self._aggregation,
             "providers_total": len(self._providers),
             "providers_answered": 0,
             "provider_results": per_provider,
+            "unavailable_reason": reason,
+            "unavailable_policy": policy,
         }
         if request_kind:
             metadata["request_kind"] = request_kind

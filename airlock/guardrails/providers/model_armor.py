@@ -44,6 +44,7 @@ from .base import (
     ProviderVerdict,
     Transport,
 )
+from .ratelimit import TokenBucket
 
 logger = logging.getLogger("airlock.guardrails.providers.model_armor")
 
@@ -54,6 +55,12 @@ _TEMPLATE_RE = re.compile(
     r"^projects/(?P<project>[^/]+)/locations/(?P<location>[^/]+)/templates/(?P<template>[^/]+)$"
 )
 _DEFAULT_TIMEOUT_SECONDS = 2.0
+
+#: Google's documented default Model Armor quota, requests per minute per
+#: project. Used as the client-side ceiling so Airlock cannot itself be the
+#: cause of exceeding the published limit. Deployments on a reduced tier must
+#: lower this; see AIRLOCK_MODEL_ARMOR_MAX_QPM.
+_DEFAULT_MAX_QPM = 1200.0
 
 #: Model Armor rejects oversized prompts; bound the payload before sending so a
 #: pathological request fails locally and fast rather than burning the timeout.
@@ -117,6 +124,8 @@ class ModelArmorProvider:
         transport: Transport | None = None,
         token_provider: Any | None = None,
         endpoint: str | None = None,
+        max_qpm: float | None = _DEFAULT_MAX_QPM,
+        pace: bool = False,
     ) -> None:
         match = _TEMPLATE_RE.match(template.strip())
         if not match:
@@ -139,6 +148,12 @@ class ModelArmorProvider:
         #: the access witness measured different detection behavior between
         #: filter versions.
         self._filter_version: str | None = None
+        #: Client-side budget. Defaults to Google's documented default quota so
+        #: Airlock cannot be the cause of exceeding it; lower this to match a
+        #: reduced tier. ``pace`` is for batch callers only — on the request
+        #: path we fail fast rather than delay a live request (see ratelimit).
+        self._pace = pace
+        self._bucket = TokenBucket(max_qpm) if max_qpm and max_qpm > 0 else None
 
     @property
     def name(self) -> str:
@@ -156,6 +171,9 @@ class ModelArmorProvider:
         }
         if self._filter_version:
             described["filter_version"] = self._filter_version
+        if self._bucket is not None:
+            described["max_qpm"] = str(round(self._bucket.capacity * 60, 1))
+            described["rate_limit_mode"] = "pace" if self._pace else "fail_fast"
         return described
 
     # -- internals ---------------------------------------------------------
@@ -359,6 +377,26 @@ class ModelArmorProvider:
         def elapsed() -> float:
             return (time.monotonic() - started) * 1000
 
+        if self._bucket is not None:
+            if self._pace:
+                await self._bucket.acquire()
+            elif not await self._bucket.try_acquire():
+                # Reported distinctly from http_429: this call never left the
+                # process, so the fix is a quota increase or a lower request
+                # rate, not a provider-side investigation.
+                return ProviderVerdict.unavailable(
+                    PROVIDER_NAME,
+                    error="local_rate_limit",
+                    duration_ms=elapsed(),
+                    metadata=self._verdict_metadata(),
+                )
+
+        # Restart the clock after the rate-limit gate. In pace mode the wait can
+        # dominate, and reporting it as classifier latency would misrepresent
+        # what a live request actually costs — benchmark latency figures must
+        # stay comparable to production ones.
+        started = time.monotonic()
+
         probe = text[:_MAX_PROBE_CHARS]
         url = (
             f"{self._endpoint}/projects/{self._project}/locations/{self._location}"
@@ -463,4 +501,17 @@ def build_from_env(env: dict[str, str] | None = None) -> InjectionProvider | Non
         )
         timeout = _DEFAULT_TIMEOUT_SECONDS
 
-    return ModelArmorProvider(template=template, timeout_seconds=timeout)
+    raw_qpm = source.get("AIRLOCK_MODEL_ARMOR_MAX_QPM", "").strip()
+    try:
+        max_qpm = float(raw_qpm) if raw_qpm else _DEFAULT_MAX_QPM
+    except ValueError:
+        logger.warning(
+            "invalid AIRLOCK_MODEL_ARMOR_MAX_QPM=%r; using %.0f",
+            raw_qpm,
+            _DEFAULT_MAX_QPM,
+        )
+        max_qpm = _DEFAULT_MAX_QPM
+
+    return ModelArmorProvider(
+        template=template, timeout_seconds=timeout, max_qpm=max_qpm
+    )

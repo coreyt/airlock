@@ -262,19 +262,74 @@ placeholders.
     write about security, expect false positives, and validate against your own
     traffic before leaving `observe`.
 
-!!! warning "Provider rate limits degrade coverage silently"
-    Model Armor's default quota is
-    [1,200 requests per minute per project](https://docs.cloud.google.com/model-armor/quotas).
-    Exceeding it returns `HTTP 429`, which becomes an **unavailable** verdict —
-    and unavailable fails open by default.
+## Rate limits and the deliberate-exhaustion attack
 
-    The failure mode is unpleasant: **coverage drops exactly when traffic is
-    heaviest**, and because it fails open, nothing blocks and nothing looks
-    broken. The adapter does not currently retry on 429.
+Model Armor's default quota is
+[1,200 requests per minute per project](https://docs.cloud.google.com/model-armor/quotas),
+and reduced tiers are common. Exceeding it returns `HTTP 429`, which becomes an
+**unavailable** verdict.
 
-    If your peak request rate approaches the quota, request an increase, and
-    alert on the rate of `error: "http_429"` in classifier results rather than
-    waiting to notice.
+Airlock applies a **client-side ceiling** so it cannot be the cause of
+exceeding the published quota:
+
+```bash
+AIRLOCK_MODEL_ARMOR_MAX_QPM=1200   # lower this to match a reduced tier
+```
+
+On the request path the ceiling **fails fast** rather than queuing — a live
+request is never delayed waiting for classifier budget, and a doomed call is
+skipped instead of adding load to an API already refusing us. Locally throttled
+calls are reported as `local_rate_limit`, distinct from `http_429`, so you can
+tell "we throttled ourselves" from "the provider throttled us". Setting `0`
+disables the ceiling.
+
+!!! danger "An attacker can induce fail-open by exhausting your quota"
+    Quota exhaustion is the **only classifier failure an attacker can cause on
+    purpose**. Flood the proxy until the provider budget is gone, and with the
+    default fail-open policy every subsequent request — including the attacker's
+    real payload — goes unclassified.
+
+    Failing closed does not simply fix this. It converts a security bypass into
+    a denial of service: the same flood now blocks *every legitimate user*.
+    An attacker who cannot get their injection through may be perfectly happy
+    to take your gateway offline instead.
+
+    There is no universally correct answer, so the policy is yours to set:
+
+    ```bash
+    # Applies to all unavailable verdicts: allow (default) | block
+    AIRLOCK_SEMANTIC_ON_UNAVAILABLE=allow
+
+    # Rate-limit-specific override — takes precedence for quota exhaustion only
+    AIRLOCK_SEMANTIC_ON_RATE_LIMIT=block
+    ```
+
+    Splitting the two matters: it lets you fail **closed** on attacker-inducible
+    quota exhaustion while still failing **open** on a transient timeout or a
+    provider blip, which is usually the combination you want.
+
+    These policies only take effect in `enforce` mode. In `observe` and
+    `shadow` the guard never raises regardless.
+
+!!! tip "The better control is upstream: don't let one client burn the budget"
+    Choosing between bypass and outage is a last resort. The real defense is
+    preventing a single client from exhausting a shared budget in the first
+    place — that is what Airlock's [admission gate](rate-limiting.md) is for.
+    Cap per-client RPM so no one client can consume the provider quota, and the
+    fail-open/fail-closed choice stops being load-bearing.
+
+    Note also that **unavailable is not zero coverage**: the local tripwire has
+    no quota, costs nothing, and keeps running when the semantic tier is
+    unavailable. Coverage degrades; it does not vanish.
+
+Whatever you choose, alert on the rate of `unavailable_reason: "rate_limit"` in
+classifier results. Every unavailable verdict records both the reason and the
+policy applied:
+
+```json
+{"label": "unavailable", "error": "http_429",
+ "metadata": {"unavailable_reason": "rate_limit", "unavailable_policy": "allow"}}
+```
 
 !!! note "Cost and latency"
     Every classified request is a billable provider call. The tripwire is free
