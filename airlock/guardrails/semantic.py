@@ -135,10 +135,16 @@ async def run_classifiers(
             return result
         except Exception as exc:
             duration_ms = (time.monotonic() - t0) * 1000
+            # Exception *type* only, never the message. Classifier results are
+            # copied verbatim into request metadata and JSONL, and an exception
+            # message can embed the probed text, a provider response body, or a
+            # URL carrying request context. Provider adapters already sanitize
+            # this way; the orchestrator must match, because a third-party
+            # classifier's exception text is outside our control.
             logger.error(
-                "classifier_error name=%s error=%s",
+                "classifier_error name=%s error_type=%s",
                 classifier.name,
-                exc,
+                type(exc).__name__,
             )
             return ClassifierResult(
                 name=classifier.name,
@@ -147,7 +153,7 @@ async def run_classifiers(
                 blocked=not _fail_open(),
                 label="error",
                 duration_ms=duration_ms,
-                error=str(exc),
+                error=f"classifier_error:{type(exc).__name__}",
             )
 
     selection = (
@@ -331,7 +337,8 @@ def bootstrap_builtin_classifiers(
     try:
         built = build_classifiers(env)
     except Exception as exc:  # noqa: BLE001 - startup must not crash the proxy
-        logger.error("classifier_bootstrap_failed error=%s", exc)
+        # Type only: a config error can embed credential paths or values.
+        logger.error("classifier_bootstrap_failed error_type=%s", type(exc).__name__)
         _bootstrapped = True
         return [c.name for c in _classifiers]
 

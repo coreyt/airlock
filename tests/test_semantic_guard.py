@@ -289,7 +289,9 @@ class TestRunClassifiers:
         c = StubClassifier(name="broken", error=RuntimeError("model not loaded"))
         verdict = await run_classifiers([c], "text")
         assert verdict.blocked is False
-        assert verdict.results[0].error == "model not loaded"
+        # Sanitized to the exception type; the message stays out of results
+        # because results are copied verbatim into metadata and JSONL.
+        assert verdict.results[0].error == "classifier_error:RuntimeError"
         assert verdict.results[0].score == 0.0
         assert verdict.results[0].label == "error"
 
@@ -438,7 +440,10 @@ class TestSemanticGuardHook:
 
         semantic = data["metadata"]["airlock_semantic"]
         assert semantic["status"] == "passed"  # fail-open default
-        assert semantic["results"][0]["error"] == "boom"
+        # Exception *type* only — the message never reaches metadata, because a
+        # classifier's exception text can embed the probed prompt.
+        assert semantic["results"][0]["error"] == "classifier_error:RuntimeError"
+        assert "boom" not in str(semantic)
         assert semantic["results"][0]["label"] == "error"
 
     async def test_multipart_messages_classified(self, guard):

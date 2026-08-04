@@ -41,6 +41,11 @@ _THRESHOLD = 0.5
 LABEL_INJECTION = "prompt_injection"
 LABEL_CLEAN = "clean"
 
+#: Outer bound on a single provider probe, independent of the provider's own
+#: timeout. Providers are contracted to bound themselves; this catches the
+#: adapter that does not, so a hung backend cannot stall the request path.
+_PROVIDER_HARD_TIMEOUT_SECONDS = 10.0
+
 #: Deterministic patterns for attack forms that are unambiguous in isolation.
 #: Deliberately narrow: this tier short-circuits the semantic tier under
 #: adaptive selection, so a loose pattern here suppresses the better classifier.
@@ -158,7 +163,7 @@ def classify_unavailable_reason(error: str | None) -> str:
     first = error.split(";")[0].strip()
     if first in ("local_rate_limit", "http_429"):
         return REASON_RATE_LIMIT
-    if first == "timeout":
+    if first in ("timeout", "provider_hard_timeout"):
         return REASON_TIMEOUT
     if first in ("http_401", "http_403"):
         return REASON_AUTH
@@ -247,6 +252,7 @@ class ProviderInjectionClassifier:
         name: str = PROVIDER_CLASSIFIER_NAME,
         aggregation: str | None = None,
         request_kind: str = "user_prompt",
+        hard_timeout: float = _PROVIDER_HARD_TIMEOUT_SECONDS,
     ) -> None:
         self._providers = list(providers)
         self._name = name
@@ -256,6 +262,7 @@ class ProviderInjectionClassifier:
         )
         self._aggregation = policy if policy in ("any", "all", "majority") else "any"
         self._request_kind = request_kind
+        self._hard_timeout = max(0.1, float(hard_timeout))
 
     @property
     def name(self) -> str:
@@ -291,7 +298,7 @@ class ProviderInjectionClassifier:
         verdicts: list[ProviderVerdict] = list(
             await asyncio.gather(
                 *(
-                    self._safe_inspect(provider, text, request_kind)
+                    self._safe_inspect(provider, text, request_kind, self._hard_timeout)
                     for provider in self._providers
                 )
             )
@@ -329,19 +336,34 @@ class ProviderInjectionClassifier:
     # -- internals ---------------------------------------------------------
     @staticmethod
     async def _safe_inspect(
-        provider: InjectionProvider, text: str, kind: str
+        provider: InjectionProvider, text: str, kind: str, hard_timeout: float
     ) -> ProviderVerdict:
-        """Isolate each provider: one failing backend cannot mute the others."""
+        """Isolate each provider: one failing backend cannot mute the others.
+
+        The ``hard_timeout`` is defence in depth. Providers are contracted to
+        bound their own calls, but this classifier runs on the request path and
+        a third-party adapter that regresses — or simply forgets — must not be
+        able to hang the guard. Its own timeout should fire first; this one only
+        catches the case where it did not.
+        """
+        name = getattr(provider, "name", "unknown")
         try:
-            return await provider.inspect(text, kind=kind)
+            return await asyncio.wait_for(
+                provider.inspect(text, kind=kind), timeout=hard_timeout
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                "injection_provider_hung name=%s limit=%.1fs", name, hard_timeout
+            )
+            return ProviderVerdict.unavailable(name, error="provider_hard_timeout")
         except Exception as exc:  # noqa: BLE001 - provider bugs must stay contained
             logger.error(
-                "injection_provider_raised name=%s error=%s",
-                getattr(provider, "name", "unknown"),
+                "injection_provider_raised name=%s error_type=%s",
+                name,
                 type(exc).__name__,
             )
             return ProviderVerdict.unavailable(
-                getattr(provider, "name", "unknown"),
+                name,
                 error=f"provider_exception:{type(exc).__name__}",
             )
 

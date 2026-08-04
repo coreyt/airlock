@@ -276,3 +276,38 @@ class TestBootstrap:
         assert any(
             c.name == "input_injection_tripwire" for c in registered_classifiers()
         )
+
+
+# ---------------------------------------------------------------------------
+class TestOrchestratorErrorSanitization:
+    """Independent review 2026-08-04, findings #1/#5/#7.
+
+    Provider adapters sanitized their own exceptions, but the orchestrator
+    copied `str(exc)` straight into request metadata — and a third-party
+    classifier's exception text is outside our control.
+    """
+
+    class LeakyClassifier:
+        SECRET = "SENTINEL-user-prompt-about-acquisitions"
+
+        @property
+        def name(self):
+            return "leaky"
+
+        async def classify(self, text):
+            raise RuntimeError(f"failed while processing: {self.SECRET}")
+
+    def test_exception_message_never_reaches_metadata(self):
+        data = _user_request("hello")
+        recorded = _run_hook(data, self.LeakyClassifier())
+        rendered = str(recorded)
+        assert self.LeakyClassifier.SECRET not in rendered
+        assert recorded["results"][0]["error"] == "classifier_error:RuntimeError"
+
+    def test_exception_message_never_reaches_logs(self, caplog):
+        import logging
+
+        caplog.set_level(logging.ERROR, logger="airlock.guardrails.semantic")
+        _run_hook(_user_request("hello"), self.LeakyClassifier())
+        assert self.LeakyClassifier.SECRET not in caplog.text
+        assert "RuntimeError" in caplog.text

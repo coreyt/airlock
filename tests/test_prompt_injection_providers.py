@@ -849,3 +849,79 @@ class TestUnavailabilityPolicy:
         assert second.duration_ms < 100, (
             f"pacing wait leaked into latency: {second.duration_ms}ms"
         )
+
+
+# ---------------------------------------------------------------------------
+class TestProviderHardTimeout:
+    """Independent review 2026-08-04, findings #3/#8.
+
+    Providers are contracted to bound their own calls; this is the backstop for
+    the adapter that regresses and hangs on the request path.
+    """
+
+    class HangingProvider:
+        @property
+        def name(self):
+            return "hanging"
+
+        def describe(self):
+            return {"provider": "hanging"}
+
+        async def preflight(self):
+            from airlock.guardrails.providers.base import PreflightResult
+
+            return PreflightResult("hanging", Availability.AVAILABLE)
+
+        async def inspect(self, text, *, kind="user_prompt"):
+            await asyncio.sleep(30)  # never returns within the test's patience
+
+        async def aclose(self):
+            pass
+
+    def test_hung_provider_becomes_unavailable_not_a_stall(self):
+        classifier = ProviderInjectionClassifier(
+            [self.HangingProvider()], hard_timeout=0.2
+        )
+        result = asyncio.run(classifier.classify("text"))
+        assert result.label == "unavailable"
+        assert result.error == "provider_hard_timeout"
+
+    def test_hung_provider_does_not_mute_a_healthy_one(self):
+        classifier = ProviderInjectionClassifier(
+            [self.HangingProvider(), StubProvider("ok", True)], hard_timeout=0.2
+        )
+        result = asyncio.run(classifier.classify("text"))
+        assert result.blocked is True
+        assert result.metadata["providers_answered"] == 1
+
+    def test_hard_timeout_classified_as_timeout_reason(self):
+        from airlock.guardrails.prompt_injection import classify_unavailable_reason
+
+        assert classify_unavailable_reason("provider_hard_timeout") == "timeout"
+
+
+class TestBuilderRegistryHygiene:
+    """Independent review 2026-08-04, finding #9."""
+
+    def test_unregister_removes_an_override(self):
+        from airlock.guardrails.providers.registry import (
+            register_builder,
+            unregister_builder,
+        )
+
+        register_builder("temp_test_provider", lambda env=None: None)
+        assert unregister_builder("temp_test_provider") is True
+        assert unregister_builder("temp_test_provider") is False
+
+    def test_reset_restores_builtins_and_drops_extensions(self):
+        from airlock.guardrails.providers.registry import (
+            available_provider_names,
+            register_builder,
+            reset_builders,
+        )
+
+        register_builder("temp_test_provider", lambda env=None: None)
+        assert "temp_test_provider" in available_provider_names()
+        reset_builders()
+        assert "temp_test_provider" not in available_provider_names()
+        assert "model_armor" in available_provider_names()

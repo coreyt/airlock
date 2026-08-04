@@ -37,11 +37,30 @@ def available_provider_names() -> tuple[str, ...]:
     return tuple(_BUILDERS)
 
 
+#: Snapshot of the built-in builders, so extensions and tests can be undone.
+_BUILTIN_BUILDERS = dict(_BUILDERS)
+
+
 def register_builder(
     name: str, builder: Callable[[dict[str, str] | None], InjectionProvider | None]
 ) -> None:
     """Add or replace a provider builder (used by tests and extensions)."""
     _BUILDERS[name] = builder
+
+
+def unregister_builder(name: str) -> bool:
+    """Remove a registered builder. Returns True if one was removed.
+
+    Without this, a test or plugin that overrides a builder and forgets to clean
+    up silently changes which provider every later build produces.
+    """
+    return _BUILDERS.pop(name, None) is not None
+
+
+def reset_builders() -> None:
+    """Restore the built-in builder set, discarding any registered extensions."""
+    _BUILDERS.clear()
+    _BUILDERS.update(_BUILTIN_BUILDERS)
 
 
 def _requested(env: dict[str, str] | None = None) -> list[str]:
@@ -72,7 +91,13 @@ def build_providers(env: dict[str, str] | None = None) -> list[InjectionProvider
         try:
             provider = builder(env)
         except Exception as exc:  # noqa: BLE001 - startup must not crash
-            logger.error("injection_provider_build_failed name=%s error=%s", name, exc)
+            # Type only: a credential-loading failure can embed a filesystem
+            # path or token-like content in its message.
+            logger.error(
+                "injection_provider_build_failed name=%s error_type=%s",
+                name,
+                type(exc).__name__,
+            )
             continue
         if provider is not None:
             providers.append(provider)
