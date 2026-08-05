@@ -23,7 +23,17 @@ from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.widgets import Collapsible, DataTable, Static, TabbedContent, TabPane
 
+from airlock.semantic_report import build_report
+from airlock.tui.semantic_panel import render_semantic_panel
 from airlock.tui.widgets.safe_data_table import _SafeDataTable
+
+#: Window aggregated by the Semantic tab.
+_SEMANTIC_WINDOW_DAYS = 7
+
+#: Refresh cadence for the Semantic tab. Much slower than the 1s request tail:
+#: this aggregates a multi-day window, and a classifier-rate trend does not
+#: move meaningfully second to second.
+_SEMANTIC_REFRESH_SECONDS = 30.0
 
 
 # ---------------------------------------------------------------------------
@@ -457,6 +467,7 @@ class GuardsPane(VerticalScroll):
         self._would_block_count: int = 0
         self._poll_timer: Any = None
         self._last_file_pos: int = 0
+        self._semantic_timer: Any = None
 
     def compose(self) -> ComposeResult:
         mode = _get_enforce_mode()
@@ -484,6 +495,10 @@ class GuardsPane(VerticalScroll):
                 yield Static("Select a request to view raw JSON.", id="guards-raw")
             with TabPane("Tool Result", id="guards-tab-tool"):
                 yield Static("Select an MCP request...", id="guards-tool-result")
+            with TabPane("Semantic", id="guards-tab-semantic"):
+                yield Static(
+                    "Loading semantic classifier report...", id="guards-semantic"
+                )
         with Collapsible(
             title="Request Stream", collapsed=False, id="guards-stream-collapsible"
         ):
@@ -503,6 +518,12 @@ class GuardsPane(VerticalScroll):
     def on_mount(self) -> None:
         self._poll_logs()
         self._poll_timer = self.set_interval(1.0, self._poll_if_live)
+        # The semantic report aggregates a multi-day window, so it is far more
+        # expensive than the 1s tail and does not need that cadence.
+        self._load_semantic_report()
+        self._semantic_timer = self.set_interval(
+            _SEMANTIC_REFRESH_SECONDS, self._load_semantic_report
+        )
 
     def _poll_if_live(self) -> None:
         if not self._paused:
@@ -521,6 +542,31 @@ class GuardsPane(VerticalScroll):
     def action_toggle_pause(self) -> None:
         self._paused = not self._paused
         self._refresh_status()
+
+    # ------------------------------------------------------------------
+    # Semantic classifier report
+    # ------------------------------------------------------------------
+    @work(exclusive=True, thread=True, group="semantic-report")
+    def _load_semantic_report(self) -> None:
+        """Aggregate semantic verdicts off the UI thread.
+
+        Reads JSONL through ``semantic_report.build_report``, which queries via
+        ``airlock/log_query.py``. The TUI is a separate process and stays off
+        the request hot path: it never subscribes to the in-process event bus.
+        """
+        try:
+            log_dir = Path(os.getenv("AIRLOCK_LOG_DIR", "./logs"))
+            report = build_report(days=_SEMANTIC_WINDOW_DAYS, directory=log_dir)
+            markup = render_semantic_panel(report)
+        except Exception as exc:  # pragma: no cover - defensive
+            markup = f"[red]Semantic report unavailable:[/] {escape(str(exc))}"
+        self.app.call_from_thread(self._apply_semantic_report, markup)
+
+    def _apply_semantic_report(self, markup: str) -> None:
+        try:
+            self.query_one("#guards-semantic", Static).update(markup)
+        except Exception:  # pragma: no cover - widget may be unmounted
+            pass
 
     # ------------------------------------------------------------------
     # Data loading

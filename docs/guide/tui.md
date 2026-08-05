@@ -36,6 +36,22 @@ authorization (Path A). This requires `admin.enabled: true` in `config.yaml`.
 
 Displays PII redaction statistics, keyword blocking counts, and guardrail signal details. Useful for monitoring guardrail activity and tuning thresholds.
 
+Detail tabs: **Signals**, **Pipeline**, **Mutations**, **Raw**, **Tool Result**, and **Semantic**.
+
+### Semantic tab
+
+Aggregates semantic prompt-injection classifier verdicts over the last 7 days, refreshing every 30 seconds. It is the operator surface for the same data as [`airlock semantic-report`](cli.md) and reuses that aggregation rather than recomputing it.
+
+Three things it shows deliberately:
+
+- **Status and action, on separate rows.** `status` is the classifier's verdict; `action` is what Airlock actually did. Outside `enforce` mode they differ, so a detection is *not* a blocked request. When they diverge, the panel says so in words rather than leaving you to compare two numbers.
+- **Per-classifier detected / clean / unavailable counts.** Unavailable is its own column and is never folded into `clean` — a classifier that could not answer has not cleared anything.
+- **Unavailable reasons, with `rate_limit` called out in red.** Rate limiting is attacker-inducible and fails open, so a classifier being rate-limited into silence looks identical to quiet, clean traffic unless it is flagged.
+
+An empty window prints an explicit note that no verdicts is not the same as no threats: if the classifier registry is empty, or every classifier is unavailable, there is nothing to report and the panel would otherwise look reassuring.
+
+The tab reads JSONL through the bounded reader (`airlock/log_query.py`) on a background thread. Like the rest of the TUI it runs in a separate process and never subscribes to the in-process request event bus, so it cannot affect request latency. If the window is truncated by the reader's bound, the panel says `partial window` rather than presenting a partial scan as complete.
+
 ## Logs (Screen 3)
 
 Live JSONL log viewer with filtering by model, client, and status. Shows the most recent requests with error highlighting.
