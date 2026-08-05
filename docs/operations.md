@@ -208,12 +208,42 @@ Airlock now keeps expensive startup work opt-in:
 - `AIRLOCK_MCP_STARTUP_MODE=lazy` keeps MCP configured but suppresses LiteLLM's startup-wide `list_tools()` sweep.
 - `AIRLOCK_MCP_STARTUP_MODE=eager` keeps LiteLLM's default eager MCP probing behavior.
 
+Lazy mode is implemented in `sitecustomize.py`, which replaces LiteLLM's
+`initialize_tool_name_to_mcp_server_name_mapping` with a no-op when the proxy
+starts. Python imports `sitecustomize` automatically, so the patch applies to
+Airlock-owned subprocesses without wrapping the entrypoint.
+
 Recommended low-noise startup profile:
 
 ```bash
 AIRLOCK_STARTUP_MODEL_DISCOVERY=0
 AIRLOCK_MCP_STARTUP_MODE=lazy
 ```
+
+### Slow MCP servers at startup
+
+In `eager` mode, LiteLLM lists tools from each configured MCP server with a
+deadline of **30 seconds**, configurable through `LITELLM_MCP_TOOL_LISTING_TIMEOUT`:
+
+```bash
+LITELLM_MCP_TOOL_LISTING_TIMEOUT=60
+```
+
+Airlock deliberately does **not** add a competing setting of its own — two knobs
+for one deadline is how they drift apart.
+
+A server that exceeds the deadline does not silently produce an empty tool list.
+LiteLLM raises a classified error naming the server, distinguishing `timeout`
+(the server is slow) from `unreachable` (the server is down) — different
+problems calling for different responses. `tests/test_mcp_startup_timeout.py`
+pins that contract, because Airlock's operator guidance depends on it and a
+future dependency bump that reintroduced silent-empty listing would otherwise
+only surface as tools mysteriously missing in production.
+
+If MCP tools appear to be missing, check the proxy log for a listing warning
+naming the server before assuming a configuration problem. In the default
+`lazy` mode there is no startup sweep at all, so a slow server cannot delay
+startup — tools are discovered on first use instead.
 
 ### Verifying MCP servers after a restart
 
