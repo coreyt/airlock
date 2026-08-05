@@ -1020,14 +1020,49 @@ class TestToolLoopBudget:
         assert outcome.stop_reason == STOP_DISALLOWED_TOOL
         assert outcome.content is None
 
-    def test_bad_arguments_is_distinct_from_disallowed_tool(self):
-        from airlock.slow.analyzer_llm import STOP_BAD_ARGUMENTS, _run_tool_loop
+    def test_schema_violation_is_returned_to_the_model_not_fatal(self):
+        """Behavior change in 0.5.10 (F-1 Part B), recorded deliberately.
 
-        client = self._client([self._tool_message("summary", '{"days": 30}')])
+        Part A had no parameters, so any argument was unrecoverable and aborted
+        the loop with STOP_BAD_ARGUMENTS. Now that tools take real arguments, a
+        wrong one is an ordinary mistake the model can correct — killing the
+        whole analysis over it would waste the run. The error is handed back as
+        the tool result, and the attempt still counts against the tool-call
+        budget so a model that keeps guessing terminates.
+
+        Unparseable JSON remains fatal — see test_malformed_arguments_reported.
+        """
+        from airlock.slow.analyzer_llm import STOP_COMPLETED, _run_tool_loop
+
+        script = [
+            self._tool_message("summary", '{"nonexistent_arg": 30}'),
+            {"content": '[{"narrative":"recovered"}]'},
+        ]
+
+        class Recording:
+            def __init__(self):
+                self.calls = 0
+                self.seen: list[dict] = []
+
+            def complete(self, *, model, messages):
+                return ""
+
+            def complete_with_tools(self, *, model, messages, tools):
+                self.seen = list(messages)
+                item = script[min(self.calls, len(script) - 1)]
+                self.calls += 1
+                return item
+
+        client = Recording()
         outcome = _run_tool_loop(
             client, model="m", audience="ops", payload=self._payload()
         )
-        assert outcome.stop_reason == STOP_BAD_ARGUMENTS
+        assert outcome.stop_reason == STOP_COMPLETED
+        assert outcome.succeeded is True
+
+        tool_results = [m for m in client.seen if m.get("role") == "tool"]
+        assert tool_results, "the rejection must reach the model as a tool result"
+        assert "nonexistent_arg" in tool_results[-1]["content"]
 
     def test_malformed_arguments_reported(self):
         from airlock.slow.analyzer_llm import STOP_BAD_ARGUMENTS, _run_tool_loop

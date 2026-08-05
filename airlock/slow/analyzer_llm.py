@@ -9,6 +9,14 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Any, Protocol
 
+from airlock.slow.analysis_tools import (
+    ALLOWED_TOOLS,
+    ToolArgumentError,
+    execute,
+    tool_definitions,
+    validate_arguments,
+)
+
 logger = logging.getLogger("airlock.slow.analyzer_llm")
 
 #: Outcome of the most recent tool loop, so a caller (CLI, report) can explain
@@ -64,9 +72,8 @@ class LiteLLMAnalyzerClient:
         )
 
 
-_ALLOWED_TOOLS = frozenset(
-    {"summary", "optimizations", "semantic_insights", "hypotheses"}
-)
+#: Re-exported so existing callers and tests keep a single source of truth.
+_ALLOWED_TOOLS = ALLOWED_TOOLS
 _REMOTE_DROP_KEYS = frozenset(
     {
         "messages",
@@ -86,22 +93,12 @@ _ANTHROPIC_CODE_EXECUTION_TOOL = "code_execution_20250825"
 
 
 def _analysis_tools() -> list[dict[str, Any]]:
-    """The complete read-only tool surface exposed to normal analyzer models."""
-    return [
-        {
-            "type": "function",
-            "function": {
-                "name": name,
-                "description": f"Read the derived {name.replace('_', ' ')} analysis section.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {},
-                    "additionalProperties": False,
-                },
-            },
-        }
-        for name in sorted(_ALLOWED_TOOLS)
-    ]
+    """The complete read-only tool surface exposed to normal analyzer models.
+
+    Definitions and their strict parameter schemas live in
+    :mod:`airlock.slow.analysis_tools` (0.5.9 finding F-1, Part B).
+    """
+    return tool_definitions()
 
 
 def _tool_calls(message: Any) -> list[tuple[str, str, str]]:
@@ -119,6 +116,33 @@ def _tool_calls(message: Any) -> list[tuple[str, str, str]]:
         )
         calls.append((str(call_id), str(name), str(arguments)))
     return calls
+
+
+def _shrink_result(result: dict[str, Any], max_bytes: int) -> dict[str, Any]:
+    """Drop rows until the envelope fits, keeping the JSON valid and honest.
+
+    Halves the row list until it serializes under *max_bytes*, then restates
+    ``returned``/``truncated`` so the model is told what it is missing instead
+    of receiving a silently clipped document.
+    """
+    rows = result.get("data")
+    if not isinstance(rows, list) or not rows:
+        return result
+
+    total = result.get("total_available", len(rows))
+    kept = list(rows)
+    while kept and len(json.dumps({**result, "data": kept}, default=str)) > max_bytes:
+        kept = kept[: len(kept) // 2]
+
+    shrunk = dict(result)
+    shrunk["data"] = kept
+    shrunk["returned"] = len(kept)
+    shrunk["truncated"] = True
+    shrunk["note"] = (
+        f"Showing {len(kept)} of {total}; the rest exceeded the tool-result "
+        "size budget. Do not describe this as the complete picture."
+    )
+    return shrunk
 
 
 def _message_content(message: Any) -> str:
@@ -186,13 +210,17 @@ def _run_tool_loop(
     audience: str,
     payload: dict[str, Any],
     budget: ToolLoopBudget | None = None,
+    log_dir: str | None = None,
 ) -> ToolLoopOutcome:
     """Run aggregate-only tool rounds under an explicit budget.
 
     Returns a :class:`ToolLoopOutcome` so the caller can record *why* a
-    fallback happened. The tools remain argument-free reveals of precomputed
-    aggregates; parameterized querying is deferred to 0.5.10, where it can be
-    served by the bounded reader in :mod:`airlock.log_query`.
+    fallback happened.
+
+    Tools take validated arguments (0.5.10, finding F-1 Part B). Log-backed
+    arguments are served by the bounded reader in :mod:`airlock.log_query`;
+    ``log_dir`` of ``None`` leaves ``query_requests`` reporting itself as
+    unavailable rather than scanning an unknown directory.
     """
     budget = budget or ToolLoopBudget()
     started = time.monotonic()
@@ -265,13 +293,32 @@ def _run_tool_loop(
                 parsed = json.loads(arguments)
             except json.JSONDecodeError:
                 return _outcome(None, STOP_BAD_ARGUMENTS)
-            # Tools are argument-free by design in Phase A.
-            if parsed not in ({}, None):
-                return _outcome(None, STOP_BAD_ARGUMENTS)
-            serialized = json.dumps(payload[name], default=str)
+            try:
+                args = validate_arguments(name, parsed)
+                result = execute(name, args, payload=payload, log_dir=log_dir)
+            except ToolArgumentError as exc:
+                # Hand the reason back rather than aborting the loop: a
+                # recoverable argument mistake should cost one tool call, not
+                # the whole analysis. The call is already counted against the
+                # budget, so a model that keeps guessing still terminates.
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "content": json.dumps({"error": str(exc)}),
+                    }
+                )
+                continue
+
+            serialized = json.dumps(result, default=str)
             if len(serialized) > budget.max_result_bytes:
-                serialized = serialized[: budget.max_result_bytes]
+                # Shrink by dropping rows, never by slicing the JSON: a byte
+                # cut produces a document the model cannot parse and cannot
+                # tell was cut. Re-envelope so `returned` stays truthful.
                 truncated_results += 1
+                serialized = json.dumps(
+                    _shrink_result(result, budget.max_result_bytes), default=str
+                )
             messages.append(
                 {
                     "role": "tool",
@@ -396,7 +443,11 @@ def analyze_with_llm(
                 return None
             llm_client = client or LiteLLMAnalyzerClient()
             outcome = _run_tool_loop(
-                llm_client, model=model, audience=audience, payload=payload
+                llm_client,
+                model=model,
+                audience=audience,
+                payload=payload,
+                log_dir=os.getenv("AIRLOCK_LOG_DIR", "./logs"),
             )
             # Record why a loop ended so a fallback is attributable rather than
             # silent; previously every failure path returned a bare None.
