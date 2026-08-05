@@ -12,6 +12,7 @@ import pytest
 from textual.widgets import Button, DataTable
 
 from airlock.tui.app import AirlockApp
+from airlock.timeutil import isoformat_z, utc_now
 
 
 # -------------------------------------------------------------------
@@ -202,7 +203,7 @@ async def test_logs_loads_from_jsonl(tmp_path: Path) -> None:
     today = datetime.now(timezone.utc).date().isoformat()
     log_file = log_dir / f"airlock-{today}.jsonl"
     record = {
-        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+        "timestamp": isoformat_z(utc_now()),
         "success": True,
         "model": "claude-sonnet",
         "user": "alice",
@@ -239,7 +240,7 @@ async def test_logs_mcp_filtering(tmp_path: Path) -> None:
     log_file = log_dir / f"airlock-{today}.jsonl"
     records = [
         {
-            "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+            "timestamp": isoformat_z(utc_now()),
             "success": True,
             "model": "claude-sonnet",
             "user": "alice",
@@ -247,7 +248,7 @@ async def test_logs_mcp_filtering(tmp_path: Path) -> None:
             "duration_ms": 1200,
         },
         {
-            "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+            "timestamp": isoformat_z(utc_now()),
             "success": True,
             "model": "mcp-proxy",
             "user": "alice",
@@ -291,7 +292,7 @@ async def test_logs_batch_filtering(tmp_path: Path) -> None:
     log_file = log_dir / f"airlock-{today}.jsonl"
     records = [
         {
-            "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+            "timestamp": isoformat_z(utc_now()),
             "success": True,
             "model": "claude-sonnet",
             "user": "alice",
@@ -299,7 +300,7 @@ async def test_logs_batch_filtering(tmp_path: Path) -> None:
             "duration_ms": 1200,
         },
         {
-            "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+            "timestamp": isoformat_z(utc_now()),
             "success": True,
             "model": None,
             "user": "alice",

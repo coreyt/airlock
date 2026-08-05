@@ -97,6 +97,13 @@ markers = [
     "live: Requires running proxy with real API keys",
     "stress: Concurrency/stress tests excluded from default run",
 ]
+# The deprecation budget is NOT enforced here. pytest's `filterwarnings` matches
+# its module field against a path-derived string, and this repository's root
+# directory is itself named "airlock" — so every pattern that matches
+# airlock/slow/analyzer.py also matches .venv/.../site-packages/litellm/*.py,
+# which would make third-party deprecations fatal. See the
+# `_airlock_deprecation_budget` fixture in tests/conftest.py, which compares
+# resolved paths against the installed package directory instead.
 
 [tool.setuptools.packages.find]
 include = ["airlock*"]

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import datetime
 
+from airlock.timeutil import isoformat_z, utc_now
+
 
 from airlock.slow.analyzer import (
     AnalysisReport,
@@ -36,14 +38,14 @@ class TestLoadLogs:
         assert records == []
 
     def test_skips_malformed_lines(self, log_dir):
-        today = datetime.datetime.utcnow().date().isoformat()
+        today = utc_now().date().isoformat()
         log_path = log_dir / f"airlock-{today}.jsonl"
         log_path.write_text('{"valid": true}\nnot-json\n{"also_valid": true}\n')
         records = _load_logs(days=1)
         assert len(records) == 2
 
     def test_skips_empty_lines(self, log_dir):
-        today = datetime.datetime.utcnow().date().isoformat()
+        today = utc_now().date().isoformat()
         log_path = log_dir / f"airlock-{today}.jsonl"
         log_path.write_text('{"a": 1}\n\n{"b": 2}\n')
         records = _load_logs(days=1)
@@ -210,14 +212,13 @@ class TestFindTrends:
         assert find_trends([]) == []
 
     def test_volume_increase(self):
-        now = datetime.datetime.utcnow()
+        now = utc_now()
         records = []
         # First half: 5 requests
         for i in range(5):
             records.append(
                 {
-                    "timestamp": (now - datetime.timedelta(days=5, hours=i)).isoformat()
-                    + "Z",
+                    "timestamp": isoformat_z(now - datetime.timedelta(days=5, hours=i)),
                     "success": True,
                     "model": "gpt-4o",
                 }
@@ -226,7 +227,7 @@ class TestFindTrends:
         for i in range(20):
             records.append(
                 {
-                    "timestamp": (now - datetime.timedelta(hours=i)).isoformat() + "Z",
+                    "timestamp": isoformat_z(now - datetime.timedelta(hours=i)),
                     "success": True,
                     "model": "gpt-4o",
                 }
@@ -238,14 +239,13 @@ class TestFindTrends:
         assert volume_trends[0].direction == "increasing"
 
     def test_error_rate_increase(self):
-        now = datetime.datetime.utcnow()
+        now = utc_now()
         records = []
         # First half: all success
         for i in range(20):
             records.append(
                 {
-                    "timestamp": (now - datetime.timedelta(days=5, hours=i)).isoformat()
-                    + "Z",
+                    "timestamp": isoformat_z(now - datetime.timedelta(days=5, hours=i)),
                     "success": True,
                     "model": "gpt-4o",
                 }
@@ -254,7 +254,7 @@ class TestFindTrends:
         for i in range(20):
             records.append(
                 {
-                    "timestamp": (now - datetime.timedelta(hours=i)).isoformat() + "Z",
+                    "timestamp": isoformat_z(now - datetime.timedelta(hours=i)),
                     "success": i % 2 == 0,
                     "model": "gpt-4o",
                 }
@@ -266,14 +266,13 @@ class TestFindTrends:
         assert err_trends[0].direction == "increasing"
 
     def test_latency_trend(self):
-        now = datetime.datetime.utcnow()
+        now = utc_now()
         records = []
         # First half: 500ms
         for i in range(20):
             records.append(
                 {
-                    "timestamp": (now - datetime.timedelta(days=5, hours=i)).isoformat()
-                    + "Z",
+                    "timestamp": isoformat_z(now - datetime.timedelta(days=5, hours=i)),
                     "success": True,
                     "duration_ms": 500,
                     "model": "gpt-4o",
@@ -283,7 +282,7 @@ class TestFindTrends:
         for i in range(20):
             records.append(
                 {
-                    "timestamp": (now - datetime.timedelta(hours=i)).isoformat() + "Z",
+                    "timestamp": isoformat_z(now - datetime.timedelta(hours=i)),
                     "success": True,
                     "duration_ms": 2000,
                     "model": "gpt-4o",

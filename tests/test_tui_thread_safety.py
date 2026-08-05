@@ -12,6 +12,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from airlock.tui.app import AirlockApp
+from airlock.timeutil import isoformat_z, utc_now
 
 
 async def test_refresh_mcp_servers_dispatches_widget_mutations_via_call_from_thread() -> (
@@ -51,7 +52,7 @@ async def test_load_logs_dispatches_widget_mutations_via_call_from_thread(
     today = datetime.now(timezone.utc).date().isoformat()
     log_file = log_dir / f"airlock-{today}.jsonl"
     record = {
-        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+        "timestamp": isoformat_z(utc_now()),
         "success": True,
         "model": "claude-sonnet",
         "user": "alice",

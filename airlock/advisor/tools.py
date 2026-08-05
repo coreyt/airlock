@@ -52,9 +52,9 @@ def _load_page(
     return query_logs(LogQuery(days=days, predicate=predicate, directory=Path(log_dir)))
 
 
-def _load_logs(log_dir: str, days: int = 7) -> list[dict[str, Any]]:
-    """Backwards-compatible record list. Prefer :func:`_load_page`."""
-    return _load_page(log_dir, days=days).records
+def _truncation(page: LogPage) -> dict[str, Any]:
+    """Truncation state in the shape every advisory tool reports it."""
+    return {"truncated": page.truncated, "limit_hit": page.limit_hit}
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +167,7 @@ def get_recent_errors(log_dir: str, days: int = 2) -> dict:
             ),
         )
         failures = page.records
-        truncated = {"truncated": page.truncated, "limit_hit": page.limit_hit}
+        truncated = _truncation(page)
 
     by_model: Counter = Counter()
     by_error_type: Counter = Counter()
@@ -270,17 +270,22 @@ def get_guard_signals(
     client: str | None = None,
 ) -> dict:
     """Load JSONL logs, extract airlock_observation fields."""
-    records = _load_logs(log_dir, days=days)
+    # Filter during the scan: records without an observation are the common
+    # case, and letting them consume the bound would truncate away the
+    # guard signals this tool exists to report.
+    page = _load_page(
+        log_dir,
+        days=days,
+        predicate=lambda r: (
+            bool(r.get("airlock_observation"))
+            and (
+                not client
+                or (r.get("airlock_observation") or {}).get("client_id") == client
+            )
+        ),
+    )
 
-    observations: list[dict] = []
-    for r in records:
-        obs = r.get("airlock_observation")
-        if not obs:
-            continue
-        # Filter by client if specified
-        if client and obs.get("client_id") != client:
-            continue
-        observations.append(obs)
+    observations: list[dict] = [r["airlock_observation"] for r in page.records]
 
     # Flatten signals from all observations
     all_signals: list[dict] = []
@@ -319,6 +324,7 @@ def get_guard_signals(
         "total_observations": len(observations),
         "signals": signals_summary,
         "filtered_samples": filtered_samples,
+        "window": _truncation(page),
     }
 
 
@@ -368,13 +374,17 @@ def get_client_profile(store: StateStore, log_dir: str, client_id: str) -> dict:
         "in_backoff": cs.is_in_backoff(),
     }
 
-    records = _load_logs(log_dir, days=7)
-    historical = _historical_stats(records, "airlock_client", client_id)
+    # Scoped to this client during the scan. Without the predicate the bound is
+    # spent on unrelated traffic, so a low-volume client in a busy window could
+    # be truncated down to a profile built from almost none of its requests.
+    page = _load_page(
+        log_dir, days=7, predicate=lambda r: r.get("airlock_client") == client_id
+    )
+    historical = _historical_stats(page.records, "airlock_client", client_id)
 
     # Add client-specific model usage breakdown
-    client_records = [r for r in records if r.get("airlock_client") == client_id]
     models_used: Counter = Counter()
-    for r in client_records:
+    for r in page.records:
         models_used[r.get("model", "unknown")] += 1
     historical["models_used"] = dict(models_used)
 
@@ -382,6 +392,7 @@ def get_client_profile(store: StateStore, log_dir: str, client_id: str) -> dict:
         "client_id": client_id,
         "realtime": realtime,
         "historical": historical,
+        "window": _truncation(page),
     }
 
 
@@ -399,13 +410,14 @@ def get_model_profile(store: StateStore, log_dir: str, model_name: str) -> dict:
         "avg_latency_ms": ms.recent_avg_latency(),
     }
 
-    records = _load_logs(log_dir, days=7)
-    historical = _historical_stats(records, "model", model_name)
+    page = _load_page(log_dir, days=7, predicate=lambda r: r.get("model") == model_name)
+    historical = _historical_stats(page.records, "model", model_name)
 
     return {
         "model_name": model_name,
         "realtime": realtime,
         "historical": historical,
+        "window": _truncation(page),
     }
 
 

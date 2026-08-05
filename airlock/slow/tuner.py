@@ -16,11 +16,11 @@ import logging
 import os
 from collections import defaultdict
 from dataclasses import asdict
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from airlock.guardrails.schemas import GuardrailKnobs, default_knobs
+from airlock.timeutil import isoformat_z, utc_now
 
 logger = logging.getLogger("airlock.slow.tuner")
 
@@ -45,7 +45,7 @@ def tune_guardrails(records: list[dict]) -> GuardrailKnobs:
     per_guardrail = _compute_per_guardrail(observations)
 
     return GuardrailKnobs(
-        version=datetime.utcnow().isoformat() + "Z",
+        version=isoformat_z(utc_now()),
         weights=weights,
         threshold=threshold,
         per_guardrail=per_guardrail,

@@ -31,11 +31,12 @@ import os
 import statistics
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 from airlock.log_query import LogPage, LogQuery, query_logs
+from airlock.timeutil import isoformat_z, parse_utc, utc_now
 
 logger = logging.getLogger("airlock.slow")
 
@@ -335,21 +336,22 @@ def find_trends(records: list[dict], period_days: int = 7) -> list[Trend]:
         return trends
 
     midpoint = period_days / 2
-    now = datetime.utcnow()
+    now = utc_now()
     first_half: list[dict] = []
     second_half: list[dict] = []
 
     for r in records:
-        ts = r.get("timestamp", "")
-        try:
-            record_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-            age_days = (now - record_time.replace(tzinfo=None)).total_seconds() / 86400
-            if age_days > midpoint:
-                first_half.append(r)
-            else:
-                second_half.append(r)
-        except (ValueError, TypeError):
+        # parse_utc also accepts the legacy "+00:00Z" spelling, which the
+        # previous inline parse rejected — those records were silently skipped
+        # and left out of every trend.
+        record_time = parse_utc(str(r.get("timestamp", "")))
+        if record_time is None:
             continue
+        age_days = (now - record_time).total_seconds() / 86400
+        if age_days > midpoint:
+            first_half.append(r)
+        else:
+            second_half.append(r)
 
     if not first_half or not second_half:
         return trends
@@ -848,9 +850,9 @@ def generate_hypotheses(
 def analyze(days: int = 7, *, write_knobs: bool = True) -> AnalysisReport:
     """Run the full slow analysis pipeline over the last *days* days."""
     records = _load_logs(days=days)
-    now = datetime.utcnow()
-    period_start = (now - timedelta(days=days)).isoformat() + "Z"
-    period_end = now.isoformat() + "Z"
+    now = utc_now()
+    period_start = isoformat_z(now - timedelta(days=days))
+    period_end = isoformat_z(now)
 
     optimizations = find_optimizations(records)
     cache_opps = find_cache_opportunities(records)
@@ -908,7 +910,7 @@ def analyze(days: int = 7, *, write_knobs: bool = True) -> AnalysisReport:
     }
 
     return AnalysisReport(
-        generated_at=now.isoformat() + "Z",
+        generated_at=isoformat_z(now),
         period_start=period_start,
         period_end=period_end,
         total_requests=len(records),

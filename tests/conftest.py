@@ -16,9 +16,80 @@ import datetime
 import json
 import os
 import random
+import warnings
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+
+import airlock
+from airlock.timeutil import isoformat_z
+
+
+# ---------------------------------------------------------------------------
+# Harness 0: Deprecation budget
+# ---------------------------------------------------------------------------
+
+#: Resolved directory of the installed ``airlock`` package.
+_AIRLOCK_PKG_DIR = Path(airlock.__file__).resolve().parent
+_SITE_PACKAGES_MARKERS = ("site-packages", "dist-packages")
+
+
+def _is_first_party(filename: str) -> bool:
+    """True if *filename* is Airlock's own source, not a vendored dependency.
+
+    A path check rather than a ``filterwarnings`` module pattern: this
+    repository's root directory is also named ``airlock``, so any regex broad
+    enough to match ``airlock/slow/analyzer.py`` also matches
+    ``.venv/lib/python3.12/site-packages/litellm/...``. Comparing resolved
+    paths against the package directory is what actually distinguishes them.
+    """
+    try:
+        resolved = Path(filename).resolve()
+    except (OSError, ValueError):
+        return False
+    if any(marker in resolved.parts for marker in _SITE_PACKAGES_MARKERS):
+        return False
+    return resolved.is_relative_to(_AIRLOCK_PKG_DIR)
+
+
+@pytest.fixture(autouse=True)
+def _airlock_deprecation_budget():
+    """Fail a test that provokes a deprecation from Airlock's own code.
+
+    The budget is zero. 0.5.10 cleared the backlog — ``datetime.utcnow()``
+    across ``slow/`` — and this keeps a new one from accumulating silently
+    behind the noise of third-party warnings, which stay non-fatal because we
+    do not control when those dependencies migrate.
+    """
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        yield
+        recorded = list(caught)
+
+    offenders = [
+        w
+        for w in recorded
+        if issubclass(w.category, (DeprecationWarning, PendingDeprecationWarning))
+        and _is_first_party(w.filename)
+    ]
+
+    # Re-emit everything this fixture is not failing on, so capturing does not
+    # double as suppression: third-party warnings must stay visible in pytest's
+    # summary, not merely stay non-fatal.
+    for w in recorded:
+        if w in offenders:
+            continue
+        warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)
+
+    if offenders:
+        detail = "\n".join(
+            f"  {w.filename}:{w.lineno} {w.category.__name__}: {w.message}"
+            for w in offenders
+        )
+        raise AssertionError(
+            "Deprecation raised from Airlock's own code (budget is zero):\n" + detail
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +295,7 @@ def sample_log_records():
             total_tokens = prompt_tokens + completion_tokens if success else 0
 
             record = {
-                "timestamp": ts.isoformat() + "Z",
+                "timestamp": isoformat_z(ts),
                 "success": success,
                 "model": model,
                 "user": f"user-{i % 3}",
