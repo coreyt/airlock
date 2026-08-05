@@ -20,6 +20,9 @@ from litellm import DualCache
 from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
+from airlock.guardrail_overrides import _authenticated_client_id
+from airlock.paid_services import check_or_raise
+
 from .extract import _collect_strings
 
 logger = logging.getLogger("airlock.guardrails.mcp_tool")
@@ -95,6 +98,20 @@ class AirlockMCPToolGuard(CustomGuardrail):
         tool_name = data.get("mcp_tool_name", "")
         if not tool_name:
             return data
+
+        # Per-client authorization for paid MCP services (#21). Runs before the
+        # tool allowlist because it answers a different question: the allowlist
+        # is global ("is this tool callable at all"), this is per-client ("may
+        # *you* spend credits on it"). Identity is key-derived, never the
+        # forgeable X-Airlock-Client header.
+        decision = check_or_raise(
+            data.get("mcp_server_name") or tool_name,
+            _authenticated_client_id(user_api_key_dict),
+        )
+        if decision.service is not None:
+            data.setdefault("metadata", {})["airlock_paid_service"] = (
+                decision.as_metadata()
+            )
 
         # Tool access control
         error = _check_tool_access(tool_name)

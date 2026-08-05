@@ -21,8 +21,10 @@ from litellm import DualCache
 from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
+from airlock.guardrail_overrides import _authenticated_client_id
 from airlock.guardrails.observer import collect_signals
 from airlock.guardrails.orchestrator import _get_knobs, evaluate
+from airlock.paid_services import check_or_raise
 
 logger = logging.getLogger("airlock.guardrails.enforcer")
 
@@ -36,6 +38,25 @@ def _enforce_mode() -> str:
         logger.warning("invalid_enforce_mode mode=%r — defaulting to observe", mode)
         return "observe"
     return mode
+
+
+def _authorize_paid_service(data: dict, user_api_key_dict: Any) -> None:
+    """Gate paid side services on the authenticated client identity (#21).
+
+    Reuses the existing seams rather than adding an authorization layer: the
+    identity comes from ``_authenticated_client_id`` (key-derived, not the
+    forgeable ``X-Airlock-Client`` header) and the enforcement point is this
+    guardrail, which LiteLLM already invokes on every request.
+
+    Raises ``PermissionError`` when refused; records the decision either way so
+    an operator can see which requests the policy touched.
+    """
+    model = data.get("model") or data.get("mcp_tool_name")
+    client_id = _authenticated_client_id(user_api_key_dict)
+    decision = check_or_raise(model, client_id)
+    if decision.service is not None:
+        metadata = data.setdefault("metadata", {})
+        metadata["airlock_paid_service"] = decision.as_metadata()
 
 
 class AirlockEnforcer(CustomGuardrail):
@@ -55,6 +76,13 @@ class AirlockEnforcer(CustomGuardrail):
         data: dict,
         call_type: str,
     ) -> dict:
+        # Authorization runs before the enforcement-mode check on purpose.
+        # `observe` means "score but do not block on heuristics"; it does not
+        # mean "let any caller spend another tenant's paid credits". An authz
+        # decision is a hard gate, not a weighted signal, so it is never
+        # subject to the adaptive threshold.
+        _authorize_paid_service(data, user_api_key_dict)
+
         mode = _enforce_mode()
         if mode == "observe":
             return data

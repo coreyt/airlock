@@ -244,6 +244,9 @@ See [Batch Processing](../guide/batch.md) for the end-to-end recipe.
 | `AIRLOCK_ADVISOR_MODEL` | Override model for the advisor | -- |
 | `AIRLOCK_STARTUP_MODEL_DISCOVERY` | Opt-in provider/model discovery on startup | `0` |
 | `AIRLOCK_MCP_STARTUP_MODE` | MCP startup mode: `off`, `lazy`, or `eager` | `lazy` |
+| `AIRLOCK_PAID_SERVICE_ALLOW_TAVILY` | Comma-separated client IDs authorized for Tavily. Unset = unrestricted. See [Paid Side Services](../guide/paid-services.md) | unset |
+| `AIRLOCK_PAID_SERVICE_ALLOW_PERPLEXITY` | Same, for Perplexity | unset |
+| `AIRLOCK_PAID_SERVICE_ALLOW_NEWSCATCHER` | Same, for NewsCatcher | unset |
 | `LITELLM_MCP_STDIO_EXTRA_COMMANDS` | Comma-separated extra command basenames allowed to launch stdio MCP servers (beyond the built-in `deno,docker,node,npx,python,python3,uvx`). See [MCP Servers](../guide/mcp-servers.md). | — |
 | `AIRLOCK_ENABLE_FATHOMDB` | Enable lazy FathomDB engine initialization | `0` |
 | `AIRLOCK_ENABLE_FATHOM_LOGGER` | Enable the Fathom request-logging sink (recorder-fed) | `0` |
