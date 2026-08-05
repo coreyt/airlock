@@ -121,11 +121,89 @@ def _format_headroom(snapshot: dict) -> str:
     return f"{remaining}/{limit}" if remaining is not None and limit is not None else ""
 
 
+#: Budget utilization at which the Overview flags a provider. Below this a
+#: number is informational; above it, spend is the thing about to interrupt
+#: traffic, and the operator should not have to divide two dollar figures in
+#: their head to notice.
+_BUDGET_ALERT_UTILIZATION = 0.8
+
+
+def _budget_utilization(snapshot: dict) -> float | None:
+    """Fraction of the provider's daily cap consumed, or None if uncapped.
+
+    Prefers the value the admin API computes so the TUI and the API cannot
+    disagree; falls back to deriving it only if the field is absent.
+    """
+    util = snapshot.get("budget_utilization")
+    if isinstance(util, (int, float)):
+        return float(util)
+    spend, cap = snapshot.get("spend_usd"), snapshot.get("budget_cap_usd")
+    if spend is None or not cap:
+        return None
+    return float(spend) / float(cap)
+
+
 def _format_spend(snapshot: dict) -> str:
+    """Spend against cap for the provider table.
+
+    Plain text with no Rich markup: DataTable cells render strings literally,
+    so a tag here would print as ``[red]`` rather than colour the cell. The
+    percentage and the ``!`` marker carry the signal instead; the detail pane
+    renders the coloured version.
+    """
     spend, cap = snapshot.get("spend_usd"), snapshot.get("budget_cap_usd")
     if spend is None:
         return ""
-    return f"${spend:.2f}/${cap:.2f}" if cap is not None else f"${spend:.2f}"
+    if cap is None:
+        return f"${spend:.2f}"
+    util = _budget_utilization(snapshot)
+    if util is None:
+        return f"${spend:.2f}/${cap:.2f}"
+    marker = " !" if util >= _BUDGET_ALERT_UTILIZATION else ""
+    return f"${spend:.2f}/${cap:.2f} ({util * 100:.0f}%){marker}"
+
+
+def _render_budget_detail(snapshot: dict) -> str:
+    """Rich markup lines describing spend, budget, and rate-limit headroom."""
+    if not snapshot:
+        return (
+            "  Spend / budget: [dim]unavailable — the admin API is disabled or "
+            "unreachable[/]"
+        )
+
+    lines: list[str] = []
+    spend = snapshot.get("spend_usd")
+    cap = snapshot.get("budget_cap_usd")
+    util = _budget_utilization(snapshot)
+
+    if spend is None:
+        lines.append("  Spend today: [dim]-[/]")
+    elif cap is None:
+        lines.append(f"  Spend today: ${spend:.2f} [dim](no cap configured)[/]")
+    else:
+        pct = f"{util * 100:.0f}%" if util is not None else "-"
+        style = (
+            "red bold"
+            if util is not None and util >= _BUDGET_ALERT_UTILIZATION
+            else "green"
+        )
+        lines.append(f"  Spend today: ${spend:.2f} / ${cap:.2f}  [{style}]{pct}[/]")
+        if util is not None and util >= _BUDGET_ALERT_UTILIZATION:
+            lines.append(
+                "  [red]Approaching the daily cap — requests to this provider "
+                "will be refused once it is reached.[/]"
+            )
+
+    remaining = snapshot.get("remaining_requests")
+    limit = snapshot.get("limit_requests")
+    if remaining is not None and limit is not None:
+        lines.append(f"  Rate-limit headroom: {remaining}/{limit} requests")
+    remaining_tokens = snapshot.get("remaining_tokens")
+    limit_tokens = snapshot.get("limit_tokens")
+    if remaining_tokens is not None and limit_tokens is not None:
+        lines.append(f"  Token headroom: {remaining_tokens}/{limit_tokens}")
+
+    return "\n".join(lines)
 
 
 def _get_datastore_engine():
@@ -549,10 +627,17 @@ class OverviewPane(VerticalScroll):
         mode = provider.recent_gemini_mode() or "-"
         impacted = sorted(provider.impacted_clients())
         impacted_str = ", ".join(impacted) if impacted else "none"
+        # The snapshot refreshed above is the only source of spend and headroom
+        # in a separate-process TUI. It was previously fetched here and then
+        # discarded, so the detail pane paid the request and showed none of it.
+        budget = _render_budget_detail(
+            (self._admin_snapshot or {}).get(provider_name, {})
+        )
 
         detail.update(
             f"[bold]{escape(provider_name)}[/]\n\n"
             f"  Status: {status}\n"
+            f"{budget}\n"
             f"  Gemini mode: {mode}\n"
             f"  Gemini text: {provider.recent_gemini_outcome_count('text')}  "
             f"thought_only: {provider.recent_gemini_outcome_count('thought_only')}  "
