@@ -157,7 +157,7 @@ Probe endpoints are **unauthenticated** and respond as `application/health+json`
 per the [IETF health check draft](https://datatracker.ietf.org/doc/html/draft-inadarei-api-health-check-06):
 
 ```json
-{"status": "pass", "serviceId": "airlock", "version": "0.5.8",
+{"status": "pass", "serviceId": "airlock", "version": "0.5.10",
  "checks": {"models:available": [{"status": "pass", "observedValue": 79}]}}
 ```
 

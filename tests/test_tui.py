@@ -671,6 +671,33 @@ async def test_overview_status_line_exists() -> None:
         assert status_line is not None
 
 
+async def _settle_workers(app, pilot, attempts: int = 5) -> None:
+    """Wait for background workers, tolerating an exclusive-worker supersede.
+
+    ``_refresh_state`` is ``@work(exclusive=True)``, so triggering it manually
+    cancels any run the screen's own refresh timer already started. That
+    cancellation is correct behavior — a newer refresh replaced an older one —
+    but ``wait_for_complete()`` reports it as ``WorkerCancelled`` and fails the
+    test. The result was a race that reddened CI roughly one run in three,
+    entirely in the harness rather than the product.
+
+    Wait again after a supersede so the replacement finishes.
+    """
+    from textual.worker import WorkerCancelled, WorkerFailed
+
+    for _ in range(attempts):
+        try:
+            await app.workers.wait_for_complete()
+        except WorkerCancelled:
+            await pilot.pause()
+            continue
+        except WorkerFailed:
+            raise
+        await pilot.pause()
+        return
+    raise AssertionError("workers did not settle after repeated supersedes")
+
+
 async def test_overview_providers_has_served_via_column() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as _pilot:
@@ -690,8 +717,7 @@ async def test_overview_served_via_renders_backend_kind() -> None:
 
         overview = app.query_one(OverviewPane)
         overview._refresh_state()
-        await app.workers.wait_for_complete()
-        await pilot.pause()
+        await _settle_workers(app, pilot)
 
         table = app.query_one("#ov-providers", DataTable)
         labels = [str(col.label) for col in table.columns.values()]

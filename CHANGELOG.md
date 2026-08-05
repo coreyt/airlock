@@ -7,7 +7,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Internal 0.5.9 milestone (not published)
+## [0.5.10] — 2026-08-05
+
+The first published release since 0.5.8. It carries **two milestones**: the
+internal 0.5.9 train, which was never published, and the 0.5.10 catch-up work.
+Everything 0.5.9 delivered reaches the public for the first time here — read the
+breaking change below before upgrading.
+
+### ⚠️ Breaking
+
+- **`GET /health` no longer performs live model calls.** It previously fired a
+  completion to every configured model when `background_health_checks` was off,
+  which made the most-probed path in the ecosystem the most expensive one — a
+  liveness probe on a short interval could generate continuous billable traffic
+  to every provider. It now returns a cheap aggregate, and there is **no flag to
+  restore the old behavior**.
+
+  **If you probe `/health` on an interval, no action is required** — probes get
+  faster and stop costing money. **If you relied on `/health` to return live
+  per-model results**, enable `general_settings.background_health_checks: true`
+  and read the cached results from `GET /health/latest` instead.
+
+  Canonical probe endpoints are now `GET /livez`, `/readyz`, and `/healthz`
+  (plus `/health/live`, `/health/ready`, and `HEAD` on each), responding as
+  `application/health+json`. A test asserts that no health path can reach a model
+  call, so this is a structural guarantee rather than a documented convention.
+
+  This shipped in the internal 0.5.9 milestone, which was never published — 0.5.10
+  is its first public appearance.
+
+### Added
+
+- **TUI: semantic classifier visibility** (#33). A Semantic tab on the Guards
+  screen surfaces per-classifier detection / clean / **unavailable** counts, a
+  category histogram, and an `unavailable_reason` breakdown with `rate_limit`
+  called out — that cause is attacker-inducible and fails open, so a classifier
+  rate-limited into silence otherwise looks like quiet, clean traffic. Verdict
+  (`status`) and action are shown as separate rows: outside `enforce` mode they
+  differ, and conflating them makes an observation look like a blocked request.
+- **TUI: budget utilization on Overview** (#23). The provider table shows spend
+  against cap as a percentage and flags providers at or above 80%; the provider
+  detail pane now renders the spend and rate-limit headroom it was already
+  fetching.
+- **Parameterized advisory tools.** `airlock analyze --llm` tools take validated
+  arguments — time range, model, client, limit, category, confidence floor — plus
+  a new `query_requests` tool. Every log-backed argument is served by the bounded
+  reader and clamped server-side.
+- **Per-client authorization for paid side services** (#21). Tavily, Perplexity,
+  and NewsCatcher can be restricted to specific authenticated clients via
+  `AIRLOCK_PAID_SERVICE_ALLOW_<SERVICE>`. Unset means unrestricted, so this is
+  opt-in and cannot silently refuse existing traffic. See
+  [Paid Side Services](https://coreyt.github.io/airlock/guide/paid-services/).
+
+### Fixed
+
+- **Advisory tool results are no longer truncated into invalid JSON.** Oversized
+  results were capped by slicing the serialized document at a byte offset, which
+  produced output the model could not parse and never told it what was dropped.
+  Results now shrink by dropping rows inside an envelope reporting `returned`,
+  `total_available`, and `truncated`.
+- **Legacy `+00:00Z` timestamps are no longer silently dropped from trend
+  analysis.** The slow analyzer parsed timestamps inline and skipped anything
+  that raised, so every record written in the older spelling was excluded from
+  every trend it computed.
+- **Advisor client and model profiles no longer spend their scan budget on
+  unrelated traffic.** Filtering now happens during the scan, so a low-volume
+  client in a busy window is profiled from its own requests rather than from
+  whatever survived truncation.
+
+### Changed
+
+- `datetime.utcnow()` is gone from `airlock/`, replaced by `airlock/timeutil.py`.
+  The JSONL timestamp format is unchanged and proven so by test — the naive
+  spelling produced `...Z` while the timezone-aware one produces `...+00:00Z`,
+  which is not a valid timestamp.
+- Advisory tools report truncation under a `window` key consistently.
+- A schema violation in an advisory tool call is returned to the model rather
+  than aborting the analysis; unparseable JSON remains fatal.
+
+### Documentation
+
+- New: Paid Side Services. Updated: TUI (Semantic tab), Operations (MCP
+  tool-listing behavior and the supported `LITELLM_MCP_TOOL_LISTING_TIMEOUT`).
+- Corrected the 0.5.9 record for code inspection, which stated in four places
+  that no enforcement path was plumbed. The path exists, is operator-gated on a
+  knobs weight defaulting to `0.0`, and additionally requires `enforce` mode.
+  Default behavior is unchanged; the documentation was wrong, not the code.
+
+### Internal 0.5.9 milestone (not published separately)
 
 - Adds TUI mutation-ledger visibility, actual served-provider attribution, and
   read-only provider headroom/spend snapshots; log navigation now supports
@@ -38,8 +125,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/health/readiness` keep their exact current bodies.
 - Fixes the Kubernetes manifest, which pointed its readiness probe at a liveness
   endpoint.
-- Keeps the package version at 0.5.8: this is an internal milestone and is not
-  a PyPI release.
+- Kept the package version at 0.5.8 at the time: 0.5.9 was an internal milestone
+  and was never published. It reaches PyPI as part of 0.5.10.
 
 ## [0.5.8] — 2026-08-02
 

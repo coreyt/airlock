@@ -55,3 +55,11 @@ decryption or certificate-chain verification. TLS termination uses Python's
 Delete the `--ignore-vuln` flags from `.github/workflows/ci.yml` and this entry
 once the upstream pins allow the fixed version. Do not extend this entry to
 cover new advisories — assess each on its own.
+
+### Re-check log
+
+The trigger is checked at each milestone closeout, not left to expire quietly.
+
+| Date | Milestone | Result |
+|---|---|---|
+| 2026-08-05 | 0.5.10 | **Still required.** `uv run pip-audit` without the flags reports all three findings. Both pins are unchanged: `litellm[proxy]` requires `cryptography>=48.0.1,<49.0` and `presidio-anonymizer` requires `cryptography>=48.0.1,<49.0.0`, against installed `cryptography 48.0.1`. Fixes remain in 49.0.0 (3553, 3554) and 50.0.0 (3552), so the range is still unreachable. Suppressions retained unchanged; reachability analysis above re-confirmed — still no direct `cryptography` import in `airlock/`. |
