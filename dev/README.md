@@ -14,7 +14,8 @@ configuration, and operations.
 | Runtime boundaries and design rationale | [Architecture](architecture.md) |
 | Approved semantic input-injection design | [Prompt-injection classifier design](notes/design-prompt-injection-classifier.md) |
 | Accepted refactoring direction | [Refactoring analysis](notes/refactoring-analysis-2026-07-31.md) |
-| Current internal delivery work | [0.5.9 plan](plans/0.5.9-plan.md), [status board](plans/runs/STATUS-0.5.9.md), and [steward handoff](plans/prompts/0.5.9-MASTER-HANDOFF.md) |
+| Current delivery work | [0.5.10 plan](plans/0.5.10-plan.md), [status board](plans/runs/STATUS-0.5.10.md), and [cold-start note](plans/prompts/0.5.10-COLD-START.md) |
+| Most recent closeout | [0.5.9 status board](plans/runs/STATUS-0.5.9.md) — authoritative record of what shipped |
 | How to operate the delivery harness | [Plans guide](plans/README.md) and [harness runbook](agent-harness-runbook.md) |
 | Shipped behavior | [Public docs](../docs/index.md), [CHANGELOG](../CHANGELOG.md), and source/tests |
 

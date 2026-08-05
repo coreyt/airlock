@@ -6,11 +6,16 @@ memory; this tree is the source of truth.
 
 ## Current work
 
-The active release is [0.5.9](0.5.9-plan.md); its live board is
-[`runs/STATUS-0.5.9.md`](runs/STATUS-0.5.9.md) and its execution context is the
-[steward handoff](prompts/0.5.9-MASTER-HANDOFF.md). Completed trains are
-historical evidence catalogued in the [release archive](archive/README.md), not
-active roadmap commitments.
+The active release is [0.5.10](0.5.10-plan.md) — a deliberate catch-up and
+clean-up milestone — with its live board at
+[`runs/STATUS-0.5.10.md`](runs/STATUS-0.5.10.md). Start a cold session from
+[`prompts/0.5.10-COLD-START.md`](prompts/0.5.10-COLD-START.md).
+
+0.5.9 is **closed out** (`milestone/0.5.9-internal-closeout` at `b2752d7`). Its
+board [`runs/STATUS-0.5.9.md`](runs/STATUS-0.5.9.md) remains the authoritative
+record of what shipped; its steward handoff is **superseded** and must not be
+followed as instructions. Completed trains are historical evidence catalogued in
+the [release archive](archive/README.md), not active roadmap commitments.
 
 ## Layout
 

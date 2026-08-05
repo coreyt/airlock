@@ -73,6 +73,24 @@ airlock analyze --json           # machine-readable JSON
 airlock analyze -o report.txt    # write to file
 ```
 
+### `airlock semantic-report`
+
+Summarize semantic prompt-injection classifier verdicts from the request logs.
+See [Prompt-Injection Detection](prompt-injection.md) for how to read the output.
+
+```bash
+airlock semantic-report                  # last 7 days, formatted
+airlock semantic-report --days 30        # longer window
+airlock semantic-report --json           # machine-readable JSON
+airlock semantic-report --samples 50     # more detection samples
+airlock semantic-report -o report.txt    # write to file
+```
+
+Reports detections, clean, and **unavailable** counts per classifier, plus the
+`unavailable_reason` breakdown — unavailability fails open, so a provider outage
+otherwise looks like quiet traffic. Detection samples list request IDs and never
+prompt text.
+
 ### `airlock advise`
 
 Ask the LLM-powered advisor about operational data.

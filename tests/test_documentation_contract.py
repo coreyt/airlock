@@ -68,7 +68,11 @@ def test_documentation_entry_points_and_live_api_contract_are_linked() -> None:
 
     assert "docs/index.md" in root_readme
     assert "dev/README.md" in root_readme
-    assert "plans/0.5.9-plan.md" in dev_readme
+    # Pins dev/README.md to the *active* release plan. Update this on each
+    # release boundary — the failure is the point: it catches the index going
+    # stale, which is how a cold-start reader ends up following a closed-out
+    # milestone's instructions.
+    assert "plans/0.5.10-plan.md" in dev_readme
     assert "/airlock/docs" in api_reference
     assert "/openapi.json" in api_reference
 
