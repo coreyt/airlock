@@ -15,7 +15,7 @@ _Last updated: 2026-08-05 · package version: **0.5.10** · **released to PyPI**
 
 | Pack | Title | State | Outcome |
 |---|---|---|---|
-| A-1 | Issue triage and closure | ✅ | 19 → 14 open. #10/#29/#19 closed with evidence; #18/#16 closed with the divergence stated; #17 re-scoped to F-1 Part B |
+| A-1 | Issue triage and closure | ✅ | **19 → 9 open.** #10/#29/#19 closed with evidence; #18/#16 closed with the divergence stated; #17 re-scoped then closed by C-1; #20/#21/#23/#33 closed by their packs |
 | A-2 | Deprecation and dead-code sweep | ✅ | `utcnow()` gone; new `timeutil.py`; `_load_logs` shim deleted; deprecation budget enforced by fixture |
 | A-3 | Doc drift from 0.5.9 | ✅ | Mostly already done in `bfc42a7`; archive index was the real drift |
 | B-1 | TUI semantic classifier visibility (#33) | ✅ | Semantic tab on Guards, reusing `semantic_report.py` |
@@ -105,7 +105,7 @@ failures were caught that would otherwise have failed the push: `uv lock --check
 6. ✅ documentation contract tests
 7. ✅ `pip-audit` with the three documented ignores
 8. ✅ `docker build`
-9. ✅ Green GitHub CI on the released SHA
+9. ✅ Green GitHub CI on the released SHA (`268d929`), and a green Release run on `v0.5.10`
 
 ## Open for the owner
 
