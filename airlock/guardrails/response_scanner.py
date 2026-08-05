@@ -357,7 +357,9 @@ def _attach_metadata(
     metadata = data.setdefault("metadata", {})
     if result.detected_categories:
         metadata["airlock_response_scan"] = result.to_dict()
-    # Observation only: this is never used by this scanner's block decision.
+    # Returned, not just persisted: callers feed this to
+    # _code_inspection_should_block, which blocks only under a non-zero
+    # operator-set knobs weight (default 0.0) in enforce mode.
     inspection = inspect_code(response_text)
     if inspection["code_blocks"]:
         metadata["airlock_code_inspection"] = inspection

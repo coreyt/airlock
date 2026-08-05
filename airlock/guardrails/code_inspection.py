@@ -3,16 +3,24 @@
 The result intentionally contains categories and counts, never matched source
 text.  This makes it safe to persist alongside the canonical request record.
 
-**This is observation only — it is not wired to enforcement.** The result
-previously carried an ``enforcement_weight`` of ``0.0`` that nothing read; a
-field by that name in persisted evidence implied a wiring that did not exist,
-so it was removed (0.5.9, owner decision).
+**Observation only by default, but the enforcement path is real.**
+``response_scanner._code_inspection_should_block`` reads an operator-supplied
+weight from ``airlock-knobs.json`` (``weights["code_inspection"]``, default
+``0.0``) and can block a response when — and only when — an operator sets that
+weight above zero *and* ``AIRLOCK_RESPONSE_SCAN_MODE=enforce``. With the default
+weight the term contributes nothing, which is asserted by test rather than
+assumed.
 
-Connecting inspection to post-response enforcement would need its own observe
-window first: ``resource_access`` matches any ``open(`` or ``requests.`` in a
-code block, which is entirely ordinary in code-assistance traffic. Enabling it
-as a blocking signal without evidence would generate false positives on normal
-work.
+The result deliberately carries no ``enforcement_weight`` field: it was always
+the literal ``0.0`` and read by nobody, so in persisted evidence it advertised a
+wiring that did not exist at that layer (0.5.9, owner decision). The weight now
+lives in knobs, where it is inspectable and actually consulted.
+
+Do not raise the default. Turning inspection into a blocking signal needs its
+own observe window first: ``resource_access`` matches any ``open(`` or
+``requests.`` in a code block, which is entirely ordinary in code-assistance
+traffic, so a non-zero weight without evidence generates false positives on
+normal work.
 """
 
 from __future__ import annotations

@@ -326,6 +326,15 @@ recorded as such.
 
 ### F-3 is out of scope — what that means concretely
 
+> **Correction (0.5.10, 2026-08-05).** This subsection does not describe what
+> shipped. The **Design** section above — knobs-sourced weight, `0.0` default,
+> bit-identical default behavior proven by test — is what is actually in the code
+> (`response_scanner._code_inspection_should_block`, `default_knobs()`, three tests
+> in `tests/test_0_5_9_features.py`). The reversal below was recorded but not
+> applied. Default behavior matches what this subsection promised (inert), so no
+> operator was exposed to unexpected blocking; the defect was that the docs denied
+> a plumbed path existed. See `0.5.9-verification.md` for the full correction.
+
 Code inspection remains **purely observational** in 0.5.9. No signal is emitted,
 no weight is plumbed, and the orchestrator is untouched.
 

@@ -90,8 +90,9 @@ def test_code_inspection_never_retains_matched_source_or_pii():
     assert result["findings"]["pii:EMAIL_ADDRESS"] == 1
     assert result["findings"]["resource_access"] == 1
     assert secret not in str(result)
-    # No enforcement_weight: the field was always 0.0 and read by nobody, so it
-    # advertised a wiring that does not exist (0.5.9, owner decision).
+    # No enforcement_weight in the result: the field was always the literal 0.0
+    # and read by nobody (0.5.9, owner decision). The weight that is actually
+    # consulted lives in knobs — see the two tests below.
     assert "enforcement_weight" not in result
 
 

@@ -33,8 +33,11 @@ re-deferred deliberately:
 - **pip-audit suppressions** — three `cryptography` advisories ignored only
   while `litellm[proxy]` and `presidio-anonymizer` pin `<49`. Removal trigger in
   `dev/notes/security-pip-audit-exceptions.md`.
-- **F-3** — code-inspection enforcement. Out of scope; needs its own observe
-  window first.
+- **F-3** — code-inspection enforcement. **Re-characterized in 0.5.10:** the
+  enforcement path is plumbed and tested, gated on an operator-set knobs weight
+  that defaults to `0.0`, and additionally requires `enforce` mode. The 0.5.9
+  record stating "no weight is plumbed" was wrong; the docs are corrected and the
+  default is unchanged. Raising the default still needs its own observe window.
 - **Phase B indirect injection** — out of scope; design-first release.
 
 ## Verification gates
