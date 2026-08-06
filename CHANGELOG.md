@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Per-client erasure (CLI + admin API).** `airlock admin erase-client
+  <client-id> --confirm <client-id>` and `POST
+  /airlock/admin/clients/{client_id}/erase` remove every FathomDB row whose
+  provenance is that authenticated client id. Loopback-only (like
+  `force_quarantine`), audited with the full `EraseReport` in the
+  `admin_action` record, idempotent, and honest about failure: a partial
+  erasure answers HTTP 409 with the obligation outstanding and is never
+  reported as done. **Scope:** this erases the search/analysis store only —
+  JSONL logs are untouched and governed separately by `AIRLOCK_MAX_LOG_DAYS`;
+  a user-facing deletion obligation requires both.
 - **Log search served by the engine (#11).** `search_request_logs` exposes
   FathomDB's search over the FTS projections (error text, messages, response
   text), and the advisor gains a `search_logs` tool on the same seam. The

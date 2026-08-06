@@ -14,6 +14,7 @@ import json
 from typing import Any
 
 import airlock.fast.state as _state
+from airlock.admin.erase import EraseIncomplete, erase_client
 from airlock.admin.policy import LOOPBACK_HOSTS, Principal, admin_enabled, decide
 from airlock.callbacks.enterprise_logger import write_admin_action_record
 from airlock.fast.settings import get_settings
@@ -146,6 +147,13 @@ def _match_route(method: str, path: str):
             False,
             lambda p, b, a: _state.store.clear_client_backoff(client, actor=a),
         )
+    if method == "POST" and len(seg) == 3 and seg[0] == "clients" and seg[2] == "erase":
+        client = seg[1]
+        return (
+            "admin:erase_client",
+            True,  # loopback-only (operator) — destructive, like force_quarantine
+            lambda p, b, a: erase_client(client, a, confirm=b.get("confirm")),
+        )
     if (
         method == "POST"
         and len(seg) == 3
@@ -192,6 +200,11 @@ def handle_admin_request(
             write_admin_action_record(result)
     except ValueError as exc:
         return 400, {"error": str(exc)}, {}
+    except EraseIncomplete as exc:
+        # A partial erasure is never reported as complete. Audit the attempt,
+        # answer 409 with the obligation outstanding; retrying is safe.
+        write_admin_action_record(exc.record)
+        return 409, dict(exc.record), {}
     except Exception:  # noqa: BLE001 — the perimeter must never raise (CC-10)
         return 500, {"error": "internal error"}, {}
     return 200, result, {}

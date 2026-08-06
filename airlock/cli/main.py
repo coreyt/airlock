@@ -379,6 +379,32 @@ def main(argv: list[str] | None = None) -> None:
         default="1h",
         help="Token lifetime: 30m, 1h, 24h, or seconds (default: 1h).",
     )
+    erase_parser = admin_sub.add_parser(
+        "erase-client",
+        help="Erase a client's rows from the FathomDB store (irreversible; "
+        "JSONL logs are NOT touched).",
+    )
+    erase_parser.add_argument(
+        "client_id",
+        help="Authenticated client id whose rows to erase (key:<last8>, "
+        "or no_client for unauthenticated traffic).",
+    )
+    erase_parser.add_argument(
+        "--confirm",
+        required=True,
+        help="Repeat the client id to confirm. Erasure is irreversible and "
+        "must not be a single mistyped word away.",
+    )
+    erase_parser.add_argument(
+        "--host",
+        default=None,
+        help="Proxy host (default: 127.0.0.1; the operation is loopback-only).",
+    )
+    erase_parser.add_argument(
+        "--port",
+        default=None,
+        help="Proxy port (default: AIRLOCK_PORT or 4000).",
+    )
 
     # -- advise --
     advise_parser = subparsers.add_parser(

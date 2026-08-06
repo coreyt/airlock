@@ -288,6 +288,32 @@ Current write-path guarantees:
 - The in-process engine singleton is PID-bound and thread-safe, which avoids same-process `Engine.open()` races during concurrent callback writes.
 - Forwarded inner `enhanced/*` provider calls do not emit duplicate Fathom rows.
 
+### Per-client erasure
+
+An operator can erase every FathomDB row a client produced, keyed on the
+authenticated client id (`key:<last8>`, or `no_client` for unauthenticated
+traffic):
+
+```bash
+airlock admin erase-client key:90abcdef --confirm key:90abcdef
+# or, against the loopback admin API directly:
+curl -X POST http://127.0.0.1:4000/airlock/admin/clients/key%3A90abcdef/erase \
+  -H 'Content-Type: application/json' -d '{"confirm": "key:90abcdef"}'
+```
+
+- The operation is **loopback-only** and audited: the `admin_action` record
+  carries the full `EraseReport` (nodes/edges excised, projections
+  invalidated), not a bare "ok".
+- An **incomplete** erasure is answered with HTTP 409 and never reported as
+  done — the obligation is outstanding. Retrying is safe; erasure is
+  idempotent.
+- **Scope — read this before promising anything to a user.** This erases the
+  client from the **search and analysis store** (FathomDB) only. The same
+  records exist in the JSONL logs, which this operation does not touch; JSONL
+  retention is governed separately by `AIRLOCK_MAX_LOG_DAYS`. A user-facing
+  deletion obligation requires both, and the JSONL half is not automated in
+  0.5.11.
+
 Operational constraint:
 
 - FathomDB remains single-owner at process level. Do not point multiple live processes at same `AIRLOCK_STATE_DIR/airlock-fathom.db`.
