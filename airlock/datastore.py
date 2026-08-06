@@ -24,27 +24,36 @@ def fathomdb_enabled() -> bool:
     return _env_flag("AIRLOCK_ENABLE_FATHOMDB", default=False)
 
 
-def _ensure_vector_stub_table(db_path: str) -> None:
-    """Create Fathom's missing vec projection table when bootstrapping a fresh DB.
+class LegacyDatabaseError(RuntimeError):
+    """Raised when the configured database path holds a FathomDB 0.3.x file."""
 
-    FathomDB 0.3.1 writes can emit stderr noise about ``vec_nodes_active`` being
-    absent on fresh databases even though normal node writes succeed. Airlock's
-    request logging does not depend on vector search, so pre-creating the table
-    avoids that write-path failure mode without changing the query surface.
-    """
-    db_parent = Path(db_path).parent
-    db_parent.mkdir(parents=True, exist_ok=True)
 
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS vec_nodes_active (
-                chunk_id TEXT PRIMARY KEY,
-                embedding BLOB
-            )
-            """
-        )
-        conn.commit()
+# Tables only the 0.3.x schema creates. 0.8.x uses `_fathomdb_migrations` and
+# `canonical_nodes` / `canonical_edges`, so any of these marks a legacy file —
+# including a hybrid one that a 0.8 engine already wrote into, which 0.8.21
+# would otherwise open without error and silently adopt.
+_LEGACY_TABLES = ("fathom_schema_migrations", "nodes", "edges")
+
+
+def _is_legacy_db(db_path: str) -> bool:
+    """Return whether ``db_path`` is an existing FathomDB 0.3.x database."""
+    path = Path(db_path)
+    if not path.is_file():
+        return False
+    try:
+        with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+            placeholders = ",".join("?" for _ in _LEGACY_TABLES)
+            row = conn.execute(
+                "SELECT 1 FROM sqlite_master"
+                f" WHERE type = 'table' AND name IN ({placeholders})"
+                " LIMIT 1",
+                _LEGACY_TABLES,
+            ).fetchone()
+        return row is not None
+    except sqlite3.Error:
+        # Not readable as SQLite at all — let Engine.open produce its own,
+        # typed error rather than mislabeling the file as legacy.
+        return False
 
 
 def init_engine(db_path: str) -> Any | None:
@@ -53,21 +62,39 @@ def init_engine(db_path: str) -> Any | None:
     Parameters
     ----------
     db_path : str
-        Filesystem path to target ``airlock.db`` file.
+        Filesystem path to target database file.
 
     Returns
     -------
     Any or None
         Open FathomDB engine when dependency is installed; otherwise
         ``None``.
+
+    Raises
+    ------
+    LegacyDatabaseError
+        When ``db_path`` holds a FathomDB 0.3.x database. 0.8.x opens such a
+        file without error and writes into it, producing a file carrying both
+        schemas — so the legacy file is refused loudly instead.
     """
     try:
         from fathomdb import Engine
-
-        _ensure_vector_stub_table(db_path)
-        return Engine.open(db_path, embedder="builtin")
     except ImportError:
         return None
+
+    if _is_legacy_db(db_path):
+        raise LegacyDatabaseError(
+            f"{db_path} is a FathomDB 0.3.x database. Airlock 0.5.11 abandoned "
+            "the 0.3.x store (no migration path); the file was left in place and "
+            "its records remain in the JSONL logs. Move it aside, or point "
+            "AIRLOCK_STATE_DIR somewhere else, to let Airlock create a fresh "
+            "0.8.x database."
+        )
+
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    # No default embedder: a plain open performs no network access, and vector
+    # writes fail typed (EmbedderNotConfiguredError) instead of silently no-op.
+    return Engine.open(db_path, use_default_embedder=False)
 
 
 def get_db_path() -> str:
@@ -76,14 +103,21 @@ def get_db_path() -> str:
     Returns
     -------
     str
-        Path to ``airlock.db`` under ``AIRLOCK_STATE_DIR``,
+        Path to ``airlock-fathom.db`` under ``AIRLOCK_STATE_DIR``,
         ``AIRLOCK_LOG_DIR``, or ``./logs``.
+
+    Notes
+    -----
+    The filename is distinct from the 0.3.x-era ``airlock.db`` so a 0.8.x
+    build pointed at an existing state directory can never adopt the legacy
+    file by default. The explicit legacy check in :func:`init_engine` still
+    guards paths supplied directly.
     """
     state_dir = Path(
         os.getenv("AIRLOCK_STATE_DIR", os.getenv("AIRLOCK_LOG_DIR", "./logs"))
     )
     state_dir.mkdir(parents=True, exist_ok=True)
-    return str(state_dir / "airlock.db")
+    return str(state_dir / "airlock-fathom.db")
 
 
 engine: Any | None = None
@@ -120,5 +154,26 @@ def get_engine() -> Any | None:
                 return engine
             return None
         engine = init_engine(get_db_path())
-        engine_pid = current_pid if engine is not None else None
+        engine_pid = os.getpid() if engine is not None else None
         return engine
+
+
+def close_engine(*, drain_timeout_s: float = 5.0) -> None:
+    """Drain and close the process-local engine, releasing the singleton.
+
+    Parameters
+    ----------
+    drain_timeout_s : float
+        Seconds to wait for in-flight writes before closing.
+    """
+    global engine, engine_pid
+    with engine_lock:
+        current = engine
+        engine = None
+        engine_pid = None
+    if current is None:
+        return
+    try:
+        current.drain(timeout_s=drain_timeout_s)
+    finally:
+        current.close()

@@ -11,17 +11,11 @@ from typing import Any
 
 from litellm.integrations.custom_logger import CustomLogger
 
-try:
-    from fathomdb import WriteRequestBuilder
-except ImportError:
-    # Optional `db` extra. Two ignore codes are needed, not one: `misc` for
-    # rebinding a name that mypy has bound to a class, and `assignment` for the
-    # None value itself. Both only surface when fathomdb IS installed — with the
-    # extra absent, mypy takes this branch and sees no conflict, which is why
-    # this is reachable only under `uv sync --extra db`.
-    WriteRequestBuilder = None  # type: ignore[assignment,misc]
-
 logger = logging.getLogger("airlock.logger")
+
+# Provenance for rows Airlock writes on its own behalf. A-2 replaces this with
+# the authenticated client ID so erasure can target a client's rows.
+FATHOM_SOURCE_ID = "airlock:fathom_logger"
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -143,24 +137,25 @@ class AirlockFathomLogger(CustomLogger):
             return
 
         db_engine = self._get_engine()
-        if not db_engine or WriteRequestBuilder is None:
+        if not db_engine:
             return
 
         call_id = event.request_id or uuid.uuid4().hex
         if self._should_skip_call_id(call_id):
             return
 
-        builder = WriteRequestBuilder("airlock_log")
-        builder.add_node(
-            row_id=uuid.uuid4().hex,
-            logical_id=call_id,
-            kind="RequestLog",
-            properties=project_fathom(event),
-            source_ref="airlock:fathom_logger",
-            upsert=True,
-        )
+        # 0.8.x write items are plain dicts; source_id is mandatory on every
+        # canonical row — a row without one can never be erased. Writing the
+        # same logical_id again supersedes the prior version (engine-owned),
+        # which is what the old upsert=True asked for.
+        item = {
+            "kind": "RequestLog",
+            "logical_id": call_id,
+            "source_id": FATHOM_SOURCE_ID,
+            "body": _json_text(project_fathom(event)),
+        }
         try:
-            db_engine.write(builder.build())
+            db_engine.write([item])
         except Exception as e:
             logger.error(f"FathomDB write failed: {e}")
 

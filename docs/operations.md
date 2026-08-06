@@ -280,7 +280,7 @@ FathomDB is optional and disabled by default.
 
 - Set `AIRLOCK_ENABLE_FATHOMDB=1` to enable the lazy engine path.
 - Set `AIRLOCK_ENABLE_FATHOM_LOGGER=1` to append the Fathom request logger at runtime.
-- Put fresh databases under `AIRLOCK_STATE_DIR` while debugging. Airlock treats old `logs/airlock.db` files as suspect until proven clean.
+- Put fresh databases under `AIRLOCK_STATE_DIR` while debugging. The database file is `airlock-fathom.db`; a `logs/airlock.db` left behind by FathomDB 0.3.x is abandoned — Airlock refuses to open it, and its records remain in the JSONL logs.
 
 Current write-path guarantees:
 
@@ -290,7 +290,7 @@ Current write-path guarantees:
 
 Operational constraint:
 
-- FathomDB remains single-owner at process level. Do not point multiple live processes at same `AIRLOCK_STATE_DIR/airlock.db`.
+- FathomDB remains single-owner at process level. Do not point multiple live processes at same `AIRLOCK_STATE_DIR/airlock-fathom.db`.
 - Airlock's safeguards cover same-process callback concurrency and inherited PID mismatches, not intentional multi-process shared-writer access.
 
 ## Logging

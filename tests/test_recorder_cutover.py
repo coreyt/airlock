@@ -120,9 +120,7 @@ def test_no_double_emit_enterprise_once_fathom_once(monkeypatch):
     with (
         patch("airlock.callbacks.enterprise_logger._write_log") as mock_write,
         patch.object(proxy_fathom_logger, "_get_engine", return_value=engine),
-        patch("airlock.callbacks.fathom_logger.WriteRequestBuilder") as MockBuilder,
     ):
-        MockBuilder.return_value.build.return_value = "req"
         asyncio.run(
             cb.async_log_success_event(
                 _kwargs(call_id="dbl-emit-1"), _FakeResponse(), _ts(0), _ts(1)
@@ -130,7 +128,7 @@ def test_no_double_emit_enterprise_once_fathom_once(monkeypatch):
         )
 
     assert mock_write.call_count == 1
-    engine.write.assert_called_once_with("req")
+    engine.write.assert_called_once()
 
 
 def test_old_loggers_not_separately_registered_in_litellm():
@@ -201,7 +199,6 @@ def test_fathom_sink_absent_when_flag_unset(monkeypatch):
     with (
         patch("airlock.callbacks.enterprise_logger._write_log"),
         patch.object(proxy_fathom_logger, "_get_engine", return_value=engine),
-        patch("airlock.callbacks.fathom_logger.WriteRequestBuilder"),
     ):
         recorder.dispatch(
             build_request_event(
@@ -225,9 +222,7 @@ def test_fathom_sink_present_and_async_only_when_flag_set(monkeypatch):
     with (
         patch("airlock.callbacks.enterprise_logger._write_log"),
         patch.object(proxy_fathom_logger, "_get_engine", return_value=engine),
-        patch("airlock.callbacks.fathom_logger.WriteRequestBuilder") as MockBuilder,
     ):
-        MockBuilder.return_value.build.return_value = "req"
         # sync dispatch -> async_only fathom sink skipped, no write
         recorder.dispatch(
             build_request_event(
@@ -252,7 +247,7 @@ def test_fathom_sink_present_and_async_only_when_flag_set(monkeypatch):
             ),
             is_async=True,
         )
-        engine.write.assert_called_once_with("req")
+        engine.write.assert_called_once()
 
 
 def test_fathom_skip_flag_honored(monkeypatch):
@@ -262,7 +257,6 @@ def test_fathom_skip_flag_honored(monkeypatch):
     with (
         patch("airlock.callbacks.enterprise_logger._write_log"),
         patch.object(proxy_fathom_logger, "_get_engine", return_value=engine),
-        patch("airlock.callbacks.fathom_logger.WriteRequestBuilder"),
     ):
         recorder.dispatch(
             build_request_event(

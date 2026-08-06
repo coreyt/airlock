@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ⚠️ Breaking
+
+- **FathomDB migrated to 0.8.x (`fathomdb>=0.8.21,<0.9`).** The 0.3.x store is
+  abandoned with no migration path: Airlock now refuses to open a 0.3.x database
+  file (naming the file and the reason) rather than letting 0.8.x silently adopt
+  it, and the default database filename moved from `airlock.db` to
+  `airlock-fathom.db` so an existing state directory can never be adopted by
+  accident. Old files are left in place; their records remain in the JSONL logs.
+
+### Changed
+
+- The Fathom request logger writes 0.8.x dict batches with a mandatory
+  `source_id` on every row (fixed `airlock:fathom_logger` for now; the
+  authenticated client ID lands with per-client erasure).
+- `api/queries.py` reads through `fathomdb.read` with the typed
+  `fathomdb.errors` hierarchy — the `AttributeError`-based capability sniffing
+  and silent empty-list fallbacks are gone.
+
+### Removed
+
+- `_ensure_vector_stub_table` (a 0.3.1 write-path workaround; 0.8.x owns its
+  indexes).
+- `search_logs` and its Python-side substring fallback, superseded by the
+  engine's hybrid search (#11).
+
 ## [0.5.10] — 2026-08-05
 
 The first published release since 0.5.8. It carries **two milestones**: the

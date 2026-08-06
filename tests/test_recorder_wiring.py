@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import json
 from unittest.mock import MagicMock, patch
 
 from airlock.callbacks.enterprise_logger import proxy_logger
-from airlock.callbacks.fathom_logger import AirlockFathomLogger
+from airlock.callbacks.fathom_logger import FATHOM_SOURCE_ID, AirlockFathomLogger
 from airlock.callbacks.projections import project_enterprise, project_fathom
 from airlock.callbacks.request_event import (
     RequestRecorder,
@@ -167,18 +168,14 @@ def test_fathom_record_event_skip_metadata():
     engine = MagicMock()
     flogger = AirlockFathomLogger(engine=engine)
     event = _event(metadata={"airlock_skip_fathom_logger": True})
-    with patch("airlock.callbacks.fathom_logger.WriteRequestBuilder"):
-        flogger.record_event(event)
+    flogger.record_event(event)
     engine.write.assert_not_called()
 
 
 def test_fathom_record_event_no_engine():
     flogger = AirlockFathomLogger(engine=None)
     event = _event()
-    with (
-        patch("airlock.callbacks.fathom_logger.WriteRequestBuilder"),
-        patch.object(flogger, "_get_engine", return_value=None),
-    ):
+    with patch.object(flogger, "_get_engine", return_value=None):
         flogger.record_event(event)  # no engine -> no crash, no write
 
 
@@ -186,27 +183,23 @@ def test_fathom_record_event_dedup():
     engine = MagicMock()
     flogger = AirlockFathomLogger(engine=engine)
     event = _event()  # request_id == "call-123"
-    with patch("airlock.callbacks.fathom_logger.WriteRequestBuilder") as MockBuilder:
-        MockBuilder.return_value.build.return_value = "req"
-        flogger.record_event(event)
-        flogger.record_event(event)  # same call_id -> skipped
-    engine.write.assert_called_once_with("req")
+    flogger.record_event(event)
+    flogger.record_event(event)  # same call_id -> skipped
+    engine.write.assert_called_once()
 
 
 def test_fathom_record_event_normal_write():
     engine = MagicMock()
     flogger = AirlockFathomLogger(engine=engine)
     event = _event()
-    with patch("airlock.callbacks.fathom_logger.WriteRequestBuilder") as MockBuilder:
-        builder = MockBuilder.return_value
-        builder.build.return_value = "req"
-        flogger.record_event(event)
-        builder.add_node.assert_called_once()
-        call_kwargs = builder.add_node.call_args[1]
-        assert call_kwargs["properties"] == project_fathom(event)
-        assert call_kwargs["logical_id"] == "call-123"
-        assert call_kwargs["source_ref"] == "airlock:fathom_logger"
-    engine.write.assert_called_once_with("req")
+    flogger.record_event(event)
+    engine.write.assert_called_once()
+    (batch,) = engine.write.call_args[0]
+    (item,) = batch
+    assert item["kind"] == "RequestLog"
+    assert item["logical_id"] == "call-123"
+    assert item["source_id"] == FATHOM_SOURCE_ID
+    assert json.loads(item["body"]) == project_fathom(event)
 
 
 # ---------------------------------------------------------------------------

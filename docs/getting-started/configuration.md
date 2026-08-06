@@ -428,7 +428,7 @@ AIRLOCK_ENABLE_FATHOM_LOGGER=1
 AIRLOCK_STATE_DIR=/tmp/airlock-fathom-fresh
 ```
 
-Operational note: FathomDB is still a single-owner database. Airlock now avoids same-process engine-open races and inherited cross-process reuse, but separate processes should not open the same `airlock.db` simultaneously.
+Operational note: FathomDB is still a single-owner database. Airlock now avoids same-process engine-open races and inherited cross-process reuse, but separate processes should not open the same `airlock-fathom.db` simultaneously.
 
 Recommended debug profile:
 

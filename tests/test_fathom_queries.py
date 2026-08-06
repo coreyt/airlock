@@ -1,16 +1,59 @@
+import json
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
 
-from airlock.api.queries import get_billing_metrics, get_request_logs, search_logs
+import pytest
 
-
-class MockNodeRow:
-    def __init__(self, logical_id, properties):
-        self.logical_id = logical_id
-        self.properties = properties
+from airlock.api.queries import get_billing_metrics, get_request_logs
+from airlock.datastore import init_engine
 
 
-def test_get_billing_metrics(monkeypatch):
+@pytest.fixture
+def engine(tmp_path):
+    engine = init_engine(str(tmp_path / "airlock-fathom.db"))
+    assert engine is not None
+    yield engine
+    engine.close()
+
+
+def _write_log(engine, logical_id, properties):
+    engine.write(
+        [
+            {
+                "kind": "RequestLog",
+                "logical_id": logical_id,
+                "source_id": "airlock:test",
+                "body": json.dumps(properties),
+            }
+        ]
+    )
+
+
+def test_get_request_logs_returns_active_rows(engine):
+    _write_log(engine, "1", {"model": "gpt-4"})
+    _write_log(engine, "2", {"model": "gpt-3.5"})
+
+    rows = get_request_logs(engine, limit=5)
+
+    assert {row.logical_id for row in rows} == {"1", "2"}
+    assert json.loads(next(r.body for r in rows if r.logical_id == "1")) == {
+        "model": "gpt-4"
+    }
+
+
+def test_get_request_logs_respects_limit(engine):
+    for i in range(5):
+        _write_log(engine, str(i), {"model": "gpt-4"})
+
+    assert len(get_request_logs(engine, limit=3)) == 3
+
+
+def test_get_request_logs_no_capability_sniffing():
+    """A non-engine raises a real error instead of silently returning []."""
+    with pytest.raises(Exception):
+        get_request_logs(object(), limit=5)
+
+
+def test_get_billing_metrics(engine, monkeypatch):
     class MockDatetime(datetime):
         @classmethod
         def now(cls, tz=None):
@@ -18,55 +61,35 @@ def test_get_billing_metrics(monkeypatch):
 
     monkeypatch.setattr("airlock.api.queries.datetime", MockDatetime)
 
-    engine = MagicMock()
-
-    mock_nodes = [
-        # YTD only
-        MockNodeRow("1", {"cost": 10.0, "timestamp": "2023-02-01T00:00:00+00:00"}),
-        # MTD
-        MockNodeRow("2", {"cost": 5.0, "timestamp": "2023-06-05T00:00:00+00:00"}),
-        # Last year
-        MockNodeRow("3", {"cost": 2.0, "timestamp": "2022-12-31T00:00:00+00:00"}),
-        # Another MTD
-        MockNodeRow("4", {"cost": 1.5, "timestamp": "2023-06-10T00:00:00+00:00"}),
-    ]
-
-    engine.nodes.return_value.limit.return_value.execute.return_value.nodes = mock_nodes
+    # YTD only
+    _write_log(engine, "1", {"cost": 10.0, "timestamp": "2023-02-01T00:00:00+00:00"})
+    # MTD
+    _write_log(engine, "2", {"cost": 5.0, "timestamp": "2023-06-05T00:00:00+00:00"})
+    # Last year
+    _write_log(engine, "3", {"cost": 2.0, "timestamp": "2022-12-31T00:00:00+00:00"})
+    # Another MTD
+    _write_log(engine, "4", {"cost": 1.5, "timestamp": "2023-06-10T00:00:00+00:00"})
+    # No timestamp — skipped
+    _write_log(engine, "5", {"cost": 99.0})
 
     metrics = get_billing_metrics(engine)
 
     assert metrics["MTD_cost"] == 6.5
     assert metrics["YTD_cost"] == 16.5
 
-    engine.nodes.assert_called_with("RequestLog")
-    engine.nodes.return_value.limit.assert_called_with(1000000)
 
+def test_get_billing_metrics_counts_superseded_rows_once(engine, monkeypatch):
+    class MockDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2023, 6, 15, 12, 0, 0, tzinfo=timezone.utc)
 
-def test_get_request_logs_uses_nodes_query():
-    engine = MagicMock()
-    mock_nodes = [MockNodeRow("1", {"model": "gpt-4"})]
-    engine.nodes.return_value.limit.return_value.execute.return_value.nodes = mock_nodes
+    monkeypatch.setattr("airlock.api.queries.datetime", MockDatetime)
 
-    result = get_request_logs(engine, limit=5)
+    _write_log(engine, "1", {"cost": 5.0, "timestamp": "2023-06-05T00:00:00+00:00"})
+    # Same logical_id written again supersedes; only the active row counts.
+    _write_log(engine, "1", {"cost": 7.0, "timestamp": "2023-06-05T00:00:00+00:00"})
 
-    assert result == mock_nodes
-    engine.nodes.assert_called_with("RequestLog")
-    engine.nodes.return_value.limit.assert_called_with(5)
+    metrics = get_billing_metrics(engine)
 
-
-def test_search_logs():
-    engine = MagicMock()
-
-    mock_results = [
-        MockNodeRow("1", {"message": "User login failed", "level": "ERROR"}),
-        MockNodeRow("3", {"message": "Connection timeout error", "level": "ERROR"}),
-    ]
-    engine.fallback_search.return_value.execute.return_value.nodes = mock_results
-
-    results = search_logs(engine, "error")
-
-    assert len(results) == 2
-    assert results[0].logical_id == "1"
-    assert results[1].logical_id == "3"
-
-    engine.fallback_search.assert_called_with("error", root_kind="RequestLog")
+    assert metrics["MTD_cost"] == 7.0
