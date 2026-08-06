@@ -29,9 +29,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   messages, and response text) are declared to the engine via
   `configure_projections`; Airlock no longer maintains any derived index.
   No vector projection is declared — no embedder is configured, by design.
-- `api/queries.py` reads through `fathomdb.read` with the typed
-  `fathomdb.errors` hierarchy — the `AttributeError`-based capability sniffing
-  and silent empty-list fallbacks are gone.
+- `api/queries.py` reads through `fathomdb.read` with an explicit `ReadView`
+  (active rows only) and the typed `fathomdb.errors` hierarchy — the
+  `AttributeError`-based capability sniffing and silent empty-list fallbacks
+  are gone.
+- **No datastore read is unbounded anymore.** `get_request_logs` /
+  `get_billing_metrics` default to the shared 50k `DATASTORE_QUERY_LIMIT`
+  (the old default was `limit=1000000` — a limit in name only) and report
+  truncation instead of dropping it: billing metrics carry
+  `truncated`/`limit_hit`, the TUI Overview marks a partial cost sum with
+  `(partial)`, and the advisor's `get_recent_errors` reports the datastore
+  window the same way it reports the JSONL one.
 
 ### Removed
 

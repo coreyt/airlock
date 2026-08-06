@@ -23,12 +23,13 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Callable
 
-from airlock.api.queries import get_request_logs
+from airlock.api.queries import (
+    DATASTORE_QUERY_LIMIT,
+    get_request_logs,
+    node_properties,
+)
 from airlock.fast.state import StateStore
 from airlock.log_query import LogPage, LogQuery, query_logs
-
-#: Upper bound on rows pulled from the datastore in one advisor query.
-DATASTORE_QUERY_LIMIT = 50_000
 
 logger = logging.getLogger("airlock.advisor.tools")
 
@@ -145,10 +146,11 @@ def get_recent_errors(log_dir: str, days: int = 2) -> dict:
 
     truncated: dict[str, Any] = {"truncated": False, "limit_hit": None}
     if engine is not None:
-        # Was limit=1000000 — a limit in name only, and every row was
-        # materialized before filtering.
+        # Bounded read (was limit=1000000 — a limit in name only). The failure
+        # filter stays Python-side: the engine's json-path predicate allowlist
+        # is fixed and does not cover $.success.
         nodes = get_request_logs(engine, limit=DATASTORE_QUERY_LIMIT)
-        records = [n.properties if hasattr(n, "properties") else n for n in nodes]
+        records = [node_properties(n) for n in nodes]
         failures = [
             r
             for r in records

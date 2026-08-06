@@ -967,6 +967,10 @@ class OverviewPane(VerticalScroll):
                 try:
                     metrics = get_billing_metrics(db_engine)
                     billing_str = f"MTD: ${metrics.get('MTD_cost', 0):.4f} | YTD: ${metrics.get('YTD_cost', 0):.4f}"
+                    if metrics.get("truncated"):
+                        # Costs from a truncated scan are lower bounds; saying
+                        # so beats presenting a partial sum as the total.
+                        billing_str += " [yellow](partial)[/]"
                 except Exception:
                     pass
             status_line.update(
