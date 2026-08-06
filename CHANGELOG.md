@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Log search served by the engine (#11).** `search_request_logs` exposes
+  FathomDB's search over the FTS projections (error text, messages, response
+  text), and the advisor gains a `search_logs` tool on the same seam. The
+  result labels itself honestly: `hybrid` only when dense retrieval could
+  actually contribute; `lexical_only` with the reason otherwise (the normal
+  path here — no embedder is configured); the advisor's JSONL fallback is
+  labelled `substring`. A degraded result is never presented as hybrid, and a
+  hybrid result carries `soft_fallback` when a branch could not contribute.
+
 ### ⚠️ Breaking
 
 - **FathomDB migrated to 0.8.x (`fathomdb>=0.8.21,<0.9`).** The 0.3.x store is
