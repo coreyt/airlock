@@ -1,8 +1,11 @@
+import logging
 import os
 import sqlite3
 from pathlib import Path
 import threading
 from typing import Any
+
+logger = logging.getLogger("airlock.datastore")
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -94,7 +97,50 @@ def init_engine(db_path: str) -> Any | None:
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     # No default embedder: a plain open performs no network access, and vector
     # writes fail typed (EmbedderNotConfiguredError) instead of silently no-op.
-    return Engine.open(db_path, use_default_embedder=False)
+    engine = Engine.open(db_path, use_default_embedder=False)
+    try:
+        _declare_projections(engine)
+    except Exception:
+        engine.close()
+        raise
+    return engine
+
+
+def _declare_projections(engine: Any) -> None:
+    """Declare the RequestLog projections; the engine owns every derived index.
+
+    Never passes ``drop``: a destructive change (role removal, tokenizer
+    change) raises ``ProjectionDestructiveError`` with the delta rather than
+    silently losing an index — treat any such failure as a schema change to be
+    made deliberately, not routed around.
+
+    No projection sets ``vector=True``: with no embedder configured, dense
+    retrieval is unavailable by design in this deployment (an embedder is a
+    separate owner decision — it performs network access on first use).
+    """
+    from fathomdb import ProjectionRole, ProjectionSpec
+
+    filterable = frozenset({ProjectionRole.FILTERABLE})
+    filterable_rankable = frozenset(
+        {ProjectionRole.FILTERABLE, ProjectionRole.RANKABLE}
+    )
+    fts = frozenset({ProjectionRole.SEARCHABLE})
+    specs = [
+        ProjectionSpec("timestamp", roles=filterable_rankable),
+        ProjectionSpec("model", roles=filterable),
+        ProjectionSpec("airlock_provider", roles=filterable),
+        ProjectionSpec("success", roles=filterable),
+        ProjectionSpec("cost", roles=filterable_rankable),
+        ProjectionSpec("failure_category", roles=filterable),
+        ProjectionSpec("error_type", roles=filterable),
+        ProjectionSpec("airlock_client", roles=filterable),
+        ProjectionSpec("error", roles=fts, fts=True),
+        ProjectionSpec("messages_json", roles=fts, fts=True),
+        ProjectionSpec("response_text", roles=fts, fts=True),
+    ]
+    delta = engine.configure_projections(specs)
+    if not delta.unchanged:
+        logger.info("FathomDB projections configured: %s", delta)
 
 
 def get_db_path() -> str:

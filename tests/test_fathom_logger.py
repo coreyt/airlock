@@ -1,8 +1,9 @@
 import json
 from unittest.mock import MagicMock, patch
 
-from airlock.callbacks.fathom_logger import FATHOM_SOURCE_ID, AirlockFathomLogger
+from airlock.callbacks.fathom_logger import AirlockFathomLogger
 from airlock.callbacks.request_event import build_request_event
+from airlock.client_identity import NO_CLIENT_ID
 
 
 # The historical fathom ``log_*_event``/``_log_event``/``_fathom_properties`` builders
@@ -42,7 +43,9 @@ def test_fathom_logger_success():
         "model": "gpt-4",
         "response_cost": 0.05,
         "litellm_call_id": "call-123",
-        "litellm_params": {"metadata": {}},
+        # The guardian stamps the authenticated identity at pre-call; the
+        # sink must carry it through as the row's provenance.
+        "litellm_params": {"metadata": {"airlock_source_id": "key:90abcdef"}},
     }
     response_obj = MockResponse(total_tokens=100)
 
@@ -51,7 +54,7 @@ def test_fathom_logger_success():
     item = _written_item(engine_mock)
     assert item["kind"] == "RequestLog"
     assert item["logical_id"] == "call-123"
-    assert item["source_id"] == FATHOM_SOURCE_ID
+    assert item["source_id"] == "key:90abcdef"
     properties = json.loads(item["body"])
     assert properties["model"] == "gpt-4"
     assert properties["total_tokens"] == 100
@@ -81,7 +84,9 @@ def test_fathom_logger_failure():
     item = _written_item(engine_mock)
     assert item["kind"] == "RequestLog"
     assert item["logical_id"] == "call-456"
-    assert item["source_id"] == FATHOM_SOURCE_ID
+    # No stamp on this event — the sink collapses to the no_client sentinel
+    # rather than ever writing a row without a source_id.
+    assert item["source_id"] == NO_CLIENT_ID
     properties = json.loads(item["body"])
     assert properties["model"] == "gpt-3.5"
     assert properties["total_tokens"] == 50

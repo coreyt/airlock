@@ -19,8 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The Fathom request logger writes 0.8.x dict batches with a mandatory
-  `source_id` on every row (fixed `airlock:fathom_logger` for now; the
-  authenticated client ID lands with per-client erasure).
+  `source_id` on every row: the **authenticated client ID** (`key:<last8>`),
+  stamped by the guardian at pre-call from the validated bearer key and always
+  overwriting any client-supplied value — never the forgeable
+  `X-Airlock-Client` header. Unauthenticated traffic collapses to the
+  `no_client` sentinel, so no write path can produce an unerasable row.
+  `source_id` is the axis per-client erasure will target.
+- RequestLog projections (filterable/rankable fields, FTS over error text,
+  messages, and response text) are declared to the engine via
+  `configure_projections`; Airlock no longer maintains any derived index.
+  No vector projection is declared — no embedder is configured, by design.
 - `api/queries.py` reads through `fathomdb.read` with the typed
   `fathomdb.errors` hierarchy — the `AttributeError`-based capability sniffing
   and silent empty-list fallbacks are gone.

@@ -1,3 +1,11 @@
+> **SUPERSEDED (2026-08-06, 0.5.11 pack A-2).** This plan specifies a
+> hand-built `fathom:` config surface (`event_fields` / `payload_fields`) and
+> manual index maintenance — all of which FathomDB 0.8 does natively. It was
+> never executed. The current design is `dev/plans/0.5.11-plan.md`: the engine
+> owns every derived index via `configure_projections`, and provenance
+> (`source_id` = authenticated client ID) is the erasure axis. Kept as the
+> contemporaneous design record.
+
 ## Implement Payload-JSON Fathom Storage Model
 
 ### Summary

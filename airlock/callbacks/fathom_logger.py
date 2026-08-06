@@ -11,11 +11,22 @@ from typing import Any
 
 from litellm.integrations.custom_logger import CustomLogger
 
+from airlock.client_identity import NO_CLIENT_ID
+
 logger = logging.getLogger("airlock.logger")
 
-# Provenance for rows Airlock writes on its own behalf. A-2 replaces this with
-# the authenticated client ID so erasure can target a client's rows.
-FATHOM_SOURCE_ID = "airlock:fathom_logger"
+
+def _source_id(event: Any) -> str:
+    """The provenance (erasure axis) for a row: the authenticated client ID.
+
+    The guardian stamps ``airlock_source_id`` at pre-call from the validated
+    bearer key, overwriting any client-supplied value — never the forgeable
+    ``X-Airlock-Client`` header. A request that reached the sink without the
+    stamp (guardrail chain not installed) collapses to ``no_client``, the same
+    sentinel the stamp itself uses for unauthenticated traffic, so no path can
+    produce an unerasable row.
+    """
+    return event.guardrail_meta.get("airlock_source_id") or NO_CLIENT_ID
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -151,7 +162,7 @@ class AirlockFathomLogger(CustomLogger):
         item = {
             "kind": "RequestLog",
             "logical_id": call_id,
-            "source_id": FATHOM_SOURCE_ID,
+            "source_id": _source_id(event),
             "body": _json_text(project_fathom(event)),
         }
         try:

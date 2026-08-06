@@ -16,7 +16,8 @@ import json
 from unittest.mock import MagicMock, patch
 
 from airlock.callbacks.enterprise_logger import proxy_logger
-from airlock.callbacks.fathom_logger import FATHOM_SOURCE_ID, AirlockFathomLogger
+from airlock.callbacks.fathom_logger import AirlockFathomLogger
+from airlock.client_identity import NO_CLIENT_ID
 from airlock.callbacks.projections import project_enterprise, project_fathom
 from airlock.callbacks.request_event import (
     RequestRecorder,
@@ -191,15 +192,24 @@ def test_fathom_record_event_dedup():
 def test_fathom_record_event_normal_write():
     engine = MagicMock()
     flogger = AirlockFathomLogger(engine=engine)
-    event = _event()
+    event = _event(metadata={"airlock_source_id": "key:90abcdef"})
     flogger.record_event(event)
     engine.write.assert_called_once()
     (batch,) = engine.write.call_args[0]
     (item,) = batch
     assert item["kind"] == "RequestLog"
     assert item["logical_id"] == "call-123"
-    assert item["source_id"] == FATHOM_SOURCE_ID
+    assert item["source_id"] == "key:90abcdef"
     assert json.loads(item["body"]) == project_fathom(event)
+
+
+def test_fathom_record_event_source_id_falls_back_to_no_client():
+    """An unstamped event (guardrail chain absent) still carries a source_id."""
+    engine = MagicMock()
+    flogger = AirlockFathomLogger(engine=engine)
+    flogger.record_event(_event())
+    (batch,) = engine.write.call_args[0]
+    assert batch[0]["source_id"] == NO_CLIENT_ID
 
 
 # ---------------------------------------------------------------------------
