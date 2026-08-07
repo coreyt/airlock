@@ -91,6 +91,11 @@ _MAX_TOOL_ROUNDS = 3
 _ANTHROPIC_CODE_EXECUTION_BETA = "code-execution-2025-08-25"
 _ANTHROPIC_CODE_EXECUTION_TOOL = "code_execution_20250825"
 
+#: Default model for the opt-in remote analyzer executor (a PAID path).
+#: AIRLOCK_ANALYZER_REMOTE_MODEL overrides. Owner decision 0.5.11 C-2:
+#: track current Sonnet.
+ANALYZER_REMOTE_MODEL_DEFAULT = "claude-sonnet-5"
+
 
 def _analysis_tools() -> list[dict[str, Any]]:
     """The complete read-only tool surface exposed to normal analyzer models.
@@ -396,7 +401,9 @@ class AnthropicSandboxExecutor:
 
             client = Anthropic()
             response = client.beta.messages.create(
-                model=os.getenv("AIRLOCK_ANALYZER_REMOTE_MODEL", "claude-sonnet-4-5"),
+                model=os.getenv(
+                    "AIRLOCK_ANALYZER_REMOTE_MODEL", ANALYZER_REMOTE_MODEL_DEFAULT
+                ),
                 max_tokens=1000,
                 betas=[_ANTHROPIC_CODE_EXECUTION_BETA],
                 tools=[

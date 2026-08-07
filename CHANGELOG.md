@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **TUI: failover audit trail (#24).** The model detail pane shows the recent
+  failovers involving that model (timestamp, original → target, reason) from
+  an incremental JSONL tail, and the Overview status line counts failovers in
+  the last 5 minutes — what *actually happened*, alongside the configured
+  chain the models table already shows.
+- **TUI: provider-wide rate-limit escalation (#27).** `impacted_clients` (a
+  live-only value the separate-process TUI cannot compute from its replica)
+  is now part of the admin provider snapshot; the providers table badges the
+  Impacted cell with `⚠ESC` at the escalation threshold, the provider detail
+  pane names the impacted clients and whether escalation is ongoing, and a
+  `provider_escalation` alert rule fires on the event itself.
+- **TUI: Gemini response-mode distribution (#28).** Provider and client detail
+  panes show mode percentages instead of raw counts, with a skew flag when a
+  single mode exceeds 80% of a meaningful sample (≥10 recent responses).
+
 - **Per-client erasure (CLI + admin API).** `airlock admin erase-client
   <client-id> --confirm <client-id>` and `POST
   /airlock/admin/clients/{client_id}/erase` remove every FathomDB row whose
@@ -39,6 +54,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The opt-in remote analyzer executor defaults to `claude-sonnet-5`
+  (was `claude-sonnet-4-5`); `AIRLOCK_ANALYZER_REMOTE_MODEL` still overrides.
+  Owner decision — this is a paid path.
 - The Fathom request logger writes 0.8.x dict batches with a mandatory
   `source_id` on every row: the **authenticated client ID** (`key:<last8>`),
   stamped by the guardian at pre-call from the validated bearer key and always

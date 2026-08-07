@@ -41,6 +41,9 @@ def _view_providers() -> dict:
             "cooldown_remaining": round(ps.cooldown_remaining(), 1) if ps else 0.0,
             "half_open": ps._half_open_probe if ps else False,
             "last_reason": ps.last_reason if ps else "",
+            # Live-only state (rate_limit_events with CC-6 floors) — the
+            # separate-process TUI cannot compute this from its replica (#27).
+            "impacted_clients": sorted(ps.impacted_clients()) if ps else [],
             "remaining_tokens": rl.remaining_tokens if rl else None,
             "limit_tokens": rl.limit_tokens if rl else None,
             "remaining_requests": rl.remaining_requests if rl else None,

@@ -22,6 +22,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.strip import Strip
 from textual.widgets import Button, Collapsible, DataTable, RichLog, Static
 
+from airlock.tui.failover_feed import FailoverFeed
 from airlock.tui.widgets.safe_data_table import _SafeDataTable
 from airlock.tui.widgets.status_indicator import StatusIndicator
 from airlock.api.queries import get_billing_metrics
@@ -206,6 +207,46 @@ def _render_budget_detail(snapshot: dict) -> str:
     return "\n".join(lines)
 
 
+def _gemini_mode_summary(counts: dict[str, int]) -> str:
+    """Render Gemini response-mode counts as a distribution (#28).
+
+    Percentages, not raw counts — and a skew flag when a single mode exceeds
+    80% of recent responses on a sample big enough to mean something (>= 10),
+    the simple drift indicator the issue asks to start with.
+    """
+    total = sum(counts.values())
+    if total == 0:
+        return "  Gemini modes: none in window"
+    parts = [
+        f"{mode}: {count} ({count / total:.0%})"
+        for mode, count in counts.items()
+        if count > 0
+    ]
+    line = f"  Gemini modes ({total}): " + "  ".join(parts)
+    dominant = max(counts, key=lambda mode: counts[mode])
+    share = counts[dominant] / total
+    if total >= 10 and share > 0.8:
+        line += (
+            f"\n  [yellow]⚠ mode skew: {dominant} at {share:.0%} of recent responses[/]"
+        )
+    return line
+
+
+def _impacted_display(remote: dict, local_count: int, threshold: int) -> str:
+    """Impacted-clients cell: live snapshot count wins; badge at escalation (#27).
+
+    ``impacted_clients()`` is live-only state — the separate-process TUI's
+    replica undercounts it — so prefer the admin snapshot and fall back to the
+    local count only when the snapshot is unavailable. Plain text: DataTable
+    cells render markup literally.
+    """
+    snapshot_list = remote.get("impacted_clients")
+    count = len(snapshot_list) if snapshot_list is not None else local_count
+    if count >= threshold:
+        return f"{count} ⚠ESC"
+    return str(count)
+
+
 def _get_datastore_engine():
     try:
         import airlock.datastore
@@ -246,6 +287,7 @@ class OverviewPane(VerticalScroll):
         self._highlighted_provider: str | None = None
         self._admin_snapshot: dict[str, dict] | None = None
         self._admin_snapshot_at: float = 0.0
+        self._failover_feed = FailoverFeed()
 
     # -- compose ------------------------------------------------------------
 
@@ -625,24 +667,49 @@ class OverviewPane(VerticalScroll):
             self._admin_snapshot_at = now
         status = "QUARANTINED" if provider.is_quarantined(now) else "HEALTHY"
         mode = provider.recent_gemini_mode() or "-"
-        impacted = sorted(provider.impacted_clients())
+        remote = (self._admin_snapshot or {}).get(provider_name, {})
+        # impacted_clients() is live-only; the snapshot list is authoritative
+        # in a separate-process TUI (#27). Fall back to the local replica.
+        snapshot_impacted = remote.get("impacted_clients")
+        impacted = (
+            sorted(snapshot_impacted)
+            if snapshot_impacted is not None
+            else sorted(provider.impacted_clients())
+        )
         impacted_str = ", ".join(impacted) if impacted else "none"
+        try:
+            from airlock.fast.state import PROVIDER_ESCALATION_CLIENT_THRESHOLD
+        except ImportError:
+            PROVIDER_ESCALATION_CLIENT_THRESHOLD = 2
+        if len(impacted) >= PROVIDER_ESCALATION_CLIENT_THRESHOLD:
+            escalation = (
+                f"[red]ONGOING[/] — {len(impacted)} clients rate-limited "
+                f"in the window (threshold {PROVIDER_ESCALATION_CLIENT_THRESHOLD})"
+            )
+        elif impacted:
+            escalation = f"below threshold ({len(impacted)} impacted)"
+        else:
+            escalation = "none"
         # The snapshot refreshed above is the only source of spend and headroom
         # in a separate-process TUI. It was previously fetched here and then
         # discarded, so the detail pane paid the request and showed none of it.
-        budget = _render_budget_detail(
-            (self._admin_snapshot or {}).get(provider_name, {})
-        )
+        budget = _render_budget_detail(remote)
 
+        gemini = _gemini_mode_summary(
+            {
+                "text": provider.recent_gemini_outcome_count("text"),
+                "thought_only": provider.recent_gemini_outcome_count("thought_only"),
+                "tool": provider.recent_gemini_outcome_count("tool"),
+            }
+        )
         detail.update(
             f"[bold]{escape(provider_name)}[/]\n\n"
             f"  Status: {status}\n"
             f"{budget}\n"
             f"  Gemini mode: {mode}\n"
-            f"  Gemini text: {provider.recent_gemini_outcome_count('text')}  "
-            f"thought_only: {provider.recent_gemini_outcome_count('thought_only')}  "
-            f"tool: {provider.recent_gemini_outcome_count('tool')}\n"
-            f"  Impacted clients: {impacted_str}"
+            f"{gemini}\n"
+            f"  Impacted clients: {impacted_str}\n"
+            f"  Escalation: {escalation}"
         )
 
     def _show_model_detail(self, model_name: str) -> None:
@@ -675,12 +742,28 @@ class OverviewPane(VerticalScroll):
             f"Success threshold: {model.SUCCESS_THRESHOLD}"
         )
 
+        # Failover history (#24): what actually happened, alongside the
+        # configured chain the models table already shows.
+        failovers = self._failover_feed.recent(3600.0, model=model_name)
+        if failovers:
+            lines = [f"  Failovers involving this model (last hour: {len(failovers)}):"]
+            for event in failovers[-5:]:
+                stamp = event["timestamp"][11:19] or event["timestamp"]
+                lines.append(
+                    f"    {escape(stamp)}  {escape(event['original_model'])} → "
+                    f"{escape(event['failover_model'])}  ({escape(event['reason'])})"
+                )
+            failover_block = "\n" + "\n".join(lines)
+        else:
+            failover_block = "\n  No failovers involving this model in the last hour."
+
         detail.update(
             f"[bold]{escape(model_name)}[/]\n\n"
             f"  Circuit: {model.circuit.value.upper()}   "
             f"Avg latency: {lat_str}\n"
             f"  {percentiles}\n\n"
-            f"  {circuit_cfg}"
+            f"  {circuit_cfg}\n"
+            f"{failover_block}"
         )
 
     def _show_client_detail(self, client_id: str) -> None:
@@ -700,9 +783,15 @@ class OverviewPane(VerticalScroll):
                 f"Backoff: {'active' if client.backoff_until > now else 'none'}"
             )
             rows.append(
-                f"  Gemini text={client.recent_gemini_outcome_count('text')} "
-                f"thought_only={client.recent_gemini_outcome_count('thought_only')} "
-                f"tool={client.recent_gemini_outcome_count('tool')}"
+                _gemini_mode_summary(
+                    {
+                        "text": client.recent_gemini_outcome_count("text"),
+                        "thought_only": client.recent_gemini_outcome_count(
+                            "thought_only"
+                        ),
+                        "tool": client.recent_gemini_outcome_count("tool"),
+                    }
+                )
             )
             rows.append("")
 
@@ -758,6 +847,23 @@ class OverviewPane(VerticalScroll):
             except Exception:
                 self._admin_snapshot = None
             self._admin_snapshot_at = now
+            # Escalation is judged on live-only state; feed the freshly pulled
+            # snapshot to the alert engine's provider-escalation rule (#27).
+            try:
+                from airlock.tui.alert_engine import set_provider_snapshot
+
+                set_provider_snapshot(self._admin_snapshot)
+            except ImportError:
+                pass
+
+        # Failover timeline (#24): incremental tail of today's JSONL.
+        self._failover_feed.poll()
+        failover_count_5m = self._failover_feed.recent_count(300.0)
+
+        try:
+            from airlock.fast.state import PROVIDER_ESCALATION_CLIENT_THRESHOLD
+        except ImportError:
+            PROVIDER_ESCALATION_CLIENT_THRESHOLD = 2
 
         # --- providers ---
         provider_rows: list[tuple[str, ...]] = []
@@ -776,7 +882,11 @@ class OverviewPane(VerticalScroll):
                         "-",
                         "-",
                         "-",
-                        "-",
+                        _impacted_display(
+                            remote, 0, PROVIDER_ESCALATION_CLIENT_THRESHOLD
+                        )
+                        if remote.get("impacted_clients")
+                        else "-",
                         classify_backend_kind(name),
                         _format_headroom(remote),
                         _format_spend(remote),
@@ -790,7 +900,11 @@ class OverviewPane(VerticalScroll):
                 recovery = f"{provider.cooldown_remaining(now):.0f}s left"
             requests = str(provider.recent_request_count())
             err_rate = f"{provider.recent_error_rate() * 100:.1f}%"
-            impacted = str(len(provider.impacted_clients()))
+            impacted = _impacted_display(
+                remote,
+                len(provider.impacted_clients()),
+                PROVIDER_ESCALATION_CLIENT_THRESHOLD,
+            )
             served_via = classify_backend_kind(name)
             provider_rows.append(
                 (
@@ -973,8 +1087,11 @@ class OverviewPane(VerticalScroll):
                         billing_str += " [yellow](partial)[/]"
                 except Exception:
                     pass
+            failover_str = ""
+            if failover_count_5m:
+                failover_str = f"  [yellow]Failovers(5m): {failover_count_5m}[/]"
             status_line.update(
-                f"Guard: [{enforce_clr}]{enforce_mode}[/]  {split_str}  {mcp_str}  {billing_str}"
+                f"Guard: [{enforce_clr}]{enforce_mode}[/]  {split_str}  {mcp_str}  {billing_str}{failover_str}"
             )
 
         self.app.call_from_thread(_update_ui)
