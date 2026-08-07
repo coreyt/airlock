@@ -7,6 +7,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal 0.5.11 milestone (not published, 2026-08-07)
+
+The FathomDB 0.8 milestone: the engine migration and its legacy-file guard,
+provenance-keyed storage with engine-owned projections, bounded readers,
+engine-served log search (#11), per-client erasure, and TUI ballast
+(#24, #27, #28). Everything below ships publicly with the next published
+release; the breaking FathomDB change applies only to `db`-extra users.
+
+### Added
+
+- **TUI: failover audit trail (#24).** The model detail pane shows the recent
+  failovers involving that model (timestamp, original → target, reason) from
+  an incremental JSONL tail, and the Overview status line counts failovers in
+  the last 5 minutes — what *actually happened*, alongside the configured
+  chain the models table already shows.
+- **TUI: provider-wide rate-limit escalation (#27).** `impacted_clients` (a
+  live-only value the separate-process TUI cannot compute from its replica)
+  is now part of the admin provider snapshot; the providers table badges the
+  Impacted cell with `⚠ESC` at the escalation threshold, the provider detail
+  pane names the impacted clients and whether escalation is ongoing, and a
+  `provider_escalation` alert rule fires on the event itself.
+- **TUI: Gemini response-mode distribution (#28).** Provider and client detail
+  panes show mode percentages instead of raw counts, with a skew flag when a
+  single mode exceeds 80% of a meaningful sample (≥10 recent responses).
+
+- **Per-client erasure (CLI + admin API).** `airlock admin erase-client
+  <client-id> --confirm <client-id>` and `POST
+  /airlock/admin/clients/{client_id}/erase` remove every FathomDB row whose
+  provenance is that authenticated client id. Loopback-only (like
+  `force_quarantine`), audited with the full `EraseReport` in the
+  `admin_action` record, idempotent, and honest about failure: a partial
+  erasure answers HTTP 409 with the obligation outstanding and is never
+  reported as done. **Scope:** this erases the search/analysis store only —
+  JSONL logs are untouched and governed separately by `AIRLOCK_MAX_LOG_DAYS`;
+  a user-facing deletion obligation requires both.
+- **Log search served by the engine (#11).** `search_request_logs` exposes
+  FathomDB's search over the FTS projections (error text, messages, response
+  text), and the advisor gains a `search_logs` tool on the same seam. The
+  result labels itself honestly: `hybrid` only when dense retrieval could
+  actually contribute; `lexical_only` with the reason otherwise (the normal
+  path here — no embedder is configured); the advisor's JSONL fallback is
+  labelled `substring`. A degraded result is never presented as hybrid, and a
+  hybrid result carries `soft_fallback` when a branch could not contribute.
+
+### ⚠️ Breaking
+
+- **FathomDB migrated to 0.8.x (`fathomdb>=0.8.21,<0.9`).** The 0.3.x store is
+  abandoned with no migration path: Airlock now refuses to open a 0.3.x database
+  file (naming the file and the reason) rather than letting 0.8.x silently adopt
+  it, and the default database filename moved from `airlock.db` to
+  `airlock-fathom.db` so an existing state directory can never be adopted by
+  accident. Old files are left in place; their records remain in the JSONL logs.
+
+### Changed
+
+- The opt-in remote analyzer executor defaults to `claude-sonnet-5`
+  (was `claude-sonnet-4-5`); `AIRLOCK_ANALYZER_REMOTE_MODEL` still overrides.
+  Owner decision — this is a paid path.
+- The Fathom request logger writes 0.8.x dict batches with a mandatory
+  `source_id` on every row: the **authenticated client ID** (`key:<last8>`),
+  stamped by the guardian at pre-call from the validated bearer key and always
+  overwriting any client-supplied value — never the forgeable
+  `X-Airlock-Client` header. Unauthenticated traffic collapses to the
+  `no_client` sentinel, so no write path can produce an unerasable row.
+  `source_id` is the axis per-client erasure will target.
+- RequestLog projections (filterable/rankable fields, FTS over error text,
+  messages, and response text) are declared to the engine via
+  `configure_projections`; Airlock no longer maintains any derived index.
+  No vector projection is declared — no embedder is configured, by design.
+- `api/queries.py` reads through `fathomdb.read` with an explicit `ReadView`
+  (active rows only) and the typed `fathomdb.errors` hierarchy — the
+  `AttributeError`-based capability sniffing and silent empty-list fallbacks
+  are gone.
+- **No datastore read is unbounded anymore.** `get_request_logs` /
+  `get_billing_metrics` default to the shared 50k `DATASTORE_QUERY_LIMIT`
+  (the old default was `limit=1000000` — a limit in name only) and report
+  truncation instead of dropping it: billing metrics carry
+  `truncated`/`limit_hit`, the TUI Overview marks a partial cost sum with
+  `(partial)`, and the advisor's `get_recent_errors` reports the datastore
+  window the same way it reports the JSONL one.
+
+### Removed
+
+- `_ensure_vector_stub_table` (a 0.3.1 write-path workaround; 0.8.x owns its
+  indexes).
+- `search_logs` and its Python-side substring fallback, superseded by the
+  engine's hybrid search (#11).
+
 ## [0.5.10] — 2026-08-05
 
 The first published release since 0.5.8. It carries **two milestones**: the

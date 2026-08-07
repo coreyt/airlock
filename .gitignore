@@ -72,3 +72,4 @@ agents/.aural/
 # Benchmark corpora — third-party datasets, not redistributed by Airlock.
 # See dev/corpora/README.md for provenance and licenses.
 data/
+.coverage

@@ -218,6 +218,58 @@ def _check_mcp_unhealthy(store: StateStore) -> list[Alert]:
     return alerts
 
 
+# Latest admin provider snapshot, fed by the Overview refresh (#27). Escalation
+# is judged on live-only state (rate_limit_events with the CC-6 floors), which
+# the separate-process TUI's replica undercounts — same pattern as the budget
+# rule reading the shared settings rather than the store.
+_provider_snapshot: dict[str, dict] = {}
+
+
+def set_provider_snapshot(snapshot: dict[str, dict] | None) -> None:
+    """Feed the latest ``/airlock/admin/providers`` snapshot to the rules."""
+    global _provider_snapshot
+    _provider_snapshot = snapshot or {}
+
+
+def _check_provider_escalation(store: StateStore) -> list[Alert]:
+    """Fire when rate-limiting cascades across clients on one provider (#27).
+
+    The moment individual client rate-limits become a provider-wide problem —
+    the event itself, not just the count already shown on the table.
+    """
+    alerts: list[Alert] = []
+    try:
+        try:
+            from airlock.fast.state import PROVIDER_ESCALATION_CLIENT_THRESHOLD
+        except ImportError:
+            PROVIDER_ESCALATION_CLIENT_THRESHOLD = 2
+        for name, snap in _provider_snapshot.items():
+            impacted = snap.get("impacted_clients") or []
+            if len(impacted) >= PROVIDER_ESCALATION_CLIENT_THRESHOLD:
+                alerts.append(
+                    Alert(
+                        rule_name="provider_escalation",
+                        severity="warning",
+                        title=(
+                            f"{name} rate-limit escalation "
+                            f"({len(impacted)} clients impacted)"
+                        ),
+                        detail=(
+                            f"Rate limiting on {name} is affecting "
+                            f"{len(impacted)} clients in the escalation window "
+                            f"({', '.join(sorted(impacted))}). Individual client "
+                            "rate-limits have become a provider-wide problem."
+                        ),
+                        entity_type="provider",
+                        entity_id=name,
+                        timestamp=time.time(),
+                    )
+                )
+    except Exception:
+        _log.debug("provider escalation alert evaluation failed", exc_info=True)
+    return alerts
+
+
 def _check_guardrail_block_spike(store: StateStore) -> list[Alert]:
     """Fire a warning alert if guardrail blocks are spiking.
 
@@ -272,6 +324,12 @@ _DEFAULT_RULES: list[AlertRule] = [
     AlertRule(
         name="guardrail_block_spike",
         condition=_check_guardrail_block_spike,
+        cooldown_seconds=60.0,
+        severity="warning",
+    ),
+    AlertRule(
+        name="provider_escalation",
+        condition=_check_provider_escalation,
         cooldown_seconds=60.0,
         severity="warning",
     ),

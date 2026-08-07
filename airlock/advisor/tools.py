@@ -23,12 +23,14 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Callable
 
-from airlock.api.queries import get_request_logs
+from airlock.api.queries import (
+    DATASTORE_QUERY_LIMIT,
+    get_request_logs,
+    node_properties,
+    search_request_logs,
+)
 from airlock.fast.state import StateStore
 from airlock.log_query import LogPage, LogQuery, query_logs
-
-#: Upper bound on rows pulled from the datastore in one advisor query.
-DATASTORE_QUERY_LIMIT = 50_000
 
 logger = logging.getLogger("airlock.advisor.tools")
 
@@ -145,10 +147,11 @@ def get_recent_errors(log_dir: str, days: int = 2) -> dict:
 
     truncated: dict[str, Any] = {"truncated": False, "limit_hit": None}
     if engine is not None:
-        # Was limit=1000000 — a limit in name only, and every row was
-        # materialized before filtering.
+        # Bounded read (was limit=1000000 — a limit in name only). The failure
+        # filter stays Python-side: the engine's json-path predicate allowlist
+        # is fixed and does not cover $.success.
         nodes = get_request_logs(engine, limit=DATASTORE_QUERY_LIMIT)
-        records = [n.properties if hasattr(n, "properties") else n for n in nodes]
+        records = [node_properties(n) for n in nodes]
         failures = [
             r
             for r in records
@@ -197,6 +200,48 @@ def get_recent_errors(log_dir: str, days: int = 2) -> dict:
         # The advisor must be able to say "based on a partial window" rather
         # than presenting a truncated scan as the whole picture.
         "window": truncated,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Tool 2b: search_logs
+# ---------------------------------------------------------------------------
+
+
+def search_logs(log_dir: str, query: str, limit: int = 20, days: int = 7) -> dict:
+    """Search request logs (#11): engine search when available, JSONL scan otherwise.
+
+    The engine path reports its ``mode`` honestly — ``hybrid`` only when dense
+    retrieval actually contributed alongside lexical; ``lexical_only`` with the
+    reason otherwise. The JSONL fallback is a bounded substring scan and says
+    so: ``substring`` is not search-engine ranking and must not look like it.
+    """
+    engine = None
+    try:
+        import airlock.datastore
+
+        engine = airlock.datastore.get_engine()
+    except Exception:
+        engine = None
+
+    if engine is not None:
+        out = search_request_logs(engine, query, limit=limit)
+        out["backend"] = "fathomdb"
+        return out
+
+    needle = query.lower()
+
+    def _matches(record: dict[str, Any]) -> bool:
+        return needle in json.dumps(record, default=str).lower()
+
+    page = _load_page(log_dir, days=days, predicate=_matches)
+    return {
+        "backend": "jsonl",
+        "mode": "substring",
+        "degraded_reason": "datastore disabled; bounded JSONL substring scan",
+        "soft_fallback": None,
+        "results": page.records[-limit:],
+        "window": _truncation(page),
     }
 
 
@@ -465,6 +510,30 @@ TOOL_REGISTRY: dict[str, tuple[Callable, dict]] = {
             },
             "required": [],
             "description": "Get recent error records grouped by model, client, and error type",
+        },
+    ),
+    "search_logs": (
+        search_logs,
+        {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search text (matched against error text, messages, and response text)",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum results to return",
+                    "default": 20,
+                },
+                "days": {
+                    "type": "integer",
+                    "description": "JSONL fallback window in days (ignored on the datastore path)",
+                    "default": 7,
+                },
+            },
+            "required": ["query"],
+            "description": "Search request logs. Result carries mode: hybrid, lexical_only (with reason), or substring (JSONL fallback)",
         },
     ),
     "get_analysis_report": (

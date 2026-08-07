@@ -11,17 +11,22 @@ from typing import Any
 
 from litellm.integrations.custom_logger import CustomLogger
 
-try:
-    from fathomdb import WriteRequestBuilder
-except ImportError:
-    # Optional `db` extra. Two ignore codes are needed, not one: `misc` for
-    # rebinding a name that mypy has bound to a class, and `assignment` for the
-    # None value itself. Both only surface when fathomdb IS installed — with the
-    # extra absent, mypy takes this branch and sees no conflict, which is why
-    # this is reachable only under `uv sync --extra db`.
-    WriteRequestBuilder = None  # type: ignore[assignment,misc]
+from airlock.client_identity import NO_CLIENT_ID
 
 logger = logging.getLogger("airlock.logger")
+
+
+def _source_id(event: Any) -> str:
+    """The provenance (erasure axis) for a row: the authenticated client ID.
+
+    The guardian stamps ``airlock_source_id`` at pre-call from the validated
+    bearer key, overwriting any client-supplied value — never the forgeable
+    ``X-Airlock-Client`` header. A request that reached the sink without the
+    stamp (guardrail chain not installed) collapses to ``no_client``, the same
+    sentinel the stamp itself uses for unauthenticated traffic, so no path can
+    produce an unerasable row.
+    """
+    return event.guardrail_meta.get("airlock_source_id") or NO_CLIENT_ID
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -143,24 +148,25 @@ class AirlockFathomLogger(CustomLogger):
             return
 
         db_engine = self._get_engine()
-        if not db_engine or WriteRequestBuilder is None:
+        if not db_engine:
             return
 
         call_id = event.request_id or uuid.uuid4().hex
         if self._should_skip_call_id(call_id):
             return
 
-        builder = WriteRequestBuilder("airlock_log")
-        builder.add_node(
-            row_id=uuid.uuid4().hex,
-            logical_id=call_id,
-            kind="RequestLog",
-            properties=project_fathom(event),
-            source_ref="airlock:fathom_logger",
-            upsert=True,
-        )
+        # 0.8.x write items are plain dicts; source_id is mandatory on every
+        # canonical row — a row without one can never be erased. Writing the
+        # same logical_id again supersedes the prior version (engine-owned),
+        # which is what the old upsert=True asked for.
+        item = {
+            "kind": "RequestLog",
+            "logical_id": call_id,
+            "source_id": _source_id(event),
+            "body": _json_text(project_fathom(event)),
+        }
         try:
-            db_engine.write(builder.build())
+            db_engine.write([item])
         except Exception as e:
             logger.error(f"FathomDB write failed: {e}")
 

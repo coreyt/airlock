@@ -280,7 +280,7 @@ FathomDB is optional and disabled by default.
 
 - Set `AIRLOCK_ENABLE_FATHOMDB=1` to enable the lazy engine path.
 - Set `AIRLOCK_ENABLE_FATHOM_LOGGER=1` to append the Fathom request logger at runtime.
-- Put fresh databases under `AIRLOCK_STATE_DIR` while debugging. Airlock treats old `logs/airlock.db` files as suspect until proven clean.
+- Put fresh databases under `AIRLOCK_STATE_DIR` while debugging. The database file is `airlock-fathom.db`; a `logs/airlock.db` left behind by FathomDB 0.3.x is abandoned — Airlock refuses to open it, and its records remain in the JSONL logs.
 
 Current write-path guarantees:
 
@@ -288,9 +288,35 @@ Current write-path guarantees:
 - The in-process engine singleton is PID-bound and thread-safe, which avoids same-process `Engine.open()` races during concurrent callback writes.
 - Forwarded inner `enhanced/*` provider calls do not emit duplicate Fathom rows.
 
+### Per-client erasure
+
+An operator can erase every FathomDB row a client produced, keyed on the
+authenticated client id (`key:<last8>`, or `no_client` for unauthenticated
+traffic):
+
+```bash
+airlock admin erase-client key:90abcdef --confirm key:90abcdef
+# or, against the loopback admin API directly:
+curl -X POST http://127.0.0.1:4000/airlock/admin/clients/key%3A90abcdef/erase \
+  -H 'Content-Type: application/json' -d '{"confirm": "key:90abcdef"}'
+```
+
+- The operation is **loopback-only** and audited: the `admin_action` record
+  carries the full `EraseReport` (nodes/edges excised, projections
+  invalidated), not a bare "ok".
+- An **incomplete** erasure is answered with HTTP 409 and never reported as
+  done — the obligation is outstanding. Retrying is safe; erasure is
+  idempotent.
+- **Scope — read this before promising anything to a user.** This erases the
+  client from the **search and analysis store** (FathomDB) only. The same
+  records exist in the JSONL logs, which this operation does not touch; JSONL
+  retention is governed separately by `AIRLOCK_MAX_LOG_DAYS`. A user-facing
+  deletion obligation requires both, and the JSONL half is not automated in
+  0.5.11.
+
 Operational constraint:
 
-- FathomDB remains single-owner at process level. Do not point multiple live processes at same `AIRLOCK_STATE_DIR/airlock.db`.
+- FathomDB remains single-owner at process level. Do not point multiple live processes at same `AIRLOCK_STATE_DIR/airlock-fathom.db`.
 - Airlock's safeguards cover same-process callback concurrency and inherited PID mismatches, not intentional multi-process shared-writer access.
 
 ## Logging

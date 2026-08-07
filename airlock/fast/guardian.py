@@ -254,6 +254,14 @@ class AirlockFastGuardian(CustomGuardrail):
         from airlock.guardrail_overrides import resolve_guardrail_decision
 
         resolve_guardrail_decision(data, user_api_key_dict)
+        # Provenance stamp for the FathomDB store (0.5.11 A-2). SECURITY:
+        # ``metadata`` is client-controllable, so ALWAYS overwrite — a caller
+        # must never pick its own source_id, and the forgeable X-Airlock-Client
+        # header plays no part here. Erasure is keyed on this value; a
+        # client-controlled source_id would let one caller erase another's rows.
+        data.setdefault("metadata", {})["airlock_source_id"] = _extract_client_id(
+            user_api_key_dict
+        )
         client = store.get_client(client_id)
         requested_model = data.get("model") or "unknown"
         model_name = requested_model

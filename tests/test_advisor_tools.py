@@ -174,6 +174,13 @@ def test_get_recent_errors_groups_by_model(log_dir, monkeypatch):
     assert len(result["recent_samples"]) == 3
 
 
+class FakeNodeRecord:
+    """NodeRecord shape as returned by fathomdb.read: a JSON body string."""
+
+    def __init__(self, properties):
+        self.body = json.dumps(properties)
+
+
 def test_get_recent_errors_uses_fathomdb(monkeypatch, log_dir):
     """If airlock.datastore.engine is set, uses RequestLog rows from FathomDB."""
     import airlock.datastore
@@ -182,18 +189,20 @@ def test_get_recent_errors_uses_fathomdb(monkeypatch, log_dir):
 
     mock_called = False
 
-    def mock_get_request_logs(engine, limit=1000000):
+    def mock_get_request_logs(engine, limit=50_000):
         nonlocal mock_called
         mock_called = True
         return [
-            {
-                "model": "gpt-4o",
-                "error_type": "RateLimitError",
-                "airlock_client": "c1",
-                "timestamp": "2025-01-01T10:01:00Z",
-                "error": "boom",
-                "success": False,
-            }
+            FakeNodeRecord(
+                {
+                    "model": "gpt-4o",
+                    "error_type": "RateLimitError",
+                    "airlock_client": "c1",
+                    "timestamp": "2025-01-01T10:01:00Z",
+                    "error": "boom",
+                    "success": False,
+                }
+            )
         ]
 
     monkeypatch.setattr(
@@ -213,17 +222,21 @@ def test_get_recent_errors_uses_error_flag_from_fathom(monkeypatch, log_dir):
 
     monkeypatch.setattr(
         "airlock.advisor.tools.get_request_logs",
-        lambda engine, limit=1000000: [
-            {
-                "model": "gemini-coding",
-                "timestamp": "2025-01-01T10:01:00Z",
-                "error_flag": True,
-            },
-            {
-                "model": "gpt-4o",
-                "timestamp": "2025-01-01T10:02:00Z",
-                "success": True,
-            },
+        lambda engine, limit=50_000: [
+            FakeNodeRecord(
+                {
+                    "model": "gemini-coding",
+                    "timestamp": "2025-01-01T10:01:00Z",
+                    "error_flag": True,
+                }
+            ),
+            FakeNodeRecord(
+                {
+                    "model": "gpt-4o",
+                    "timestamp": "2025-01-01T10:02:00Z",
+                    "success": True,
+                }
+            ),
         ],
         raising=False,
     )
@@ -231,6 +244,74 @@ def test_get_recent_errors_uses_error_flag_from_fathom(monkeypatch, log_dir):
     result = get_recent_errors(str(log_dir), days=2)
     assert result["total_errors"] == 1
     assert result["by_model"]["gemini-coding"] == 1
+
+
+def test_get_recent_errors_against_real_engine(monkeypatch, log_dir, tmp_path):
+    """A-3: the advisor reader works against a real 0.8.21 engine."""
+    import airlock.datastore
+    from airlock.datastore import init_engine
+
+    engine = init_engine(str(tmp_path / "airlock-fathom.db"))
+    assert engine is not None
+    try:
+        engine.write(
+            [
+                {
+                    "kind": "RequestLog",
+                    "logical_id": "f1",
+                    "source_id": "key:aaaa1111",
+                    "body": json.dumps(
+                        {
+                            "model": "gpt-4o",
+                            "error_type": "RateLimitError",
+                            "timestamp": "2025-01-01T10:01:00Z",
+                            "success": False,
+                        }
+                    ),
+                },
+                {
+                    "kind": "RequestLog",
+                    "logical_id": "s1",
+                    "source_id": "key:aaaa1111",
+                    "body": json.dumps(
+                        {
+                            "model": "gpt-4o",
+                            "timestamp": "2025-01-01T10:02:00Z",
+                            "success": True,
+                        }
+                    ),
+                },
+            ]
+        )
+        monkeypatch.setattr(airlock.datastore, "get_engine", lambda: engine)
+
+        result = get_recent_errors(str(log_dir), days=2)
+
+        assert result["total_errors"] == 1
+        assert result["by_error_type"]["RateLimitError"] == 1
+        assert result["window"] == {"truncated": False, "limit_hit": None}
+    finally:
+        engine.close()
+
+
+def test_get_recent_errors_reports_datastore_truncation(monkeypatch, log_dir):
+    """A scan that fills the datastore bound is reported as a partial window."""
+    import airlock.advisor.tools as tools_mod
+    import airlock.datastore
+
+    monkeypatch.setattr(airlock.datastore, "get_engine", lambda: "dummy_engine")
+    monkeypatch.setattr(tools_mod, "DATASTORE_QUERY_LIMIT", 2)
+    monkeypatch.setattr(
+        "airlock.advisor.tools.get_request_logs",
+        lambda engine, limit=2: [
+            FakeNodeRecord({"model": "gpt-4o", "success": False}),
+            FakeNodeRecord({"model": "gpt-4o", "success": True}),
+        ],
+        raising=False,
+    )
+
+    result = get_recent_errors(str(log_dir), days=2)
+    assert result["window"] == {"truncated": True, "limit_hit": "datastore_limit"}
 
 
 # ---------------------------------------------------------------------------
