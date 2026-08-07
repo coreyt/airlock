@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal 0.5.11 milestone (not published, 2026-08-07)
+
+The FathomDB 0.8 milestone: the engine migration and its legacy-file guard,
+provenance-keyed storage with engine-owned projections, bounded readers,
+engine-served log search (#11), per-client erasure, and TUI ballast
+(#24, #27, #28). Everything below ships publicly with the next published
+release; the breaking FathomDB change applies only to `db`-extra users.
+
 ### Added
 
 - **TUI: failover audit trail (#24).** The model detail pane shows the recent
