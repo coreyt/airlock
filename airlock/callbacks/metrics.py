@@ -28,6 +28,8 @@ except ImportError:
 
 from litellm.integrations.custom_logger import CustomLogger
 
+from airlock.callbacks.memory import collect_memory_snapshot
+
 
 def _build_metrics() -> dict[str, Any]:
     """Create and return all Prometheus metric objects."""
@@ -83,6 +85,35 @@ def _build_metrics() -> dict[str, Any]:
             "airlock_mutations_total",
             "Total ledger mutations by field and operation",
             ["field", "op"],
+        ),
+        "process_resident_memory": Gauge(
+            "airlock_process_resident_memory_bytes",
+            "Resident memory of the LiteLLM callback process (latest observed)",
+        ),
+        "process_resident_memory_peak": Gauge(
+            "airlock_process_resident_memory_peak_bytes",
+            "Resident-memory high-water mark of the LiteLLM callback process",
+        ),
+        "cgroup_memory_current": Gauge(
+            "airlock_cgroup_memory_current_bytes",
+            "Current memory used by the Airlock service cgroup",
+        ),
+        "cgroup_memory_peak": Gauge(
+            "airlock_cgroup_memory_peak_bytes",
+            "Peak memory used by the Airlock service cgroup",
+        ),
+        "cgroup_memory_high": Gauge(
+            "airlock_cgroup_memory_high_bytes",
+            "MemoryHigh threshold for the Airlock service cgroup",
+        ),
+        "cgroup_memory_max": Gauge(
+            "airlock_cgroup_memory_max_bytes",
+            "MemoryMax threshold for the Airlock service cgroup",
+        ),
+        "cgroup_memory_events": Gauge(
+            "airlock_cgroup_memory_events",
+            "Current cgroup memory pressure and OOM event counters",
+            ["event"],
         ),
     }
 
@@ -167,6 +198,28 @@ def _record_mutations_from_event(mutations: list) -> None:
         _metrics["mutations_total"].labels(field=field, op=op).inc()
 
 
+def _record_memory_snapshot() -> None:
+    """Update process/cgroup gauges without letting observability affect requests."""
+    try:
+        snapshot = collect_memory_snapshot()
+        values = {
+            "process_resident_memory": snapshot.process_rss_bytes,
+            "process_resident_memory_peak": snapshot.process_rss_peak_bytes,
+            "cgroup_memory_current": snapshot.cgroup_current_bytes,
+            "cgroup_memory_peak": snapshot.cgroup_peak_bytes,
+            "cgroup_memory_high": snapshot.cgroup_high_bytes,
+            "cgroup_memory_max": snapshot.cgroup_max_bytes,
+        }
+        for metric, value in values.items():
+            if value is not None and metric in _metrics:
+                _metrics[metric].set(value)
+        if "cgroup_memory_events" in _metrics:
+            for event, count in snapshot.cgroup_events.items():
+                _metrics["cgroup_memory_events"].labels(event=event).set(count)
+    except Exception:
+        logger.debug("memory telemetry snapshot failed", exc_info=True)
+
+
 def set_circuit_breaker_state(model: str, state: str) -> None:
     """Set circuit breaker gauge. Called by circuit_breaker."""
     if "circuit_breaker_state" in _metrics:
@@ -191,6 +244,10 @@ class AirlockMetricsCallback(CustomLogger):
     def record_event(self, event: Any) -> None:
         if not _PROM_AVAILABLE:
             return
+
+        # This callback executes in the LiteLLM worker after every success/failure,
+        # correlating the latest kernel memory counters with request completion.
+        _record_memory_snapshot()
 
         model = event.model
         user = event.user or "unknown"

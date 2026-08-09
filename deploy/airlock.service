@@ -38,6 +38,9 @@ NoNewPrivileges=true
 
 # Resource limits
 LimitNOFILE=4096
+# Begin cgroup reclaim/throttling before the hard cap. This leaves 1GiB of burst
+# headroom while making sustained growth visible in cgroup pressure counters.
+MemoryHigh=3G
 MemoryMax=4G
 
 # Airlock logs to logs/ via configure_logging().

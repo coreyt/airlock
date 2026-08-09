@@ -420,6 +420,12 @@ Exposed metrics:
 | `airlock_provider_ratelimit_remaining_requests` | Gauge | provider | Requests remaining against the provider's rate-limit window |
 | `airlock_provider_budget_used_usd` | Gauge | provider | USD spent against the provider's daily budget cap |
 | `airlock_provider_budget_limit_usd` | Gauge | provider | Configured daily budget cap for the provider |
+| `airlock_process_resident_memory_bytes` | Gauge | — | Latest LiteLLM worker RSS at request callback completion |
+| `airlock_process_resident_memory_peak_bytes` | Gauge | — | LiteLLM worker RSS high-water mark since process start |
+| `airlock_cgroup_memory_current_bytes` | Gauge | — | Current Airlock service cgroup memory use |
+| `airlock_cgroup_memory_peak_bytes` | Gauge | — | Airlock service cgroup high-water mark |
+| `airlock_cgroup_memory_high_bytes` / `airlock_cgroup_memory_max_bytes` | Gauge | — | Soft-pressure and hard-kill cgroup thresholds |
+| `airlock_cgroup_memory_events` | Gauge | event | Current cgroup `high`, `max`, `oom`, and `oom_kill` counters |
 
 The rate-limit and budget gauges are **observe-only** — they capture what providers
 report without changing routing or what reaches the client. See
@@ -427,6 +433,12 @@ report without changing routing or what reaches the client. See
 `airlock_provider_ratelimit_remaining_tokens` falls below a fraction of its observed
 ceiling, or when `airlock_provider_budget_used_usd` approaches
 `airlock_provider_budget_limit_usd`.
+
+For the bundled user service, `MemoryHigh=3G` starts cgroup reclaim and throttling
+before the `MemoryMax=4G` hard limit. Alert on a rising
+`airlock_cgroup_memory_events{event="high"}` and immediately investigate any
+non-zero `oom` or `oom_kill`. These metrics are sampled after each LiteLLM
+success/failure callback; they are lightweight kernel counters, not heap profiling.
 
 ### OpenTelemetry Tracing
 
