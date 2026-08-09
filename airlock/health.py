@@ -212,13 +212,46 @@ def replace_health_endpoint(app: Any) -> None:
     if getattr(app.state, "airlock_health_replaced", False):
         return
 
-    existing = [
-        route
-        for route in app.router.routes
-        if getattr(route, "path", None) == "/health"
-        and "GET" in (getattr(route, "methods", None) or set())
-    ]
-    if not existing:
+    # FastAPI 0.141 keeps ``include_router()`` routes in private-looking
+    # ``_IncludedRouter`` wrappers.  The inherited LiteLLM route is therefore
+    # no longer necessarily in ``app.router.routes`` itself.  Walk the route
+    # owners rather than importing FastAPI's private wrapper class: older
+    # FastAPI versions expose only the root router, while newer ones expose an
+    # ``original_router`` attribute on each included-router wrapper.
+    route_owners: list[Any] = []
+    seen: set[int] = set()
+
+    def _walk(router: Any) -> None:
+        if id(router) in seen:
+            return
+        seen.add(id(router))
+        routes = getattr(router, "routes", None)
+        if not isinstance(routes, list):
+            return
+        route_owners.append(router)
+        for route in tuple(routes):
+            child_router = getattr(route, "original_router", None)
+            if child_router is not None:
+                _walk(child_router)
+
+    _walk(app.router)
+
+    removed = 0
+    changed_owners: list[Any] = []
+    for owner in route_owners:
+        matches = [
+            route
+            for route in owner.routes
+            if getattr(route, "path", None) == "/health"
+            and "GET" in (getattr(route, "methods", None) or set())
+        ]
+        for route in matches:
+            owner.routes.remove(route)
+        if matches:
+            removed += len(matches)
+            changed_owners.append(owner)
+
+    if not removed:
         raise HealthRouteInstallError(
             "no GET /health route found to replace; LiteLLM may have "
             "restructured its health endpoints. Refusing to continue: the "
@@ -226,9 +259,14 @@ def replace_health_endpoint(app: Any) -> None:
             "model."
         )
 
-    for route in existing:
-        app.router.routes.remove(route)
-    logger.info("health_route_replaced removed=%d", len(existing))
+    # FastAPI 0.141 caches effective candidates for included routers.  A
+    # direct list mutation must invalidate that cache before registering the
+    # replacement, while older versions have no such hook.
+    for owner in changed_owners:
+        mark_routes_changed = getattr(owner, "_mark_routes_changed", None)
+        if callable(mark_routes_changed):
+            mark_routes_changed()
+    logger.info("health_route_replaced removed=%d", removed)
 
     @app.get(
         "/health",

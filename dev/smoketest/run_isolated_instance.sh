@@ -82,8 +82,13 @@ prepare() {
 
   mkdir -p "$RUNTIME_DIR/state/logs"
 
-  # COPY production config + env into the runtime dir (originals untouched).
+  # Copy production config, its optional local include, and env into the runtime
+  # dir (originals untouched). config.yaml may include config.local.yaml, which
+  # LiteLLM resolves relative to the copied config file.
   cp "$REPO_ROOT/config.yaml" "$RUNTIME_DIR/config.yaml"
+  if [[ -f "$REPO_ROOT/config.local.yaml" ]]; then
+    cp "$REPO_ROOT/config.local.yaml" "$RUNTIME_DIR/config.local.yaml"
+  fi
 
   # litellm's get_instance_fn resolves custom-handler / callback module paths
   # (custom_provider_map, callbacks, success/failure_callback) RELATIVE TO the
