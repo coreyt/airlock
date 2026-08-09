@@ -14,3 +14,5 @@ def test_user_systemd_unit_limits_restart_storms():
     assert "StartLimitIntervalSec=5min" in unit
     assert "StartLimitBurst=3" in unit
     assert "Restart=on-failure" in unit
+    assert "MemoryHigh=3G" in unit
+    assert "MemoryMax=4G" in unit
