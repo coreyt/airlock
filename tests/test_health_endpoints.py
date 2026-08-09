@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import json
 
+import httpx
 import pytest
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
 from airlock.fast.state import CircuitState
@@ -64,6 +65,19 @@ def _app_with_litellm_health() -> FastAPI:
     async def litellm_health():  # pragma: no cover - must be replaced
         raise AssertionError("LiteLLM's /health should have been removed")
 
+    return app
+
+
+def _app_with_included_litellm_health() -> FastAPI:
+    """Model LiteLLM's FastAPI 0.141 included-router route layout."""
+    app = FastAPI()
+    router = APIRouter()
+
+    @router.get("/health")
+    async def litellm_health():  # pragma: no cover - must be replaced
+        raise AssertionError("LiteLLM's /health should have been removed")
+
+    app.include_router(router)
     return app
 
 
@@ -135,6 +149,28 @@ class TestHealthReplacement:
             and "GET" in (getattr(r, "methods", None) or set())
         ]
         assert len(routes) == 1
+
+    async def test_replaces_route_in_an_included_router(self, monkeypatch):
+        """FastAPI 0.141 stores LiteLLM routes below ``_IncludedRouter``."""
+        app = _app_with_included_litellm_health()
+        # The routing regression does not need a LiteLLM import (which can
+        # refresh its remote model-price map during a unit test).
+        from airlock.health_checks import HealthReport
+
+        monkeypatch.setattr(
+            "airlock.health._build_report",
+            lambda _kind: HealthReport(status=STATUS_PASS),
+        )
+        replace_health_endpoint(app)
+
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            response = await client.get("/health")
+
+        assert response.status_code in (200, 503)
+        assert response.headers["content-type"].startswith(HEALTH_JSON_MEDIA_TYPE)
 
     def test_raises_when_route_absent(self):
         """A silent no-op would leave the expensive endpoint serving."""

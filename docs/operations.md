@@ -598,6 +598,8 @@ For Kubernetes: the default `terminationGracePeriodSeconds` (30s) is sufficient.
 [Unit]
 Description=Airlock LLM Proxy
 After=network.target
+StartLimitIntervalSec=5min
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -617,7 +619,10 @@ WantedBy=multi-user.target
 1. Back up `config.yaml` and `.env`
 2. Pull the new version: `git pull && ./scripts/setup.sh`
 3. Run `airlock post` to validate configuration against the new version
-4. Restart the proxy: `systemctl restart airlock` or `docker compose up --build -d`
+4. If you use the bundled user unit, run `airlock install-service` to refresh
+   it, reload systemd, and start the service. Otherwise, install the equivalent
+   unit changes and restart the proxy: `systemctl restart airlock` or
+   `docker compose up --build -d`.
 5. Check `/livez` and review startup warnings in stderr
 
 ### Breaking Changes

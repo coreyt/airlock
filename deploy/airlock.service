@@ -3,6 +3,11 @@ Description=Airlock LLM proxy — unified access, logging, and guardrails
 After=network-online.target
 Wants=network-online.target
 
+# A deterministic startup defect must become visible, not consume the host in
+# an unbounded restart loop. Transient failures still receive automatic retry.
+StartLimitIntervalSec=5min
+StartLimitBurst=3
+
 [Service]
 Type=simple
 
