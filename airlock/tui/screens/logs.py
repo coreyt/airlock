@@ -318,7 +318,12 @@ class LogsPane(VerticalScroll):
                     if line:
                         try:
                             record = json.loads(line)
-                            if _matches_snapshot(record, filters):
+                            # JSONL is an operator-facing boundary.  A valid
+                            # JSON scalar/array is not an Airlock event and
+                            # must not take down the loader worker.
+                            if isinstance(record, dict) and _matches_snapshot(
+                                record, filters
+                            ):
                                 records.append(record)
                             if len(records) >= _MAX_LOG_RECORDS:
                                 break

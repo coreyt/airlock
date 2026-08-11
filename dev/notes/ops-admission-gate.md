@@ -127,13 +127,13 @@ is a misconfigured `AdmissionConfig` (e.g., non-integer `rpm`).
 
 ## Known Limitations
 
-1. **Concurrency cap is a peek, not a hard cap.** The current implementation reads
-   `asyncio.Semaphore._value` without acquiring/releasing the semaphore. This means:
-   - Two simultaneous requests could both see `_value > 0` and both be admitted if they
-     arrive in the same event-loop tick.
-   - The cap works correctly as a burst detector but may not enforce the exact integer
-     limit under extreme concurrency.
-   - Full `asyncio.Semaphore` acquire/release is planned for a follow-up release.
+1. **Concurrency is callback-lifetime accounting, not a stage permit.** The gate
+   serializes a non-blocking decrement of an in-process semaphore and releases it
+   only from LiteLLM success/failure callbacks.  A delayed or missing callback can
+   leave a stale slot and there is no watchdog tied to the request lifetime.  The
+   gate also runs after content guards configured ahead of the Fast guardian.
+   It must not be used as the sole protection for an earlier expensive policy
+   check.  See [resource permits and isolated inspection stages](design-resource-permits-and-isolation.md).
 
 2. **`X-Airlock-Admission` response header not yet wired.** The shed reason is stamped
    in `data["metadata"]["airlock_admission"]` and visible in the enterprise log, but it

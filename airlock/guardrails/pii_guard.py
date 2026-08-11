@@ -86,7 +86,12 @@ _pii_map_store = PIIMapStore(
 
 
 def _requires_nlp_entities(entities: list[str]) -> bool:
-    """Whether the configured recognizers need spaCy NLP artifacts."""
+    """Whether the configured recognizers need spaCy NLP artifacts.
+
+    Airlock's shipped recognizers are self-contained patterns.  Presidio's
+    default ``AnalyzerEngine`` would otherwise eagerly load and run spaCy / Thinc
+    on their behalf; non-default entities such as PERSON retain that full path.
+    """
     return not set(entities).issubset(_SELF_CONTAINED_ENTITIES)
 
 
@@ -98,6 +103,8 @@ def _create_analyzer():
     if _requires_nlp_entities(entities):
         return AnalyzerEngine()
 
+    # Presidio's supported engine for self-contained recognizers avoids the
+    # spaCy / Thinc matrix allocations implicated in the G-9 memory growth.
     from presidio_analyzer.nlp_engine import NoOpNlpEngine
 
     return AnalyzerEngine(

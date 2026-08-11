@@ -867,6 +867,12 @@ batch_profile:
 # Guardrails
 # ---------------------------------------------------------------------------
 guardrails:
+  - guardrail_name: airlock-oom-diagnostics
+    litellm_params:
+      guardrail: airlock.callbacks.oom_diagnostics.AirlockOOMDiagnosticsGuard
+      mode: [pre_call, post_call]
+      default_on: true
+
   - guardrail_name: airlock-pii-guard
     litellm_params:
       guardrail: airlock.guardrails.pii_guard.AirlockPIIGuard

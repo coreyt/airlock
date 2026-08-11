@@ -168,7 +168,7 @@ wheels = [
 
 [[package]]
 name = "airlock-llm"
-version = "0.5.10"
+version = "0.5.12"
 source = { editable = "." }
 dependencies = [
     { name = "litellm", extra = ["proxy"] },

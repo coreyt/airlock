@@ -20,6 +20,7 @@ import logging
 from airlock.callbacks.enterprise_logger import proxy_logger
 from airlock.callbacks.fathom_logger import _env_flag, proxy_fathom_logger
 from airlock.callbacks.metrics import metrics_callback
+from airlock.callbacks.oom_diagnostics import oom_diagnostics
 from airlock.callbacks.request_event import RequestRecorder, RequestRecorderCallback
 
 logger = logging.getLogger("airlock.logger")
@@ -33,6 +34,9 @@ def _build_recorder() -> RequestRecorder:
     # metrics is always-on too (a normal success+failure sink): the per-request
     # Prometheus counters dispatch through the recorder, not LiteLLM's callback lists.
     recorder.register(metrics_callback.record_event, name="metrics")
+    # Inert by default; the opt-in diagnostic sink records aggregate allocator
+    # counters only and is intentionally before optional remote sinks.
+    recorder.register(oom_diagnostics.record_event, name="oom-diagnostics")
     if _env_flag("AIRLOCK_ENABLE_FATHOM_LOGGER", default=False):
         recorder.register(
             proxy_fathom_logger.record_event, name="fathom", async_only=True

@@ -584,12 +584,20 @@ Or via environment: `AIRLOCK_ADMISSION='{"enabled": true, "rpm": 30}'`
 
 Clients with `PrioritySignal.boost=True` receive `rpm × boost_multiplier` allowance. All other clients share the base `rpm` cap equally.
 
-The gate is inserted before routing, so MCP and batch calls are subject to the same caps as chat calls.
+The gate runs in the Fast guardian and applies to MCP and batch calls as well as
+chat calls.  Content guards configured before the Fast guardian (such as the PII
+guard) have already run by this point, so this gate is not a capacity boundary
+for an earlier expensive guard.
 
 ### Known limitations (0.5.5)
 
 - `X-Airlock-Admission` response header is not yet propagated (metadata is stamped internally; header wiring is a follow-up).
-- The concurrency cap uses a non-blocking semaphore peek — it detects fully-saturated slots but does not provide exact hard accounting (full async acquire/release is a follow-up).
+- The concurrency counter is process-local and is released by LiteLLM
+  success/failure callbacks.  A delayed or missing callback can leave a stale
+  slot until the process restarts; it has no request-lifetime watchdog.  It is
+  therefore provider-request admission, not an exact permit mechanism for an
+  expensive policy stage.  Airlock's internal resource-permit design records
+  the required boundary for a future isolated expensive stage.
 
 Full ops guide: `dev/notes/ops-admission-gate.md`.
 

@@ -57,7 +57,9 @@ async def test_load_logs_dispatches_widget_mutations_via_call_from_thread(
         "model": "claude-sonnet",
         "user": "alice",
     }
-    log_file.write_text(json.dumps(record) + "\n")
+    # Valid JSON that is not an event object must be ignored rather than
+    # crashing the background log-loader worker.
+    log_file.write_text(json.dumps("not an event") + "\n" + json.dumps(record) + "\n")
 
     with mock.patch.dict(os.environ, {"AIRLOCK_LOG_DIR": str(log_dir)}):
         app = AirlockApp()

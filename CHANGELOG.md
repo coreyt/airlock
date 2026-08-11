@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.12] — 2026-08-11
+
+This public release includes the internal 0.5.11 FathomDB milestone below,
+plus the PII-egress and native-memory resilience work completed in 0.5.12.
+
+### Security
+
+- **PII mutation maps cannot reach an Airlock sink.** Reverse mappings are now
+  process-local, bounded opaque handles rather than request metadata. Logs,
+  callbacks, FathomDB records, and error surfaces receive only scrubbed data.
+  A client response is hydrated from a copy only when its authenticated request
+  is authorized for that handle.
+- **PII egress authorization is available in observe mode.** Airlock records
+  value-free allow/suppress decisions for rehydrated content, including
+  allowlist and configured blocklist matches. Operators can configure shadow or
+  enforce mode after reviewing their own measurements; the release default is
+  observe, so it does not change existing request outcomes.
+- **PII-analysis failure posture is configurable.** `AIRLOCK_PII_FAIL_MODE`
+  selects explicit open or closed behavior when redaction is unavailable.
+
+### Fixed
+
+- **G-9 native-memory exhaustion.** The default six built-in PII recognizers
+  (card, SSN, email, phone, US bank, and IBAN) now use Presidio's supported
+  `NoOpNlpEngine`. They retain pattern/validation recognition and redaction but
+  no longer run spaCy/Thinc NER unnecessarily on every request. Configurations
+  that request semantic entities such as `PERSON` keep the full NLP path.
+- **Nested health-route startup recovery.** A failed nested health route no
+  longer leaves the service unable to restart.
+- **TUI log loading.** The log viewer now skips syntactically valid JSON values
+  that are not Airlock event objects instead of crashing its background worker.
+- **cgroup memory visibility and guardrails.** Airlock exports cgroup
+  current/peak/pressure/event telemetry and its service unit supplies explicit
+  memory protection settings.
+
+### Added
+
+- **Opt-in OOM high-water recorder.** `AIRLOCK_OOM_DIAGNOSTICS=1` produces a
+  bounded, mode-0600 JSONL artifact containing aggregate allocator, cgroup,
+  PSI, thread/FD, and client-pool counters — never request/response content,
+  headers, model names, exception strings, or client metadata. See
+  `dev/debugging/instrumentation/oom-high-water.md` for the isolated-replay
+  procedure.
+- **Design records for resource permits and circuit-breaker boundaries.** They
+  specify how a future expensive policy stage is isolated, admitted, and
+  observed without confusing local capacity with upstream health.
+
 ### Internal 0.5.11 milestone (not published, 2026-08-07)
 
 The FathomDB 0.8 milestone: the engine migration and its legacy-file guard,

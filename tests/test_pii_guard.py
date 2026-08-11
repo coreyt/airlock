@@ -15,6 +15,7 @@ from airlock.guardrails.pii_guard import (
     _hydrate_tool_calls,
     _hydrate_value_recursive,
     _hydration_enabled,
+    _requires_nlp_entities,
     _scrub_messages,
     _scrub_text,
     _scrub_text_with_mapping,
@@ -78,6 +79,17 @@ class TestConfiguredEntities:
     def test_single_entity(self, monkeypatch):
         monkeypatch.setenv("AIRLOCK_PII_ENTITIES", "US_SSN")
         assert _configured_entities() == ["US_SSN"]
+
+    def test_default_entities_do_not_require_spacy_ner(self):
+        assert _requires_nlp_entities(_configured_entities()) is False
+
+    def test_shipped_bank_entities_do_not_require_spacy_ner(self):
+        assert _requires_nlp_entities(
+            ["CREDIT_CARD", "US_SSN", "EMAIL_ADDRESS", "PHONE_NUMBER", "US_BANK_NUMBER", "IBAN_CODE"]
+        ) is False
+
+    def test_named_entities_require_spacy_ner(self):
+        assert _requires_nlp_entities(["EMAIL_ADDRESS", "PERSON"]) is True
 
 
 # ---------------------------------------------------------------------------

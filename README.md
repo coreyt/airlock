@@ -31,9 +31,9 @@ Airlock sits between your developers and LLM providers, giving you visibility an
 |---|---|
 | **Unified access** | Single OpenAI-compatible endpoint for all providers |
 | **Logging** | Every request/response logged as structured JSONL |
-| **PII stripping** | Microsoft Presidio scrubs credit cards, SSNs, emails, etc. before they leave the network |
+| **PII stripping** | Microsoft Presidio detects and redacts configured entity types (default: credit cards, SSNs, emails, phone numbers); each redaction is recorded in the mutation ledger |
 | **Keyword blocking** | Custom blocklist prevents restricted project names or terms from leaking |
-| **Budget control** | Per-user/per-team spend limits via LiteLLM virtual keys |
+| **Budget control** | Per-provider daily spend caps — near-limit warning, proactive reroute away from a provider approaching its cap, hard block at the limit. Per-tenant keys with per-key budgets are planned, not yet shipped |
 | **Multi-tool support** | Works with Cursor, Claude Code, GitHub Copilot, and any OpenAI-compatible client |
 | **Self-hosted models** | Route to local vLLM, Ollama, or any OpenAI-compatible endpoint alongside cloud providers |
 | **Batch processing** | OpenAI-compatible Batch API (`/v1/files` + `/v1/batches`) for ~50% cheaper async jobs — OpenAI and Vertex AI Gemini (regional) work through the proxy today |
@@ -208,7 +208,7 @@ The main configuration file defines models, callbacks, and guardrails. See the i
 
 Key sections:
 - **`model_list`** — which LLM providers/models to expose
-- **`litellm_settings`** — callbacks, timeouts, budgets
+- **`litellm_settings`** — callbacks, timeouts
 - **`router_settings`** — routing strategy, fallbacks, provider budgets
 - **`guardrails`** — PII and keyword guards
 - **`mcp_servers`** — MCP tool servers (Armada, ADO, etc.) accessible via the proxy
