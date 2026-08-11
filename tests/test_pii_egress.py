@@ -50,3 +50,28 @@ def test_exfil_requires_residual_allow(monkeypatch):
 def test_default_egress_mode_is_observe(monkeypatch):
     monkeypatch.delenv("AIRLOCK_PII_EGRESS_MODE", raising=False)
     assert egress_mode() == "observe"
+
+
+def test_mode_can_be_configured_to_enforce(monkeypatch):
+    monkeypatch.setenv("AIRLOCK_PII_EGRESS_MODE", "enforce")
+    assert egress_mode() == "enforce"
+
+
+def test_known_bad_blocklist_vetoes_residual_allow(monkeypatch):
+    """An incident block entry always wins over an otherwise scoped grant."""
+    monkeypatch.setenv("AIRLOCK_PII_EGRESS_TOOL_BANDS", '{"send_mail":"exfil"}')
+    monkeypatch.setenv(
+        "AIRLOCK_PII_EGRESS_ALLOWLIST",
+        '[{"tool":"send_mail","path":"/to","entity_type":"EMAIL_ADDRESS"}]',
+    )
+    monkeypatch.setenv(
+        "AIRLOCK_PII_EGRESS_BLOCKLIST",
+        '[{"tool":"send_mail","path":"/to","entity_type":"EMAIL_ADDRESS"}]',
+    )
+
+    decision = decide(
+        tool="send_mail", path="/to", placeholder="<EMAIL_ADDRESS_1>"
+    )
+
+    assert decision.allow is False
+    assert decision.reason == "known_bad"
