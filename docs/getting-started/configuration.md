@@ -239,6 +239,8 @@ See [Batch Processing](../guide/batch.md) for the end-to-end recipe.
 | `AIRLOCK_MAX_LOG_SIZE_MB` | Max log file size before rotation | `500` |
 | `AIRLOCK_BLOCKED_KEYWORDS` | Comma-separated restricted phrases | -- |
 | `AIRLOCK_PII_ENTITIES` | Presidio entity types to redact | `CREDIT_CARD,US_SSN,EMAIL_ADDRESS,PHONE_NUMBER` |
+| `AIRLOCK_PII_FAIL_MODE` | PII redaction unavailable posture: `open` or `closed` | `open` |
+| `AIRLOCK_PII_EGRESS_MODE` | Rehydration egress policy: `observe`, `shadow`, `enforce` | `observe` |
 | `AIRLOCK_ENFORCE_MODE` | Guardrail mode: `observe`, `shadow`, or `enforce` | `observe` |
 | `AIRLOCK_CLIENT` | Client identity label propagated as the `X-Airlock-Client` header and recorded on each request for per-tool attribution | -- |
 | `AIRLOCK_ADVISOR_MODEL` | Override model for the advisor | -- |
