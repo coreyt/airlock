@@ -32,6 +32,68 @@ them, so `config.local.yaml` must list **every** MCP server you want at runtime
 `${HOME}`/`~` in MCP `command`/`args`, and only launches commands whose basename is
 on its allowlist. Full rules and examples in [MCP Servers](../guide/mcp-servers.md).
 
+### Supported local override: machine-specific MCP servers
+
+Airlock's supported use of `config.local.yaml` is the top-level
+`mcp_servers` mapping. Use it when a server's executable, virtual environment,
+or source checkout is specific to one host. Keep portable models, guardrails,
+routing, callbacks, and deployment policy in the reviewed `config.yaml` and
+keep all secret values in `.env` or the deployment's secret manager.
+
+Each local server can set these fields:
+
+| Field | Use | Requirement |
+| --- | --- | --- |
+| Server name | Key under `mcp_servers` | Unique name used by tool discovery |
+| `transport` | MCP transport | Use `stdio` for a locally spawned process |
+| `command` | Executable to start | Absolute path when host-specific; its basename must be allowed |
+| `args` | Executable arguments | Use absolute paths; `${HOME}`, `~`, and `$VAR` are literal text |
+| `env` | Environment passed to the server | Reference values as `os.environ/NAME`; never put a secret value here |
+
+```yaml
+# config.local.yaml — local working-tree edit; do not commit credential values
+mcp_servers:
+  local_utility:
+    transport: stdio
+    command: /home/you/projects/local-utility/.venv/bin/python
+    args: ["/home/you/projects/local-utility/server.py"]
+    env:
+      LOCAL_UTILITY_TOKEN: os.environ/LOCAL_UTILITY_TOKEN
+
+  # `mcp_servers` is replacement, not merge: repeat a bundled server that
+  # should remain enabled when this file is present.
+  newscatcher:
+    transport: stdio
+    command: python3
+    args: ["-m", "airlock.mcp_servers.newscatcher_server"]
+    env:
+      NEWS_CATCHER_API_KEY: os.environ/NEWS_CATCHER_API_KEY
+```
+
+Put the referenced value in `.env`, not in the YAML:
+
+```bash
+# .env
+LOCAL_UTILITY_TOKEN=managed-out-of-band
+```
+
+For a custom launcher whose basename is not one of LiteLLM's built-ins, add
+only its basename to `LITELLM_MCP_STDIO_EXTRA_COMMANDS` in `.env`. For example,
+`command: /home/you/bin/local-utility` requires
+`LITELLM_MCP_STDIO_EXTRA_COMMANDS=local-utility`.
+
+Restart after editing. `AIRLOCK_MCP_STARTUP_MODE=lazy` keeps the configured
+servers but delays tool discovery; `eager` probes them during startup; `off`
+removes all MCP servers, including local overrides, for that process. Verify
+the live result with the [MCP tool-discovery check](../guide/mcp-servers.md#verifying-after-a-change-or-restart).
+
+!!! warning "Do not use this file as a general secret or policy overlay"
+    A LiteLLM include is technically a YAML fragment and a dict-valued top-level
+    setting can replace the matching main setting. That makes arbitrary local
+    overrides easy to misread and difficult to review. Airlock documents
+    `mcp_servers` as the supported local surface; use a reviewed deployment
+    config selected with `airlock start --config` for other configuration.
+
 ## Reasoning-effort validation
 
 Airlock 0.5.8 rejects a known-invalid `reasoning_effort` for OpenAI-family models
