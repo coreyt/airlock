@@ -73,8 +73,12 @@ class FailoverFeed:
                         record = json.loads(line)
                     except json.JSONDecodeError:
                         continue
+                    # JSONL may be syntactically valid but still not be an
+                    # Airlock event object. Treat scalars/arrays as noise.
+                    if not isinstance(record, dict):
+                        continue
                     failover = record.get("airlock_failover")
-                    if not failover:
+                    if not isinstance(failover, dict):
                         continue
                     self.events.append(
                         {

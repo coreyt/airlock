@@ -59,7 +59,10 @@ def test_diagnostics_are_bounded_and_trim_skips_inflight(monkeypatch, tmp_path):
     diagnostics = OOMDiagnostics()
     diagnostics.pre_call({"metadata": {}})
     diagnostics._signal_snapshot("signal_usr2", trim=True)
-    time.sleep(0.05)
+    deadline = time.monotonic() + 2
+    while diagnostics._signal_lock.locked() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not diagnostics._signal_lock.locked()
     for _ in range(8):
         diagnostics.snapshot("extra")
 

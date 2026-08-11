@@ -60,6 +60,18 @@ def test_failover_feed_collects_failover_records(tmp_path):
     assert feed.recent_count(300.0) == 1
 
 
+def test_failover_feed_ignores_non_object_json_records(tmp_path):
+    _write_records(
+        _log_path(tmp_path),
+        ["not an event", ["not", "an event"], {"airlock_failover": "invalid"}],
+    )
+
+    feed = FailoverFeed(log_dir=str(tmp_path))
+    feed.poll()
+
+    assert list(feed.events) == []
+
+
 def test_failover_feed_reads_incrementally(tmp_path):
     path = _log_path(tmp_path)
     _write_records(
