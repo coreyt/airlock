@@ -8,7 +8,9 @@ import airlock.reasoning_effort as reasoning_effort
 from airlock.callbacks.enterprise_logger import AirlockLogger
 from airlock.callbacks.request_event import RequestRecorder, RequestRecorderCallback
 from airlock.measurement_report import (
+    PII_EGRESS_KIND,
     build_measurement_report,
+    build_pii_egress_measurement_report,
     iter_jsonl_records,
     main,
 )
@@ -141,6 +143,59 @@ def test_iter_jsonl_records_skips_invalid_json(tmp_path):
     )
 
     assert list(iter_jsonl_records([path])) == [{"model": "good"}]
+
+
+def test_pii_egress_report_is_value_free_and_requires_human_decision():
+    records = [
+        _record()
+        | {
+            "airlock_pii_egress": {
+                "mode": "observe",
+                "hydrated": 1,
+                "would_suppress": 1,
+                "decisions": [
+                    {
+                        "allow": False,
+                        "reason": "unknown_tool",
+                        "entity_type": "EMAIL_ADDRESS",
+                        "tool": "unregistered_tool",
+                        "path": "/recipient",
+                    }
+                ],
+            }
+        }
+    ]
+
+    report = build_pii_egress_measurement_report(records)
+
+    assert report.kind == PII_EGRESS_KIND
+    assert report.egress_events == 1
+    assert report.decision_count == 1
+    assert report.hydrated == 1
+    assert report.would_suppress == 1
+    assert report.decisions == [
+        {
+            "count": 1,
+            "mode": "observe",
+            "reason": "unknown_tool",
+            "entity_type": "EMAIL_ADDRESS",
+            "tool": "unregistered_tool",
+            "path": "/recipient",
+            "allow": False,
+        }
+    ]
+    assert report.as_dict()["human_decision_required"] is True
+
+
+def test_pii_egress_cli_rejects_automatic_disposition(tmp_path, capsys):
+    records = tmp_path / "airlock-2026-08-02.jsonl"
+    records.write_text(json.dumps(_record()) + "\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["pii-egress", str(records), "--require-dispositions"])
+
+    assert exc_info.value.code == 2
+    assert "documented human DECIDE" in capsys.readouterr().err
 
 
 @pytest.mark.asyncio

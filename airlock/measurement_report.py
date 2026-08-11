@@ -22,6 +22,7 @@ MEASUREMENT_FIELDS = {
     "reasoning-effort": "reasoning_effort_would_reject",
     "cross-tier-fuzzy": "model_alias_would_reject",
 }
+PII_EGRESS_KIND = "pii-egress"
 DISPOSITIONS = frozenset({"notify", "grace-extend", "enforce", "investigate"})
 
 
@@ -52,6 +53,42 @@ class MeasurementReport:
             "dispositions": self.dispositions,
             "undisposed_clients": self.undisposed_clients,
             "source_records": self.source_records,
+        }
+
+
+@dataclass(frozen=True)
+class PIIEgressMeasurementReport:
+    """Value-free observation summary for the PII rehydration egress gate.
+
+    This deliberately reports only emitted policy decisions.  It cannot infer
+    canary legitimacy or choose observe/shadow/enforce: those are reviewed by
+    a human against the separately recorded dogfood traffic matrix.
+    """
+
+    kind: str
+    window_start: str | None
+    window_end: str | None
+    source_records: int
+    egress_events: int
+    decision_count: int
+    hydrated: int
+    would_suppress: int
+    modes: dict[str, int]
+    decisions: list[dict[str, Any]]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "window_start": self.window_start,
+            "window_end": self.window_end,
+            "source_records": self.source_records,
+            "egress_events": self.egress_events,
+            "decision_count": self.decision_count,
+            "hydrated": self.hydrated,
+            "would_suppress": self.would_suppress,
+            "modes": self.modes,
+            "decisions": self.decisions,
+            "human_decision_required": True,
         }
 
 
@@ -199,6 +236,96 @@ def build_measurement_report(
     )
 
 
+def build_pii_egress_measurement_report(
+    records: Iterable[dict[str, Any]],
+    *,
+    window_start: str | None = None,
+    window_end: str | None = None,
+) -> PIIEgressMeasurementReport:
+    """Summarize value-free ``airlock_pii_egress`` events from JSONL.
+
+    Unknown/malformed audit payloads remain visible as no-decision egress
+    events, rather than being silently counted as a safe result.
+    """
+    start = _parse_bound(window_start)
+    end = _parse_bound(window_end)
+    if start and end and end < start:
+        raise ValueError("window end must not precede window start")
+
+    source_records = egress_events = decision_count = hydrated = would_suppress = 0
+    modes: Counter[str] = Counter()
+    decisions: Counter[tuple[str, str, str, str, str, bool]] = Counter()
+    for record in records:
+        timestamp = _parse_timestamp(record.get("timestamp"))
+        if (
+            timestamp is None
+            or (start and timestamp < start)
+            or (end and timestamp > end)
+        ):
+            continue
+        source_records += 1
+        event = record.get("airlock_pii_egress")
+        if not isinstance(event, dict):
+            continue
+        egress_events += 1
+        mode = event.get("mode")
+        modes[str(mode) if isinstance(mode, str) else "<missing>"] += 1
+        hydrated += (
+            event.get("hydrated", 0) if isinstance(event.get("hydrated"), int) else 0
+        )
+        would_suppress += (
+            event.get("would_suppress", 0)
+            if isinstance(event.get("would_suppress"), int)
+            else 0
+        )
+        raw_decisions = event.get("decisions")
+        if not isinstance(raw_decisions, list):
+            continue
+        for decision in raw_decisions:
+            if not isinstance(decision, dict):
+                continue
+            allow = decision.get("allow")
+            if not isinstance(allow, bool):
+                continue
+            decision_count += 1
+            decisions[
+                (
+                    str(mode) if isinstance(mode, str) else "<missing>",
+                    str(decision.get("reason", "<missing>")),
+                    str(decision.get("entity_type", "<missing>")),
+                    str(decision.get("tool", "<missing>")),
+                    str(decision.get("path", "<missing>")),
+                    allow,
+                )
+            ] += 1
+
+    return PIIEgressMeasurementReport(
+        kind=PII_EGRESS_KIND,
+        window_start=window_start,
+        window_end=window_end,
+        source_records=source_records,
+        egress_events=egress_events,
+        decision_count=decision_count,
+        hydrated=hydrated,
+        would_suppress=would_suppress,
+        modes=dict(sorted(modes.items())),
+        decisions=[
+            {
+                "count": count,
+                "mode": mode,
+                "reason": reason,
+                "entity_type": entity_type,
+                "tool": tool,
+                "path": path,
+                "allow": allow,
+            }
+            for (mode, reason, entity_type, tool, path, allow), count in sorted(
+                decisions.items(), key=lambda item: (-item[1], item[0])
+            )
+        ],
+    )
+
+
 def _paths_from_args(values: Sequence[str]) -> list[Path]:
     paths: list[Path] = []
     for value in values:
@@ -231,7 +358,7 @@ def _load_dispositions(path: str | None) -> dict[str, str]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("kind", choices=sorted(MEASUREMENT_FIELDS))
+    parser.add_argument("kind", choices=sorted((*MEASUREMENT_FIELDS, PII_EGRESS_KIND)))
     parser.add_argument("inputs", nargs="+", help="JSONL files or directories")
     parser.add_argument("--start", help="inclusive ISO-8601 window start")
     parser.add_argument("--end", help="inclusive ISO-8601 window end")
@@ -246,13 +373,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
-        report = build_measurement_report(
-            iter_jsonl_records(_paths_from_args(args.inputs)),
-            kind=args.kind,
-            window_start=args.start,
-            window_end=args.end,
-            dispositions=_load_dispositions(args.dispositions),
-        )
+        records = iter_jsonl_records(_paths_from_args(args.inputs))
+        if args.kind == PII_EGRESS_KIND:
+            if args.dispositions or args.require_dispositions:
+                raise ValueError(
+                    "pii-egress requires the documented human DECIDE, not dispositions"
+                )
+            report = build_pii_egress_measurement_report(
+                records, window_start=args.start, window_end=args.end
+            )
+        else:
+            report = build_measurement_report(
+                records,
+                kind=args.kind,
+                window_start=args.start,
+                window_end=args.end,
+                dispositions=_load_dispositions(args.dispositions),
+            )
     except ValueError as exc:
         parser.error(str(exc))
     print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
