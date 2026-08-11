@@ -974,7 +974,7 @@ general_settings:
   master_key: os.environ/AIRLOCK_MASTER_KEY
 
   # Keep provider health checks lazy by default.
-  # Airlock's own probes use /health/liveliness, so we do not need real
+  # Airlock's own probes use /livez, so we do not need real
   # provider calls during startup just to determine whether the proxy is up.
   # Enable this only when you explicitly want periodic provider-wide checks.
   background_health_checks: false

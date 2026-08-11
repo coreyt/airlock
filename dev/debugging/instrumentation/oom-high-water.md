@@ -13,8 +13,8 @@ request or response bodies, headers, model names, exception text, or client
 metadata. Keep artifacts outside source control and use an isolated service
 for a real-provider replay.
 
-Never use `GET /health` as a liveness probe. Use `GET /health/liveliness` for
-the safe liveness check.
+Never use `GET /health` as a liveness probe. Use `GET /livez` for the canonical
+safe liveness check.
 
 ## Enable the recorder
 
@@ -115,7 +115,7 @@ Before stopping a diagnostic run, retain:
    cgroup.
 3. Aggregate per-call success/error counts from the real runner; its top-level
    `complete` verdict alone may hide error rows.
-4. A safe `/health/liveliness` result and unit result/restart state.
+4. A safe `/livez` result and unit result/restart state.
 
 Do not stop a driver merely because it crossed an historical request-count
 landmark. Stop only at an explicit operator-approved safety boundary or after

@@ -637,14 +637,15 @@ User-facing detail: [`docs/guide/mcp-servers.md`]. Constraint reference for agen
 │  │    - ./logs (writable bind)        │  │
 │  └────────────────────────────────────┘  │
 │                                          │
-│  Health: GET /health/liveliness (30s)    │
+│  Health: GET /livez (30s)                │
 │  Restart: unless-stopped                 │
 └─────────────────────────────────────────┘
 ```
 
-> **Liveness probes use `GET /health/liveliness`, never `GET /health`.** The
-> liveness route makes no model calls. Use `/readyz` for traffic readiness and
-> `/healthz` for an aggregate status view.
+> **Liveness probes use `GET /livez`, never `GET /health`.** `/livez` is the
+> canonical liveness route and makes no model calls. Use `/readyz` for traffic
+> readiness and `/healthz` for an aggregate status view. The LiteLLM
+> `/health/liveliness` alias remains for compatibility only.
 
 ### 5.2 Local Development Deployment
 
