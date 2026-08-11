@@ -1253,7 +1253,7 @@ def test_guards_render_pipeline_escapes_request_metadata() -> None:
     assert r"\[bold red]ACT\[/]" in out
 
 
-async def test_overview_no_data_for_provider_escapes_name() -> None:
+async def test_overview_no_data_for_provider_escapes_name(fresh_state_store) -> None:
     """Early-return branch in _show_provider_detail must escape markup in
     the provider name so injected tags aren't interpreted as Rich markup."""
     from textual.widgets import Static
@@ -1275,7 +1275,7 @@ async def test_overview_no_data_for_provider_escapes_name() -> None:
         assert r"\[bold red]INJECT\[/]" in raw
 
 
-async def test_overview_no_data_for_model_escapes_name() -> None:
+async def test_overview_no_data_for_model_escapes_name(fresh_state_store) -> None:
     """Early-return branch in _show_model_detail must escape markup in
     the model name."""
     from textual.widgets import Static

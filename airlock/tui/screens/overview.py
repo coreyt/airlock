@@ -19,6 +19,7 @@ from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.css.query import NoMatches
 from textual.strip import Strip
 from textual.widgets import Button, Collapsible, DataTable, RichLog, Static
 
@@ -1002,8 +1003,21 @@ class OverviewPane(VerticalScroll):
 
         # --- push to UI ---
         def _update_ui() -> None:
+            # This worker can finish after its pane has been replaced while
+            # navigating the TUI.  In that case the scheduled UI callback is
+            # stale: querying the former pane's children raises NoMatches and
+            # turns a harmless teardown race into a failed Textual worker.
+            if not self.is_mounted:
+                return
+
             # Providers table
-            ptable = self.query_one("#ov-providers", _SafeDataTable)
+            try:
+                ptable = self.query_one("#ov-providers", _SafeDataTable)
+            except NoMatches:
+                # The overview pane may remain mounted for a moment after its
+                # children are removed during a screen switch or app teardown.
+                # This callback came from the background refresh and is stale.
+                return
             ptable.clear()
             if provider_rows:
                 for row, key in zip(provider_rows, provider_keys):
