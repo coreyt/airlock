@@ -287,6 +287,31 @@ class TestPrecallBlockRecord:
         assert record["airlock_provider"] == "openai"
         assert record["airlock_provider_protection"]["action"] == "blocked_429"
 
+    def test_excludes_pii_reverse_map_from_precall_record(self, monkeypatch):
+        written: list[dict] = []
+        secret = "canary@example.invalid"
+        monkeypatch.setattr(
+            "airlock.callbacks.enterprise_logger._write_log",
+            lambda record: written.append(record),
+        )
+
+        record = write_precall_block_record(
+            {
+                "model": "gpt-4o-mini",
+                "metadata": {
+                    "airlock_pii_map": {"<EMAIL_ADDRESS_1>": secret},
+                    "airlock_priority": {"score": 0.5},
+                },
+            },
+            error="blocked",
+            error_type="ValueError",
+        )
+
+        assert written == [record]
+        assert "airlock_pii_map" not in record
+        assert secret not in repr(record)
+        assert record["airlock_priority"] == {"score": 0.5}
+
     def test_non_airlock_metadata_excluded(self):
         """Non-airlock metadata keys are not leaked to log records."""
         kwargs = {

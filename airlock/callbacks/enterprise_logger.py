@@ -25,6 +25,7 @@ from typing import Any
 
 from airlock.client_identity import extract_airlock_client_from_kwargs
 from airlock.fast.router import infer_provider
+from airlock.metadata_policy import SECRET_METADATA_KEYS
 from airlock.fast.state import normalize_client_id
 from litellm.integrations.custom_logger import CustomLogger
 
@@ -239,7 +240,9 @@ def write_precall_block_record(
         data.get("model", "unknown")
     )
     guardrail_meta = {
-        key: value for key, value in metadata.items() if key.startswith("airlock_")
+        key: value
+        for key, value in metadata.items()
+        if key.startswith("airlock_") and key not in SECRET_METADATA_KEYS
     }
     now = datetime.datetime.now(datetime.timezone.utc)
     record = {
