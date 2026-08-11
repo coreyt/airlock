@@ -24,6 +24,7 @@ Env vars:
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import os
@@ -39,10 +40,19 @@ from airlock.transparency import record_redaction
 
 from . import _env_flag
 from .extract import is_mcp_call
+from .pii_egress import decide as decide_egress
+from .pii_egress import egress_mode
+from .pii_mapping import PIIMapStore
 
 logger = logging.getLogger("airlock.guardrails.pii")
 
 DEFAULT_ENTITIES = "CREDIT_CARD,US_SSN,EMAIL_ADDRESS,PHONE_NUMBER"
+# The shipped environment also enables US_BANK_NUMBER and IBAN_CODE. All six
+# are Presidio self-contained pattern/validation recognizers; none needs spaCy
+# named-entity inference.
+_SELF_CONTAINED_ENTITIES = frozenset(
+    (*DEFAULT_ENTITIES.split(","), "US_BANK_NUMBER", "IBAN_CODE")
+)
 
 # Lazy-loaded so the import doesn't fail at module level if presidio
 # isn't installed (allows the rest of Airlock to still work).
@@ -51,15 +61,60 @@ _anonymizer = None
 _presidio_lock = threading.Lock()
 
 
+def _positive_int_env(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, str(default))))
+    except ValueError:
+        logger.warning("Invalid %s; using %d", name, default)
+        return default
+
+
+def _positive_float_env(name: str, default: float) -> float:
+    try:
+        return max(0.1, float(os.getenv(name, str(default))))
+    except ValueError:
+        logger.warning("Invalid %s; using %.1f", name, default)
+        return default
+
+
+# One process-local store: the map is never metadata and is consumed by the
+# post-call path. Expiry bounds failure/disconnect paths that never reach it.
+_pii_map_store = PIIMapStore(
+    max_entries=_positive_int_env("AIRLOCK_PII_MAP_MAX_ENTRIES", 1024),
+    ttl_seconds=_positive_float_env("AIRLOCK_PII_MAP_TTL_SECONDS", 300.0),
+)
+
+
+def _requires_nlp_entities(entities: list[str]) -> bool:
+    """Whether the configured recognizers need spaCy NLP artifacts."""
+    return not set(entities).issubset(_SELF_CONTAINED_ENTITIES)
+
+
+def _create_analyzer():
+    """Create the least heavyweight Presidio engine preserving requested PII."""
+    from presidio_analyzer import AnalyzerEngine
+
+    entities = _configured_entities()
+    if _requires_nlp_entities(entities):
+        return AnalyzerEngine()
+
+    from presidio_analyzer.nlp_engine import NoOpNlpEngine
+
+    return AnalyzerEngine(
+        nlp_engine=NoOpNlpEngine(
+            models=[{"lang_code": "en", "model_name": "airlock-noop"}]
+        )
+    )
+
+
 def _get_presidio():
     global _analyzer, _anonymizer
     if _analyzer is None:
         with _presidio_lock:
             if _analyzer is None:  # re-check inside the lock
-                from presidio_analyzer import AnalyzerEngine
                 from presidio_anonymizer import AnonymizerEngine
 
-                analyzer = AnalyzerEngine()
+                analyzer = _create_analyzer()
                 anonymizer = AnonymizerEngine()
                 _analyzer = analyzer
                 _anonymizer = anonymizer
@@ -69,6 +124,28 @@ def _get_presidio():
 def _configured_entities() -> list[str]:
     raw = os.getenv("AIRLOCK_PII_ENTITIES", DEFAULT_ENTITIES)
     return [e.strip() for e in raw.split(",") if e.strip()]
+
+
+def _pii_fail_mode() -> str:
+    raw = os.getenv("AIRLOCK_PII_FAIL_MODE", "open").strip().lower()
+    if raw not in {"open", "closed"}:
+        logger.warning("Invalid AIRLOCK_PII_FAIL_MODE=%r; using 'open'", raw)
+        return "open"
+    return raw
+
+
+def _handle_pii_unavailable(data: dict, exc: Exception) -> dict:
+    """Apply the explicit redaction-unavailable policy without logging values."""
+    mode = _pii_fail_mode()
+    data.setdefault("metadata", {})["airlock_pii_unavailable"] = {
+        "mode": mode,
+        "stage": "pre_call",
+        "reason": type(exc).__name__,
+    }
+    logger.warning("pii_unavailable mode=%s reason=%s", mode, type(exc).__name__)
+    if mode == "closed":
+        raise ValueError("PII redaction is unavailable; request blocked by policy") from exc
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -195,42 +272,67 @@ class AirlockPIIGuard(CustomGuardrail):
             return data
         mapping: dict[str, str] = {}
         counters: dict[str, int] = {}
+        redacted_messages = None
+        redacted_mcp_arguments = None
+        mcp_redaction_count = 0
+        message_redaction_count = 0
+        try:
+            if is_mcp_call(data, call_type) and data.get("mcp_arguments") is not None:
+                # Scrub a copy. If Presidio fails, fail-open must leave the
+                # request byte-identical rather than committing a partial tree.
+                redacted_mcp_arguments = copy.deepcopy(data["mcp_arguments"])
+                working_data = {"mcp_arguments": redacted_mcp_arguments}
+                await asyncio.to_thread(
+                    _scrub_mcp_arguments, working_data, mapping, counters
+                )
+                redacted_mcp_arguments = working_data["mcp_arguments"]
+                mcp_redaction_count = len(mapping)
 
-        if is_mcp_call(data, call_type):
-            # Offload Presidio's synchronous analyze() to a worker thread so it
-            # does not block the event loop (UN-27). Dict mutation inside the
-            # thread is safe under the GIL; redaction output is byte-identical.
-            await asyncio.to_thread(_scrub_mcp_arguments, data, mapping, counters)
-            if mapping:
+            messages = data.get("messages")
+            if messages:
+                redacted_messages = await asyncio.to_thread(
+                    _scrub_messages, messages, mapping, counters
+                )
+                message_redaction_count = len(mapping) - mcp_redaction_count
+        except Exception as exc:
+            return _handle_pii_unavailable(data, exc)
+
+        handle = None
+        if mapping and not data.get("stream"):
+            handle = _pii_map_store.put(mapping)
+            if handle is None:
+                return _handle_pii_unavailable(
+                    data, RuntimeError("PII reverse-map store is saturated")
+                )
+
+        if redacted_mcp_arguments is not None:
+            data["mcp_arguments"] = redacted_mcp_arguments
+            if mcp_redaction_count:
                 record_redaction(
                     data.setdefault("metadata", {}),
                     field="mcp_arguments",
-                    count=len(mapping),
+                    count=mcp_redaction_count,
                     category="pii",
                     stage="pre_call",
                     source="pii_guard.mcp",
                 )
-
-        messages = data.get("messages")
-        if messages:
-            redacted_before = len(mapping)
-            # Offload Presidio off the event loop (UN-27); byte-identical output.
-            data["messages"] = await asyncio.to_thread(
-                _scrub_messages, messages, mapping, counters
-            )
-            redacted_added = len(mapping) - redacted_before
-            if redacted_added:
+        if redacted_messages is not None:
+            data["messages"] = redacted_messages
+            if message_redaction_count:
                 record_redaction(
                     data.setdefault("metadata", {}),
                     field="messages",
-                    count=redacted_added,
+                    count=message_redaction_count,
                     category="pii",
                     stage="pre_call",
                     source="pii_guard",
                 )
 
         if mapping:
-            data.setdefault("metadata", {})["airlock_pii_map"] = mapping
+            # Streaming responses cannot safely rehydrate split tool deltas, so
+            # do not retain a map that cannot be consumed.
+            if handle is not None:
+                data.setdefault("metadata", {})["airlock_pii_handle"] = handle
             logger.info(
                 "pii_redacted count=%d entity_types=%s",
                 len(mapping),
@@ -265,17 +367,44 @@ class AirlockPIIGuard(CustomGuardrail):
         # Batch/file routes (/v1/batches, /v1/files) invoke this hook with no
         # chat `data` (data is None / has no metadata) — nothing to hydrate.
         metadata = (data or {}).get("metadata") if isinstance(data, dict) else None
-        mapping = (
-            metadata.get("airlock_pii_map") if isinstance(metadata, dict) else None
+        handle = (
+            metadata.pop("airlock_pii_handle", None)
+            if isinstance(metadata, dict)
+            else None
         )
+        if not isinstance(handle, str):
+            return response
+        mapping = _pii_map_store.take(handle)
         if not mapping or not _hydration_enabled():
             return response
 
-        count = _hydrate_tool_calls(response, mapping)
+        # Telemetry owns the original response object. Hydrate only a private
+        # client return value so callback timing cannot write cleartext to a sink.
+        try:
+            hydrated_response = copy.deepcopy(response)
+        except Exception:
+            logger.warning("pii_hydration_skip reason=response_copy_failed")
+            return response
+        mode = egress_mode()
+        decisions: list[dict[str, str | bool]] = []
+        count = _hydrate_tool_calls(
+            hydrated_response, mapping, mode=mode, decisions=decisions
+        )
+        if isinstance(metadata, dict):
+            denied = sum(1 for item in decisions if not item["allow"])
+            metadata["airlock_pii_egress"] = {
+                "mode": mode,
+                "hydrated": count,
+                "would_suppress": denied,
+                # Tool/path/class/reason are value-free policy telemetry. Cap the
+                # event so a malicious response cannot create an oversized log.
+                "decisions": decisions[:64],
+                "truncated": len(decisions) > 64,
+            }
         if count:
             logger.info("pii_hydrated count=%d", count)
 
-        return response
+        return hydrated_response
 
 
 _VALID_HYDRATION_MODES = {"tools", "off"}
@@ -302,7 +431,13 @@ def _hydration_enabled() -> bool:
 # See dev/design-note-pii-rehydration.md §7 and dev/impl-plan-pii-rehydration.md
 # Phase 5.
 # ---------------------------------------------------------------------------
-def _hydrate_tool_calls(response: Any, mapping: dict[str, str]) -> int:
+def _hydrate_tool_calls(
+    response: Any,
+    mapping: dict[str, str],
+    *,
+    mode: str = "observe",
+    decisions: list[dict[str, str | bool]] | None = None,
+) -> int:
     """Replace PII placeholders in tool-call arguments. Returns count."""
     count = 0
     if not response or not hasattr(response, "choices"):
@@ -326,7 +461,14 @@ def _hydrate_tool_calls(response: Any, mapping: dict[str, str]) -> int:
             except (json.JSONDecodeError, TypeError):
                 logger.warning("pii_hydration_skip reason=malformed_json")
                 continue
-            args, n = _hydrate_value_recursive(args, mapping)
+            tool = str(getattr(fn, "name", "unknown") or "unknown")
+            args, n = _hydrate_value_recursive(
+                args,
+                mapping,
+                tool=tool,
+                mode=mode,
+                decisions=decisions,
+            )
             if n:
                 count += n
                 fn.arguments = json.dumps(args)
@@ -337,6 +479,11 @@ def _hydrate_value_recursive(
     value: Any,
     mapping: dict[str, str],
     _depth: int = 0,
+    *,
+    tool: str = "unknown",
+    path: str = "",
+    mode: str = "observe",
+    decisions: list[dict[str, str | bool]] | None = None,
 ) -> tuple[Any, int]:
     """Replace known placeholders in a JSON-decoded value. Returns (value, count)."""
     if _depth >= 20:
@@ -345,19 +492,49 @@ def _hydrate_value_recursive(
         count = 0
         for placeholder, original in mapping.items():
             if placeholder in value:
-                value = value.replace(placeholder, original)
-                count += 1
+                decision = decide_egress(
+                    tool=tool, path=path or "/", placeholder=placeholder
+                )
+                if decisions is not None:
+                    decisions.append(
+                        {
+                            "allow": decision.allow,
+                            "reason": decision.reason,
+                            "entity_type": decision.entity_type,
+                            "tool": decision.tool,
+                            "path": decision.path,
+                        }
+                    )
+                if decision.allow or mode == "observe":
+                    value = value.replace(placeholder, original)
+                    count += 1
         return value, count
     elif isinstance(value, dict):
         total = 0
         for k, v in value.items():
-            value[k], n = _hydrate_value_recursive(v, mapping, _depth + 1)
+            value[k], n = _hydrate_value_recursive(
+                v,
+                mapping,
+                _depth + 1,
+                tool=tool,
+                path=f"{path}/{str(k).replace('~', '~0').replace('/', '~1')}",
+                mode=mode,
+                decisions=decisions,
+            )
             total += n
         return value, total
     elif isinstance(value, list):
         total = 0
         for i, item in enumerate(value):
-            value[i], n = _hydrate_value_recursive(item, mapping, _depth + 1)
+            value[i], n = _hydrate_value_recursive(
+                item,
+                mapping,
+                _depth + 1,
+                tool=tool,
+                path=f"{path}/{i}",
+                mode=mode,
+                decisions=decisions,
+            )
             total += n
         return value, total
     return value, 0

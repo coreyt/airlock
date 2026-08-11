@@ -33,6 +33,7 @@ from airlock.callbacks.enterprise_logger import (
     _serialize,
 )
 from airlock.fast.router import infer_provider
+from airlock.metadata_policy import SECRET_METADATA_KEYS
 from airlock.gemini_interface import (
     build_gemini_response_headers,
     classify_gemini_response,
@@ -173,7 +174,11 @@ def build_request_event(
         )
 
     # Snapshot AFTER the enrich step.
-    guardrail_meta = {k: v for k, v in metadata.items() if k.startswith("airlock_")}
+    guardrail_meta = {
+        k: v
+        for k, v in metadata.items()
+        if k.startswith("airlock_") and k not in SECRET_METADATA_KEYS
+    }
 
     # MCP tool call metadata — same conditions as the builder.
     call_type = kwargs.get("call_type", "")

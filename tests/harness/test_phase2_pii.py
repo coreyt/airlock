@@ -298,13 +298,11 @@ class TestPIIHydrationRoundTrip:
             mock_user_api_key_dict, mock_cache, data, "completion"
         )
         assert "alice@company.com" not in str(data["messages"])
-        pii_map = data["metadata"]["airlock_pii_map"]
+        assert isinstance(data["metadata"].get("airlock_pii_handle"), str)
+        assert "airlock_pii_map" not in data["metadata"]
 
         # Simulate model returning a tool call with the placeholder
-        placeholder = next(
-            ph for ph, orig in pii_map.items() if orig == "alice@company.com"
-        )
-        tc = _make_tool_call("gmail_search", {"from_address": placeholder})
+        tc = _make_tool_call("gmail_search", {"from_address": "<EMAIL_ADDRESS_1>"})
         response = _make_response(tool_calls=[tc])
 
         result = await pii_guard.async_post_call_success_hook(
@@ -340,11 +338,10 @@ class TestPIIHydrationRoundTrip:
         assert "4111111111111111" not in content
         assert "alice@company.com" not in content
 
-        pii_map = data["metadata"]["airlock_pii_map"]
-        email_ph = next(
-            ph for ph, orig in pii_map.items() if orig == "alice@company.com"
-        )
-        cc_ph = next(ph for ph, orig in pii_map.items() if orig == "4111111111111111")
+        assert isinstance(data["metadata"].get("airlock_pii_handle"), str)
+        assert "airlock_pii_map" not in data["metadata"]
+        email_ph = "<EMAIL_ADDRESS_1>"
+        cc_ph = "<CREDIT_CARD_1>"
 
         tc1 = _make_tool_call("send_email", {"to": email_ph})
         tc2 = _make_tool_call("process_payment", {"card": cc_ph})
@@ -377,11 +374,11 @@ class TestPIIHydrationRoundTrip:
             mock_user_api_key_dict, mock_cache, data, "call_mcp_tool"
         )
         assert "alice@company.com" not in str(data["mcp_arguments"])
-        pii_map = data["metadata"]["airlock_pii_map"]
+        assert isinstance(data["metadata"].get("airlock_pii_handle"), str)
+        assert "airlock_pii_map" not in data["metadata"]
 
         # Simulate model returning a tool call that references the placeholder
-        placeholder = next(iter(pii_map))
-        tc = _make_tool_call("gmail_search", {"from": placeholder})
+        tc = _make_tool_call("gmail_search", {"from": "<EMAIL_ADDRESS_1>"})
         response = _make_response(tool_calls=[tc])
 
         result = await pii_guard.async_post_call_success_hook(
@@ -409,6 +406,7 @@ class TestPIIHydrationRoundTrip:
             mock_user_api_key_dict, mock_cache, data, "completion"
         )
         assert "airlock_pii_map" not in data.get("metadata", {})
+        assert "airlock_pii_handle" not in data.get("metadata", {})
 
         tc = _make_tool_call("get_info", {"query": "capital of France"})
         response = _make_response(tool_calls=[tc])
@@ -476,8 +474,14 @@ class TestPIIPrivacyBoundary:
         caplog,
     ):
         """F3: post-call log contains hydration count, not restored values."""
+        from airlock.guardrails.pii_guard import _pii_map_store
+
         data = {
-            "metadata": {"airlock_pii_map": {"<EMAIL_ADDRESS_1>": "alice@company.com"}},
+            "metadata": {
+                "airlock_pii_handle": _pii_map_store.put(
+                    {"<EMAIL_ADDRESS_1>": "alice@company.com"}
+                )
+            },
         }
         tc = _make_tool_call("gmail_search", {"from": "<EMAIL_ADDRESS_1>"})
         response = _make_response(tool_calls=[tc])

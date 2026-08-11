@@ -227,6 +227,24 @@ def test_guardrail_meta_collects_airlock_keys():
     assert "other" not in ev.guardrail_meta
 
 
+def test_guardrail_meta_excludes_request_scoped_pii_reverse_map():
+    secret = "canary@example.invalid"
+    kwargs = _kwargs(
+        metadata={
+            "airlock_pii_map": {"<EMAIL_ADDRESS_1>": secret},
+            "airlock_semantic_score": 0.9,
+        }
+    )
+
+    event = build_request_event(
+        kwargs, _FakeResponse(), _ts(0), _ts(1), success=True
+    )
+
+    assert "airlock_pii_map" not in event.guardrail_meta
+    assert secret not in repr(event.guardrail_meta)
+    assert event.guardrail_meta["airlock_semantic_score"] == 0.9
+
+
 def test_top_level_metadata_fallback_preserves_guardrail_markers():
     marker = Mutation(
         field="model_alias_would_reject",

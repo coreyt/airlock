@@ -208,11 +208,21 @@ def mock_start_end_times():
 # ---------------------------------------------------------------------------
 @pytest.fixture(scope="session")
 def presidio_available():
-    """True if Presidio + spaCy model installed.  Checked once per session."""
+    """True if Presidio's deterministic recognizers are available.
+
+    The default Airlock PII classes do not require a spaCy model.  Requiring one
+    here made the test harness recreate the same native-memory pressure that the
+    runtime no longer has.
+    """
     try:
         from presidio_analyzer import AnalyzerEngine
+        from presidio_analyzer.nlp_engine import NoOpNlpEngine
 
-        AnalyzerEngine()
+        AnalyzerEngine(
+            nlp_engine=NoOpNlpEngine(
+                models=[{"lang_code": "en", "model_name": "airlock-noop"}]
+            )
+        )
         return True
     except (ImportError, OSError):
         return False
@@ -220,25 +230,34 @@ def presidio_available():
 
 @pytest.fixture(scope="session")
 def _presidio_engines(presidio_available):
-    """Load Presidio engines once per session and share across all tests.
+    """Load deterministic Presidio engines once per session and share them.
 
-    This avoids reloading the ~560 MB spaCy model for every test, which
-    was the root cause of OOM kills when running the full suite.
+    This verifies the production default (NoOp NLP engine) without loading the
+    spaCy model. Custom NER entity coverage belongs in tests that explicitly
+    configure and supply that model.
     """
     if not presidio_available:
         return None, None
     from presidio_analyzer import AnalyzerEngine
+    from presidio_analyzer.nlp_engine import NoOpNlpEngine
     from presidio_anonymizer import AnonymizerEngine
 
-    return AnalyzerEngine(), AnonymizerEngine()
+    return (
+        AnalyzerEngine(
+            nlp_engine=NoOpNlpEngine(
+                models=[{"lang_code": "en", "model_name": "airlock-noop"}]
+            )
+        ),
+        AnonymizerEngine(),
+    )
 
 
 @pytest.fixture
 def reset_presidio_singletons(_presidio_engines):
     """Point the module-level singletons at the shared session engines.
 
-    Each test gets the pre-loaded engines (no spaCy reload) and the
-    originals are restored on teardown for isolation.
+    Each test gets the pre-loaded deterministic engines and the originals are
+    restored on teardown for isolation.
     """
     import airlock.guardrails.pii_guard as pii_mod
 

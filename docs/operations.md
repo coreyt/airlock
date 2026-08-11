@@ -102,6 +102,8 @@ scheme (`http://` → `https://`).
 | `AIRLOCK_ENABLE_FATHOM_LOGGER` | No | `0` | Append the Fathom request logger at runtime without editing `config.yaml` |
 | `AIRLOCK_BLOCKED_KEYWORDS` | No | — | Comma-separated restricted phrases |
 | `AIRLOCK_PII_ENTITIES` | No | `CREDIT_CARD,US_SSN,EMAIL_ADDRESS,PHONE_NUMBER` | Presidio entity types to redact |
+| `AIRLOCK_PII_FAIL_MODE` | No | `open` | `open` stamps a value-free unavailable marker; `closed` blocks if redaction cannot run |
+| `AIRLOCK_PII_EGRESS_MODE` | No | `observe` | Rehydration egress policy: `observe`, `shadow`, or `enforce` |
 | `AIRLOCK_OTEL_SERVICE_NAME` | No | `airlock` | OpenTelemetry service name |
 
 ### Provider-spend durability across restart
@@ -538,7 +540,17 @@ Start in `observe` mode, review logs, then promote to `enforce` when confident.
 
 ### PII Redaction
 
-Uses Microsoft Presidio with the `en_core_web_lg` spaCy model. Default entities: credit cards, SSNs, emails, phone numbers. Customize with `AIRLOCK_PII_ENTITIES`.
+Uses Microsoft Presidio. Airlock's shipped card, SSN, email, phone, US-bank, and
+IBAN recognizers use Presidio's no-NLP engine; adding semantic entities such as
+`PERSON` uses the spaCy model. Customize with `AIRLOCK_PII_ENTITIES`.
+
+Reverse-redaction maps are bounded, request-scoped process memory addressed by
+opaque handles; they are never metadata, telemetry, or log fields. Non-streaming
+tool-call hydration returns a private response copy, keeping the telemetry object
+redacted. Rehydration egress policy starts in `observe`: it emits value-free
+tool/path/entity-class decisions but does not alter a response. In `shadow` and
+`enforce`, unknown/exfil-capable paths keep placeholders unless explicitly
+authorized. See `dev/notes/design-pii-rehydration-primary.md`.
 
 ### Keyword Blocking
 
