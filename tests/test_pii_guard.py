@@ -20,6 +20,14 @@ from airlock.guardrails.pii_guard import (
 )
 
 
+def _take_pii_mapping(data: dict) -> dict[str, str] | None:
+    """Test-only view of the request-scoped store; production gets no map."""
+    from airlock.guardrails.pii_guard import _pii_map_store
+
+    handle = data.get("metadata", {}).get("airlock_pii_handle")
+    return _pii_map_store.take(handle) if isinstance(handle, str) else None
+
+
 # ---------------------------------------------------------------------------
 # Helpers for building mock LLM responses
 # ---------------------------------------------------------------------------
@@ -186,7 +194,7 @@ class TestGracefulDegradation:
         call_lock = threading.Lock()
 
         class FakeAnalyzer:
-            def __init__(self):
+            def __init__(self, **_kwargs):
                 nonlocal analyzer_calls
                 with call_lock:
                     analyzer_calls += 1
@@ -199,6 +207,13 @@ class TestGracefulDegradation:
 
         fake_analyzer_mod = types.ModuleType("presidio_analyzer")
         fake_analyzer_mod.AnalyzerEngine = FakeAnalyzer
+        fake_nlp_mod = types.ModuleType("presidio_analyzer.nlp_engine")
+
+        class FakeNoOpNlpEngine:
+            def __init__(self, **_kwargs):
+                pass
+
+        fake_nlp_mod.NoOpNlpEngine = FakeNoOpNlpEngine
         fake_anonymizer_mod = types.ModuleType("presidio_anonymizer")
         fake_anonymizer_mod.AnonymizerEngine = FakeAnonymizer
 
@@ -206,6 +221,7 @@ class TestGracefulDegradation:
             sys.modules,
             {
                 "presidio_analyzer": fake_analyzer_mod,
+                "presidio_analyzer.nlp_engine": fake_nlp_mod,
                 "presidio_anonymizer": fake_anonymizer_mod,
             },
         ):
@@ -318,7 +334,8 @@ class TestOffloadByteParity:
         )
 
         assert result["messages"] == ref_messages
-        assert result["metadata"]["airlock_pii_map"] == ref_mapping
+        assert "airlock_pii_map" not in result["metadata"]
+        assert _take_pii_mapping(result) == ref_mapping
 
 
 class TestTextCachePostRedaction:
@@ -521,7 +538,7 @@ class TestScrubTextWithMapping:
 
 
 # ---------------------------------------------------------------------------
-# Mapping storage in request metadata
+# Mapping storage behind an opaque request handle
 # ---------------------------------------------------------------------------
 class TestMappingStorage:
     @pytest.fixture(autouse=True)
@@ -529,7 +546,7 @@ class TestMappingStorage:
         if not presidio_available:
             pytest.skip("Presidio not available")
 
-    async def test_mapping_attached_after_redaction(
+    async def test_opaque_handle_attached_after_redaction(
         self, mock_cache, mock_user_api_key_dict
     ):
         guard = AirlockPIIGuard()
@@ -540,9 +557,12 @@ class TestMappingStorage:
         result = await guard.async_pre_call_hook(
             mock_user_api_key_dict, mock_cache, data, "completion"
         )
-        pii_map = result.get("metadata", {}).get("airlock_pii_map")
+        handle = result.get("metadata", {}).get("airlock_pii_handle")
+        assert isinstance(handle, str)
+        assert "alice@corp.com" not in handle
+        assert "airlock_pii_map" not in result["metadata"]
+        pii_map = _take_pii_mapping(result)
         assert pii_map is not None
-        assert isinstance(pii_map, dict)
         assert "<EMAIL_ADDRESS_1>" in pii_map
         assert pii_map["<EMAIL_ADDRESS_1>"] == "alice@corp.com"
 
@@ -555,7 +575,7 @@ class TestMappingStorage:
         result = await guard.async_pre_call_hook(
             mock_user_api_key_dict, mock_cache, data, "completion"
         )
-        assert "airlock_pii_map" not in result.get("metadata", {})
+        assert "airlock_pii_handle" not in result.get("metadata", {})
 
     async def test_mapping_correct_for_multiple_entities(
         self, mock_cache, mock_user_api_key_dict
@@ -573,7 +593,8 @@ class TestMappingStorage:
         result = await guard.async_pre_call_hook(
             mock_user_api_key_dict, mock_cache, data, "completion"
         )
-        pii_map = result["metadata"]["airlock_pii_map"]
+        pii_map = _take_pii_mapping(result)
+        assert pii_map is not None
         assert len(pii_map) == 2
         assert "alice@corp.com" in pii_map.values()
         assert "4111111111111111" in pii_map.values()
@@ -591,7 +612,7 @@ class TestMappingStorage:
             mock_user_api_key_dict, mock_cache, data, "completion"
         )
         assert result["metadata"]["airlock_other"] is True
-        assert "airlock_pii_map" in result["metadata"]
+        assert "airlock_pii_handle" in result["metadata"]
 
     async def test_mapping_available_in_mcp_path(
         self, mock_cache, mock_user_api_key_dict
@@ -604,7 +625,7 @@ class TestMappingStorage:
         result = await guard.async_pre_call_hook(
             mock_user_api_key_dict, mock_cache, data, "call_mcp_tool"
         )
-        pii_map = result.get("metadata", {}).get("airlock_pii_map")
+        pii_map = _take_pii_mapping(result)
         assert pii_map is not None
         assert "alice@corp.com" in pii_map.values()
 
@@ -809,11 +830,9 @@ class TestPostCallSuccessHook:
             mock_user_api_key_dict, mock_cache, data, "completion"
         )
         assert "alice@corp.com" not in str(data["messages"])
-        pii_map = data["metadata"]["airlock_pii_map"]
 
         # Simulate model returning a tool call with the placeholder
-        placeholder = next(iter(pii_map))
-        tc = _make_tool_call("gmail_search", {"from_address": placeholder})
+        tc = _make_tool_call("gmail_search", {"from_address": "<EMAIL_ADDRESS_1>"})
         response = _make_response(tool_calls=[tc])
 
         # Post-call: hydrate
@@ -822,6 +841,14 @@ class TestPostCallSuccessHook:
         )
         args = json.loads(result.choices[0].message.tool_calls[0].function.arguments)
         assert args["from_address"] == "alice@corp.com"
+
+        # The callback/telemetry response is still redacted and the handle was
+        # consumed before the client response was returned.
+        original_args = json.loads(
+            response.choices[0].message.tool_calls[0].function.arguments
+        )
+        assert original_args["from_address"] == "<EMAIL_ADDRESS_1>"
+        assert "airlock_pii_handle" not in data["metadata"]
 
     async def test_no_mapping_passes_through(self, mock_cache, mock_user_api_key_dict):
         guard = AirlockPIIGuard()
@@ -843,7 +870,7 @@ class TestPostCallSuccessHook:
         self, mock_cache, mock_user_api_key_dict
     ):
         guard = AirlockPIIGuard()
-        data = {"metadata": {"airlock_pii_map": {}}}
+        data = {"metadata": {}}
         tc = _make_tool_call("gmail_search", {"from": "<EMAIL_ADDRESS_1>"})
         response = _make_response(tool_calls=[tc])
         result = await guard.async_post_call_success_hook(
@@ -879,8 +906,14 @@ class TestHydrationConfig:
     async def test_hook_skips_when_disabled(self, monkeypatch, mock_user_api_key_dict):
         monkeypatch.setenv("AIRLOCK_PII_HYDRATION", "off")
         guard = AirlockPIIGuard()
+        from airlock.guardrails.pii_guard import _pii_map_store
+
         data = {
-            "metadata": {"airlock_pii_map": {"<EMAIL_ADDRESS_1>": "alice@corp.com"}}
+            "metadata": {
+                "airlock_pii_handle": _pii_map_store.put(
+                    {"<EMAIL_ADDRESS_1>": "alice@corp.com"}
+                )
+            }
         }
         tc = _make_tool_call("gmail_search", {"from": "<EMAIL_ADDRESS_1>"})
         response = _make_response(tool_calls=[tc])
@@ -928,16 +961,14 @@ class TestEdgeCases:
             mock_user_api_key_dict, mock_cache, data_b, "completion"
         )
 
-        map_a = result_a["metadata"]["airlock_pii_map"]
-        map_b = result_b["metadata"]["airlock_pii_map"]
-
-        assert map_a is not map_b
+        assert result_a["metadata"]["airlock_pii_handle"] != result_b["metadata"][
+            "airlock_pii_handle"
+        ]
 
     async def test_presidio_unavailable_full_round_trip(
         self, mock_user_api_key_dict, reset_presidio_singletons
     ):
-        """I7: when Presidio is not installed, pre-call raises ImportError,
-        no mapping is stored, and post-call passes response through unchanged."""
+        """Open fail mode preserves the request and writes a value-free marker."""
         import airlock.guardrails.pii_guard as pii_mod
 
         pii_mod._analyzer = None
@@ -953,13 +984,13 @@ class TestEdgeCases:
             "sys.modules",
             {"presidio_analyzer": None, "presidio_anonymizer": None},
         ):
-            with pytest.raises(ImportError):
-                await guard.async_pre_call_hook(
-                    mock_user_api_key_dict, MagicMock(), data, "completion"
-                )
+            await guard.async_pre_call_hook(
+                mock_user_api_key_dict, MagicMock(), data, "completion"
+            )
 
         # Pre-call crashed, so data is unmodified — no mapping, content unchanged
-        assert "airlock_pii_map" not in data.get("metadata", {})
+        assert "airlock_pii_handle" not in data.get("metadata", {})
+        assert data["metadata"]["airlock_pii_unavailable"]["mode"] == "open"
         assert data["messages"][0]["content"] == "Email alice@corp.com"
 
         # Post-call with no mapping passes through unchanged
@@ -1006,8 +1037,14 @@ class TestPrivacyBoundary:
         """F3: log output from hydration contains count but never the
         restored original PII values."""
         guard = AirlockPIIGuard()
+        from airlock.guardrails.pii_guard import _pii_map_store
+
         data = {
-            "metadata": {"airlock_pii_map": {"<EMAIL_ADDRESS_1>": "alice@corp.com"}}
+            "metadata": {
+                "airlock_pii_handle": _pii_map_store.put(
+                    {"<EMAIL_ADDRESS_1>": "alice@corp.com"}
+                )
+            }
         }
         tc = _make_tool_call("gmail_search", {"from": "<EMAIL_ADDRESS_1>"})
         response = _make_response(tool_calls=[tc])
@@ -1197,14 +1234,11 @@ class TestMappingPlaceholderConsistency:
         data = await guard.async_pre_call_hook(
             mock_user_api_key_dict, mock_cache, data, "completion"
         )
-        pii_map = data["metadata"]["airlock_pii_map"]
         content = data["messages"][0]["content"]
-        # Every placeholder key must appear in the scrubbed content
-        for placeholder in pii_map:
-            assert placeholder in content
-        # No original values should remain
-        for original in pii_map.values():
-            assert original not in content
+        assert "<EMAIL_ADDRESS_1>" in content
+        assert "<EMAIL_ADDRESS_2>" in content
+        assert "alice@corp.com" not in content
+        assert "bob@other.org" not in content
 
 
 class TestLogEntityTypeExtraction:
@@ -1382,8 +1416,8 @@ class TestRedactionLedger:
         assert red[0].stage == "pre_call"
         # CC-T2: the scrubbed secret never appears anywhere in the ledger
         assert secret not in repr(muts)
-        # CC-T1 back-compat
-        assert "airlock_pii_map" in result["metadata"]
+        assert "airlock_pii_map" not in result["metadata"]
+        assert "airlock_pii_handle" in result["metadata"]
 
     async def test_no_pii_records_nothing(self, mock_cache, mock_user_api_key_dict):
         guard = AirlockPIIGuard()
