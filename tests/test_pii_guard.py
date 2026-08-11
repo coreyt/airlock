@@ -11,6 +11,7 @@ import pytest
 from airlock.guardrails.pii_guard import (
     AirlockPIIGuard,
     _configured_entities,
+    _create_analyzer,
     _hydrate_tool_calls,
     _hydrate_value_recursive,
     _hydration_enabled,
@@ -246,6 +247,55 @@ class TestGracefulDegradation:
         for r in results:
             assert r[0] is first[0]
             assert r[1] is first[1]
+
+    def test_default_entities_construct_a_noop_nlp_engine(self, monkeypatch):
+        """The shipped deterministic entity set must not load spaCy."""
+        import sys
+        import types
+
+        class FakeAnalyzer:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        class FakeNoOpNlpEngine:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        analyzer_module = types.ModuleType("presidio_analyzer")
+        analyzer_module.AnalyzerEngine = FakeAnalyzer
+        nlp_module = types.ModuleType("presidio_analyzer.nlp_engine")
+        nlp_module.NoOpNlpEngine = FakeNoOpNlpEngine
+        monkeypatch.delenv("AIRLOCK_PII_ENTITIES", raising=False)
+        with patch.dict(
+            sys.modules,
+            {
+                "presidio_analyzer": analyzer_module,
+                "presidio_analyzer.nlp_engine": nlp_module,
+            },
+        ):
+            analyzer = _create_analyzer()
+
+        assert isinstance(analyzer.kwargs["nlp_engine"], FakeNoOpNlpEngine)
+        assert analyzer.kwargs["nlp_engine"].kwargs["models"] == [
+            {"lang_code": "en", "model_name": "airlock-noop"}
+        ]
+
+    def test_custom_ner_entity_constructs_default_nlp_engine(self, monkeypatch):
+        """Custom NER remains available and deliberately opts into full NLP."""
+        import sys
+        import types
+
+        class FakeAnalyzer:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        analyzer_module = types.ModuleType("presidio_analyzer")
+        analyzer_module.AnalyzerEngine = FakeAnalyzer
+        monkeypatch.setenv("AIRLOCK_PII_ENTITIES", "EMAIL_ADDRESS,PERSON")
+        with patch.dict(sys.modules, {"presidio_analyzer": analyzer_module}):
+            analyzer = _create_analyzer()
+
+        assert analyzer.kwargs == {}
 
     def test_get_presidio_raises_when_unavailable(self, reset_presidio_singletons):
         """_get_presidio raises ImportError when Presidio can't be imported."""
@@ -807,6 +857,45 @@ class TestHydrateToolCalls:
     def test_response_without_choices(self):
         assert _hydrate_tool_calls(SimpleNamespace(), {"<EMAIL_ADDRESS_1>": "x"}) == 0
 
+    @pytest.mark.parametrize("mode", ["shadow", "enforce"])
+    def test_unknown_tool_is_suppressed_outside_observe(self, monkeypatch, mode):
+        monkeypatch.delenv("AIRLOCK_PII_EGRESS_TOOL_BANDS", raising=False)
+        tc = _make_tool_call("unregistered_tool", {"recipient": "<EMAIL_ADDRESS_1>"})
+        decisions: list[dict[str, str | bool]] = []
+        count = _hydrate_tool_calls(
+            _make_response(tool_calls=[tc]),
+            {"<EMAIL_ADDRESS_1>": "alice@corp.com"},
+            mode=mode,
+            decisions=decisions,
+        )
+
+        assert count == 0
+        assert json.loads(tc.function.arguments)["recipient"] == "<EMAIL_ADDRESS_1>"
+        assert decisions == [
+            {
+                "allow": False,
+                "reason": "unknown_tool",
+                "entity_type": "EMAIL_ADDRESS",
+                "tool": "unregistered_tool",
+                "path": "/recipient",
+            }
+        ]
+
+    def test_unknown_tool_is_hydrated_in_observe(self, monkeypatch):
+        monkeypatch.delenv("AIRLOCK_PII_EGRESS_TOOL_BANDS", raising=False)
+        tc = _make_tool_call("unregistered_tool", {"recipient": "<EMAIL_ADDRESS_1>"})
+        decisions: list[dict[str, str | bool]] = []
+        count = _hydrate_tool_calls(
+            _make_response(tool_calls=[tc]),
+            {"<EMAIL_ADDRESS_1>": "alice@corp.com"},
+            mode="observe",
+            decisions=decisions,
+        )
+
+        assert count == 1
+        assert json.loads(tc.function.arguments)["recipient"] == "alice@corp.com"
+        assert decisions[0]["allow"] is False
+
 
 # ---------------------------------------------------------------------------
 # async_post_call_success_hook round-trip
@@ -933,6 +1022,37 @@ class TestHydrationConfig:
 # Phase 3: Failure modes and edge cases
 # ---------------------------------------------------------------------------
 class TestEdgeCases:
+    @pytest.mark.parametrize("mode", ["open", "closed"])
+    async def test_redaction_unavailable_obeys_fail_mode(
+        self, monkeypatch, mock_cache, mock_user_api_key_dict, mode
+    ):
+        import airlock.guardrails.pii_guard as pii_mod
+
+        monkeypatch.setenv("AIRLOCK_PII_ENABLED", "true")
+        monkeypatch.setenv("AIRLOCK_PII_FAIL_MODE", mode)
+        monkeypatch.setattr(
+            pii_mod,
+            "_scrub_messages",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("offline")),
+        )
+        data = {"messages": [{"role": "user", "content": "untouched canary"}]}
+
+        if mode == "closed":
+            with pytest.raises(ValueError, match="PII redaction is unavailable"):
+                await AirlockPIIGuard().async_pre_call_hook(
+                    mock_user_api_key_dict, mock_cache, data, "completion"
+                )
+        else:
+            result = await AirlockPIIGuard().async_pre_call_hook(
+                mock_user_api_key_dict, mock_cache, data, "completion"
+            )
+            assert result["messages"][0]["content"] == "untouched canary"
+            assert result["metadata"]["airlock_pii_unavailable"] == {
+                "mode": "open",
+                "stage": "pre_call",
+                "reason": "RuntimeError",
+            }
+
     async def test_sequential_requests_have_independent_mappings(
         self,
         mock_cache,
@@ -961,9 +1081,10 @@ class TestEdgeCases:
             mock_user_api_key_dict, mock_cache, data_b, "completion"
         )
 
-        assert result_a["metadata"]["airlock_pii_handle"] != result_b["metadata"][
-            "airlock_pii_handle"
-        ]
+        assert (
+            result_a["metadata"]["airlock_pii_handle"]
+            != result_b["metadata"]["airlock_pii_handle"]
+        )
 
     async def test_presidio_unavailable_full_round_trip(
         self, mock_user_api_key_dict, reset_presidio_singletons

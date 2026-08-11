@@ -142,8 +142,8 @@ but read **different** fields:
 
 **Where the resolver runs — and the ASGI→LiteLLM handoff (codex CONCERN,
 2026-06-23).** The content guards already receive LiteLLM `data` (incl.
-`data["metadata"]`) in their hooks — `keyword_guard.py:78` today reads the env
-flag and `pii_guard.py:202` today writes `airlock_pii_map` metadata; **this pack
+`data["metadata"]`) in their hooks — `keyword_guard.py:78` reads the env
+flag and `pii_guard.py` stores its reverse map behind an opaque handle; **this pack
 modifies each hook to also read its mode from
 `data["metadata"]["airlock_guardrail_decision"]`** (those line refs are the
 edit sites, not existing decision-readers). The `GuardrailDecision` must therefore

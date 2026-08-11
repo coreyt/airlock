@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,6 +15,24 @@ from airlock.measurement_report import (
     iter_jsonl_records,
     main,
 )
+
+
+def _pii_tool_response(*, tool: str, arguments: dict[str, object]) -> SimpleNamespace:
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    tool_calls=[
+                        SimpleNamespace(
+                            function=SimpleNamespace(
+                                name=tool, arguments=json.dumps(arguments)
+                            )
+                        )
+                    ]
+                )
+            )
+        ]
+    )
 
 
 def _record(
@@ -196,6 +215,63 @@ def test_pii_egress_cli_rejects_automatic_disposition(tmp_path, capsys):
 
     assert exc_info.value.code == 2
     assert "documented human DECIDE" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_pii_egress_observe_canary_round_trips_through_jsonl_and_report(
+    tmp_path, monkeypatch
+):
+    """Exercise PII post-call → canonical event → JSONL → report, without PII sinks."""
+    from airlock.guardrails.pii_guard import AirlockPIIGuard, _pii_map_store
+
+    monkeypatch.setenv("AIRLOCK_LOG_DIR", str(tmp_path))
+    monkeypatch.setenv("AIRLOCK_PII_EGRESS_MODE", "observe")
+    # This unknown tool would be denied in shadow/enforce. Observe preserves
+    # behavior while recording the would-suppress decision.
+    monkeypatch.delenv("AIRLOCK_PII_EGRESS_TOOL_BANDS", raising=False)
+    canary = "canary-person@example.test"
+    data = {
+        "model": "gpt-5.4",
+        "metadata": {
+            "airlock_client": "pii-dogfood-canary",
+            "airlock_pii_handle": _pii_map_store.put(
+                {"<EMAIL_ADDRESS_1>": canary}
+            ),
+        },
+    }
+    response = _pii_tool_response(
+        tool="unregistered_tool", arguments={"recipient": "<EMAIL_ADDRESS_1>"}
+    )
+
+    client_response = await AirlockPIIGuard().async_post_call_success_hook(
+        data, None, response
+    )
+    assert json.loads(
+        client_response.choices[0].message.tool_calls[0].function.arguments
+    )["recipient"] == canary
+    # The response passed to telemetry remains redacted, and reverse mapping has
+    # been consumed before the recorder sees metadata.
+    assert json.loads(response.choices[0].message.tool_calls[0].function.arguments)[
+        "recipient"
+    ] == "<EMAIL_ADDRESS_1>"
+    assert "airlock_pii_handle" not in data["metadata"]
+
+    recorder = RequestRecorder()
+    recorder.register(AirlockLogger().record_event, name="enterprise")
+    RequestRecorderCallback(recorder).log_success_event(data, response, None, None)
+
+    records = list(iter_jsonl_records(sorted(tmp_path.glob("airlock-*.jsonl"))))
+    assert len(records) == 1
+    record = records[0]
+    assert "airlock_pii_map" not in record
+    assert canary not in json.dumps(record)
+    assert record["airlock_pii_egress"]["would_suppress"] == 1
+    report = build_pii_egress_measurement_report(records)
+    assert report.egress_events == 1
+    assert report.decision_count == 1
+    assert report.hydrated == 1
+    assert report.would_suppress == 1
+    assert report.decisions[0]["reason"] == "unknown_tool"
 
 
 @pytest.mark.asyncio

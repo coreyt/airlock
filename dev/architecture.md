@@ -452,8 +452,9 @@ serving backend are recorded and surfaced by default, rather than inferred or
 hidden. Two cooperating mechanisms, both riding the existing metadata bus.
 
 **Mutation ledger.** A single ordered list `metadata["airlock_mutations"]` (the
-canonical view; the legacy `airlock_routing`/`airlock_alias`/`airlock_pii_map`/…
-keys remain for back-compat). Each mutating site appends one `Mutation` record via
+canonical view; the legacy `airlock_routing`/`airlock_alias`/… keys remain for
+back-compat, except PII reverse maps: they are process-local and never metadata or
+a telemetry field). Each mutating site appends one `Mutation` record via
 `record_mutation()` — `{field, op (set/drop/clamp/rewrite/inject/redact/suppress),
 before, after, stage (pre_call/during_call/post_call), source, reason}`. Redaction
 records are **value-free**: `{field, op:redact, count, category}`, never the matched

@@ -20,9 +20,10 @@ mutated or where it goes. (See architecture §3.7 for the internals.)
 Every site that mutates a request appends exactly one record to a single ordered
 list, `metadata["airlock_mutations"]`. This is the **one-ledger principle**: rather
 than scattering ad-hoc `airlock_*` keys (which is exactly why surfacing used to be
-inconsistent), there is one normalized, authoritative view. The legacy keys
-(`airlock_routing`, `airlock_alias`, `airlock_pii_map`, …) still exist for
-back-compat, but the ledger is the canonical record.
+inconsistent), there is one normalized, authoritative view. Some legacy routing
+keys (`airlock_routing`, `airlock_alias`, …) remain for back-compat, but PII
+reverse maps are not a metadata surface: Airlock stores them process-locally and
+passes only an opaque, short-lived handle on the request path.
 
 Each record is a `Mutation`:
 

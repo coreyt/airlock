@@ -60,38 +60,42 @@ Assert: single unified mapping covers both.
 
 Input: `mcp_arguments: {"to": "alice@corp.com", "cc": "bob@corp.com"}`
 Assert: distinct numbered placeholders in arguments.
-Assert: mapping stored in `data["metadata"]`.
+Assert: metadata contains only an opaque `airlock_pii_handle`; the reverse map is
+in the bounded process-local store.
 
 ---
 
-## B. Mapping Storage In Request Metadata
+## B. Opaque Mapping Handle and Process-Local Storage
 
 ### B1. Mapping attached after redaction
 
 Run pre-call hook on a message with PII.
-Assert: `data["metadata"]["airlock_pii_map"]` exists.
-Assert: it is a `dict[str, str]` mapping placeholder to original.
+Assert: `data["metadata"]["airlock_pii_handle"]` exists and is an opaque string.
+Assert: `airlock_pii_map` is absent from metadata and serialized records.
+Assert: the store has the placeholder-to-original map only until one post-call
+consumer takes it or its TTL expires.
 
 ### B2. Mapping not attached when no PII detected
 
 Run pre-call hook on `"What is the capital of France?"`.
-Assert: `"airlock_pii_map"` not in `data.get("metadata", {})`.
+Assert: neither `airlock_pii_handle` nor `airlock_pii_map` is in metadata.
 
 ### B3. Mapping correct for multiple entities
 
 Input: `"alice@corp.com and 4111111111111111"`
-Assert: mapping has two entries with correct placeholder-to-original pairs.
+Assert: client hydration restores both numbered placeholders while telemetry's
+shared response remains redacted.
 
 ### B4. Mapping preserves existing metadata
 
 Pre-populate `data["metadata"] = {"airlock_other": True}`.
 Run pre-call hook with PII.
-Assert: both `airlock_other` and `airlock_pii_map` present.
+Assert: both `airlock_other` and `airlock_pii_handle` are present; no map is.
 
 ### B5. Mapping available in MCP path
 
 Run pre-call hook with `call_type="call_mcp_tool"` and PII in arguments.
-Assert: `data["metadata"]["airlock_pii_map"]` populated.
+Assert: `data["metadata"]["airlock_pii_handle"]` is present and no map is.
 
 ---
 
@@ -179,7 +183,7 @@ Assert: yielded chunks are unmodified.
 ### E1. No mapping in metadata — placeholders left as-is
 
 Post-call hook receives a response with `<EMAIL_ADDRESS_1>` but
-`data["metadata"]` has no `airlock_pii_map`.
+`data["metadata"]` has no `airlock_pii_handle`.
 Assert: argument value unchanged.
 Assert: warning logged.
 
@@ -195,7 +199,7 @@ Assert: no crash, response returned as-is, warning logged.
 
 ### E4. Empty mapping dict
 
-`data["metadata"]["airlock_pii_map"] = {}`.
+The opaque handle resolves to no map (expired, consumed, or unknown).
 Response has placeholders.
 Assert: placeholders unchanged, no error.
 
