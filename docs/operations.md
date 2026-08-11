@@ -37,6 +37,7 @@ The deployment runs as non-root (UID 1000), sets resource limits (250m-1 CPU, 51
 python -m venv /opt/airlock/.venv
 source /opt/airlock/.venv/bin/activate
 pip install -e ".[metrics,tracing]"
+# Required only if AIRLOCK_PII_ENTITIES includes a spaCy/NER type such as PERSON.
 pip install "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"
 
 # Copy config
@@ -159,7 +160,7 @@ Probe endpoints are **unauthenticated** and respond as `application/health+json`
 per the [IETF health check draft](https://datatracker.ietf.org/doc/html/draft-inadarei-api-health-check-06):
 
 ```json
-{"status": "pass", "serviceId": "airlock", "version": "0.5.10",
+{"status": "pass", "serviceId": "airlock", "version": "0.5.12",
  "checks": {"models:available": [{"status": "pass", "observedValue": 79}]}}
 ```
 
@@ -200,6 +201,32 @@ GET /healthz    # expect 200 and {"status": "pass"}
 
 The `/health/circuits` endpoint is installed by the `model_override_headers`
 callback (see [Callbacks](#callbacks)).
+
+## Memory guardrails and OOM diagnostics
+
+The bundled systemd unit sets `MemoryHigh=3G` and `MemoryMax=4G`: the first
+asks the cgroup to reclaim/throttle before a hard cap is reached. Treat these
+as a starting point, not universal production values; size them for the
+container or VM and its concurrency budget. A limit makes a memory failure
+observable and restartable, but it does not cure a leak or an oversized
+workload.
+
+For an isolated reproduction, enable the bounded diagnostic recorder:
+
+```bash
+AIRLOCK_OOM_DIAGNOSTICS=1
+AIRLOCK_OOM_DIAGNOSTICS_DIR=/var/tmp/airlock-oom
+AIRLOCK_OOM_DIAGNOSTICS_EVERY=25
+AIRLOCK_OOM_DIAGNOSTICS_MAX_RECORDS=6000
+```
+
+It writes aggregate process, allocator, file-descriptor, thread, cgroup, and
+memory-pressure counters. It does not write request/response bodies, headers,
+model names, exception text, or client metadata. The directory defaults to
+`/tmp/airlock-oom-diagnostics`; output files are owner-only. Secure or
+pre-create a configured directory with the permissions your deployment needs.
+Disable the recorder after the investigation. The repository's engineering OOM
+instrumentation runbook contains the signal and high-water procedure.
 
 ## Startup Modes
 
@@ -314,7 +341,7 @@ curl -X POST http://127.0.0.1:4000/airlock/admin/clients/key%3A90abcdef/erase \
   records exist in the JSONL logs, which this operation does not touch; JSONL
   retention is governed separately by `AIRLOCK_MAX_LOG_DAYS`. A user-facing
   deletion obligation requires both, and the JSONL half is not automated in
-  0.5.11.
+  0.5.12.
 
 Operational constraint:
 
@@ -550,7 +577,7 @@ tool-call hydration returns a private response copy, keeping the telemetry objec
 redacted. Rehydration egress policy starts in `observe`: it emits value-free
 tool/path/entity-class decisions but does not alter a response. In `shadow` and
 `enforce`, unknown/exfil-capable paths keep placeholders unless explicitly
-authorized. See `dev/notes/design-pii-rehydration-primary.md`.
+authorized. See [Guardrails → PII redaction, hydration, and egress](guide/guardrails.md#pii-redaction-hydration-and-egress).
 
 ### Keyword Blocking
 

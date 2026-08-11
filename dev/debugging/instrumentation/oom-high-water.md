@@ -13,8 +13,8 @@ request or response bodies, headers, model names, exception text, or client
 metadata. Keep artifacts outside source control and use an isolated service
 for a real-provider replay.
 
-Never probe `GET /health`: it can issue model calls. Use
-`GET /health/liveliness` for a safe liveness check.
+Never use `GET /health` as a liveness probe. Use `GET /health/liveliness` for
+the safe liveness check.
 
 ## Enable the recorder
 

@@ -240,7 +240,13 @@ See [Batch Processing](../guide/batch.md) for the end-to-end recipe.
 | `AIRLOCK_BLOCKED_KEYWORDS` | Comma-separated restricted phrases | -- |
 | `AIRLOCK_PII_ENTITIES` | Presidio entity types to redact | `CREDIT_CARD,US_SSN,EMAIL_ADDRESS,PHONE_NUMBER` |
 | `AIRLOCK_PII_FAIL_MODE` | PII redaction unavailable posture: `open` or `closed` | `open` |
+| `AIRLOCK_PII_HYDRATION` | Restore placeholders in non-streaming tool-call arguments: `tools` or `off` | `tools` |
+| `AIRLOCK_PII_MAP_MAX_ENTRIES` | Maximum live opaque PII reverse maps per process | `1024` |
+| `AIRLOCK_PII_MAP_TTL_SECONDS` | Seconds before an unconsumed PII reverse map expires | `300` |
 | `AIRLOCK_PII_EGRESS_MODE` | Rehydration egress policy: `observe`, `shadow`, `enforce` | `observe` |
+| `AIRLOCK_PII_EGRESS_TOOL_BANDS` | JSON object mapping tool names to `round_trip` or `exfil` | `{}` |
+| `AIRLOCK_PII_EGRESS_ALLOWLIST` | JSON allowlist of `{tool,path,entity_type}` egress tuples | `[]` |
+| `AIRLOCK_PII_EGRESS_BLOCKLIST` | JSON blocklist of `{tool,path,entity_type}` egress tuples | `[]` |
 | `AIRLOCK_ENFORCE_MODE` | Guardrail mode: `observe`, `shadow`, or `enforce` | `observe` |
 | `AIRLOCK_CLIENT` | Client identity label propagated as the `X-Airlock-Client` header and recorded on each request for per-tool attribution | -- |
 | `AIRLOCK_ADVISOR_MODEL` | Override model for the advisor | -- |
@@ -271,6 +277,11 @@ See [Batch Processing](../guide/batch.md) for the end-to-end recipe.
 | `AIRLOCK_JWT_SECRET_PREV` | Previous JWT secret, accepted for verification during a rolling secret rotation | -- |
 | `AIRLOCK_VALIDATE_REASONING_EFFORT` | Reject known-invalid OpenAI/Azure `reasoning_effort` values with an OpenAI-shaped 400. Set `0` for the short-term `drop_params` rollback. | `1` |
 | `AIRLOCK_NORMALIZE_REASONING_EFFORT` | Legacy compatibility fallback for validation while `AIRLOCK_VALIDATE_REASONING_EFFORT` is unset; still controls Gemini/Anthropic normalization. | `1` |
+| `AIRLOCK_OOM_DIAGNOSTICS` | Enable bounded aggregate memory/cgroup diagnostic snapshots; use only for an investigation | `0` |
+| `AIRLOCK_OOM_DIAGNOSTICS_DIR` | Diagnostic artifact directory when OOM diagnostics are enabled | `/tmp/airlock-oom-diagnostics` |
+
+For the PII boundary, egress modes, and the spaCy requirement for semantic
+entities, see [Guardrails → PII redaction, hydration, and egress](../guide/guardrails.md#pii-redaction-hydration-and-egress). For the opt-in memory recorder, see [Operations → Memory guardrails and OOM diagnostics](../operations.md#memory-guardrails-and-oom-diagnostics).
 
 ### `reasoning_effort` validation and normalization
 

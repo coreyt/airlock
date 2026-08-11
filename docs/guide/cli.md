@@ -18,6 +18,21 @@ airlock config import backup.zip --dir ~  # extracts into home directory
 
 Existing files will be safely backed up before being overwritten during an import.
 
+### `airlock admin`
+
+Mint scoped administrative/capability tokens and perform the local FathomDB
+per-client erasure operation:
+
+```bash
+airlock admin mint-token --sub ops --scope admin:read --ttl 15m
+airlock admin erase-client key:90abcdef --confirm key:90abcdef
+```
+
+`erase-client` calls the running proxy's loopback admin API; it never opens the
+database file from the CLI process. It is irreversible for the FathomDB store,
+idempotent to retry after an incomplete result, and does not erase JSONL logs.
+See [Admin API → Erase one client's FathomDB records](admin-api.md#erase-one-clients-fathomdb-records).
+
 ### `airlock init`
 
 Generate `config.yaml`, `.env`, and `logs/` in the current directory.

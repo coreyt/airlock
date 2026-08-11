@@ -4,10 +4,13 @@ Airlock applies a chain of guardrails to every request. Guardrails can observe (
 
 ## Guardrail chain
 
-Requests pass through 12 stages in order:
+Requests pass through the following guardrail stages in order. The OOM diagnostic
+recorder is registered but inert unless explicitly enabled; it does not affect
+request policy.
 
 | Stage | Phase | Purpose |
 |-------|-------|---------|
+| OOM Diagnostic | pre_call, post_call | Opt-in aggregate process/cgroup snapshots for a memory investigation |
 | PII Guard | pre_call | Redact credit cards, SSNs, emails, phone numbers (Presidio) |
 | Keyword Guard | pre_call | Block requests containing restricted keywords |
 | Enhanced Interceptor | pre_call | Inject prompt/parameter defaults for `enhanced/*` model aliases |
@@ -95,19 +98,63 @@ only, and everything is still scanned and logged.
 > forgeable `X-Airlock-Client` attribution header carries **zero** authorization
 > weight for skips — a stolen token cannot be replayed by forging it.
 
-## PII redaction
+## PII redaction, hydration, and egress
 
-Uses Microsoft Presidio with the `en_core_web_lg` spaCy model.
+Airlock redacts configured PII with Microsoft Presidio before the request
+leaves the proxy. The built-in pattern/validation recognizers — `CREDIT_CARD`,
+`US_SSN`, `EMAIL_ADDRESS`, `PHONE_NUMBER`, `US_BANK_NUMBER`, and `IBAN_CODE` —
+use Presidio's no-NLP engine and do **not** load spaCy/Thinc. Adding a semantic
+entity such as `PERSON` selects Presidio's normal NLP path, which requires the
+configured spaCy model.
 
-Default entities: `CREDIT_CARD`, `US_SSN`, `EMAIL_ADDRESS`, `PHONE_NUMBER`.
-
-Customize with `AIRLOCK_PII_ENTITIES`:
+The code default contains the first four types; the shipped `.env` template
+enables all six. Customize the set with `AIRLOCK_PII_ENTITIES`:
 
 ```bash
 AIRLOCK_PII_ENTITIES=CREDIT_CARD,US_SSN,EMAIL_ADDRESS
 ```
 
-PII is redacted with placeholders (`[EMAIL_ADDRESS_1]`) before the request leaves the network. The PII Hydrator restores original values in the response so the client receives correct data.
+PII is replaced with numbered placeholders such as `<EMAIL_ADDRESS_1>`. The
+reverse map is kept only in a bounded, process-local store; request metadata
+and telemetry carry at most an opaque, short-lived handle, never the original
+values. `AIRLOCK_PII_MAP_MAX_ENTRIES` (default `1024`) and
+`AIRLOCK_PII_MAP_TTL_SECONDS` (default `300`) bound disconnected or failed
+requests.
+
+`AIRLOCK_PII_HYDRATION=tools` (the default) restores placeholders only in
+**non-streaming tool-call arguments**. It does not rewrite normal response
+prose, and streaming tool-call deltas remain redacted because a placeholder can
+span chunks. Set `AIRLOCK_PII_HYDRATION=off` to leave placeholders in tool
+arguments.
+
+If redaction is unavailable, `AIRLOCK_PII_FAIL_MODE=open` (default) preserves
+the request and records a value-free unavailable marker. Set it to `closed` to
+block instead. Hydration always fails closed: an unavailable reverse map leaves
+placeholders intact.
+
+### Tool-call egress policy
+
+Before a placeholder is restored into a tool argument, Airlock makes a
+value-free decision using the tool name, JSON-pointer-like argument path, and
+PII entity class. `AIRLOCK_PII_EGRESS_MODE=observe` is the shipped deployment
+posture: it records the decision but permits hydration. `shadow` records what
+would be allowed while keeping denied placeholders redacted; `enforce` also
+keeps denied placeholders redacted as the final policy posture.
+
+Configure the policy with JSON environment values:
+
+```bash
+# classify a tool as a round-trip destination or an external egress destination
+AIRLOCK_PII_EGRESS_TOOL_BANDS='{"gmail_search":"round_trip","send_mail":"exfil"}'
+# permit a specific class only at a specific egress destination/path
+AIRLOCK_PII_EGRESS_ALLOWLIST='[{"tool":"send_mail","path":"/to","entity_type":"EMAIL_ADDRESS"}]'
+# always deny a matching tuple (wildcards are supported)
+AIRLOCK_PII_EGRESS_BLOCKLIST='[{"tool":"*","path":"*","entity_type":"US_SSN"}]'
+```
+
+Unknown tools are denied in `shadow` and `enforce`. Credit-card, SSN, US bank
+number, and IBAN classes are denied by default; a blocklist always wins. Egress
+telemetry contains policy labels only — never PII values.
 
 ## Keyword blocking
 

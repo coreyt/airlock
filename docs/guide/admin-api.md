@@ -82,6 +82,7 @@ master key (and any loopback operator) satisfies all of them.
 | `admin:reset_circuit` | Reset a model circuit |
 | `admin:clear_backoff` | Clear a client threat backoff |
 | `admin:force_quarantine` | Manually quarantine a provider (loopback-only) |
+| `admin:erase_client` | Erase a client's FathomDB rows (loopback-only) |
 
 ## Minting capability tokens
 
@@ -192,6 +193,32 @@ curl -X POST https://airlock.internal/airlock/admin/clients/key:b35cf679/clear-b
 ```
 
 Scope: `admin:clear_backoff`.
+
+### Erase one client's FathomDB records
+
+Erasure is deliberately a local control-plane operation. Use the CLI against
+the running proxy, repeating the authenticated client id as confirmation:
+
+```bash
+airlock admin erase-client key:90abcdef --confirm key:90abcdef
+```
+
+The equivalent loopback-only HTTP operation is:
+
+```bash
+curl -X POST http://127.0.0.1:4000/airlock/admin/clients/key%3A90abcdef/erase \
+  -H 'Content-Type: application/json' \
+  -d '{"confirm":"key:90abcdef"}'
+```
+
+Scope: `admin:erase_client`. A successful operation emits an `admin_action`
+audit record with its erase report. HTTP 409 means erasure was incomplete and
+must not be treated as done; retrying the same request is safe.
+
+This affects the optional FathomDB search/analysis store only. It does **not**
+remove the corresponding JSONL logs, whose retention is controlled separately
+by `AIRLOCK_MAX_LOG_DAYS`. See [Operations → Per-client erasure](../operations.md#per-client-erasure)
+before making a deletion commitment.
 
 ### Manually quarantine a provider
 

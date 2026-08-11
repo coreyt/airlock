@@ -14,8 +14,9 @@ configuration, and operations.
 | Runtime boundaries and design rationale | [Architecture](architecture.md) |
 | Approved semantic input-injection design | [Prompt-injection classifier design](notes/design-prompt-injection-classifier.md) |
 | Accepted refactoring direction | [Refactoring analysis](notes/refactoring-analysis-2026-07-31.md) |
-| Current delivery work | [0.5.10 plan](plans/0.5.10-plan.md), [status board](plans/runs/STATUS-0.5.10.md), and [cold-start note](plans/prompts/0.5.10-COLD-START.md) |
-| Most recent closeout | [0.5.9 status board](plans/runs/STATUS-0.5.9.md) — authoritative record of what shipped |
+| Latest published release | [0.5.12 plan](plans/0.5.12-plan.md), [PII egress canary](plans/runs/0.5.12-pii-egress-canary-2026-08-11.md), and [CHANGELOG](../CHANGELOG.md) |
+| Next engineering backlog | [0.5.14 TODO](plans/0.5.14-todo.md) |
+| OOM investigation instrumentation | [High-water runbook](debugging/instrumentation/oom-high-water.md) |
 | How to operate the delivery harness | [Plans guide](plans/README.md) and [harness runbook](agent-harness-runbook.md) |
 | Shipped behavior | [Public docs](../docs/index.md), [CHANGELOG](../CHANGELOG.md), and source/tests |
 

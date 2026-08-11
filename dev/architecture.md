@@ -642,10 +642,9 @@ User-facing detail: [`docs/guide/mcp-servers.md`]. Constraint reference for agen
 └─────────────────────────────────────────┘
 ```
 
-> **Liveness probes use `GET /health/liveliness`, never `GET /health`.** `/health`
-> fires live completions to every model when `background_health_checks` is off;
-> `/health/liveliness` is unprotected and makes no model calls (repo hard
-> constraint).
+> **Liveness probes use `GET /health/liveliness`, never `GET /health`.** The
+> liveness route makes no model calls. Use `/readyz` for traffic readiness and
+> `/healthz` for an aggregate status view.
 
 ### 5.2 Local Development Deployment
 
@@ -654,6 +653,8 @@ User-facing detail: [`docs/guide/mcp-servers.md`]. Constraint reference for agen
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
+# Required only when configured PII entities need named-entity recognition,
+# such as PERSON; the shipped pattern recognizers use Presidio's no-NLP engine.
 python -m spacy download en_core_web_lg
 airlock  # or: python -m airlock.proxy
 ```
