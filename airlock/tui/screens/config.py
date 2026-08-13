@@ -385,6 +385,8 @@ class ConfigPane(Vertical):
 
     def on_mount(self) -> None:
         self._applied_values = self._current_values()
+        if getattr(self.app, "_test_harness", False):
+            return
         self._refresh_mcp_servers()
         self.set_interval(10.0, self._refresh_mcp_servers)
 

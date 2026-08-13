@@ -21,7 +21,9 @@ def test_disabled_diagnostics_do_not_create_an_artifact(monkeypatch, tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
-def test_enabled_records_counters_but_never_request_or_response_content(monkeypatch, tmp_path):
+def test_enabled_records_counters_but_never_request_or_response_content(
+    monkeypatch, tmp_path
+):
     secret = "do-not-write-this-request-or-response"
     monkeypatch.setenv("AIRLOCK_OOM_DIAGNOSTICS", "1")
     monkeypatch.setenv("AIRLOCK_OOM_DIAGNOSTICS_DIR", str(tmp_path))
@@ -33,8 +35,10 @@ def test_enabled_records_counters_but_never_request_or_response_content(monkeypa
     diagnostics.post_call(data)
     diagnostics.record_event(
         SimpleNamespace(
-            guardrail_meta=dict(data["metadata"]), success=True,
-            response_obj=secret, error=secret,
+            guardrail_meta=dict(data["metadata"]),
+            success=True,
+            response_obj=secret,
+            error=secret,
         )
     )
 
@@ -44,9 +48,14 @@ def test_enabled_records_counters_but_never_request_or_response_content(monkeypa
     assert artifact.stat().st_mode & 0o777 == 0o600
     assert secret not in content
     assert {record["phase"] for record in records} >= {
-        "diagnostics_started", "request_entry", "provider_response", "callback_complete"
+        "diagnostics_started",
+        "request_entry",
+        "provider_response",
+        "callback_complete",
     }
-    completion = next(record for record in records if record["phase"] == "callback_complete")
+    completion = next(
+        record for record in records if record["phase"] == "callback_complete"
+    )
     assert completion["outcome"] == "success"
     assert completion["in_flight"] == 0
     assert "allocator" in completion and "transport" in completion
@@ -66,12 +75,17 @@ def test_diagnostics_are_bounded_and_trim_skips_inflight(monkeypatch, tmp_path):
     for _ in range(8):
         diagnostics.snapshot("extra")
 
-    records = [json.loads(line) for line in next(tmp_path.glob("*.jsonl")).read_text().splitlines()]
+    records = [
+        json.loads(line)
+        for line in next(tmp_path.glob("*.jsonl")).read_text().splitlines()
+    ]
     assert len(records) == 4
     assert any(record["phase"] == "signal_usr2_skipped_in_flight" for record in records)
 
 
-def test_tracemalloc_can_be_disabled_for_a_low_perturbation_replay(monkeypatch, tmp_path):
+def test_tracemalloc_can_be_disabled_for_a_low_perturbation_replay(
+    monkeypatch, tmp_path
+):
     monkeypatch.setenv("AIRLOCK_OOM_DIAGNOSTICS", "1")
     monkeypatch.setenv("AIRLOCK_OOM_DIAGNOSTICS_TRACEMALLOC", "0")
     monkeypatch.setenv("AIRLOCK_OOM_DIAGNOSTICS_DIR", str(tmp_path))

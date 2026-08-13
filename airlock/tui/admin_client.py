@@ -10,6 +10,7 @@ only (umbrella R10).
 from __future__ import annotations
 
 import json
+import base64
 import os
 import ssl
 import urllib.error
@@ -97,6 +98,57 @@ def provider_snapshot(host: str, port: str) -> dict | None:
         if status == 200 and isinstance(payload.get("providers"), dict)
         else None
     )
+
+
+def session_snapshot(host: str, port: str) -> dict | None:
+    """Return the bounded live affinity view, or None when admin is unavailable."""
+    status, payload = admin_get(host, port, "/airlock/admin/sessions")
+    return (
+        payload if status == 200 and isinstance(payload.get("sessions"), list) else None
+    )
+
+
+def client_snapshot(host: str, port: str) -> dict | None:
+    status, payload = admin_get(host, port, "/airlock/admin/clients")
+    return (
+        payload if status == 200 and isinstance(payload.get("clients"), dict) else None
+    )
+
+
+def telemetry_snapshot(host: str, port: str) -> dict | None:
+    status, payload = admin_get(host, port, "/airlock/admin/telemetry")
+    return (
+        payload
+        if status == 200 and isinstance(payload.get("exporters"), dict)
+        else None
+    )
+
+
+def operational_records(host: str, port: str, *, days: int, limit: int) -> dict | None:
+    """Read history from the proxy-owned FathomDB process, when selected."""
+    status, payload = admin_post(
+        host,
+        port,
+        "/airlock/admin/operational/records",
+        {"days": days, "limit": limit},
+    )
+    return (
+        payload if status == 200 and isinstance(payload.get("records"), list) else None
+    )
+
+
+def operational_view(host: str, port: str, kind: str, body: dict) -> dict | None:
+    """Call a loopback-only, proxy-owned operational read view."""
+    status, payload = admin_post(host, port, f"/airlock/admin/operational/{kind}", body)
+    return payload if status == 200 else None
+
+
+def clear_client_sessions(host: str, port: str, client_id: str) -> tuple[int, dict]:
+    # Client IDs come from a header and can contain a slash. Use an opaque
+    # URL-safe selector so a path parser can never split the selected identity.
+    selector = base64.urlsafe_b64encode(client_id.encode("utf-8")).decode("ascii")
+    selector = selector.rstrip("=")
+    return admin_post(host, port, f"/airlock/admin/session-clients/{selector}/clear")
 
 
 def clear_provider_quarantine(

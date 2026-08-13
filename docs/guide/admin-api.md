@@ -84,6 +84,19 @@ master key (and any loopback operator) satisfies all of them.
 | `admin:force_quarantine` | Manually quarantine a provider (loopback-only) |
 | `admin:erase_client` | Erase a client's FathomDB rows (loopback-only) |
 
+### Proxy-owned FathomDB operational reads
+
+When `AIRLOCK_OPERATIONAL_READ_BACKEND=fathomdb` is selected, the TUI and
+Advisor use the proxy-owned operational-read bridge instead of opening the
+embedded database from their separate processes. Its bounded records, error,
+and search views are **loopback-only**: a capability token cannot read them
+remotely, even with `admin:read`. Enable the local admin path with
+`admin.enabled: true` and `trust_loopback: true`.
+
+The bridge carries source, degradation, and truncation information. When it or
+FathomDB is unavailable, the consumer visibly falls back to bounded JSONL;
+default deployments continue to use JSONL.
+
 ## Minting capability tokens
 
 Tokens are short-lived HS256 JWTs signed with `AIRLOCK_JWT_SECRET` (which falls

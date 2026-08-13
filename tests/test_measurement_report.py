@@ -234,9 +234,7 @@ async def test_pii_egress_observe_canary_round_trips_through_jsonl_and_report(
         "model": "gpt-5.4",
         "metadata": {
             "airlock_client": "pii-dogfood-canary",
-            "airlock_pii_handle": _pii_map_store.put(
-                {"<EMAIL_ADDRESS_1>": canary}
-            ),
+            "airlock_pii_handle": _pii_map_store.put({"<EMAIL_ADDRESS_1>": canary}),
         },
     }
     response = _pii_tool_response(
@@ -246,14 +244,20 @@ async def test_pii_egress_observe_canary_round_trips_through_jsonl_and_report(
     client_response = await AirlockPIIGuard().async_post_call_success_hook(
         data, None, response
     )
-    assert json.loads(
-        client_response.choices[0].message.tool_calls[0].function.arguments
-    )["recipient"] == canary
+    assert (
+        json.loads(client_response.choices[0].message.tool_calls[0].function.arguments)[
+            "recipient"
+        ]
+        == canary
+    )
     # The response passed to telemetry remains redacted, and reverse mapping has
     # been consumed before the recorder sees metadata.
-    assert json.loads(response.choices[0].message.tool_calls[0].function.arguments)[
-        "recipient"
-    ] == "<EMAIL_ADDRESS_1>"
+    assert (
+        json.loads(response.choices[0].message.tool_calls[0].function.arguments)[
+            "recipient"
+        ]
+        == "<EMAIL_ADDRESS_1>"
+    )
     assert "airlock_pii_handle" not in data["metadata"]
 
     recorder = RequestRecorder()

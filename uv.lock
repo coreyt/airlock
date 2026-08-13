@@ -168,7 +168,7 @@ wheels = [
 
 [[package]]
 name = "airlock-llm"
-version = "0.5.12"
+version = "0.5.14"
 source = { editable = "." }
 dependencies = [
     { name = "litellm", extra = ["proxy"] },
@@ -232,7 +232,7 @@ requires-dist = [
     { name = "anthropic", marker = "extra == 'analyzer'", specifier = ">=0.40.0,<1" },
     { name = "boto3", marker = "extra == 's3'", specifier = ">=1.34.0" },
     { name = "fastapi", marker = "extra == 'test'", specifier = ">=0.100.0" },
-    { name = "fathomdb", marker = "extra == 'db'", specifier = ">=0.8.21,<0.9" },
+    { name = "fathomdb", marker = "extra == 'db'", specifier = ">=0.8.22,<0.9" },
     { name = "google-auth", marker = "extra == 'vertex'", specifier = ">=2.0.0" },
     { name = "google-genai", marker = "extra == 'aistudio'", specifier = ">=1.0.0" },
     { name = "litellm", extras = ["proxy"], specifier = ">=1.94.1,<2" },
@@ -1167,11 +1167,14 @@ wheels = [
 
 [[package]]
 name = "fathomdb"
-version = "0.8.21"
+version = "0.8.22"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/94/5a/0f522b8580e5c3cd79bfcf345eb1003c766170b44d670a621bce04a9dcb6/fathomdb-0.8.21-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:516185f0f46222083c8bb7a12a4997f5b50368196a89b574bb1ab0fc4a7a3aa7", size = 6142201, upload-time = "2026-08-05T18:22:03.688Z" },
-    { url = "https://files.pythonhosted.org/packages/9b/b8/d9795052f00b6e8a6931410826c4bd3a1df12bd2c45ebe3aef4c242ce68a/fathomdb-0.8.21-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:b87813d615bbeac946b2ca46245e9750d9c73c5efbc86ea7402cbace50d4f4cc", size = 6743413, upload-time = "2026-08-05T18:22:05.3Z" },
+    { url = "https://files.pythonhosted.org/packages/1d/a2/7413b89bb5d0577c529cfa8fd57350ddf606d3320b892d9d116d4397be3b/fathomdb-0.8.22-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:046772f0208befb021440c467c07764dc9f1c086c6c4cb0396295eb5c3638c76", size = 5861605, upload-time = "2026-08-08T19:07:46.05Z" },
+    { url = "https://files.pythonhosted.org/packages/ed/87/c64ea422e337db419a660861d3be1e90417eea537ef1bfee61592c4c3597/fathomdb-0.8.22-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:0f29ed942956be8a81fd1f083147397c1ae6361542c273ae7934d679af75afb4", size = 5547937, upload-time = "2026-08-08T19:07:48.094Z" },
+    { url = "https://files.pythonhosted.org/packages/7c/31/8afb61238022bbe5d38ed59799653b9d56362d62cc94dc0f2b45a7d6579f/fathomdb-0.8.22-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:b79d3e02adf5a232045f1467e935fe933b62d3f5c23f3f9247ea32a8339c3829", size = 6195581, upload-time = "2026-08-08T19:07:50.188Z" },
+    { url = "https://files.pythonhosted.org/packages/54/56/e7a25644fe9882f19dbe2a5d0ca624755cef85c2121e6b6c65d9aba6a6e4/fathomdb-0.8.22-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:7ad77f228c0cdfaf6f6146d4014f0e63b705c9dee039fc7a8cb0e2df56e641a8", size = 6800816, upload-time = "2026-08-08T19:07:52.327Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/a1/c35a392df09cdefc37929cf204b232223609fb7f6629bb8e0ab3183b50a2/fathomdb-0.8.22-cp310-abi3-win_amd64.whl", hash = "sha256:84eb2d64f442895159e893caf257fc2170cd3fc17088b84152f13370b50c6e3f", size = 5457860, upload-time = "2026-08-08T19:07:54.239Z" },
 ]
 
 [[package]]

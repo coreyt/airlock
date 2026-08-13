@@ -81,6 +81,21 @@ model_list:
       model: openai/gpt-5.3-codex
       api_key: os.environ/OPENAI_API_KEY
 
+  # FathomDB benchmark extractor/chat model. This is an explicit alias, not a
+  # routing fallback: benchmark callers must request it deliberately.
+  - model_name: gpt-4o-mini
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+
+  # FathomDB benchmark embedding model. The explicit marker keeps this model
+  # off chat completions and authorizes it only for /v1/embeddings.
+  - model_name: text-embedding-3-small
+    litellm_params:
+      model: openai/text-embedding-3-small
+      api_key: os.environ/OPENAI_API_KEY
+    airlock_embeddings: true
+
   # Provider-prefixed OpenAI aliases (0.5.2) — same litellm_params as above.
   - model_name: openai/gpt-5-pro
     litellm_params:
@@ -111,6 +126,17 @@ model_list:
     litellm_params:
       model: openai/gpt-5.3-codex
       api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: openai/gpt-4o-mini
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: openai/text-embedding-3-small
+    litellm_params:
+      model: openai/text-embedding-3-small
+      api_key: os.environ/OPENAI_API_KEY
+    airlock_embeddings: true
 
   # --- OpenAI GPT-5.6 (GA 2026-07-09) — Sol / Terra / Luna ---
   # A FLAT PRICE-TIER TRIPLE over ONE capability envelope, not a mini/nano

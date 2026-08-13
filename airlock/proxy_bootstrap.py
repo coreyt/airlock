@@ -16,6 +16,7 @@ from __future__ import annotations
 from airlock.admin.http import install_admin_on_proxy_app
 from airlock.batch.middleware import install_batch_gateway_on_proxy_app
 from airlock.docs import install_airlock_docs_on_proxy_app
+from airlock.embedding_boundary import install_embedding_request_boundary_on_proxy_app
 from airlock.health import install_circuit_health_on_proxy_app
 from airlock.models_seam import install_models_capability_seam_on_proxy_app
 from airlock.proxy_errors import install_airlock_error_handlers_on_proxy_app
@@ -26,6 +27,7 @@ def bootstrap_airlock_proxy() -> None:
     install_airlock_docs_on_proxy_app()
     install_circuit_health_on_proxy_app()
     install_airlock_error_handlers_on_proxy_app()
+    install_embedding_request_boundary_on_proxy_app()
     # Admin perimeter mounts BEFORE the batch gateway so the gateway stays the
     # outermost ASGI layer (umbrella §3 mount order).
     install_admin_on_proxy_app()

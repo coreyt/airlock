@@ -38,7 +38,7 @@ async def test_app_has_bindings(app) -> None:
 
 
 async def test_app_composes_all_panes() -> None:
-    app = AirlockApp()
+    app = AirlockApp(test_harness=True)
     async with app.run_test(size=(120, 40)) as _pilot:
         # Tab bar exists (no sidebar)
         tab_bar = app.query_one("#tab-bar")
@@ -55,7 +55,7 @@ async def test_app_composes_all_panes() -> None:
 
 
 async def test_screen_switching_via_keys() -> None:
-    app = AirlockApp()
+    app = AirlockApp(test_harness=True)
     async with app.run_test(size=(120, 40)) as pilot:
         workspace = app.query_one("#workspace")
 
@@ -76,7 +76,7 @@ async def test_screen_switching_via_keys() -> None:
 
 
 async def test_tab_bar_navigation() -> None:
-    app = AirlockApp()
+    app = AirlockApp(test_harness=True)
     async with app.run_test(size=(120, 40)) as pilot:
         workspace = app.query_one("#workspace")
 
@@ -93,7 +93,7 @@ async def test_tab_bar_navigation() -> None:
 
 
 async def test_overview_has_widgets() -> None:
-    app = AirlockApp()
+    app = AirlockApp(test_harness=True)
     async with app.run_test(size=(120, 40)) as _pilot:
         # Proxy status indicator
         indicator = app.query_one("#ov-proxy-indicator")
@@ -113,7 +113,7 @@ async def test_overview_has_widgets() -> None:
 
 
 async def test_overview_has_start_button() -> None:
-    app = AirlockApp()
+    app = AirlockApp(test_harness=True)
     async with app.run_test(size=(120, 40)) as _pilot:
         btn = app.query_one("#ov-proxy-btn", Button)
         assert btn is not None
@@ -127,7 +127,7 @@ async def test_overview_has_start_button() -> None:
 
 
 async def test_overview_has_console_log() -> None:
-    app = AirlockApp()
+    app = AirlockApp(test_harness=True)
     async with app.run_test(size=(120, 40)) as _pilot:
         from textual.widgets import Collapsible, RichLog
 

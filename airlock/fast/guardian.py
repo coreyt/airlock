@@ -33,8 +33,12 @@ from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
 from airlock.callbacks.enterprise_logger import write_precall_block_record
+from airlock.embedding import validate_embedding_options
 from airlock.proxy_errors import (
     AirlockAdmissionShed,
+    AirlockEndpointNotSupported,
+    AirlockDeepSeekToolNotSupported,
+    AirlockGatewayRoutingOverride,
     AirlockModelNotFound,
     AirlockProviderBlocked,
     sanitize_reason,
@@ -49,7 +53,12 @@ from airlock.client_identity import (
     extract_airlock_client_from_request,
 )
 from airlock.gemini_interface import apply_gemini_request_semantics
-from airlock.text_extract import extract_text, is_batch_call, is_mcp_call
+from airlock.text_extract import (
+    extract_text,
+    is_batch_call,
+    is_embedding_call,
+    is_mcp_call,
+)
 
 from . import admission as _admission_mod
 from .circuit_breaker import check_model_with_filters
@@ -60,6 +69,8 @@ from .state import store
 from .threat_detector import assess_threat
 
 logger = logging.getLogger("airlock.fast.guardian")
+
+_OPENROUTER_ROUTING_FIELDS = frozenset({"route", "models", "transforms"})
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +102,35 @@ def _is_client_pinned(original_model: str, data: dict[str, Any]) -> bool:
     if airlock_meta.get("cost_tier") or airlock_meta.get("prefer_provider"):
         return False
     return True
+
+
+def reject_openrouter_routing_overrides(data: dict[str, Any]) -> None:
+    """Keep OpenRouter upstream-routing policy with the operator.
+
+    LiteLLM recognizes these request fields and forwards them to OpenRouter.
+    They would let a client override the reviewed alias/account routing policy,
+    so reject them before provider dispatch. Other ``extra_body`` contents stay
+    outside this narrow release contract unless they contain these controls.
+    """
+    for field in _OPENROUTER_ROUTING_FIELDS:
+        if field in data:
+            raise AirlockGatewayRoutingOverride(field)
+    extra_body = data.get("extra_body")
+    if isinstance(extra_body, dict):
+        for field in _OPENROUTER_ROUTING_FIELDS:
+            if field in extra_body:
+                raise AirlockGatewayRoutingOverride(f"extra_body.{field}")
+
+
+def validate_deepseek_tools(data: dict[str, Any]) -> None:
+    """Reject tools LiteLLM would otherwise silently discard for DeepSeek."""
+    tools = data.get("tools")
+    if tools is None:
+        return
+    if not isinstance(tools, list) or any(
+        not isinstance(tool, dict) or tool.get("type") != "function" for tool in tools
+    ):
+        raise AirlockDeepSeekToolNotSupported()
 
 
 def _set_model_override(
@@ -267,7 +307,10 @@ class AirlockFastGuardian(CustomGuardrail):
         model_name = requested_model
         mcp = is_mcp_call(data, call_type)
         batch = is_batch_call(data, call_type)
-        pinned_model = _is_client_pinned(requested_model, data)
+        embedding = is_embedding_call(data, call_type)
+        # Embeddings use one reviewed alias and must never be changed by client
+        # routing preferences, circuit failover, or LiteLLM fallback retries.
+        pinned_model = embedding or _is_client_pinned(requested_model, data)
         if pinned_model and not mcp and not batch:
             _lock_pinned_request(data)
         elif not mcp and not batch:
@@ -302,43 +345,55 @@ class AirlockFastGuardian(CustomGuardrail):
         # batch/file calls (the latter carry no top-level model).
         if not mcp and not batch:
             # ---- Step 2.5a: Model alias resolution ----
-            alias_resolution = alias_table.resolve_with_diagnostic(model_name)
-            resolved = alias_resolution.alias
-            if resolved is None:
-                suggestions = alias_table.suggest(model_name)
-                if isinstance(suggestions, list) and suggestions:
-                    raise AirlockModelNotFound(model_name, suggestions)
-            if alias_resolution.cross_tier is not None:
-                cross_tier = alias_resolution.cross_tier
-                logger.warning(
-                    "event=fuzzy_match_rejected requested=%s served=%s "
-                    "suggested=%s score=%.3f from_tier=%s to_tier=%s client_id=%s",
-                    model_name,
-                    cross_tier.served,
-                    cross_tier.suggested,
-                    cross_tier.score,
-                    cross_tier.from_tier,
-                    cross_tier.to_tier,
-                    client_id,
-                )
-                suggestions = alias_table.suggest(model_name)
-                suggestions.sort(
-                    key=lambda item: (
-                        0 if item.get("model") == cross_tier.suggested else 1
+            if embedding:
+                resolved = alias_table.configured_alias(model_name)
+                if resolved is None:
+                    raise AirlockEndpointNotSupported(model_name, "embeddings")
+                if not alias_table.supports_endpoint(resolved, "embeddings"):
+                    raise AirlockEndpointNotSupported(resolved, "embeddings")
+                validate_embedding_options(data)
+                data["model"] = resolved
+                model_name = resolved
+            else:
+                alias_resolution = alias_table.resolve_with_diagnostic(model_name)
+                resolved = alias_resolution.alias
+                if resolved is None:
+                    suggestions = alias_table.suggest(model_name)
+                    if isinstance(suggestions, list) and suggestions:
+                        raise AirlockModelNotFound(model_name, suggestions)
+                if alias_resolution.cross_tier is not None:
+                    cross_tier = alias_resolution.cross_tier
+                    logger.warning(
+                        "event=fuzzy_match_rejected requested=%s served=%s "
+                        "suggested=%s score=%.3f from_tier=%s to_tier=%s client_id=%s",
+                        model_name,
+                        cross_tier.served,
+                        cross_tier.suggested,
+                        cross_tier.score,
+                        cross_tier.from_tier,
+                        cross_tier.to_tier,
+                        client_id,
                     )
-                )
-                if not suggestions:
-                    suggestions = [
-                        {
-                            "model": cross_tier.suggested,
-                            "score": cross_tier.score,
-                            "tier": cross_tier.to_tier,
-                        }
-                    ]
-                raise AirlockModelNotFound(
-                    model_name, suggestions, reason="fuzzy_match_crosses_cost_tier"
-                )
-            if resolved and resolved != model_name:
+                    suggestions = alias_table.suggest(model_name)
+                    suggestions.sort(
+                        key=lambda item: (
+                            0 if item.get("model") == cross_tier.suggested else 1
+                        )
+                    )
+                    if not suggestions:
+                        suggestions = [
+                            {
+                                "model": cross_tier.suggested,
+                                "score": cross_tier.score,
+                                "tier": cross_tier.to_tier,
+                            }
+                        ]
+                    raise AirlockModelNotFound(
+                        model_name,
+                        suggestions,
+                        reason="fuzzy_match_crosses_cost_tier",
+                    )
+            if not embedding and resolved and resolved != model_name:
                 logger.info(
                     "model_alias %s -> %s",
                     model_name,
@@ -430,7 +485,7 @@ class AirlockFastGuardian(CustomGuardrail):
                             scope="provider",
                         )
             else:
-                data = apply_routing(data)
+                data = apply_routing(data, client_id=client_id)
                 model_name = data.get("model", model_name)  # re-read after routing
                 if model_name != requested_model:
                     routing_meta = data.get("metadata", {}).get("airlock_routing", {})
@@ -516,6 +571,10 @@ class AirlockFastGuardian(CustomGuardrail):
 
         # ---- Step 4: Priority scoring ----
         target_provider = infer_provider(data.get("model") or model_name)
+        if target_provider == "openrouter":
+            reject_openrouter_routing_overrides(data)
+        elif target_provider == "deepseek":
+            validate_deepseek_tools(data)
         data = apply_gemini_request_semantics(data, provider=target_provider)
         # P-2 deliberately rejects known-invalid OpenAI/Azure values before
         # LiteLLM's drop_params can silently change client intent.  Unknown
@@ -549,6 +608,9 @@ class AirlockFastGuardian(CustomGuardrail):
             "boost": priority.boost,
             "reasons": priority.reasons,
         }
+        store.record_client_priority(
+            client_id, priority.score, priority.boost, priority.reasons, now
+        )
         metadata["airlock_request"] = {
             "client_id": client_id,
             "requested_model": requested_model,

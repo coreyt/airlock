@@ -17,6 +17,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlsplit, urlunsplit
 
 import yaml
 
@@ -81,6 +82,65 @@ class _ProviderFetcher:
     api_key_override: str | None = None  # pre-resolved key for custom providers
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse redirects so a discovery credential stays bound to its base."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: N802
+        return None
+
+
+def _models_url_from_configured_base(base_url: object) -> str | None:
+    """Normalize a reviewed API base into its same-origin models endpoint.
+
+    Discovery is intentionally more restrictive than model transport. A key is
+    sent only to an HTTPS base with no URL credentials, query, fragment, or
+    pre-existing `/models` endpoint. API roots and `/chat/completions` are
+    accepted; the latter is removed before `/models` is appended.
+    """
+    if not isinstance(base_url, str) or not base_url:
+        return None
+    parsed = urlsplit(base_url)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        return None
+    path = parsed.path.rstrip("/")
+    if path.endswith("/models"):
+        return None
+    if path.endswith("/chat/completions"):
+        path = path[: -len("/chat/completions")]
+    return urlunsplit(("https", parsed.netloc, f"{path}/models", "", ""))
+
+
+def _configured_provider_discovery(
+    config: dict, provider_prefix: str
+) -> tuple[str, str] | None:
+    """Return one `(models_url, key)` only for a coherent configured provider."""
+    candidates: set[str] = set()
+    api_key: str | None = None
+    for entry in config.get("model_list", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        params = entry.get("litellm_params") or {}
+        if not isinstance(params, dict) or not str(params.get("model", "")).startswith(
+            f"{provider_prefix}/"
+        ):
+            continue
+        models_url = _models_url_from_configured_base(params.get("api_base"))
+        if models_url is None:
+            return None
+        candidates.add(models_url)
+        api_key = api_key or _resolve_secret(params.get("api_key"))
+    if len(candidates) != 1 or not api_key:
+        return None
+    return candidates.pop(), api_key
+
+
 def _fetch_openai_compatible(
     base_url: str,
     provider_prefix: str,
@@ -89,6 +149,7 @@ def _fetch_openai_compatible(
     auth_header: str = "Authorization",
     auth_scheme: str = "Bearer",
     extra_headers: dict | None = None,
+    no_redirect: bool = False,
 ) -> list[dict]:
     """Fetch models from any OpenAI-compatible /v1/models endpoint."""
     headers: dict[str, str] = {
@@ -99,7 +160,14 @@ def _fetch_openai_compatible(
 
     req = urllib.request.Request(base_url, headers=headers)
     ctx = ssl.create_default_context()
-    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:  # noqa: S310
+    if no_redirect:
+        opener = urllib.request.build_opener(
+            _NoRedirect(), urllib.request.HTTPSHandler(context=ctx)
+        )
+        response = opener.open(req, timeout=timeout)  # noqa: S310
+    else:
+        response = urllib.request.urlopen(req, timeout=timeout, context=ctx)  # noqa: S310
+    with response as resp:
         data = json.loads(resp.read())
 
     models = []
@@ -193,6 +261,42 @@ _FETCHERS: list[_ProviderFetcher] = [
     _ProviderFetcher("perplexity", _fetch_perplexity_models),
 ]
 
+# These provider names are intentionally configured only through reviewed
+# ``model_list`` entries.  A generic ``providers:`` entry lacks the base-bound,
+# HTTPS, and no-redirect contract enforced by `_configured_provider_discovery`.
+_MODEL_LIST_DISCOVERY_PREFIXES = frozenset({"openrouter", "deepseek"})
+
+
+def _provider_fetchers_from_model_list(config: dict) -> list[_ProviderFetcher]:
+    """Build safe discovery fetchers for providers configured in model_list."""
+    fetchers: list[_ProviderFetcher] = []
+    for prefix in ("openrouter", "deepseek"):
+        configured = _configured_provider_discovery(config, prefix)
+        if configured is None:
+            continue
+        models_url, api_key = configured
+
+        def _fetch(
+            key: str, timeout: float, *, url: str = models_url, name: str = prefix
+        ) -> list[dict]:
+            return _fetch_openai_compatible(
+                url,
+                provider_prefix=name,
+                api_key=key,
+                timeout=timeout,
+                no_redirect=True,
+            )
+
+        fetchers.append(_ProviderFetcher(prefix, _fetch, api_key_override=api_key))
+    return fetchers
+
+
+def _safe_discovery_failure(exc: Exception) -> str:
+    """Return useful diagnostics without serializing provider exception text."""
+    status = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    suffix = f" status={status}" if isinstance(status, int) else ""
+    return f"error_type={type(exc).__name__}{suffix}"
+
 
 def _custom_fetchers_from_config(config: dict) -> list[_ProviderFetcher]:
     """Build fetchers for any ``providers:`` entries in config.yaml.
@@ -217,6 +321,12 @@ def _custom_fetchers_from_config(config: dict) -> list[_ProviderFetcher]:
         if not name or not base_url:
             logger.warning(
                 "models_catalog: skipping providers entry missing name/base_url"
+            )
+            continue
+        if name in _MODEL_LIST_DISCOVERY_PREFIXES:
+            logger.warning(
+                "models_catalog: providers entry %r is model_list-only, skipping",
+                name,
             )
             continue
         api_key = _resolve_secret(entry.get("api_key", ""))
@@ -281,9 +391,15 @@ def fetch_live_provider_models(
             "models_catalog: custom providers override built-ins: %s",
             ", ".join(sorted(overridden)),
         )
-    active: list[_ProviderFetcher] = [
-        f for f in _FETCHERS if f.prefix not in custom_prefixes
-    ] + custom
+    active: list[_ProviderFetcher] = (
+        [f for f in _FETCHERS if f.prefix not in custom_prefixes]
+        + [
+            f
+            for f in _provider_fetchers_from_model_list(config)
+            if f.prefix not in custom_prefixes
+        ]
+        + custom
+    )
 
     results: list[dict] = []
     lock = threading.Lock()
@@ -301,14 +417,11 @@ def fetch_live_provider_models(
                 len(entries),
                 fetcher.prefix,
             )
-        except (
-            urllib.error.URLError,
-            urllib.error.HTTPError,
-            OSError,
-            Exception,
-        ) as exc:
+        except Exception as exc:  # discovery must never block proxy startup
             logger.warning(
-                "models_catalog: %s model discovery failed: %s", fetcher.prefix, exc
+                "models_catalog: %s model discovery failed: %s",
+                fetcher.prefix,
+                _safe_discovery_failure(exc),
             )
 
     threads = [threading.Thread(target=_run, args=(f,), daemon=True) for f in active]

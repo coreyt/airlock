@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import time
 
@@ -113,6 +114,125 @@ class TestHandleAdminRequest:
         )
         assert s == 200
         assert body["providers"]["openai"]["quarantined"] is True
+
+    def test_operational_records_are_proxy_owned_and_loopback_only(self, monkeypatch):
+        from airlock.operational_reads import OperationalReadPage
+
+        monkeypatch.setattr(
+            "airlock.operational_reads.read_records",
+            lambda **kwargs: OperationalReadPage(
+                records=[{"model": "gpt-4o-mini"}],
+                source="fathomdb",
+                degraded_reason=None,
+                truncated=False,
+                limit_hit=None,
+            ),
+        )
+        s, body, _ = handle_admin_request(
+            "POST",
+            "/airlock/admin/operational/records",
+            b'{"days": 1, "limit": 1}',
+            self._loop(),
+        )
+        assert s == 200
+        assert body["source"] == "fathomdb"
+        assert body["records"] == [{"model": "gpt-4o-mini"}]
+
+        s, body, _ = handle_admin_request(
+            "POST",
+            "/airlock/admin/operational/records",
+            b'{"days": 1, "limit": 1}',
+            Principal(bearer="master-key-supersecret-123456"),
+        )
+        assert s == 403
+        assert "loopback" in body["error"]
+
+    @pytest.mark.parametrize(
+        ("path", "body"),
+        [
+            ("/airlock/admin/operational/errors", b'{"days": "bad"}'),
+            ("/airlock/admin/operational/search", b'{"query": 3}'),
+            (
+                "/airlock/admin/operational/search",
+                b'{"query": "x", "limit": 51}',
+            ),
+            (
+                "/airlock/admin/operational/search",
+                b'{"query": "' + b"x" * 1001 + b'"}',
+            ),
+        ],
+    )
+    def test_operational_error_and_search_arguments_are_bounded(self, path, body):
+        s, result, _ = handle_admin_request("POST", path, body, self._loop())
+        assert s == 400
+        assert "error" in result
+
+    def test_session_view_and_break_are_authenticated_and_audited(
+        self, fresh_state_store
+    ):
+        fresh_state_store.set_session("do-not-display", "claude-sonnet", "key:alice")
+        s, body, _ = handle_admin_request(
+            "GET", "/airlock/admin/sessions", b"", self._loop()
+        )
+        assert s == 200
+        assert body["source"] == "live_admin"
+        assert body["sessions"][0]["client_id"] == "key:alice"
+        assert "do-not-display" not in str(body)
+
+        selector = base64.urlsafe_b64encode(b"key:alice").decode().rstrip("=")
+        s, body, _ = handle_admin_request(
+            "POST",
+            f"/airlock/admin/session-clients/{selector}/clear",
+            b"{}",
+            self._loop(),
+        )
+        assert s == 200
+        assert body["op"] == "clear_client_sessions"
+        assert body["cleared_sessions"] == 1
+        assert fresh_state_store.active_session_snapshot(ttl_seconds=3600) == []
+
+    def test_break_sessions_requires_authenticated_operator(self, fresh_state_store):
+        fresh_state_store.set_session("s", "claude-sonnet", "alice")
+        selector = base64.urlsafe_b64encode(b"alice").decode().rstrip("=")
+        s, _body, _ = handle_admin_request(
+            "POST",
+            f"/airlock/admin/session-clients/{selector}/clear",
+            b"{}",
+            Principal(loopback=False),
+        )
+        assert s == 401
+
+    def test_opaque_session_client_selector_preserves_slash_identity(
+        self, fresh_state_store
+    ):
+        client_id = "tenant/a%2Fb"
+        fresh_state_store.set_session("s", "claude-sonnet", client_id)
+        selector = base64.urlsafe_b64encode(client_id.encode()).decode().rstrip("=")
+
+        s, body, _ = handle_admin_request(
+            "POST",
+            f"/airlock/admin/session-clients/{selector}/clear",
+            b"{}",
+            self._loop(),
+        )
+
+        assert s == 200
+        assert body["client_id"] == client_id
+        assert body["cleared_sessions"] == 1
+        assert fresh_state_store.active_session_snapshot(ttl_seconds=3600) == []
+
+    def test_telemetry_view_is_authenticated_and_source_labelled(self):
+        s, body, _ = handle_admin_request(
+            "GET", "/airlock/admin/telemetry", b"", self._loop()
+        )
+        assert s == 200
+        assert body["source"] == "process_instrumentation"
+        assert isinstance(body["exporters"], dict)
+
+        s, _body, _ = handle_admin_request(
+            "GET", "/airlock/admin/telemetry", b"", Principal(loopback=False)
+        )
+        assert s == 401
 
     def test_clear_quarantine_loopback(self, fresh_state_store):
         fresh_state_store.get_provider("openai").quarantine_until = time.time() + 100

@@ -54,8 +54,11 @@ def extract_airlock_client_from_request(
     metadata = data.get("metadata") or {}
     for value in (
         metadata.get("airlock_client"),
-        extract_airlock_client_from_headers(data.get("headers")),
         extract_airlock_client_from_headers(metadata.get("headers")),
+        # Root headers may be an optional LiteLLM forwarding field. The real
+        # proxy headers stored in metadata are authoritative, so a request body
+        # cannot forge an Airlock client identity through this fallback.
+        extract_airlock_client_from_headers(data.get("headers")),
     ):
         if value:
             return normalize_client_id(str(value).strip())
@@ -108,10 +111,10 @@ def extract_airlock_client_from_kwargs(kwargs: Mapping[str, Any]) -> str | None:
                 return text
 
     header_sources: list[Mapping[str, Any] | None] = [
-        kwargs.get("headers") if isinstance(kwargs.get("headers"), Mapping) else None,
         metadata.get("headers")
         if isinstance(metadata.get("headers"), Mapping)
         else None,
+        kwargs.get("headers") if isinstance(kwargs.get("headers"), Mapping) else None,
     ]
     for key in ("request", "proxy_server_request", "http_request"):
         obj = kwargs.get(key)

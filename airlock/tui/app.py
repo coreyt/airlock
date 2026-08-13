@@ -60,12 +60,16 @@ class AirlockApp(App):
         port: str = "4000",
         auto_start: bool = False,
         daemon_mode: bool = False,
+        test_harness: bool = False,
     ) -> None:
         super().__init__()
         self._proxy_host = host
         self._proxy_port = port
         self._auto_start = auto_start
         self._daemon_mode = daemon_mode
+        # Explicit constructor-only test mode. It composes production widgets but
+        # suppresses mount-time background I/O; it is never inferred from env.
+        self._test_harness = test_harness
         self._proxy_manager = ProxyManager(
             host=host,
             port=port,
@@ -99,6 +103,8 @@ class AirlockApp(App):
 
     def on_mount(self) -> None:
         self.sub_title = "Overview"
+        if self._test_harness:
+            return
         self._mcp_manager.start_health_loop()
         self._start_jsonl_tailer()
         self.set_interval(5.0, self._run_alerts)

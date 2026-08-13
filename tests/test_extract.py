@@ -7,6 +7,7 @@ from airlock.guardrails.extract import (
     extract_text_from_mcp,
     extract_text_from_messages,
     is_batch_call,
+    is_embedding_call,
     is_mcp_call,
 )
 
@@ -64,6 +65,14 @@ class TestExtractTextFromMessages:
 
     def test_missing_content(self):
         assert extract_text_from_messages([{"role": "user"}]) == ""
+
+
+class TestEmbeddingInput:
+    def test_embedding_input_is_extracted_and_not_a_batch_call(self):
+        data = {"input": ["first input", "second input"]}
+        assert is_embedding_call(data, "embedding") is True
+        assert is_batch_call(data, "embedding") is False
+        assert extract_text(data, "embedding") == "first input\nsecond input"
 
 
 # ---------------------------------------------------------------------------

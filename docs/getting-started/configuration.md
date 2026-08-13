@@ -13,6 +13,75 @@ Key sections:
 - **`mcp_servers`** — MCP tool servers accessible via the proxy
 - **`general_settings`** — master key, host/port
 
+### FathomDB benchmark chat model
+
+The shipped configuration includes the explicit `gpt-4o-mini` and
+`openai/gpt-4o-mini` chat aliases for benchmark extraction workloads. They both
+target `openai/gpt-4o-mini`, use `OPENAI_API_KEY`, and are not router fallback
+targets: clients must request one deliberately. These are chat-completions
+aliases; the separate embedding model is introduced with Airlock's
+`/v1/embeddings` capability.
+
+The shipped `text-embedding-3-small` and `openai/text-embedding-3-small`
+aliases are embedding-only. Send a normal OpenAI embedding request to
+`/v1/embeddings`; `input` may be a string or a batch of strings. The optional
+`dimensions` value is an integer from 1 through 1536, and `encoding_format` is
+`float` or `base64`; both pass through. Completion-only controls, such as
+`temperature`, `messages`, or `tools`, fail with an OpenAI-shaped 400 before
+dispatch rather than being silently dropped. Airlock also rejects chat-only,
+`smart`, fuzzy, and unconfigured model names for this endpoint instead of
+routing or falling back to another model.
+
+## OpenRouter (operator-configured gateway)
+
+OpenRouter is not enabled merely because the key exists. To expose a model, an
+operator adds a reviewed deployment `model_list` entry and restarts Airlock:
+
+```yaml
+# reviewed deployment config — not the shipped default config.yaml
+model_list:
+  - model_name: openrouter/openai/gpt-4o-mini
+    litellm_params:
+      model: openrouter/openai/gpt-4o-mini
+      api_key: os.environ/OPENROUTER_API_KEY
+      api_base: https://openrouter.ai/api/v1
+```
+
+Keep provider routing and privacy choices in the reviewed deployment policy.
+Airlock rejects client-supplied OpenRouter `route`, `models`, and `transforms`
+overrides (including those nested in `extra_body`), so a caller cannot alter the
+operator's chosen gateway policy. The optional startup catalog is informational:
+it does not authorize models or alter routing.
+
+`X-Airlock-Served-By: openrouter` means the OpenRouter gateway immediately
+served the request. Airlock does not identify or control OpenRouter's downstream
+provider, fallback choice, price, availability, or data-retention policy. LiteLLM
+may use its own OpenRouter `HTTP-Referer` and `X-Title` defaults; they are not
+Airlock routing or identity metadata. Do not place identifying client data in
+provider-specific request fields.
+
+## DeepSeek (operator-configured stable endpoint)
+
+DeepSeek is also disabled until an operator adds a reviewed deployment entry.
+Use the explicit stable base below; the pinned LiteLLM version otherwise has a
+beta-default path that is not Airlock’s supported 0.5.14 configuration.
+
+```yaml
+model_list:
+  - model_name: deepseek/deepseek-chat
+    litellm_params:
+      model: deepseek/deepseek-chat
+      api_key: os.environ/DEEPSEEK_API_KEY
+      api_base: https://api.deepseek.com
+```
+
+The optional startup catalog is informational and never authorizes aliases.
+Airlock preserves ordinary policy and observability for configured DeepSeek
+requests, but accepts OpenAI **function** tools only. It rejects other tool
+types with an OpenAI-shaped 400 before LiteLLM can silently discard them. Do
+not map `X-Airlock-Client`, an authenticated identity, or customer data to a
+DeepSeek `user_id`; no such mapping is implemented in this release.
+
 ## Machine-specific overrides (`config.local.yaml`)
 
 Settings that must not live in the tracked `config.yaml` — chiefly MCP servers
@@ -292,10 +361,13 @@ See [Batch Processing](../guide/batch.md) for the end-to-end recipe.
 | `OPENAI_API_KEY` | OpenAI API key | -- |
 | `GOOGLE_AISTUDIO_API_KEY` | Google AI Studio API key for Gemini models (+ AI Studio batch gateway) | -- |
 | `MISTRAL_API_KEY` | Mistral API key for Mistral models (+ Mistral batch gateway) | -- |
+| `OPENROUTER_API_KEY` | OpenRouter key for an explicit operator-configured `model_list` entry | -- |
+| `DEEPSEEK_API_KEY` | DeepSeek key for an explicit operator-configured `model_list` entry | -- |
 | `AIRLOCK_MASTER_KEY` | Optional proxy auth key. Leave unset for local/dev unauthenticated runs; set it for protected deployments. | -- |
 | `AIRLOCK_HOST` | Bind address | `127.0.0.1` |
 | `AIRLOCK_PORT` | Listen port | `4000` |
 | `AIRLOCK_LOG_DIR` | Directory for JSONL log files | `./logs` |
+| `AIRLOCK_LOG_REDACT_FIELDS` | Comma-separated JSONL record fields replaced with `[REDACTED]` | unset (no field redaction) |
 | `AIRLOCK_STATE_DIR` | State directory for circuit-breaker state and optional FathomDB files | `./logs` |
 | `AIRLOCK_MAX_LOG_DAYS` | Days to retain log files | `30` |
 | `AIRLOCK_MAX_LOG_SIZE_MB` | Max log file size before rotation | `500` |
@@ -320,6 +392,7 @@ See [Batch Processing](../guide/batch.md) for the end-to-end recipe.
 | `LITELLM_MCP_STDIO_EXTRA_COMMANDS` | Comma-separated extra command basenames allowed to launch stdio MCP servers (beyond the built-in `deno,docker,node,npx,python,python3,uvx`). See [MCP Servers](../guide/mcp-servers.md). | — |
 | `AIRLOCK_ENABLE_FATHOMDB` | Enable lazy FathomDB engine initialization | `0` |
 | `AIRLOCK_ENABLE_FATHOM_LOGGER` | Enable the Fathom request-logging sink (recorder-fed) | `0` |
+| `AIRLOCK_OPERATIONAL_READ_BACKEND` | Select operational history source: `jsonl` (default) or proxy-owned `fathomdb` | `jsonl` |
 | `AIRLOCK_ENABLE_S3_LOGGER` | Enable the S3 logging sink (recorder-fed; also needs `AIRLOCK_S3_BUCKET`) | `0` |
 | `AIRLOCK_ENABLE_SQL_LOGGER` | Enable the SQL logging sink (recorder-fed; also needs `AIRLOCK_SQL_URL`) | `0` |
 | `AIRLOCK_LOCAL_VLLM_BASE_URL` | URL of the local vLLM endpoint the router guardrail watches | `http://192.168.1.45:8000/v1` |
@@ -344,6 +417,34 @@ See [Batch Processing](../guide/batch.md) for the end-to-end recipe.
 
 For the PII boundary, egress modes, and the spaCy requirement for semantic
 entities, see [Guardrails → PII redaction, hydration, and egress](../guide/guardrails.md#pii-redaction-hydration-and-egress). For the opt-in memory recorder, see [Operations → Memory guardrails and OOM diagnostics](../operations.md#memory-guardrails-and-oom-diagnostics).
+
+## Benchmark-safe FathomDB profile
+
+When FathomDB uses Airlock as an LLM client for a benchmark, it does not need
+Airlock's optional FathomDB request logger. Use this profile for the benchmark
+process when prompts and completions must not be retained in Airlock telemetry:
+
+```bash
+AIRLOCK_LOG_REDACT_FIELDS=messages,response
+AIRLOCK_ENABLE_SQL_LOGGER=0
+AIRLOCK_ENABLE_S3_LOGGER=0
+AIRLOCK_ENABLE_FATHOMDB=0
+AIRLOCK_ENABLE_FATHOM_LOGGER=0
+AIRLOCK_FATHOM_STORE_MESSAGES=0
+AIRLOCK_FATHOM_STORE_RESPONSE_TEXT=0
+```
+
+The always-on enterprise JSONL record retains operational metadata but replaces
+the `messages` and `response` fields with `[REDACTED]`. SQL logging is disabled
+because its projection stores those fields without this redaction setting.
+FathomDB message/response flags remain off as defense in depth, even though the
+Fathom request logger is disabled. This logging profile is separate from the
+outbound PII guard and does not change its observe-only posture. Use
+`/health/liveliness` for benchmark process liveness; it makes no model call.
+
+Before a funded benchmark, run a non-sensitive sentinel request/response and
+confirm that the resulting JSONL contains `[REDACTED]` and not either sentinel.
+Do not upload that log or the request/response content as a benchmark artifact.
 
 ### `reasoning_effort` validation and normalization
 

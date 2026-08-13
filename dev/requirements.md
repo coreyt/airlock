@@ -272,8 +272,8 @@ Missing `.env` → warning on stderr, proceed with startup.
 
 **Traces to:** UN-9
 
-`airlock status` SHALL probe `/health` using only stdlib (urllib). Default
-target: `http://localhost:4000/health`, configurable via `--host`/`--port` flags
+`airlock status` SHALL probe `/health/liveliness` using only stdlib (urllib). Default
+target: `http://localhost:4000/health/liveliness`, configurable via `--host`/`--port` flags
 or `AIRLOCK_HOST`/`AIRLOCK_PORT` env vars. Exit 0 if healthy, exit 1 if not
 reachable.
 
@@ -283,3 +283,64 @@ reachable.
 
 The CLI framework SHALL use only Python standard library modules (argparse) and
 SHALL NOT introduce new third-party dependencies.
+
+---
+
+## 0.5.14 ratified requirements
+
+### DFR-24 / DAC-24: Benchmark chat alias
+
+Airlock SHALL expose `gpt-4o-mini` only as an explicit reviewed model-list
+alias. Mocked normal and streaming tests SHALL retain authentication, policy,
+and served-provider attribution; a non-sensitive funded smoke is recorded
+separately.
+
+### DFR-25 / DAC-25: Embedding alias boundary
+
+Airlock SHALL serve `/v1/embeddings` only through explicit embedding-capable
+aliases, preserving string/batch input and supported options through ordinary
+policy and observability. Unconfigured aliases and unsupported options SHALL
+fail clearly before dispatch; embedding requests SHALL not be rerouted or
+failed-over.
+
+### DFR-26 / DAC-26: Benchmark-safe logging
+
+Operators SHALL have a logging profile that redacts request/response content in
+enterprise JSONL and disables unredacted SQL/Fathom retention paths. Sentinel
+tests SHALL prove redaction, and the profile SHALL prescribe
+`/health/liveliness` as the no-model-call probe.
+
+### DFR-27 through DFR-29 / DAC-27 through DAC-29: Optional providers
+
+Provider configuration SHALL be explicit; discovery is informational,
+same-origin and redirect-free; and provider errors are bounded before any
+artifact boundary. OpenRouter is an operator-configured gateway: client routing
+overrides are rejected and Airlock never claims downstream-provider control.
+DeepSeek uses its stable explicit base and supports function tools only. Neither
+provider is auto-enabled by an environment key or default alias.
+
+### DFR-30 / DAC-30: Deterministic TUI verification
+
+Ordinary TUI tests SHALL compose the production widget tree without unrelated
+background workers. Named normal-mode tests SHALL retain lifecycle, cancellation,
+shutdown, stale-callback, JSONL, and MCP coverage.
+
+### DFR-31 / DAC-31: Bounded operator diagnostics
+
+Authenticated operators SHALL receive bounded, source-labelled routing,
+session-affinity, QoS-priority, and telemetry-health views without a UI
+dependency on the inference path. Session IDs, key material, credentials,
+prompt content, raw exporter errors, and raw endpoints SHALL not appear in these
+views. A session-pin break SHALL be authenticated and audited; unavailable or
+stale state SHALL be stated rather than inferred.
+
+### DFR-33 / DAC-33: Optional FathomDB operational reads
+
+Operators MAY select FathomDB as the operational-read backend only through an
+explicit setting. The default SHALL remain bounded JSONL reads. TUI history and
+Advisor error/search reads SHALL label their actual source, limit/truncation,
+and any unavailable/invalid-backend JSONL fallback. FathomDB remains
+single-owner and optional. Selected separate-process reads SHALL use a
+loopback-only proxy-admin bridge (and require its local admin configuration),
+never a second engine open. A FathomDB erasure receipt SHALL continue to state
+that JSONL retention/deletion is a separate obligation.

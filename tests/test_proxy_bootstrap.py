@@ -11,6 +11,7 @@ EXPECTED_ORDER = [
     "docs",
     "circuit_health",
     "error_handlers",
+    "embedding_boundary",
     "admin",
     "batch",
     "models_capability",
@@ -33,6 +34,9 @@ def test_bootstrap_runs_installs_in_order(monkeypatch):
     )
     monkeypatch.setattr(
         pb, "install_airlock_error_handlers_on_proxy_app", _mk("error_handlers")
+    )
+    monkeypatch.setattr(
+        pb, "install_embedding_request_boundary_on_proxy_app", _mk("embedding_boundary")
     )
     monkeypatch.setattr(pb, "install_admin_on_proxy_app", _mk("admin"))
     monkeypatch.setattr(pb, "install_batch_gateway_on_proxy_app", _mk("batch"))

@@ -309,6 +309,13 @@ FathomDB is optional and disabled by default.
 
 - Set `AIRLOCK_ENABLE_FATHOMDB=1` to enable the lazy engine path.
 - Set `AIRLOCK_ENABLE_FATHOM_LOGGER=1` to append the Fathom request logger at runtime.
+- Set `AIRLOCK_OPERATIONAL_READ_BACKEND=fathomdb` only to opt TUI history and
+  Advisor error/search reads into FathomDB. The default is bounded JSONL even
+  when FathomDB is enabled. This TUI/Advisor option also requires
+  `admin.enabled: true` with `trust_loopback: true`. The separate-process TUI reaches the proxy's
+  loopback-only admin bridge; it never opens the database itself. If that
+  bridge or FathomDB is unavailable, the screen states its bounded JSONL
+  fallback rather than silently changing source.
 - Put fresh databases under `AIRLOCK_STATE_DIR` while debugging. The database file is `airlock-fathom.db`; a `logs/airlock.db` left behind by FathomDB 0.3.x is abandoned — Airlock refuses to open it, and its records remain in the JSONL logs.
 
 Current write-path guarantees:

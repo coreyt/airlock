@@ -16,6 +16,7 @@ import re
 from typing import Any
 
 from litellm import RateLimitError
+from litellm.proxy._types import ProxyException
 
 from airlock.litellm_adapter import resolve_proxy_app
 from airlock.transparency import model_suggestion_header
@@ -98,6 +99,71 @@ class AirlockInvalidReasoningEffort(Exception):
             f"reasoning_effort {requested!r} is not supported by {model!r}; "
             f"use one of: {options}."
         )
+
+
+class AirlockEndpointNotSupported(ProxyException):
+    """A configured alias cannot be used on the requested API endpoint."""
+
+    def __init__(self, model: str, endpoint: str) -> None:
+        self.model = model
+        self.endpoint = endpoint
+        self._airlock_error_code = "model_endpoint_not_supported"
+        super().__init__(
+            message=f"Model {model!r} is not configured for the {endpoint!r} endpoint.",
+            type="invalid_request_error",
+            param="model",
+            code=400,
+            openai_code=self._airlock_error_code,
+        )
+
+    def to_dict(self) -> dict:
+        body = super().to_dict()
+        body["code"] = self._airlock_error_code
+        body["airlock"] = {"endpoint": self.endpoint, "model": self.model}
+        return body
+
+
+class AirlockGatewayRoutingOverride(ProxyException):
+    """A client tried to override an operator-owned gateway routing policy."""
+
+    def __init__(self, option: str) -> None:
+        self.option = option
+        self._airlock_error_code = "gateway_routing_override_not_allowed"
+        super().__init__(
+            message=(
+                f"OpenRouter routing option {option!r} is operator-controlled and "
+                "cannot be set by a client request."
+            ),
+            type="invalid_request_error",
+            param=option,
+            code=400,
+            openai_code=self._airlock_error_code,
+        )
+
+    def to_dict(self) -> dict:
+        body = super().to_dict()
+        body["code"] = self._airlock_error_code
+        return body
+
+
+class AirlockDeepSeekToolNotSupported(ProxyException):
+    """A DeepSeek request contains a non-function tool LiteLLM would drop."""
+
+    def __init__(self, option: str = "tools") -> None:
+        self.option = option
+        self._airlock_error_code = "deepseek_non_function_tool_not_supported"
+        super().__init__(
+            message="DeepSeek supports OpenAI function tools only.",
+            type="invalid_request_error",
+            param=option,
+            code=400,
+            openai_code=self._airlock_error_code,
+        )
+
+    def to_dict(self) -> dict:
+        body = super().to_dict()
+        body["code"] = self._airlock_error_code
+        return body
 
 
 class AirlockAdmissionShed(RateLimitError):
@@ -219,12 +285,39 @@ def invalid_reasoning_effort_response_payload(
     return body, {}
 
 
+def endpoint_not_supported_response_payload(
+    exc: AirlockEndpointNotSupported,
+) -> tuple[dict, dict]:
+    """Build an OpenAI-compatible 400 for an unsupported model endpoint."""
+    return (
+        {
+            "error": {
+                "message": sanitize_reason(str(exc), 500),
+                "type": "invalid_request_error",
+                "code": "model_endpoint_not_supported",
+                "param": "model",
+                "airlock": {"endpoint": exc.endpoint, "model": exc.model},
+            }
+        },
+        {},
+    )
+
+
 async def airlock_invalid_reasoning_effort_handler(request: Any, exc: Exception):
     """FastAPI exception handler → an OpenAI-compatible 400."""
     from fastapi.responses import JSONResponse
 
     assert isinstance(exc, AirlockInvalidReasoningEffort)
     body, headers = invalid_reasoning_effort_response_payload(exc)
+    return JSONResponse(status_code=400, content=body, headers=headers)
+
+
+async def airlock_endpoint_not_supported_handler(request: Any, exc: Exception):
+    """FastAPI exception handler → an OpenAI-compatible 400."""
+    from fastapi.responses import JSONResponse
+
+    assert isinstance(exc, AirlockEndpointNotSupported)
+    body, headers = endpoint_not_supported_response_payload(exc)
     return JSONResponse(status_code=400, content=body, headers=headers)
 
 
@@ -267,6 +360,13 @@ def install_airlock_error_handlers_on_proxy_app() -> bool:
             AirlockInvalidReasoningEffort, airlock_invalid_reasoning_effort_handler
         )
         app.state.airlock_invalid_reasoning_effort_handler_installed = True
+    if not getattr(
+        app.state, "airlock_endpoint_not_supported_handler_installed", False
+    ):
+        app.add_exception_handler(
+            AirlockEndpointNotSupported, airlock_endpoint_not_supported_handler
+        )
+        app.state.airlock_endpoint_not_supported_handler_installed = True
     if not getattr(app.state, "airlock_admission_shed_handler_installed", False):
         app.add_exception_handler(AirlockAdmissionShed, airlock_admission_shed_handler)
         app.state.airlock_admission_shed_handler_installed = True

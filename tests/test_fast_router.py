@@ -321,6 +321,46 @@ class TestApplyCostTier:
 # Session affinity
 # ---------------------------------------------------------------------------
 class TestSessionAffinity:
+    def test_session_affinity_is_scoped_to_client(self, fresh_state_store):
+        first = {
+            "model": "claude-sonnet",
+            "metadata": {"airlock": {"session_id": "shared-session"}},
+        }
+        apply_routing(first, client_id="client-a")
+
+        second = {
+            "model": "claude-opus",
+            "metadata": {"airlock": {"session_id": "shared-session"}},
+        }
+        result = apply_routing(second, client_id="client-b")
+
+        assert result["model"] == "claude-opus"
+        assert (
+            fresh_state_store.get_session("shared-session", "client-a").model
+            == "claude-sonnet"
+        )
+        assert (
+            fresh_state_store.get_session("shared-session", "client-b").model
+            == "claude-opus"
+        )
+
+    def test_session_snapshot_is_bounded_and_hides_session_identifier(
+        self, fresh_state_store
+    ):
+        fresh_state_store.set_session("super-secret-session", "claude-sonnet", "alice")
+
+        snapshot = fresh_state_store.active_session_snapshot(ttl_seconds=3600)
+
+        assert snapshot == [
+            {
+                "client_id": "alice",
+                "model": "claude-sonnet",
+                "age_seconds": 0.0,
+                "ttl_remaining_seconds": 3600.0,
+            }
+        ]
+        assert "super-secret-session" not in str(snapshot)
+
     def test_new_session_records_model(self, fresh_state_store):
         data = {
             "model": "claude-sonnet",
@@ -603,7 +643,9 @@ class TestApplyRouting:
         }
         result = apply_routing(data)
         routing = result["metadata"]["airlock_routing"]
-        assert routing["session_id"] == "full-1"
+        # Session identifiers are client-supplied and must not enter metadata
+        # that callbacks persist to JSONL or render in operator diagnostics.
+        assert "session_id" not in routing
         assert any("session_new" in r for r in routing["reasons"])
 
     def test_combined_directives_priority(self, fresh_state_store):

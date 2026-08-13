@@ -208,12 +208,14 @@ def test_classify_backend_kind_gateway() -> None:
     assert classify_backend_kind("azure") == "gateway"
     assert classify_backend_kind("vertex_ai") == "gateway"
     assert classify_backend_kind("vertex_ai_beta") == "gateway"
+    assert classify_backend_kind("openrouter") == "gateway"
 
 
 def test_classify_backend_kind_native() -> None:
     assert classify_backend_kind("anthropic") == "native"
     assert classify_backend_kind("openai") == "native"
     assert classify_backend_kind("gemini") == "native"
+    assert classify_backend_kind("deepseek") == "native"
 
 
 def test_classify_backend_kind_unknown() -> None:

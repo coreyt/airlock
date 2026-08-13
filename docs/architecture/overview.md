@@ -71,6 +71,11 @@ via `write_batch_record`) is provider-agnostic; only the adapter differs. See
 
 Textual-based terminal dashboard with 6 screens. See [TUI Dashboard](../guide/tui.md).
 
+The TUI is a separate process from the proxy. For explicitly selected FathomDB
+operational reads, it uses the proxy's loopback-only admin bridge rather than
+opening the proxy-owned embedded database; unavailable reads are labelled,
+bounded JSONL fallbacks.
+
 ### CLI (`cli/`)
 
 Unified `airlock` command with subcommands. See [CLI Reference](../guide/cli.md).

@@ -18,6 +18,19 @@ example `https://airlock.example.com/airlock/docs`.
 
 ## Airlock-specific contracts
 
+### Embeddings
+
+Airlock forwards OpenAI-compatible `POST /v1/embeddings` requests through the
+normal authenticated proxy path for explicitly configured embedding aliases.
+In the shipped benchmark configuration, use `text-embedding-3-small` or
+`openai/text-embedding-3-small`. Chat-only aliases, `smart`, fuzzy aliases, and
+unconfigured models receive an OpenAI-shaped `400` with
+`error.code=model_endpoint_not_supported`; Airlock does not route or fall back
+an embedding request. For `text-embedding-3-small`, `dimensions` must be an
+integer from 1 through 1536 and `encoding_format` must be `float` or `base64`.
+Completion-only controls are rejected before dispatch with
+`error.code=invalid_embedding_option`.
+
 The live schema includes Airlock additions to the standard endpoints, including
 client attribution, supported request metadata, 429 responses, and response
 headers. Use these static pages for the behavior behind those fields:

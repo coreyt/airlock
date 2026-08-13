@@ -3,20 +3,201 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import AsyncMock
 
 import pytest
 from litellm import RateLimitError
 
 from airlock.proxy_errors import (
+    AirlockEndpointNotSupported,
+    AirlockGatewayRoutingOverride,
     AirlockInvalidReasoningEffort,
     AirlockProviderBlocked,
     airlock_invalid_reasoning_effort_handler,
     airlock_provider_blocked_handler,
     block_response_payload,
     invalid_reasoning_effort_response_payload,
+    endpoint_not_supported_response_payload,
     install_airlock_error_handlers_on_proxy_app,
     retry_after_seconds,
 )
+
+
+def test_endpoint_not_supported_payload_is_openai_shaped() -> None:
+    body, headers = endpoint_not_supported_response_payload(
+        AirlockEndpointNotSupported("gpt-4o-mini", "embeddings")
+    )
+    assert headers == {}
+    assert body["error"]["type"] == "invalid_request_error"
+    assert body["error"]["code"] == "model_endpoint_not_supported"
+    assert body["error"]["param"] == "model"
+
+
+def test_openrouter_routing_override_is_openai_shaped() -> None:
+    exc = AirlockGatewayRoutingOverride("extra_body.route")
+    body = exc.to_dict()
+    assert body["code"] == "gateway_routing_override_not_allowed"
+    assert body["param"] == "extra_body.route"
+
+
+def test_deepseek_non_function_tool_is_openai_shaped() -> None:
+    from airlock.proxy_errors import AirlockDeepSeekToolNotSupported
+
+    body = AirlockDeepSeekToolNotSupported().to_dict()
+    assert body["code"] == "deepseek_non_function_tool_not_supported"
+    assert body["param"] == "tools"
+
+
+async def test_deepseek_tool_rejection_survives_litellm_proxy_translation(
+    mock_user_api_key_dict,
+) -> None:
+    from litellm.proxy._types import ProxyException
+    from litellm.proxy.common_request_processing import ProxyBaseLLMRequestProcessing
+    from litellm.proxy.proxy_server import openai_exception_handler
+    from starlette.requests import Request
+
+    from airlock.proxy_errors import AirlockDeepSeekToolNotSupported
+
+    proxy_logging = type(
+        "ProxyLoggingStub",
+        (),
+        {
+            "post_call_failure_hook": AsyncMock(return_value=None),
+            "post_call_response_headers_hook": AsyncMock(return_value={}),
+        },
+    )()
+    with pytest.raises(ProxyException) as raised:
+        await ProxyBaseLLMRequestProcessing(data={})._handle_llm_api_exception(
+            e=AirlockDeepSeekToolNotSupported(),
+            user_api_key_dict=mock_user_api_key_dict,
+            proxy_logging_obj=proxy_logging,
+            version="test",
+        )
+    exc = raised.value
+    assert (exc.code, exc.type, exc.param, exc.openai_code) == (
+        "400",
+        "invalid_request_error",
+        "tools",
+        "deepseek_non_function_tool_not_supported",
+    )
+    response = await openai_exception_handler(
+        Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/v1/chat/completions",
+                "headers": [],
+            }
+        ),
+        exc,
+    )
+    assert response.status_code == 400
+    assert json.loads(response.body)["error"] == {
+        "message": "DeepSeek supports OpenAI function tools only.",
+        "type": "invalid_request_error",
+        "param": "tools",
+        "code": "deepseek_non_function_tool_not_supported",
+    }
+
+
+async def test_embedding_rejection_survives_litellm_proxy_exception_translation(
+    mock_user_api_key_dict,
+) -> None:
+    """LiteLLM catches guardrail exceptions inside `/v1/embeddings` routes."""
+    from litellm.proxy._types import ProxyException
+    from litellm.proxy.common_request_processing import ProxyBaseLLMRequestProcessing
+    from litellm.proxy.proxy_server import openai_exception_handler
+    from starlette.requests import Request
+
+    proxy_logging = type(
+        "ProxyLoggingStub",
+        (),
+        {
+            "post_call_failure_hook": AsyncMock(return_value=None),
+            "post_call_response_headers_hook": AsyncMock(return_value={}),
+        },
+    )()
+    processor = ProxyBaseLLMRequestProcessing(data={})
+    with pytest.raises(ProxyException) as raised:
+        await processor._handle_llm_api_exception(
+            e=AirlockEndpointNotSupported("gpt-4o-mini", "embeddings"),
+            user_api_key_dict=mock_user_api_key_dict,
+            proxy_logging_obj=proxy_logging,
+            version="test",
+        )
+
+    exc = raised.value
+    assert exc.code == "400"
+    assert exc.type == "invalid_request_error"
+    assert exc.param == "model"
+    assert exc.openai_code == "model_endpoint_not_supported"
+    response = await openai_exception_handler(
+        Request(
+            {"type": "http", "method": "POST", "path": "/v1/embeddings", "headers": []}
+        ),
+        exc,
+    )
+    assert response.status_code == 400
+    assert json.loads(response.body)["error"] == {
+        "message": "Model 'gpt-4o-mini' is not configured for the 'embeddings' endpoint.",
+        "type": "invalid_request_error",
+        "param": "model",
+        "code": "model_endpoint_not_supported",
+        "airlock": {"endpoint": "embeddings", "model": "gpt-4o-mini"},
+    }
+
+
+async def test_openrouter_override_rejection_survives_litellm_proxy_translation(
+    mock_user_api_key_dict,
+) -> None:
+    """The pre-dispatch provider guard must reach clients as an OpenAI 400."""
+    from litellm.proxy._types import ProxyException
+    from litellm.proxy.common_request_processing import ProxyBaseLLMRequestProcessing
+    from litellm.proxy.proxy_server import openai_exception_handler
+    from starlette.requests import Request
+
+    proxy_logging = type(
+        "ProxyLoggingStub",
+        (),
+        {
+            "post_call_failure_hook": AsyncMock(return_value=None),
+            "post_call_response_headers_hook": AsyncMock(return_value={}),
+        },
+    )()
+    with pytest.raises(ProxyException) as raised:
+        await ProxyBaseLLMRequestProcessing(data={})._handle_llm_api_exception(
+            e=AirlockGatewayRoutingOverride("extra_body.route"),
+            user_api_key_dict=mock_user_api_key_dict,
+            proxy_logging_obj=proxy_logging,
+            version="test",
+        )
+
+    exc = raised.value
+    assert exc.code == "400"
+    assert exc.type == "invalid_request_error"
+    assert exc.param == "extra_body.route"
+    assert exc.openai_code == "gateway_routing_override_not_allowed"
+    response = await openai_exception_handler(
+        Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/v1/chat/completions",
+                "headers": [],
+            }
+        ),
+        exc,
+    )
+    assert response.status_code == 400
+    assert json.loads(response.body)["error"] == {
+        "message": (
+            "OpenRouter routing option 'extra_body.route' is operator-controlled "
+            "and cannot be set by a client request."
+        ),
+        "type": "invalid_request_error",
+        "param": "extra_body.route",
+        "code": "gateway_routing_override_not_allowed",
+    }
 
 
 class TestAirlockProviderBlocked:

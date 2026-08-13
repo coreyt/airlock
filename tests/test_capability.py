@@ -197,6 +197,16 @@ class TestCapabilityRecord:
         assert rec["region"] is None
         assert rec["deprecated"] is False
 
+    def test_embedding_marker_is_embedding_only(self):
+        entry = {
+            "model_name": "text-embedding-3-small",
+            "litellm_params": {"model": "openai/text-embedding-3-small"},
+            "airlock_embeddings": True,
+        }
+        rec = capability_record(entry)
+        assert rec["airlock_provider"] == "openai"
+        assert rec["endpoints"] == ["embeddings"]
+
     def test_vertex_global_region_and_chat_only(self):
         entry = {
             "model_name": "gemini-3.5-flash-vertex",

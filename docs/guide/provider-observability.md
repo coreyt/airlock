@@ -17,7 +17,7 @@ from the model name):
 
 | Header | Meaning | Emitted when |
 |---|---|---|
-| `X-Airlock-Served-By` | The served provider token — `anthropic` / `openai` / `gemini` (AI Studio) / `vertex_ai` (Vertex) / `mistral` / `perplexity` / `tavily`. | every response whose served provider can be determined (omitted, never guessed, otherwise) |
+| `X-Airlock-Served-By` | The served provider token — `anthropic` / `openai` / `gemini` (AI Studio) / `vertex_ai` (Vertex) / `mistral` / `perplexity` / `tavily` / `openrouter`. `openrouter` identifies the gateway, never a guessed downstream host. | every response whose served provider can be determined (omitted, never guessed, otherwise) |
 | `X-Airlock-Served-Region` | The served region. | only when the backend reports one (gateway/region backends, e.g. Vertex / Bedrock) |
 
 The value of `X-Airlock-Served-By` **equals** the `airlock_provider` you

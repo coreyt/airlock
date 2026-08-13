@@ -26,6 +26,7 @@ from typing import Any
 from airlock.client_identity import extract_airlock_client_from_kwargs
 from airlock.fast.router import infer_provider
 from airlock.metadata_policy import SECRET_METADATA_KEYS
+from airlock.provider_errors import summarize_provider_error
 from airlock.fast.state import normalize_client_id
 from litellm.integrations.custom_logger import CustomLogger
 
@@ -78,6 +79,10 @@ def _normalize_failure(
     """
     exc = kwargs.get("exception")
     exc_type = type(exc).__name__ if exc is not None else None
+
+    provider_summary = summarize_provider_error(exc)
+    if provider_summary is not None:
+        return provider_summary.message(), provider_summary.error_type, "provider"
 
     error_text = ""
     if exc is not None:

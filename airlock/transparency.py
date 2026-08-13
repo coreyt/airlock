@@ -56,8 +56,14 @@ class ServedBackend:
 # these scalar/enum fields. Everything else renders as `field=<op>` — never content.
 HEADER_VALUE_FIELDS = {"model", "reasoning_effort", "fallbacks", "num_retries"}
 
-_GATEWAY_PROVIDERS = {"bedrock", "azure", "vertex_ai", "vertex_ai_beta"}
-_NATIVE_PROVIDERS = {"anthropic", "openai", "gemini"}
+_GATEWAY_PROVIDERS = {
+    "bedrock",
+    "azure",
+    "vertex_ai",
+    "vertex_ai_beta",
+    "openrouter",
+}
+_NATIVE_PROVIDERS = {"anthropic", "openai", "gemini", "deepseek"}
 
 # litellm's streaming wrapper hardcodes custom_llm_provider="vertex_ai_beta" for the
 # Vertex-Gemini handler — even for native AI-Studio gemini calls. Normalize the alias
@@ -151,7 +157,8 @@ def classify_backend_kind(
 ) -> Literal["native", "gateway", "unknown"]:
     """Map a provider name to its backend kind (pure, no I/O).
 
-    gateway: bedrock/azure/vertex_ai ; native: anthropic/openai/gemini ; else unknown.
+    gateway: bedrock/azure/vertex_ai/openrouter; native:
+    anthropic/openai/gemini/deepseek; else unknown.
     """
     if provider in _GATEWAY_PROVIDERS:
         return "gateway"

@@ -17,6 +17,9 @@ import logging
 import os
 from typing import Any
 
+from airlock.provider_errors import summarize_provider_error
+from airlock.telemetry_health import configure_exporter, record_signal
+
 logger = logging.getLogger("airlock.callbacks.tracing")
 
 try:
@@ -45,10 +48,15 @@ def _get_tracer() -> Any:
         provider = TracerProvider(resource=resource)
         trace.set_tracer_provider(provider)
 
-    return trace.get_tracer("airlock", "0.5.12")
+    return trace.get_tracer("airlock", "0.5.14")
 
 
 _tracer = _get_tracer()
+configure_exporter(
+    "otlp",
+    enabled=_OTEL_AVAILABLE,
+    endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+)
 
 
 class AirlockTracingCallback(CustomLogger):
@@ -64,6 +72,7 @@ class AirlockTracingCallback(CustomLogger):
         model = kwargs.get("model", "unknown")
 
         with _tracer.start_as_current_span("llm.request") as span:
+            record_signal("otlp")
             span.set_attribute("llm.model", model)
             span.set_attribute("llm.success", True)
             span.set_attribute("llm.request_id", kwargs.get("litellm_call_id", ""))
@@ -120,13 +129,20 @@ class AirlockTracingCallback(CustomLogger):
         error = kwargs.get("exception")
 
         with _tracer.start_as_current_span("llm.request") as span:
+            record_signal("otlp")
             span.set_attribute("llm.model", model)
             span.set_attribute("llm.success", False)
             span.set_attribute("llm.request_id", kwargs.get("litellm_call_id", ""))
 
             if error:
-                span.set_attribute("llm.error", str(error))
-                span.record_exception(error)
+                summary = summarize_provider_error(error)
+                if summary is not None:
+                    # Never export a provider response body in an OTel exception.
+                    span.set_attribute("llm.error", summary.message())
+                    span.record_exception(Exception(summary.message()))
+                else:
+                    span.set_attribute("llm.error", str(error))
+                    span.record_exception(error)
 
     async def async_log_failure_event(
         self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any

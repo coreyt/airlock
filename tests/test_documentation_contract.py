@@ -72,9 +72,43 @@ def test_documentation_entry_points_and_live_api_contract_are_linked() -> None:
     # release boundary — the failure is the point: it catches the index going
     # stale, which is how a cold-start reader ends up following a closed-out
     # milestone's instructions.
-    assert "plans/0.5.10-plan.md" in dev_readme
+    assert "plans/0.5.14-todo.md" in dev_readme
     assert "/airlock/docs" in api_reference
     assert "/openapi.json" in api_reference
+
+
+def test_benchmark_safe_logging_profile_is_documented() -> None:
+    configuration = (DOCS / "getting-started" / "configuration.md").read_text()
+
+    assert "## Benchmark-safe FathomDB profile" in configuration
+    assert "AIRLOCK_LOG_REDACT_FIELDS=messages,response" in configuration
+    assert "AIRLOCK_ENABLE_SQL_LOGGER=0" in configuration
+    assert "AIRLOCK_ENABLE_FATHOM_LOGGER=0" in configuration
+    assert "AIRLOCK_FATHOM_STORE_MESSAGES=0" in configuration
+    assert "AIRLOCK_FATHOM_STORE_RESPONSE_TEXT=0" in configuration
+
+
+def test_openrouter_recipe_states_explicit_gateway_boundary() -> None:
+    configuration = (DOCS / "getting-started" / "configuration.md").read_text()
+
+    assert "## OpenRouter (operator-configured gateway)" in configuration
+    assert "openrouter/openai/gpt-4o-mini" in configuration
+    assert "os.environ/OPENROUTER_API_KEY" in configuration
+    assert "https://openrouter.ai/api/v1" in configuration
+    assert "not enabled merely because the key exists" in configuration
+    assert (
+        "Airlock does not identify or control OpenRouter's downstream provider"
+        in " ".join(configuration.split())
+    )
+
+
+def test_deepseek_recipe_states_stable_endpoint_and_tool_boundary() -> None:
+    configuration = (DOCS / "getting-started" / "configuration.md").read_text()
+    assert "## DeepSeek (operator-configured stable endpoint)" in configuration
+    assert "os.environ/DEEPSEEK_API_KEY" in configuration
+    assert "https://api.deepseek.com" in configuration
+    assert "function** tools only" in configuration
+    assert "DeepSeek `user_id`" in configuration
 
 
 def test_cli_reference_covers_each_supported_top_level_command() -> None:

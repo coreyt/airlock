@@ -12,6 +12,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from airlock.capability import airlock_provider_for, endpoints_for
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -254,6 +256,71 @@ class TestTemplateRootParity:
         assert not mismatches, (
             "Template and root disagree on shared aliases: " + "; ".join(mismatches)
         )
+
+
+class TestFathomDBBenchmarkAliases:
+    """The benchmark client depends on these explicit, OpenAI-backed names."""
+
+    @pytest.mark.parametrize("alias", ["gpt-4o-mini", "openai/gpt-4o-mini"])
+    def test_chat_benchmark_aliases_are_explicit(self, any_config, alias):
+        which, config, _ = any_config
+        entries = {
+            entry["model_name"]: entry
+            for entry in config.get("model_list", [])
+            if "model_name" in entry
+        }
+        assert alias in entries, f"[{which}] missing FathomDB chat alias {alias!r}"
+        params = entries[alias]["litellm_params"]
+        assert params["model"] == "openai/gpt-4o-mini"
+        assert params["api_key"] == "os.environ/OPENAI_API_KEY"
+        assert airlock_provider_for(entries[alias]) == "openai"
+        assert endpoints_for(entries[alias]) == ["chat"]
+
+        fallback_refs = {
+            model
+            for chain in config.get("router_settings", {}).get("fallbacks", [])
+            for source, targets in chain.items()
+            for model in [source, *targets]
+        }
+        assert alias not in fallback_refs, (
+            f"[{which}] benchmark alias {alias!r} must not be an automatic fallback"
+        )
+
+    @pytest.mark.parametrize(
+        "alias", ["text-embedding-3-small", "openai/text-embedding-3-small"]
+    )
+    def test_embedding_benchmark_aliases_are_explicit(self, any_config, alias):
+        which, config, _ = any_config
+        entries = {
+            entry["model_name"]: entry
+            for entry in config.get("model_list", [])
+            if "model_name" in entry
+        }
+        assert alias in entries, f"[{which}] missing FathomDB embedding alias {alias!r}"
+        params = entries[alias]["litellm_params"]
+        assert params["model"] == "openai/text-embedding-3-small"
+        assert params["api_key"] == "os.environ/OPENAI_API_KEY"
+        assert endpoints_for(entries[alias]) == ["embeddings"]
+
+
+class TestOptionalProviderRecipes:
+    """Provider keys/config examples must not widen the shipped model surface."""
+
+    @pytest.mark.parametrize("provider", ["openrouter", "deepseek"])
+    def test_optional_provider_is_not_enabled_or_a_fallback_by_default(
+        self, any_config, provider
+    ):
+        which, config, names = any_config
+        assert not any(name.startswith(f"{provider}/") for name in names), (
+            f"[{which}] {provider} must require an operator model_list entry"
+        )
+        fallback_refs = {
+            model
+            for chain in config.get("router_settings", {}).get("fallbacks", [])
+            for source, targets in chain.items()
+            for model in [source, *targets]
+        }
+        assert not any(name.startswith(f"{provider}/") for name in fallback_refs)
 
 
 # ---------------------------------------------------------------------------

@@ -65,9 +65,7 @@ class PIIMapStore:
 
     def _sweep_locked(self, now: float) -> int:
         expired = [
-            handle
-            for handle, entry in self._entries.items()
-            if entry.expires_at <= now
+            handle for handle, entry in self._entries.items() if entry.expires_at <= now
         ]
         for handle in expired:
             del self._entries[handle]
