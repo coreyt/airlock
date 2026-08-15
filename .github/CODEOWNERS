@@ -1,0 +1,4 @@
+# Security scanning controls require the repository security owner.
+/.gitleaksignore @coreyt
+/.pre-commit-config.yaml @coreyt
+/.github/workflows/gitleaks.yml @coreyt

@@ -344,3 +344,28 @@ single-owner and optional. Selected separate-process reads SHALL use a
 loopback-only proxy-admin bridge (and require its local admin configuration),
 never a second engine open. A FathomDB erasure receipt SHALL continue to state
 that JSONL retention/deletion is a separate obligation.
+
+---
+
+## 0.5.15 ratified requirements
+
+### DFR-35 / DAC-35: Secret-scan delivery control
+
+Airlock's repository SHALL use a dedicated, non-deploying Gitleaks control at
+scanner version `8.30.0`: a staged pre-commit hook and an isolated GitHub
+Actions `gitleaks / scan` job for pull requests to `main`, pushes to `main`,
+manual dispatch, and scheduled reachable-history scans. The workflow SHALL use
+full-SHA-pinned actions, a full checkout, and only `contents: read` and
+`pull-requests: read` permissions. It SHALL not use `pull_request_target`,
+write/OIDC permissions, repository/deployment secrets, comments, artifact or
+SARIF upload, or result summaries.
+
+The baseline SHALL contain only individually reviewed exact fingerprints;
+broad path/rule exclusions and inline allow comments are prohibited. Scanner
+configuration files SHALL have designated code ownership, and `main` SHALL
+require both that review and the stable `gitleaks / scan` check once a GitHub
+administrator configures the external rule. Directory and reachable-history
+scans must be clean for the reviewed baseline; a synthetic non-usable detector
+fixture must fail redacted and pass after removal. The control SHALL not alter
+Airlock runtime behavior, configuration, image contents, or provider/deployment
+credential access.
