@@ -32,7 +32,8 @@ that is accepted for investigation from work that is approved for delivery.
 | Secure host-console TUI administration for containers | Design exists; topology/identity decision is open | Slice 50 |
 | Airlock-native virtual-key management | Design exists; depends on 0.6.0 identity/keystore contract | Slice 60, conditional |
 | Multi-instance TUI administration | Research/design exists; remote operation/configuration authority is open | Slice 70, conditional |
-| Release closeout | Required only for work actually included and delivered | Slice 80 |
+| CI review and improvement | Review workflow reliability, signal, coverage, cost, and maintainability without weakening delivery controls | Slice 80 |
+| Release closeout | Required only for work actually included and delivered | Slice 90 |
 
 Claude Code subscription-preserving pass-through is explicitly out of scope for
 0.5.15. The even-minor roadmap migration is planning/documentation work, not a
@@ -217,7 +218,8 @@ authorize work before Slice 6.
 | 50 | Secure host-console TUI administration for containerized Airlock | Topology, operator identity, TLS/token lifecycle, and audit decisions pass. |
 | 60 | Virtual-key store and management | 0.6.0 keystore/identity contract and threat model are ratified; otherwise postpone. |
 | 70 | Multi-instance TUI named inventory and read-only Admin-API fan-out | Fleet identity/TLS/token/inventory/operation limits are approved; otherwise postpone. |
-| 80 | Release closeout | Only delivered, verified slices are included; deferred work is named explicitly. |
+| 80 | CI review and improvement | Review current workflows, required checks, runtime/cost, cache and matrix design, test-signal quality, and failure triage; preserve least privilege, pinned actions, Gitleaks enforcement, and no-secret CI boundaries. Document and independently review proposed changes before implementation. |
+| 90 | Release closeout | Only delivered, verified slices are included; deferred work is named explicitly. |
 
 ### Mandatory lifecycle for every included feature slice
 
