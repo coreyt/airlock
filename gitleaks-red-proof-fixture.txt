@@ -1,0 +1,2 @@
+# Synthetic non-usable detector fixture for the disposable Slice 10 CI proof.
+api_key = "sk-test-1234567890abcdef"
