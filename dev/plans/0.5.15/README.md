@@ -30,7 +30,7 @@ that is accepted for investigation from work that is approved for delivery.
 | Configured-provider credential with no enabled alias warning | Implemented locally; redacted startup-warning evidence recorded | Slice 30 |
 | Read-only provider/configuration visibility in Admin/TUI | Design exists; CRUD is not approved | Slice 40 |
 | Secure host-console TUI administration for containers | Design exists; topology/identity decision is open | Slice 50 |
-| Airlock-native virtual-key management | Design exists; depends on 0.6.0 identity/keystore contract | Slice 60, conditional |
+| Airlock-native virtual-key management | **Deferred to 0.6.0**; depends on the native identity/keystore foundation | Slice 60 (0.6.0) |
 | Multi-instance TUI administration | Research/design exists; remote operation/configuration authority is open | Slice 70, conditional |
 | CI review and improvement | Review workflow reliability, signal, coverage, cost, and maintainability without weakening delivery controls | Slice 80 |
 | Release closeout | Required only for work actually included and delivered | Slice 90 |
@@ -216,7 +216,7 @@ authorize work before Slice 6.
 | 30 | Redacted startup warning for configured credential/no enabled alias | Provider taxonomy, logging, and redaction drafts pass. |
 | 40 | Read-only provider/configuration Admin/TUI visibility | Read-only configuration-owner posture remains approved; no CRUD expansion. |
 | 50 | Secure host-console TUI administration for containerized Airlock | Topology, operator identity, TLS/token lifecycle, and audit decisions pass. |
-| 60 | Virtual-key store and management | 0.6.0 keystore/identity contract and threat model are ratified; otherwise postpone. |
+| 60 | **Deferred to 0.6.0** virtual-key management | The 0.6.0 B5 identity/keystore foundation must close first; not a 0.5.15 delivery slice. |
 | 70 | Multi-instance TUI named inventory and read-only Admin-API fan-out | Fleet identity/TLS/token/inventory/operation limits are approved; otherwise postpone. |
 | 80 | CI review and improvement | Review current workflows, required checks, runtime/cost, cache and matrix design, test-signal quality, and failure triage; preserve least privilege, pinned actions, Gitleaks enforcement, and no-secret CI boundaries. Document and independently review proposed changes before implementation. |
 | 90 | Release closeout | Only delivered, verified slices are included; deferred work is named explicitly. |
