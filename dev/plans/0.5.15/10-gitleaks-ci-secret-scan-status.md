@@ -1,8 +1,8 @@
 # 0.5.15 Slice 10 — Gitleaks secret-scan status
 
-**Status:** repository-controlled implementation complete locally — 2026-08-15.
-GitHub branch-protection and code-owner enforcement are **not active yet**;
-authenticated external verification and enforcement are in progress.
+**Status:** implemented and externally enforced — 2026-08-15. GitHub `main`
+now requires `gitleaks / scan` and one CODEOWNERS approval. PR #49 remains
+properly blocked pending that review and its ordinary CI completion.
 
 ## Ratified contract and changed controls
 
@@ -52,26 +52,31 @@ metadata and scanned zero commits. Re-running with that metadata mounted
 read-only produced the 686-commit clean result above; this was a test-topology
 correction, not a scanner suppression.
 
-## Outstanding external acceptance criteria
+## External enforcement evidence
 
-The local/repository-control portion is ready for focused commit and push. The
-following remains incomplete and must not be represented as active:
+| Acceptance boundary | Evidence |
+| --- | --- |
+| Green PR scan | [PR #49](https://github.com/coreyt/airlock/pull/49) completed its `gitleaks / scan` job successfully: [run 31917799169](https://github.com/coreyt/airlock/actions/runs/31917799169). |
+| Manual dispatch | The same workflow passed from `workflow_dispatch` on the feature branch: [run 31918015039](https://github.com/coreyt/airlock/actions/runs/31918015039). |
+| Red CI proof | Disposable [PR #50](https://github.com/coreyt/airlock/pull/50) contained only the synthetic non-usable fixture. Its [scan job](https://github.com/coreyt/airlock/actions/runs/31917967497/job/95092956354) failed as expected, while GitHub reported `BLOCKED` and `REVIEW_REQUIRED`. The PR was closed and its remote/local branch and worktree were deleted immediately. |
+| Required check | `main` branch protection now requires strict `gitleaks / scan`; the context is explicitly bound to the Gitleaks check. |
+| Code-owner enforcement | `main` now requires one approving review and `require_code_owner_reviews=true`; the scanner files are owned by `@coreyt`. |
+| Bypass/branch safety | Administrator enforcement is enabled; force pushes and deletion are disabled. The pre-existing disabled deletion/non-fast-forward ruleset was not modified. |
 
-1. A GitHub administrator must configure `main` to require the stable
-   `gitleaks / scan` check and code-owner review for the three scanner-control
-   files.
-2. A disposable PR must show a redacted CI failure for the synthetic fixture,
-   then a green result after removal; manual-dispatch, main-push, and fork-PR
-   behavior must be evidenced without repository secrets or elevated token.
-3. The branch rule must prove that a scanner/baseline change cannot merge
-   without its designated owner.
+The initial inspection confirmed no active legacy branch-protection rule, so
+this is a narrow new protection rather than a replacement of an existing active
+policy.
 
-Authenticated `gh` inspection confirms that `main` currently has no legacy
-branch-protection rule. The only `protect-main` ruleset is disabled and covers
-deletion/non-fast-forward only. Apply the narrow required-check/code-owner rule
-only after the feature PR has produced the stable `gitleaks / scan` check, then
-record the resulting PR/run URLs and branch-rule response before closing Slice
-10 as merge-blocking.
+## Remaining release evidence
+
+- PR #49 still requires its designated code-owner approval and its ordinary
+  Python 3.12 CI completion before merge. The Gitleaks check is already green.
+- A protected `main` push will be evidenced after that reviewed merge. The
+  workflow definition contains the required `push: main` trigger, but this
+  slice did not bypass protection to manufacture a direct push.
+- A separate public-fork PR was not created. The workflow uses `pull_request`,
+  read-only job permissions, and no repository/deployment secrets; retain that
+  as a deployment-policy review item if fork execution needs empirical proof.
 
 ## Residual risk and rollback
 

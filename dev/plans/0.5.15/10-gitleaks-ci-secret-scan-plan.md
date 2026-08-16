@@ -1,8 +1,9 @@
 # 0.5.15 Slice 10 — Gitleaks secret-scan implementation plan
 
-**Status:** repository-controlled implementation complete locally — updated
-2026-08-15. External GitHub merge-blocking enforcement remains pending; see
-`10-gitleaks-ci-secret-scan-status.md` for the exact evidence and limitation.
+**Status:** implemented and externally enforced — updated 2026-08-15. `main`
+now requires the stable Gitleaks check and CODEOWNERS review; the feature PR
+remains subject to that review and ordinary CI. See
+`10-gitleaks-ci-secret-scan-status.md` for exact evidence and limitations.
 
 ## Admission check
 
