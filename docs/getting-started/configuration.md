@@ -549,6 +549,7 @@ admin:
   trust_loopback: true      # loopback connections are the operator (Path A)
   allow_insecure_tokens: false   # permit token auth over plaintext on a non-loopback bind
   behind_tls_proxy: false   # assert TLS is terminated upstream
+  remote_tui: false         # opt-in host-console container Admin profile
 ```
 
 Tokens are signed with `AIRLOCK_JWT_SECRET` (falling back to a derivation from
@@ -556,6 +557,12 @@ Tokens are signed with `AIRLOCK_JWT_SECRET` (falling back to a derivation from
 or capability skips are active on a non-loopback bind without TLS, Airlock refuses
 to start unless one of `AIRLOCK_SSL_*`, `behind_tls_proxy`, or
 `allow_insecure_tokens` is set.
+
+`remote_tui: true` is a narrower profile for a host-console TUI reaching an
+Airlock container through a port published only on the host loopback interface.
+It requires native TLS, `trust_loopback: false`, and rejects proxy/insecure-token
+modes. It accepts only a 15-minute JWT containing `admin:remote_tui` plus its
+operation scope; it never accepts the master key. See [Admin API](../guide/admin-api.md#host-console-container-tui) for the deployment contract.
 
 ### `guardrail_overrides`
 

@@ -28,16 +28,24 @@ from airlock.proxy_errors import install_airlock_error_handlers_on_proxy_app
 def _configure_child_startup_configuration() -> None:
     """Load the launcher's canonical runtime file before mounting Admin.
 
-    The launcher is responsible for CC-12 bind/TLS validation.  This child
-    process receives its already-materialized config path and owns the live
-    Admin policy/snapshot installed on the LiteLLM application.
+    The child repeats the launcher's bind/TLS validation before it owns the
+    live Admin policy/snapshot installed on the LiteLLM application.  This
+    prevents alternate LiteLLM child launch paths from mounting an invalid
+    remote-TUI perimeter.
     """
     from airlock.litellm_config import resolve_litellm_direct_config
     from airlock.provider_configuration import configure_provider_configuration
 
     config_path = os.getenv("AIRLOCK_CONFIG", "config.yaml")
     config = resolve_litellm_direct_config(config_path)
-    configure_admin(config)
+    tls_enabled = bool(os.getenv("AIRLOCK_SSL_CERTFILE", "").strip()) and bool(
+        os.getenv("AIRLOCK_SSL_KEYFILE", "").strip()
+    )
+    configure_admin(
+        config,
+        host=os.getenv("AIRLOCK_HOST", "0.0.0.0"),
+        tls_enabled=tls_enabled,
+    )
     configure_provider_configuration(config)
 
 

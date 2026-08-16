@@ -424,3 +424,27 @@ SHALL read this view only over its Admin HTTP client in a bounded background
 refresh, visibly label unavailable/stale startup state, and never fall back to
 another process's files. YAML plus deployment workflow and restart remain the
 configuration authority.
+
+### DFR-38 / DAC-38: Secure host-console container Admin TUI
+
+An explicit, default-off `admin.remote_tui` profile SHALL support only a host
+console TUI connecting to a container through a host-loopback-published port.
+It SHALL require native TLS, `admin.enabled: true`, `trust_loopback: false`,
+and a CA/name-validated HTTPS client using an operator-owned protected token
+file. The profile SHALL accept only a signed capability JWT, with a maximum
+15-minute TTL and the `admin:remote_tui` anchor plus exact scope among
+`admin:read`, `admin:read_config`, and `admin:clear_quarantine`; master-key,
+loopback, Docker/CIDR, forwarded-header,
+and proxy identity are not remote authorization paths. The remote UI SHALL use
+only the Admin HTTP perimeter and SHALL not access local state, logs, FathomDB,
+configuration files, proxy lifecycle, or operational history.
+
+The standard Compose deployment SHALL remain unchanged. A separate opt-in
+manifest SHALL bind the published port only to `127.0.0.1`, mount TLS material
+read-only, and document token/CA delivery, 15-minute rotation/revocation, and
+rollback. Remote reads and failures SHALL be bounded and secret-blind.
+Successful remote mutations SHALL retain the validated token subject and add
+only `auth_context: remote_tui_jwt` to the existing `admin_action` audit
+record; they SHALL not record bearer material, raw address, certificate data,
+or request content. Existing direct-loopback Admin/TUI, operation-history,
+inference, routing, guardrail, and credential behavior SHALL remain unchanged.

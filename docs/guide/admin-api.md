@@ -31,6 +31,7 @@ admin:
 | `trust_loopback` | `true` | A connection from `127.0.0.1`/`::1` is the operator tier, no credential (Path A). |
 | `allow_insecure_tokens` | `false` | Permit token auth on a non-loopback bind without TLS (downgrades the fail-closed startup refusal to a warning). |
 | `behind_tls_proxy` | `false` | Assert that TLS is terminated by an upstream reverse proxy, so the fail-closed check is satisfied. |
+| `remote_tui` | `false` | Enable only the host-console container profile below; requires native TLS and capability JWTs. |
 
 ### Fail-closed on insecure token auth
 
@@ -127,6 +128,60 @@ airlock admin mint-token --sub ci-bot \
 > Guardrail-skip tokens (`guardrail:skip:*`) are minted the same way but their
 > `--sub` **must** be the client's authenticated key-derived id (`key:<last8>`).
 > See [Guardrails → Per-request guardrail skips](guardrails.md#per-request-guardrail-skips).
+
+## Host-console container TUI
+
+This opt-in profile is for a host console that administers an Airlock container.
+It is not a general remote Admin deployment, a peer-container mode, or a
+reverse-proxy integration. Docker reachability is not operator identity.
+
+Use the dedicated complete manifest, not an overlay with the standard Compose
+file: `docker compose -f docker-compose.remote-admin.yml up`. It publishes only
+`127.0.0.1:${AIRLOCK_PORT:-4000}:4000`, mounts native TLS server material
+read-only, and leaves the normal Compose deployment unchanged. Configure:
+
+```yaml
+admin:
+  enabled: true
+  trust_loopback: false
+  remote_tui: true
+  allow_insecure_tokens: false
+  behind_tls_proxy: false
+```
+
+Set both native TLS environment variables and provide a CA bundle on the host.
+Mint a distinct, non-secret-subject token for each operator with a maximum
+15-minute lifetime and all necessary scopes, including the anchor:
+
+```bash
+airlock admin mint-token --sub host-console-alice \
+  --scope admin:remote_tui --scope admin:read \
+  --scope admin:read_config --scope admin:clear_quarantine --ttl 15m
+```
+
+Place the emitted token in an owner-only (`0600`) regular file delivered by your
+secret manager, then run:
+
+```bash
+airlock tui --remote-admin --host localhost --port 4000 \
+  --admin-token-file /secure/airlock-remote.jwt \
+  --admin-ca-file /secure/airlock-ca.pem
+```
+
+The remote UI validates the hostname even for `localhost`, uses only the Admin
+HTTP perimeter, and is restricted to snapshots plus clear-quarantine. It never
+reads local logs/configuration/state, manages a proxy, or accesses operational
+history; force quarantine and erasure remain loopback-only. Failed TLS,
+authentication, and scope checks show the console as unavailable without
+displaying credentials.
+
+For routine rotation, issue a new short-lived token. For an emergency
+revocation, replace `AIRLOCK_JWT_SECRET`, omit `AIRLOCK_JWT_SECRET_PREV`, and
+restart the proxy; this invalidates all tokens signed with the old secret. To
+roll back the profile, stop the dedicated Compose deployment (or remove its
+loopback mapping), remove `remote_tui: true`, and restart. Do not publish this
+Admin port to all interfaces or substitute the master key, a Docker bridge, a
+CIDR, or forwarded headers for the capability token.
 
 ## Endpoints
 

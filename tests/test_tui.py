@@ -455,6 +455,53 @@ def test_tui_daemon_flag_passed_through() -> None:
     )
 
 
+def test_remote_tui_requires_both_secret_files() -> None:
+    from airlock.cli.main import main
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["tui", "--remote-admin", "--admin-token-file", "/tmp/token"])
+    assert exc_info.value.code == 2
+
+
+def test_remote_tui_uses_isolated_remote_app() -> None:
+    from airlock.cli.main import main
+
+    with mock.patch("airlock.tui.remote_app.run") as remote_run:
+        main(
+            [
+                "tui",
+                "--remote-admin",
+                "--host",
+                "localhost",
+                "--admin-token-file",
+                "/tmp/token",
+                "--admin-ca-file",
+                "/tmp/ca.pem",
+            ]
+        )
+    remote_run.assert_called_once_with(
+        host="localhost", port="4000", token_file="/tmp/token", ca_file="/tmp/ca.pem"
+    )
+
+
+def test_remote_tui_rejects_proxy_start() -> None:
+    from airlock.cli.main import main
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "tui",
+                "--remote-admin",
+                "--start",
+                "--admin-token-file",
+                "/tmp/token",
+                "--admin-ca-file",
+                "/tmp/ca.pem",
+            ]
+        )
+    assert exc_info.value.code == 2
+
+
 async def test_app_has_proxy_manager() -> None:
     app = AirlockApp(host="127.0.0.1", port="9999")
     from airlock.tui.proxy_manager import ProxyManager

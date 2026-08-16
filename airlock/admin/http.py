@@ -339,6 +339,10 @@ def handle_admin_request(
         result = handler([], parsed, d.actor)
         # Mutating ops return an admin_action record → audit + replicate.
         if isinstance(result, dict) and result.get("record_type") == "admin_action":
+            # The PDP, not request headers, supplies this stable non-secret
+            # transport descriptor.  Existing replay ignores additive fields.
+            if d.auth_context:
+                result["auth_context"] = d.auth_context
             write_admin_action_record(result)
     except ValueError as exc:
         return 400, {"error": str(exc)}, {}

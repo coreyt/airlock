@@ -5,6 +5,8 @@ the outermost ASGI layer).
 
 from __future__ import annotations
 
+import pytest
+
 import airlock.proxy_bootstrap as pb
 from airlock.admin.policy import admin_enabled
 from airlock.provider_configuration import provider_configuration_snapshot
@@ -65,6 +67,7 @@ def test_child_configuration_uses_runtime_file_with_litellm_nested_include_order
     runtime = tmp_path / "runtime.yaml"
     runtime.write_text("include: [direct.yaml]\nmodel_list: []\n")
     monkeypatch.setenv("AIRLOCK_CONFIG", str(runtime))
+    monkeypatch.setenv("AIRLOCK_HOST", "127.0.0.1")
 
     pb._configure_child_startup_configuration()
 
@@ -73,3 +76,15 @@ def test_child_configuration_uses_runtime_file_with_litellm_nested_include_order
         provider_configuration_snapshot()["providers"][0]["aliases"][0]["alias"]
         == "direct"
     )
+
+
+def test_child_rejects_an_invalid_remote_tui_profile(tmp_path, monkeypatch):
+    runtime = tmp_path / "runtime.yaml"
+    runtime.write_text("admin:\n  enabled: true\n  remote_tui: true\n")
+    monkeypatch.setenv("AIRLOCK_CONFIG", str(runtime))
+    monkeypatch.setenv("AIRLOCK_HOST", "0.0.0.0")
+    monkeypatch.setenv("AIRLOCK_SSL_CERTFILE", "/cert")
+    monkeypatch.setenv("AIRLOCK_SSL_KEYFILE", "/key")
+
+    with pytest.raises(RuntimeError, match="remote_tui"):
+        pb._configure_child_startup_configuration()

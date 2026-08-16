@@ -67,6 +67,40 @@ class TestPDP:
         d = decide(Principal(loopback=True), "admin:clear_quarantine")  # no bearer
         assert not d.allowed and d.status == 401
 
+    def test_remote_tui_requires_anchor_scope_and_rejects_master_key(self):
+        configure_admin(
+            {"admin": {"enabled": True, "trust_loopback": False, "remote_tui": True}},
+            host="0.0.0.0",
+            tls_enabled=True,
+        )
+        master = decide(Principal(bearer="master-key-supersecret-123456"), "admin:read")
+        assert not master.allowed and master.status == 403
+        loopback_master = decide(
+            Principal(loopback=True, bearer="master-key-supersecret-123456"),
+            "admin:read",
+        )
+        assert not loopback_master.allowed and loopback_master.status == 403
+        ordinary = mint_token("operator:one", ["admin:read"], 60)
+        assert not decide(Principal(bearer=ordinary), "admin:read").allowed
+        remote = mint_token("operator:one", ["admin:remote_tui", "admin:read"], 60)
+        decision = decide(Principal(bearer=remote), "admin:read")
+        assert decision.allowed
+        assert decision.actor == "operator:one"
+        assert decision.auth_context == "remote_tui_jwt"
+
+    def test_remote_tui_rejects_unallowed_scope_and_long_lived_token(self):
+        configure_admin(
+            {"admin": {"enabled": True, "trust_loopback": False, "remote_tui": True}},
+            host="0.0.0.0",
+            tls_enabled=True,
+        )
+        wrong = mint_token(
+            "operator:one", ["admin:remote_tui", "admin:reset_circuit"], 60
+        )
+        assert not decide(Principal(bearer=wrong), "admin:reset_circuit").allowed
+        long_lived = mint_token("operator:one", ["admin:remote_tui", "admin:read"], 901)
+        assert not decide(Principal(bearer=long_lived), "admin:read").allowed
+
 
 class TestConfigureAdminFailClosed:
     def test_exposed_no_tls_raises(self):
@@ -88,6 +122,64 @@ class TestConfigureAdminFailClosed:
 
     def test_disabled_no_check(self):
         configure_admin({"admin": {"enabled": False}}, host="0.0.0.0")  # no raise
+
+    @pytest.mark.parametrize(
+        "config,host,tls",
+        [
+            ({"admin": {"enabled": True, "remote_tui": True}}, "0.0.0.0", True),
+            (
+                {
+                    "admin": {
+                        "enabled": True,
+                        "trust_loopback": False,
+                        "remote_tui": True,
+                    }
+                },
+                "0.0.0.0",
+                False,
+            ),
+            (
+                {
+                    "admin": {
+                        "enabled": True,
+                        "trust_loopback": False,
+                        "remote_tui": True,
+                        "behind_tls_proxy": True,
+                    }
+                },
+                "0.0.0.0",
+                True,
+            ),
+            (
+                {
+                    "admin": {
+                        "enabled": True,
+                        "trust_loopback": False,
+                        "remote_tui": True,
+                        "allow_insecure_tokens": True,
+                    }
+                },
+                "0.0.0.0",
+                True,
+            ),
+            (
+                {
+                    "admin": {
+                        "enabled": True,
+                        "trust_loopback": False,
+                        "remote_tui": True,
+                    }
+                },
+                "127.0.0.1",
+                True,
+            ),
+        ],
+    )
+    def test_remote_tui_profile_rejects_insecure_or_ambiguous_startup(
+        self, config, host, tls
+    ):
+        with pytest.raises(RuntimeError, match="remote_tui"):
+            configure_admin(config, host=host, tls_enabled=tls)
 
 
 # ------------------------------------------------------ handle_admin_request
@@ -115,6 +207,36 @@ class TestHandleAdminRequest:
         )
         assert s == 200
         assert body["providers"]["openai"]["quarantined"] is True
+
+    def test_remote_tui_mutation_has_only_validated_actor_and_auth_context(
+        self, fresh_state_store, monkeypatch
+    ):
+        configure_admin(
+            {"admin": {"enabled": True, "trust_loopback": False, "remote_tui": True}},
+            host="0.0.0.0",
+            tls_enabled=True,
+        )
+        token = mint_token(
+            "operator:one",
+            ["admin:remote_tui", "admin:clear_quarantine"],
+            60,
+        )
+        written = []
+        monkeypatch.setattr(
+            "airlock.admin.http.write_admin_action_record", written.append
+        )
+        status, _body, _headers = handle_admin_request(
+            "POST",
+            "/airlock/admin/providers/openai/clear-quarantine",
+            b'{"mode":"probe"}',
+            Principal(bearer=token, actor="untrusted-header"),
+        )
+        assert status == 200
+        assert len(written) == 1
+        assert written[0]["actor"] == "operator:one"
+        assert written[0]["auth_context"] == "remote_tui_jwt"
+        assert token not in json.dumps(written[0])
+        assert "untrusted-header" not in json.dumps(written[0])
 
     def test_provider_configuration_requires_distinct_scope_and_is_no_store(self):
         configure_provider_configuration(
