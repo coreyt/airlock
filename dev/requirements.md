@@ -349,6 +349,22 @@ that JSONL retention/deletion is a separate obligation.
 
 ## 0.5.15 ratified requirements
 
+### DFR-36 / DAC-36: Unused configured-provider credential warning
+
+After normal environment loading and before optional provider discovery or
+LiteLLM launch, Airlock SHALL emit one redacted, local, advisory startup warning
+per recognised provider that has a nonblank recognised credential and zero
+explicit aliases in LiteLLM's effective direct-include model list. The warning
+SHALL use the stable event
+`airlock.startup.provider_credential_without_alias` and expose only the
+canonical provider, `credential_configured: true`,
+`configured_alias_count: 0`, and `source: startup_validation`. It SHALL not
+scan arbitrary environment variables, disclose values or variable names, make a
+network/provider call, alter configuration/routing/discovery/startup status, or
+create an Admin/TUI surface. Effective aliases SHALL use
+`airlock_provider_for`; direct include semantics SHALL match installed LiteLLM
+behavior without independently applying nested includes.
+
 ### DFR-34 / DAC-34: Typed Fast Guardian threat-backoff response
 
 Fast Guardian SHALL raise an Airlock-owned typed rate-limit exception for both

@@ -353,6 +353,19 @@ batch_profile:
 
 See [Batch Processing](../guide/batch.md) for the end-to-end recipe.
 
+## Unused provider credential warning
+
+At startup, Airlock emits one local warning when a recognised provider
+credential is nonblank but no explicit effective `model_list` alias serves that
+provider. The warning is advisory: it makes no provider request and does not
+enable discovery, alter routing, or expose the credential or its environment
+variable name.
+
+If the credential is intentional, add a reviewed alias for that provider. If it
+is not, remove it from the deployment's secret source and restart Airlock. An
+included configuration file's direct `model_list` aliases are considered; a
+discovered provider model is not an alias.
+
 ## Environment variables
 
 | Variable | Description | Default |

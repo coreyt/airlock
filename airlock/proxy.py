@@ -25,6 +25,10 @@ from dotenv import load_dotenv
 
 from airlock.capability import capability_record
 from airlock.models_catalog import fetch_live_provider_models
+from airlock.startup_validation import (
+    credential_without_alias_warnings,
+    emit_provider_credential_warnings,
+)
 
 _ENV_REF_PREFIX = "os.environ/"
 
@@ -438,6 +442,18 @@ def main() -> None:
     # Log live provider models at startup (informational — does not affect routing).
     with open(config_path) as f:
         config = yaml.safe_load(f) or {}
+    try:
+        emit_provider_credential_warnings(
+            credential_without_alias_warnings(config_path, os.getenv)
+        )
+    except ValueError:
+        # Validation is advisory: never expose a path/parser detail or make an
+        # already-valid launch depend on a second local read.
+        print(
+            "WARNING: airlock.startup.provider_credential_validation_unavailable "
+            "source=startup_validation",
+            file=sys.stderr,
+        )
     from airlock.admin.policy import configure_admin
     from airlock.fast.router import set_router_config
     from airlock.fast.settings import configure_settings

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -70,6 +71,46 @@ class TestFindConfig:
 # main()
 # ---------------------------------------------------------------------------
 class TestMain:
+    def test_main_emits_credential_warnings_before_optional_discovery(
+        self, config_file, monkeypatch
+    ):
+        monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
+        warnings = (object(),)
+        mock_result = MagicMock(returncode=0)
+        with (
+            patch(
+                "airlock.proxy.credential_without_alias_warnings",
+                return_value=warnings,
+            ) as evaluate,
+            patch("airlock.proxy.emit_provider_credential_warnings") as emit,
+            patch("airlock.proxy.subprocess.run", return_value=mock_result),
+            patch("airlock.proxy.fetch_live_provider_models", return_value=[]),
+            pytest.raises(SystemExit),
+        ):
+            main()
+        evaluate.assert_called_once_with(str(config_file), os.getenv)
+        emit.assert_called_once_with(warnings)
+
+    def test_main_hides_credential_validation_failure_detail(
+        self, config_file, monkeypatch, capsys
+    ):
+        monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
+        mock_result = MagicMock(returncode=0)
+        with (
+            patch(
+                "airlock.proxy.credential_without_alias_warnings",
+                side_effect=ValueError("sk-sentinel-secret /tmp/private.yaml"),
+            ),
+            patch("airlock.proxy.subprocess.run", return_value=mock_result),
+            patch("airlock.proxy.fetch_live_provider_models", return_value=[]),
+            pytest.raises(SystemExit),
+        ):
+            main()
+        captured = capsys.readouterr().err
+        assert "provider_credential_validation_unavailable" in captured
+        assert "sk-sentinel-secret" not in captured
+        assert "/tmp/private.yaml" not in captured
+
     def test_main_starts_litellm_on_public_port(self, config_file, monkeypatch):
         """subprocess.run should run LiteLLM directly on the public host:port."""
         monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))

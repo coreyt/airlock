@@ -27,7 +27,7 @@ that is accepted for investigation from work that is approved for delivery.
 | --- | --- | --- |
 | Gitleaks local and CI secret scanning | Implemented; external enforcement and PR evidence recorded | Slice 10 |
 | Typed Fast Guardian threat-backoff HTTP 429 | Implemented locally; status/evidence recorded | Slice 20 |
-| Configured-provider credential with no enabled alias warning | Design exists | Slice 30 |
+| Configured-provider credential with no enabled alias warning | Implemented locally; redacted startup-warning evidence recorded | Slice 30 |
 | Read-only provider/configuration visibility in Admin/TUI | Design exists; CRUD is not approved | Slice 40 |
 | Secure host-console TUI administration for containers | Design exists; topology/identity decision is open | Slice 50 |
 | Airlock-native virtual-key management | Design exists; depends on 0.6.0 identity/keystore contract | Slice 60, conditional |
