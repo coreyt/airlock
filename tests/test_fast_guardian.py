@@ -18,7 +18,7 @@ from airlock.fast.guardian import (
 )
 from airlock.fast.model_alias import AliasResolution
 from airlock.guardrails.extract import extract_text_from_messages as _extract_text
-from airlock.proxy_errors import AirlockEndpointNotSupported
+from airlock.proxy_errors import AirlockEndpointNotSupported, AirlockThreatBackoff
 
 
 # ---------------------------------------------------------------------------
@@ -511,10 +511,11 @@ class TestGuardianPreCallHook:
             "messages": [{"role": "user", "content": "Hello"}],
             "model": "claude-sonnet",
         }
-        with pytest.raises(ValueError, match="Too many requests"):
+        with pytest.raises(AirlockThreatBackoff) as raised:
             await guardian.async_pre_call_hook(
                 mock_user_api_key_dict, mock_cache, data, "completion"
             )
+        assert 59.0 < raised.value.retry_after <= 60.0
 
     async def test_high_threat_blocked(
         self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
@@ -532,10 +533,11 @@ class TestGuardianPreCallHook:
             "messages": [{"role": "user", "content": "Hello"}],
             "model": "claude-sonnet",
         }
-        with pytest.raises(ValueError, match="unusual activity"):
+        with pytest.raises(AirlockThreatBackoff) as raised:
             await guardian.async_pre_call_hook(
                 mock_user_api_key_dict, mock_cache, data, "completion"
             )
+        assert raised.value.retry_after > 0
 
     async def test_open_circuit_pinned_request_returns_429(
         self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
@@ -862,7 +864,7 @@ class TestMCPCallHandling:
             "mcp_tool_name": "search",
             "mcp_arguments": {"q": "test"},
         }
-        with pytest.raises(ValueError, match="Too many requests"):
+        with pytest.raises(AirlockThreatBackoff):
             await guardian.async_pre_call_hook(
                 mock_user_api_key_dict, mock_cache, data, "call_mcp_tool"
             )
@@ -928,7 +930,7 @@ class TestBatchCallHandling:
         client.backoff_until = time.time() + 60  # force backoff
 
         data = {"input_file_id": "file-abc"}
-        with pytest.raises(ValueError, match="Too many requests"):
+        with pytest.raises(AirlockThreatBackoff):
             await guardian.async_pre_call_hook(
                 mock_user_api_key_dict, mock_cache, data, "acreate_batch"
             )

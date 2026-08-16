@@ -13,13 +13,16 @@ from airlock.proxy_errors import (
     AirlockGatewayRoutingOverride,
     AirlockInvalidReasoningEffort,
     AirlockProviderBlocked,
+    AirlockThreatBackoff,
     airlock_invalid_reasoning_effort_handler,
     airlock_provider_blocked_handler,
+    airlock_threat_backoff_handler,
     block_response_payload,
     invalid_reasoning_effort_response_payload,
     endpoint_not_supported_response_payload,
     install_airlock_error_handlers_on_proxy_app,
     retry_after_seconds,
+    threat_backoff_response_payload,
 )
 
 
@@ -218,6 +221,62 @@ class TestAirlockProviderBlocked:
         assert exc.client_id == "key:abc"
 
 
+class TestAirlockThreatBackoff:
+    def test_is_a_rate_limit_error_without_client_or_heuristic_fields(self):
+        exc = AirlockThreatBackoff(retry_after=2.1)
+        assert isinstance(exc, RateLimitError)
+        assert exc.retry_after == 2.1
+        assert not hasattr(exc, "client_id")
+        assert not hasattr(exc, "reason")
+
+    async def test_guardrail_translation_preserves_429_contract(
+        self, mock_user_api_key_dict
+    ):
+        """LiteLLM can translate guardrail errors before FastAPI handlers run."""
+        from litellm.proxy._types import ProxyException
+        from litellm.proxy.common_request_processing import (
+            ProxyBaseLLMRequestProcessing,
+        )
+        from litellm.proxy.proxy_server import openai_exception_handler
+        from starlette.requests import Request
+
+        proxy_logging = type(
+            "ProxyLoggingStub",
+            (),
+            {
+                "post_call_failure_hook": AsyncMock(return_value=None),
+                "post_call_response_headers_hook": AsyncMock(return_value={}),
+            },
+        )()
+        with pytest.raises(ProxyException) as raised:
+            await ProxyBaseLLMRequestProcessing(data={})._handle_llm_api_exception(
+                e=AirlockThreatBackoff(retry_after=2.1),
+                user_api_key_dict=mock_user_api_key_dict,
+                proxy_logging_obj=proxy_logging,
+                version="test",
+            )
+        response = await openai_exception_handler(
+            Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "path": "/v1/chat/completions",
+                    "headers": [],
+                }
+            ),
+            raised.value,
+        )
+        assert response.status_code == 429
+        assert response.headers["Retry-After"] == "3"
+        assert json.loads(response.body)["error"] == {
+            "message": "Too many requests. Please retry later.",
+            "type": "airlock_threat_backoff",
+            "param": None,
+            "code": "threat_backoff",
+            "airlock": {"source": "threat_backoff", "retry_after": 3},
+        }
+
+
 class TestRetryAfter:
     def test_ceils_and_floors_at_one(self):
         assert retry_after_seconds(0.0) == 1
@@ -262,6 +321,34 @@ class TestBlockResponsePayload:
         assert len(body["error"]["airlock"]["reason"]) == 300
 
 
+class TestThreatBackoffResponsePayload:
+    def test_body_is_openai_shaped_and_does_not_disclose_protection_details(self):
+        body, headers = threat_backoff_response_payload(
+            AirlockThreatBackoff(retry_after=2.1)
+        )
+        assert body == {
+            "error": {
+                "message": "Too many requests. Please retry later.",
+                "type": "airlock_threat_backoff",
+                "code": "threat_backoff",
+                "param": None,
+                "airlock": {"source": "threat_backoff", "retry_after": 3},
+            }
+        }
+        assert headers == {"Retry-After": "3"}
+        assert "provider" not in str(body).lower()
+        assert "client" not in str(body).lower()
+
+    @pytest.mark.parametrize("retry_after", [0.0, -1.0, 0.1, 2.0])
+    def test_retry_after_is_whole_seconds_and_minimum_one(self, retry_after):
+        body, headers = threat_backoff_response_payload(
+            AirlockThreatBackoff(retry_after=retry_after)
+        )
+        expected = retry_after_seconds(retry_after)
+        assert body["error"]["airlock"]["retry_after"] == expected
+        assert headers["Retry-After"] == str(expected)
+
+
 class TestHandler:
     async def test_handler_returns_429(self):
         exc = AirlockProviderBlocked(
@@ -279,6 +366,14 @@ class TestHandler:
         assert resp.headers["X-Airlock-Block-Scope"] == "model"
         payload = json.loads(bytes(resp.body))
         assert payload["error"]["type"] == "airlock_circuit_breaker"
+
+    async def test_threat_backoff_handler_returns_429(self):
+        response = await airlock_threat_backoff_handler(
+            None, AirlockThreatBackoff(retry_after=0.1)
+        )
+        assert response.status_code == 429
+        assert response.headers["Retry-After"] == "1"
+        assert json.loads(response.body)["error"]["code"] == "threat_backoff"
 
 
 class TestInvalidReasoningEffort:
@@ -321,6 +416,7 @@ class TestInstall:
         # second call is a no-op success
         assert install_airlock_error_handlers_on_proxy_app() is True
         assert AirlockProviderBlocked in app.exception_handlers
+        assert AirlockThreatBackoff in app.exception_handlers
         assert AirlockInvalidReasoningEffort in app.exception_handlers
 
 

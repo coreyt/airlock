@@ -349,6 +349,17 @@ that JSONL retention/deletion is a separate obligation.
 
 ## 0.5.15 ratified requirements
 
+### DFR-34 / DAC-34: Typed Fast Guardian threat-backoff response
+
+Fast Guardian SHALL raise an Airlock-owned typed rate-limit exception for both
+the request that creates a client threat backoff and a request rejected while
+that backoff remains active. The proxy SHALL render the exception as an
+OpenAI-shaped HTTP 429 with a whole-second, minimum-one `Retry-After`, stable
+`type` and `code`, and `error.airlock.source: threat_backoff`. The response
+SHALL not expose client identity, threat score, heuristic reason, request
+content, provider identity, or provider-circuit-breaker state. Provider and
+admission 429 contracts SHALL remain distinguishable and unchanged.
+
 ### DFR-35 / DAC-35: Secret-scan delivery control
 
 Airlock's repository SHALL use a dedicated, non-deploying Gitleaks control at

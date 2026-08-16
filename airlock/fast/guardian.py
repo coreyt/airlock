@@ -41,6 +41,7 @@ from airlock.proxy_errors import (
     AirlockGatewayRoutingOverride,
     AirlockModelNotFound,
     AirlockProviderBlocked,
+    AirlockThreatBackoff,
     sanitize_reason,
 )
 from airlock.reasoning_effort import (
@@ -328,18 +329,13 @@ class AirlockFastGuardian(CustomGuardrail):
                 client_id,
                 remaining,
             )
-            raise ValueError(
-                f"Too many requests. Please retry after {int(remaining)} seconds."
-            )
+            raise AirlockThreatBackoff(retry_after=remaining)
 
         # ---- Step 2: Threat assessment ----
         message_text = extract_text(data, call_type) or None
         threat = assess_threat(client, message_text)
         if threat.blocked:
-            raise ValueError(
-                "Request blocked due to unusual activity. "
-                f"Please retry after {int(threat.backoff_seconds)} seconds."
-            )
+            raise AirlockThreatBackoff(retry_after=threat.backoff_seconds)
 
         # Routing and circuit breaker are model-specific — skip for MCP and
         # batch/file calls (the latter carry no top-level model).

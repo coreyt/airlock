@@ -4,7 +4,9 @@ When Airlock's circuit breaker blocks a request pre-flight it raises
 :class:`AirlockProviderBlocked` (a ``RateLimitError`` subclass) so the client
 receives an HTTP 429 with a ``Retry-After`` header and an enriched but
 OpenAI-compatible body — distinguishable from a passthrough provider 429 without
-string-parsing. The handler is registered on the LiteLLM proxy app via
+string-parsing. A local Fast Guardian threat backoff uses the separately typed
+:class:`AirlockThreatBackoff` contract. Handlers are registered on the LiteLLM
+proxy app via
 :func:`install_airlock_error_handlers_on_proxy_app`, mirroring the other
 ``install_*_on_proxy_app`` hooks in ``model_override_headers``.
 """
@@ -174,6 +176,58 @@ class AirlockAdmissionShed(RateLimitError):
         self.retry_after = float(retry_after)
 
 
+class AirlockThreatBackoff(ProxyException, RateLimitError):
+    """A local Fast Guardian threat backoff, not a provider rate limit.
+
+    Retains only the remaining duration needed to tell the client when to retry;
+    client identity, threat signals, and triggering request details stay inside
+    the Guardian/logging boundary.
+    """
+
+    def __init__(self, *, retry_after: float) -> None:
+        retry_after_seconds_value = max(1, math.ceil(float(retry_after)))
+        # RateLimitError preserves existing rate-limit catches and telemetry.
+        # Calling it explicitly matters because ProxyException is first in the
+        # MRO so LiteLLM's guardrail pipeline preserves our stable body schema.
+        RateLimitError.__init__(
+            self,
+            message="Too many requests. Please retry later.",
+            llm_provider="airlock",
+            model="threat_backoff",
+            headers={"Retry-After": str(retry_after_seconds_value)},
+        )
+        # Do not call ProxyException.__init__: with this intentional multiple
+        # inheritance its cooperative ``super()`` would re-enter
+        # RateLimitError. Mirror its small public protocol after RateLimitError
+        # has initialized the OpenAI exception base.
+        self.message = "Too many requests. Please retry later."
+        self.type = "airlock_threat_backoff"
+        self.param = None
+        self.openai_code = "threat_backoff"
+        self.code = "429"
+        self.headers = {"Retry-After": str(retry_after_seconds_value)}
+        self.provider_specific_fields = {
+            "airlock": {
+                "source": "threat_backoff",
+                "retry_after": retry_after_seconds_value,
+            }
+        }
+        self.retry_after = float(retry_after)
+
+    def to_dict(self) -> dict:
+        """Use LiteLLM's direct guardrail path without nesting Airlock fields."""
+        return {
+            "message": self.message,
+            "type": self.type,
+            "param": self.param,
+            "code": self.openai_code,
+            "airlock": {
+                "source": "threat_backoff",
+                "retry_after": retry_after_seconds(self.retry_after),
+            },
+        }
+
+
 def retry_after_seconds(cooldown_seconds: float) -> int:
     """Whole-second ``Retry-After`` value, at least 1."""
     return max(1, math.ceil(cooldown_seconds))
@@ -245,6 +299,26 @@ def admission_shed_response_payload(exc: AirlockAdmissionShed) -> tuple[dict, di
         "X-Airlock-Admission": f"shed; retry_after={retry_after}",
     }
     return body, headers
+
+
+def threat_backoff_response_payload(
+    exc: AirlockThreatBackoff,
+) -> tuple[dict, dict]:
+    """Build the non-disclosing response for a local threat backoff."""
+    retry_after = retry_after_seconds(exc.retry_after)
+    body = {
+        "error": {
+            "message": "Too many requests. Please retry later.",
+            "type": "airlock_threat_backoff",
+            "code": "threat_backoff",
+            "param": None,
+            "airlock": {
+                "source": "threat_backoff",
+                "retry_after": retry_after,
+            },
+        }
+    }
+    return body, {"Retry-After": str(retry_after)}
 
 
 async def airlock_provider_blocked_handler(request: Any, exc: Exception):
@@ -330,8 +404,17 @@ async def airlock_admission_shed_handler(request: Any, exc: Exception):
     return JSONResponse(status_code=429, content=body, headers=headers)
 
 
+async def airlock_threat_backoff_handler(request: Any, exc: Exception):
+    """FastAPI exception handler → a local-threat 429 with Retry-After."""
+    from fastapi.responses import JSONResponse
+
+    assert isinstance(exc, AirlockThreatBackoff)
+    body, headers = threat_backoff_response_payload(exc)
+    return JSONResponse(status_code=429, content=body, headers=headers)
+
+
 def install_airlock_error_handlers_on_proxy_app() -> bool:
-    """Register the AirlockProviderBlocked handler on the LiteLLM proxy app.
+    """Register Airlock-owned typed error handlers on the LiteLLM proxy app.
 
     Registered for the subclass specifically (not the base ``RateLimitError``) so
     passthrough provider 429s keep LiteLLM's own handling — the perimeter only
@@ -370,5 +453,8 @@ def install_airlock_error_handlers_on_proxy_app() -> bool:
     if not getattr(app.state, "airlock_admission_shed_handler_installed", False):
         app.add_exception_handler(AirlockAdmissionShed, airlock_admission_shed_handler)
         app.state.airlock_admission_shed_handler_installed = True
+    if not getattr(app.state, "airlock_threat_backoff_handler_installed", False):
+        app.add_exception_handler(AirlockThreatBackoff, airlock_threat_backoff_handler)
+        app.state.airlock_threat_backoff_handler_installed = True
     app.state.airlock_error_handlers_installed = True
     return True
