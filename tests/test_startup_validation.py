@@ -85,7 +85,7 @@ def test_each_recognised_provider_is_suppressed_by_a_matching_alias(
     )
 
 
-def test_direct_include_extends_model_list_but_nested_include_is_ignored(tmp_path):
+def test_include_descendants_extend_the_pinned_litellm_include_list(tmp_path):
     child = tmp_path / "child.yaml"
     nested = tmp_path / "nested.yaml"
     config = tmp_path / "config.yaml"
@@ -100,7 +100,7 @@ def test_direct_include_extends_model_list_but_nested_include_is_ignored(tmp_pat
     warnings = credential_without_alias_warnings(
         config, {"OPENAI_API_KEY": "yes", "OPENROUTER_API_KEY": "yes"}.get
     )
-    assert [warning.provider for warning in warnings] == ["openrouter"]
+    assert warnings == ()
 
 
 def test_explicit_vllm_backend_counts_as_enabled(tmp_path):

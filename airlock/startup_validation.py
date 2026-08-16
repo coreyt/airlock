@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import copy
 import sys
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Callable, TextIO
 
-import yaml
-
 from airlock.capability import airlock_provider_for
+from airlock.litellm_config import resolve_litellm_direct_config
 
 
 @dataclass(frozen=True)
@@ -40,36 +37,9 @@ PROVIDER_CREDENTIAL_SPECS = (
 )
 
 
-def _load_mapping(path: Path) -> dict:
-    try:
-        loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError) as exc:
-        raise ValueError(f"could not load startup validation config: {exc}") from exc
-    if not isinstance(loaded, dict):
-        raise ValueError("startup validation config must contain a mapping")
-    return loaded
-
-
-def effective_model_list(config_path: str | Path) -> list[dict]:
-    """Return model entries using LiteLLM's direct, non-recursive includes."""
-    path = Path(config_path).resolve()
-    config = copy.deepcopy(_load_mapping(path))
-    includes = config.pop("include", None)
-    if includes is not None:
-        if not isinstance(includes, list) or not all(
-            isinstance(item, str) for item in includes
-        ):
-            raise ValueError("config include must be a list of paths")
-        for item in includes:
-            include_path = Path(item)
-            if not include_path.is_absolute():
-                include_path = path.parent / include_path
-            included = _load_mapping(include_path.resolve())
-            for key, value in included.items():
-                if isinstance(value, list) and isinstance(config.get(key), list):
-                    config[key].extend(value)
-                else:
-                    config[key] = value
+def effective_model_list(config_path: str) -> list[dict]:
+    """Return model entries using the pinned LiteLLM include-list expansion."""
+    config = resolve_litellm_direct_config(config_path)
     entries = config.get("model_list") or []
     return [entry for entry in entries if isinstance(entry, dict)]
 
@@ -90,7 +60,7 @@ def _enabled_provider_counts(entries: list[dict]) -> dict[str, int]:
 
 
 def credential_without_alias_warnings(
-    config_path: str | Path, getenv: Callable[[str], str | None]
+    config_path: str, getenv: Callable[[str], str | None]
 ) -> tuple[ProviderCredentialWarning, ...]:
     """Return one safe warning for each recognised present-but-unused credential."""
     enabled = _enabled_provider_counts(effective_model_list(config_path))

@@ -95,8 +95,13 @@ uncommitted edit (start from `config.local.yaml.example`).
 include: ["config.local.yaml"]
 ```
 
-LiteLLM **replaces** dict-valued keys from an included file rather than deep-merging
-them, so `config.local.yaml` must list **every** MCP server you want at runtime
+LiteLLM processes includes in source order. It **replaces** dict-valued keys
+from an included file rather than deep-merging them, and extends an existing
+top-level list with an included list. In the pinned version, an included
+`include:` list extends the active include list too, so nested files are reached
+after files already queued from the root directory. Airlock materializes those
+same semantics into the private runtime config passed to the LiteLLM child.
+Therefore `config.local.yaml` must list **every** MCP server you want at runtime
 (including bundled ones like `newscatcher`). LiteLLM also does **not** expand
 `${HOME}`/`~` in MCP `command`/`args`, and only launches commands whose basename is
 on its allowlist. Full rules and examples in [MCP Servers](../guide/mcp-servers.md).

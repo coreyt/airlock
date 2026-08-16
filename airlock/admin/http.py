@@ -57,6 +57,13 @@ def _view_providers() -> dict:
     return {"providers": out}
 
 
+def _view_provider_configuration() -> dict:
+    """Return the immutable child-startup projection, never source YAML."""
+    from airlock.provider_configuration import provider_configuration_snapshot
+
+    return provider_configuration_snapshot()
+
+
 def _view_clients() -> dict:
     out = {}
     admission_enabled = get_settings().admission.enabled
@@ -190,6 +197,12 @@ def _match_route(method: str, path: str):
 
     if method == "GET" and seg == ["providers"]:
         return ("admin:read", False, lambda p, b, a: _view_providers())
+    if method == "GET" and seg == ["config", "providers"]:
+        return (
+            "admin:read_config",
+            False,
+            lambda p, b, a: _view_provider_configuration(),
+        )
     if method == "GET" and seg == ["clients"]:
         return ("admin:read", False, lambda p, b, a: _view_clients())
     if method == "GET" and seg == ["circuits"]:
@@ -336,7 +349,8 @@ def handle_admin_request(
         return 409, dict(exc.record), {}
     except Exception:  # noqa: BLE001 — the perimeter must never raise (CC-10)
         return 500, {"error": "internal error"}, {}
-    return 200, result, {}
+    headers = {"cache-control": "no-store"} if op_scope == "admin:read_config" else {}
+    return 200, result, headers
 
 
 # --- ASGI plumbing ----------------------------------------------------------

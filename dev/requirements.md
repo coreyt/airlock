@@ -362,8 +362,9 @@ canonical provider, `credential_configured: true`,
 scan arbitrary environment variables, disclose values or variable names, make a
 network/provider call, alter configuration/routing/discovery/startup status, or
 create an Admin/TUI surface. Effective aliases SHALL use
-`airlock_provider_for`; direct include semantics SHALL match installed LiteLLM
-behavior without independently applying nested includes.
+`airlock_provider_for`; include semantics SHALL match installed LiteLLM's
+active include-list expansion, including descendants reached through an
+included `include:` list.
 
 ### DFR-34 / DAC-34: Typed Fast Guardian threat-backoff response
 
@@ -396,3 +397,30 @@ scans must be clean for the reviewed baseline; a synthetic non-usable detector
 fixture must fail redacted and pass after removal. The control SHALL not alter
 Airlock runtime behavior, configuration, image contents, or provider/deployment
 credential access.
+
+### DFR-37 / DAC-37: Read-only provider configuration projection
+
+When the existing Admin control plane is explicitly enabled, Airlock SHALL
+provide `GET /airlock/admin/config/providers` as a bounded, immutable,
+startup-effective provider-configuration projection. It SHALL require
+`admin:read_config` for a capability token; the existing master-key and trusted
+loopback operator paths retain full authority, while `admin:read` alone SHALL
+receive `403` and a disabled Admin plane SHALL receive `404`. The projection
+SHALL report only aliases, `capability_record()` provider/endpoints/underlying/
+region/deprecation truth, hostname-only API bases, opaque credential kind plus
+presence, source, timestamp, schema version, credential-blind redacted canonical fingerprint,
+restart-required status, and deterministic truncation within 64 providers, 200
+aliases, and 256-character metadata fields. It SHALL set `Cache-Control:
+no-store`.
+
+The launcher, LiteLLM child, Admin policy, snapshot, and capability seam SHALL
+use the same pinned LiteLLM include-list expansion semantics and the same
+materialized runtime config path. The child SHALL receive that path via
+`AIRLOCK_CONFIG` before installing the Admin perimeter. Neither literal or
+reference credential names/values/lengths, arbitrary environment names, include
+paths, raw API-base paths/query/userinfo, provider calls/errors, CRUD, reload,
+discovery activation, nor a second configuration owner are permitted. The TUI
+SHALL read this view only over its Admin HTTP client in a bounded background
+refresh, visibly label unavailable/stale startup state, and never fall back to
+another process's files. YAML plus deployment workflow and restart remain the
+configuration authority.

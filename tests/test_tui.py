@@ -742,6 +742,49 @@ async def test_config_has_provider_tab() -> None:
         assert app.query_one("#cfg-tab-providers") is not None
 
 
+async def test_config_has_http_only_configured_provider_tab() -> None:
+    app = AirlockApp(test_harness=True)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("4")
+        await pilot.pause()
+        assert app.query_one("#cfg-tab-configured-providers") is not None
+        from airlock.tui.screens.config import ConfigPane
+        from textual.widgets import Static
+
+        pane = app.query_one(ConfigPane)
+        pane._render_provider_configuration(
+            None, "Configured provider state unavailable."
+        )
+        assert "No local configuration fallback" in str(
+            app.query_one("#cfg-provider-config-detail", Static).content
+        )
+        pane._render_provider_configuration(
+            {
+                "source": "startup_config",
+                "loaded_at": "2026-08-16T00:00:00Z",
+                "truncated": {"providers": False, "aliases": False},
+                "providers": [
+                    {
+                        "provider": "openai",
+                        "aliases": [
+                            {
+                                "alias": "reviewed",
+                                "underlying": "openai/gpt-test",
+                                "endpoints": ["chat"],
+                                "credential": {
+                                    "kind": "env_ref",
+                                    "configured": True,
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+            None,
+        )
+        assert app.query_one("#cfg-provider-config-table").row_count == 1
+
+
 async def test_config_has_guardrails_tab() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:

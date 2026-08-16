@@ -78,6 +78,7 @@ master key (and any loopback operator) satisfies all of them.
 | Scope | Grants |
 |---|---|
 | `admin:read` | The read-only `GET` endpoints |
+| `admin:read_config` | The redacted startup provider-configuration view only |
 | `admin:clear_quarantine` | Clear a provider or client→provider quarantine |
 | `admin:reset_circuit` | Reset a model circuit |
 | `admin:clear_backoff` | Clear a client threat backoff |
@@ -138,9 +139,25 @@ All routes are under `/airlock/admin/` and only exist when `admin.enabled: true`
 | `GET` | `/airlock/admin/providers` | `admin:read` |
 | `GET` | `/airlock/admin/clients` | `admin:read` |
 | `GET` | `/airlock/admin/circuits` | `admin:read` |
+| `GET` | `/airlock/admin/config/providers` | `admin:read_config` |
 
 These return a richer view of live protection state than the read-only
 `GET /health/circuits`.
+
+### Read configured providers
+
+`GET /airlock/admin/config/providers` is deliberately distinct from live
+provider health and requires `admin:read_config` (or the existing loopback or
+master-key operator authority). It reports the LiteLLM child's bounded,
+redacted startup configuration: configured aliases and capability metadata,
+hostname-only API bases, opaque credential kind/presence, load time, and a
+redacted-state fingerprint. It sends `Cache-Control: no-store`.
+
+It never contains credential values or reference names, environment-variable
+names, include paths, full URLs, provider errors, or a way to edit/reload
+configuration. The view is not a disk watcher: apply configuration through the
+normal reviewed deployment workflow and restart the proxy before expecting a
+change. `admin:read` alone receives `403`; disabled Admin still returns `404`.
 
 ```bash
 # Loopback operator — no credential needed:

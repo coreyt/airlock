@@ -14,6 +14,7 @@ from airlock.admin import policy
 from airlock.admin.http import AdminMiddleware, handle_admin_request
 from airlock.admin.policy import Principal, configure_admin, decide
 from airlock.admin.tokens import mint_token
+from airlock.provider_configuration import configure_provider_configuration
 
 
 @pytest.fixture(autouse=True)
@@ -114,6 +115,41 @@ class TestHandleAdminRequest:
         )
         assert s == 200
         assert body["providers"]["openai"]["quarantined"] is True
+
+    def test_provider_configuration_requires_distinct_scope_and_is_no_store(self):
+        configure_provider_configuration(
+            {
+                "model_list": [
+                    {
+                        "model_name": "safe",
+                        "litellm_params": {
+                            "model": "openai/gpt-safe",
+                            "api_key": "sk-SLICE40-SENTINEL",
+                        },
+                    }
+                ]
+            },
+            loaded_at="2026-08-16T00:00:00Z",
+        )
+        read_only = mint_token("reader", ["admin:read"], 60)
+        status, body, headers = handle_admin_request(
+            "GET", "/airlock/admin/config/providers", b"", Principal(bearer=read_only)
+        )
+        assert status == 403 and "providers" not in body
+        scoped = mint_token("config-reader", ["admin:read_config"], 60)
+        status, body, headers = handle_admin_request(
+            "GET", "/airlock/admin/config/providers", b"", Principal(bearer=scoped)
+        )
+        assert status == 200
+        assert headers == {"cache-control": "no-store"}
+        assert "sk-SLICE40-SENTINEL" not in json.dumps(body)
+
+    def test_provider_configuration_disabled_admin_is_404(self):
+        configure_admin({"admin": {"enabled": False}})
+        status, _body, _headers = handle_admin_request(
+            "GET", "/airlock/admin/config/providers", b"", self._loop()
+        )
+        assert status == 404
 
     def test_operational_records_are_proxy_owned_and_loopback_only(self, monkeypatch):
         from airlock.operational_reads import OperationalReadPage

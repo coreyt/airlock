@@ -1,6 +1,17 @@
 # FIX-1 / FIX-2 — Admin-default and include-policy review disposition
 
-**Status:** reviewed; no implementation applies to the current 0.5.15 tree.
+**Status:** historical review corrected by Slice 40 runtime evidence on
+2026-08-16; no implementation applied to the current 0.5.15 tree at the time
+of the original review.
+
+> **Correction:** The original include conclusion was based on static reading
+> of `ProxyConfig._process_includes`. Runtime parity testing against the pinned
+> LiteLLM shows that an included `include:` list extends the active root list
+> during iteration, so descendants are processed after already queued entries.
+> Do not use this document's earlier one-level-only pseudo-code. Slice 40 now
+> materializes the exact pinned active-list expansion once and passes that file
+> to LiteLLM, parent consumers, child Admin policy, snapshot, and capability
+> seam.
 
 ## Finding confirmation
 

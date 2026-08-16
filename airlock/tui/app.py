@@ -95,6 +95,8 @@ class AirlockApp(App):
             yield LogsPane(id="logs")
             yield ConfigPane(
                 mcp_manager=self._mcp_manager,
+                host=self._proxy_host,
+                port=self._proxy_port,
                 id="config",
             )
             yield TestPane(id="test")

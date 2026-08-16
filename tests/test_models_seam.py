@@ -370,6 +370,21 @@ def test_build_map_dict_model_list_returns_empty(tmp_path, monkeypatch):
     assert _build_capability_map() == {}
 
 
+def test_build_map_uses_same_direct_include_resolution(tmp_path, monkeypatch):
+    included = tmp_path / "included.yaml"
+    included.write_text(
+        "model_list:\n  - model_name: included\n    litellm_params:\n      model: openai/included\n"
+    )
+    _write_config(
+        tmp_path,
+        "include: [included.yaml]\nmodel_list:\n"
+        "  - model_name: root\n    litellm_params:\n      model: anthropic/root\n",
+        monkeypatch,
+    )
+    result = _build_capability_map()
+    assert set(result) == {"root", "included"}
+
+
 def test_build_map_skips_malformed_entry_keeps_good(tmp_path, monkeypatch):
     _write_config(
         tmp_path,

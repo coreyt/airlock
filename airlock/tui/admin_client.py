@@ -100,6 +100,11 @@ def provider_snapshot(host: str, port: str) -> dict | None:
     )
 
 
+def provider_configuration_snapshot(host: str, port: str) -> tuple[int, dict]:
+    """Fetch the child-startup configuration view; never read local files."""
+    return admin_get(host, port, "/airlock/admin/config/providers")
+
+
 def session_snapshot(host: str, port: str) -> dict | None:
     """Return the bounded live affinity view, or None when admin is unavailable."""
     status, payload = admin_get(host, port, "/airlock/admin/sessions")

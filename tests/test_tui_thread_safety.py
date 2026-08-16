@@ -39,6 +39,37 @@ async def test_refresh_mcp_servers_dispatches_widget_mutations_via_call_from_thr
         )
 
 
+async def test_configured_provider_refresh_dispatches_admin_result_to_ui_thread(
+    monkeypatch,
+) -> None:
+    app = AirlockApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("4")
+        await pilot.pause()
+        from airlock.tui.screens.config import ConfigPane
+
+        pane = app.query_one(ConfigPane)
+        monkeypatch.setattr(
+            "airlock.tui.admin_client.provider_configuration_snapshot",
+            lambda _host, _port: (
+                200,
+                {
+                    "providers": [],
+                    "source": "startup_config",
+                    "loaded_at": "t",
+                    "truncated": {},
+                },
+            ),
+        )
+        dispatch = MagicMock()
+        pane.app.call_from_thread = dispatch  # type: ignore[method-assign]
+
+        ConfigPane._refresh_provider_configuration.__wrapped__(pane)
+
+        dispatch.assert_called_once()
+        assert dispatch.call_args.args[0] == pane._render_provider_configuration
+
+
 async def test_load_logs_dispatches_widget_mutations_via_call_from_thread(
     tmp_path,
 ) -> None:
