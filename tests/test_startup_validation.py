@@ -7,6 +7,7 @@ from io import StringIO
 import pytest
 
 from airlock.startup_validation import (
+    PROVIDER_CREDENTIAL_SPECS,
     credential_without_alias_warnings,
     emit_provider_credential_warnings,
 )
@@ -57,20 +58,20 @@ def test_enabled_provider_and_blank_or_unknown_credentials_do_not_warn(tmp_path)
 
 
 @pytest.mark.parametrize(
-    ("provider", "environment_variable", "model"),
+    ("provider", "model"),
     [
-        ("anthropic", "ANTHROPIC_API_KEY", "anthropic/claude"),
-        ("openai", "OPENAI_API_KEY", "openai/gpt"),
-        ("gemini", "GOOGLE_AISTUDIO_API_KEY", "gemini/flash"),
-        ("mistral", "MISTRAL_API_KEY", "mistral/large"),
-        ("openrouter", "OPENROUTER_API_KEY", "openrouter/openai/gpt"),
-        ("deepseek", "DEEPSEEK_API_KEY", "deepseek/chat"),
-        ("perplexity", "PERPLEXITY_API_KEY", "perplexity/sonar"),
-        ("tavily", "TAVILY_API_KEY", "tavily/search"),
+        ("anthropic", "anthropic/claude"),
+        ("openai", "openai/gpt"),
+        ("gemini", "gemini/flash"),
+        ("mistral", "mistral/large"),
+        ("openrouter", "openrouter/openai/gpt"),
+        ("deepseek", "deepseek/chat"),
+        ("perplexity", "perplexity/sonar"),
+        ("tavily", "tavily/search"),
     ],
 )
 def test_each_recognised_provider_is_suppressed_by_a_matching_alias(
-    tmp_path, provider, environment_variable, model
+    tmp_path, provider, model
 ):
     config = tmp_path / "config.yaml"
     _write_config(
@@ -78,6 +79,11 @@ def test_each_recognised_provider_is_suppressed_by_a_matching_alias(
         "model_list:\n"
         f"  - model_name: {provider}\n"
         f"    litellm_params: {{model: {model}}}\n",
+    )
+    environment_variable = next(
+        spec.environment_variable
+        for spec in PROVIDER_CREDENTIAL_SPECS
+        if spec.provider == provider
     )
     assert (
         credential_without_alias_warnings(config, {environment_variable: "yes"}.get)

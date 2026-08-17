@@ -718,6 +718,8 @@ class TestVersionConsistency:
             [
                 sys.executable,
                 str(repo_root / "scripts" / "check-version-consistency.py"),
+                "--tag",
+                "v0.5.15",
             ],
             capture_output=True,
             text=True,
@@ -725,3 +727,37 @@ class TestVersionConsistency:
         assert result.returncode == 0, (
             f"version drift detected:\n{result.stderr or result.stdout}"
         )
+
+    def test_checker_reports_editable_lock_entry_drift(self, tmp_path):
+        """The editable Airlock lock entry is a fourth canonical version source."""
+        import importlib.util
+
+        repo_root = Path(__file__).resolve().parent.parent
+        checker_path = repo_root / "scripts" / "check-version-consistency.py"
+        spec = importlib.util.spec_from_file_location("version_checker", checker_path)
+        assert spec is not None and spec.loader is not None
+        checker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(checker)
+
+        (tmp_path / "airlock" / "callbacks").mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nversion = "0.5.15"\n', encoding="utf-8"
+        )
+        (tmp_path / "airlock" / "__init__.py").write_text(
+            '__version__ = "0.5.15"\n', encoding="utf-8"
+        )
+        (tmp_path / "airlock" / "callbacks" / "tracing.py").write_text(
+            'trace.get_tracer("airlock", "0.5.15")\n', encoding="utf-8"
+        )
+        (tmp_path / "uv.lock").write_text(
+            '[[package]]\nname = "airlock-llm"\nversion = "0.5.14"\n'
+            'source = { editable = "." }\n',
+            encoding="utf-8",
+        )
+
+        mismatches = checker.version_mismatches(tmp_path, "v0.5.15")
+
+        assert mismatches == [
+            "version mismatch: pyproject.toml=0.5.15 "
+            "uv.lock editable airlock-llm=0.5.14"
+        ]

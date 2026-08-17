@@ -177,3 +177,7 @@ def test_release_permissions_are_least_privilege_and_tests_exclude_docker() -> N
     assert jobs["publish"]["permissions"] == {"id-token": "write"}
     assert jobs["github-release"]["permissions"] == {"contents": "write"}
     assert 'pytest --tb=short -q -m "not live and not docker"' in _text("release.yml")
+    assert (
+        'python scripts/check-version-consistency.py --tag "${GITHUB_REF_NAME}"'
+        in _text("release.yml")
+    )

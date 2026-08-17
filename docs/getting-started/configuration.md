@@ -64,7 +64,7 @@ provider-specific request fields.
 
 DeepSeek is also disabled until an operator adds a reviewed deployment entry.
 Use the explicit stable base below; the pinned LiteLLM version otherwise has a
-beta-default path that is not Airlock’s supported 0.5.14 configuration.
+beta-default path that is not Airlock’s supported 0.5.15 configuration.
 
 ```yaml
 model_list:

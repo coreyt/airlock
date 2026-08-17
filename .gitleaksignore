@@ -36,3 +36,5 @@ tests/test_response_scanner.py:generic-api-key:151
 8f6b151ef72bcf38dc967395f12ef8f63844e384:scripts/setup.sh:curl-auth-header:87
 daf23856dcf634aa3eb0248502ba3e13cdd0c7fe:README.md:curl-auth-header:74
 f5626f2959006ab8636c237162388765f9b38251:tests/test_guardrail_overrides.py:generic-api-key:15
+70d69b1c0cb9c0828db9e38720773de8473cfc8a:tests/test_startup_validation.py:generic-api-key:62
+70d69b1c0cb9c0828db9e38720773de8473cfc8a:tests/test_startup_validation.py:generic-api-key:68

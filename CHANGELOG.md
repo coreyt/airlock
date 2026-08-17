@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Opt-in Admin read surface.** The Admin API remains disabled by default and
+  now provides a bounded, redacted configuration snapshot for authorized local
+  operators.
+- **Secure remote fleet visibility.** The terminal UI can read a bounded fleet
+  inventory over CA-verified TLS with scoped read-only JWT capabilities; its
+  Docker topology verification exercises two independently secured proxy
+  containers.
+- **Configured-provider startup guidance.** Airlock warns when a recognized
+  provider credential is configured without a matching served alias, without
+  inspecting arbitrary environment-variable names.
+
+### Changed
+
+- **CI verification.** The ordinary test suite and the opt-in Docker topology
+  test are independently gated in CI, alongside pinned workflow actions and
+  secret scanning.
+
+### Deferred
+
+- Virtual-key lifecycle management remains deferred to the 0.6.0 identity and
+  durability contract; this release does not add a virtual-key control plane.
+
 ## [0.5.14] — 2026-08-12
 
 ### Added
