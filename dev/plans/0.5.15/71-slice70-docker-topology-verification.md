@@ -67,8 +67,8 @@ not reserve a random port in Python. The generated config is mounted as
 `/app/config.yaml:ro`, certificates/keys use the remote-admin mount paths,
 `AIRLOCK_HOST=0.0.0.0`, native TLS environment variables are present, and
 `AIRLOCK_JWT_SECRET_PREV`/`AIRLOCK_MASTER_KEY` are absent. The generated config
-contains exactly `model_list: []` and the required Admin block—no provider
-sections. It explicitly sets `AIRLOCK_MCP_STARTUP_MODE=off`,
+contains `model_list: []`, the required Admin block, and Airlock's required
+`litellm_settings.callbacks` bootstrap callback—no provider sections. It explicitly sets `AIRLOCK_MCP_STARTUP_MODE=off`,
 `AIRLOCK_STARTUP_MODEL_DISCOVERY=0`, `AIRLOCK_ENABLE_MCP_SERVERS=0`, and
 `AIRLOCK_LOG_DIR=/tmp/airlock-slice71`. The generated server key is readable by
 the invoking non-root UID/GID used for the container, without relying on the

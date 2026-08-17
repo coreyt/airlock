@@ -149,6 +149,23 @@ Or press `6` in the TUI for the Advisor screen. The advisor prefers local models
 docker compose up --build
 ```
 
+### Developer Docker topology verification
+
+`make test` is offline and excludes the opt-in Docker topology test. To verify
+the Slice 70 same-host fleet connection against two disposable local Airlock
+containers, run:
+
+```bash
+make test-docker
+```
+
+This requires an accessible Docker daemon and `openssl`. It builds a uniquely
+labelled image from the current checkout, generates short-lived test CAs,
+certificates, capability tokens, configuration, and two loopback-only container
+ports in a temporary directory, and removes only the exact labelled containers
+it created. It does not use provider credentials, contact provider or inference
+endpoints, reuse an ambient image, or publish an image or registry artifact.
+
 ## Documentation and repository map
 
 The [documentation site](docs/index.md) is the canonical guide for users and

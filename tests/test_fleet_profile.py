@@ -83,6 +83,15 @@ def test_profile_rejects_duplicate_secret_references_and_insecure_inventory(tmp_
         load_fleet_profile(profile)
 
 
+def test_profile_rejects_inventory_symlink_before_reading_target_references(tmp_path):
+    profile = _secure(tmp_path / "fleet.yaml", "targets: []\n")
+    linked = tmp_path / "fleet-link.yaml"
+    linked.symlink_to(profile)
+
+    with pytest.raises(FleetProfileError, match="regular file"):
+        load_fleet_profile(linked)
+
+
 def test_profile_rejects_embedded_or_unsupported_values(tmp_path):
     ca = _secure(tmp_path / "ca.pem", "CA")
     token = _secure(tmp_path / "token.jwt", "abc.def.ghi")

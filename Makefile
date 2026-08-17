@@ -8,7 +8,7 @@
 #
 # Always sync via `make sync` so the model is restored automatically.
 
-.PHONY: sync ensure-spacy verify test
+.PHONY: sync ensure-spacy verify test test-docker
 
 sync: ## Sync all deps and restore the spaCy model uv prunes
 	uv sync --locked --all-extras
@@ -26,4 +26,14 @@ verify: ## Fail fast if the spaCy PII model is missing (CI / preflight gate)
 		|| { echo "ERROR: $$AIRLOCK_SPACY_MODEL missing — Presidio PII guard will fail. Run 'make ensure-spacy'."; exit 1; }
 
 test: ## Run the test suite
-	uv run python -m pytest -q -m "not live"
+	uv run python -m pytest -q -m "not live and not docker"
+
+test-docker: ## Run opt-in Slice 71 disposable Docker topology verification
+	@command -v docker >/dev/null || { echo "ERROR: docker is required for make test-docker"; exit 1; }
+	@docker info >/dev/null 2>&1 || { echo "ERROR: Docker daemon is unavailable or inaccessible"; exit 1; }
+	@command -v openssl >/dev/null || { echo "ERROR: openssl is required for make test-docker"; exit 1; }
+	@run_id="$$(date +%s)-$$$$"; revision="$$(git rev-parse HEAD)"; \
+	image="$$(docker build --quiet --label org.airlock.slice71.run="$$run_id" --label org.opencontainers.image.revision="$$revision" .)"; \
+	printf 'Slice 71 Docker evidence: image=%s run=%s revision=%s\\n' "$$image" "$$run_id" "$$revision"; \
+	export SLICE71_IMAGE="$$image" SLICE71_RUN_ID="$$run_id" SLICE71_REVISION="$$revision"; \
+	uv run python -m pytest -q -m docker

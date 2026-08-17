@@ -95,6 +95,7 @@ addopts = "-p no:xdist -p no:hypothesis -p no:Faker -p no:dash -m 'not stress'"
 markers = [
     "harness: Feature test harness (integration)",
     "live: Requires running proxy with real API keys",
+    "docker: Requires an accessible Docker daemon; opt-in disposable topology test",
     "stress: Concurrency/stress tests excluded from default run",
 ]
 # The deprecation budget is NOT enforced here. pytest's `filterwarnings` matches
