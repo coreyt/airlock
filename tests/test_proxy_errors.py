@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from litellm import RateLimitError
+from litellm.proxy._types import ProxyException
 
 from airlock.proxy_errors import (
     AirlockEndpointNotSupported,
@@ -225,6 +226,9 @@ class TestAirlockThreatBackoff:
     def test_is_a_rate_limit_error_without_client_or_heuristic_fields(self):
         exc = AirlockThreatBackoff(retry_after=2.1)
         assert isinstance(exc, RateLimitError)
+        # LiteLLM's guardrail path recognizes only ProxyException before
+        # FastAPI gets a chance to select Airlock's exception handler.
+        assert isinstance(exc, ProxyException)
         assert exc.retry_after == 2.1
         assert not hasattr(exc, "client_id")
         assert not hasattr(exc, "reason")

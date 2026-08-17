@@ -176,12 +176,19 @@ class AirlockAdmissionShed(RateLimitError):
         self.retry_after = float(retry_after)
 
 
-class AirlockThreatBackoff(ProxyException, RateLimitError):
+class AirlockThreatBackoff(ProxyException, RateLimitError):  # type: ignore[misc]
     """A local Fast Guardian threat backoff, not a provider rate limit.
 
     Retains only the remaining duration needed to tell the client when to retry;
     client identity, threat signals, and triggering request details stay inside
     the Guardian/logging boundary.
+
+    LiteLLM's proxy path requires ``ProxyException`` while Airlock's Guardian
+    contract requires ``RateLimitError``. Those independently maintained base
+    classes annotate their overlapping protocol fields (``code``, ``headers``,
+    and ``type``) incompatibly, although this adapter explicitly normalizes
+    every one below before it crosses either boundary. Keep the suppression on
+    this intentional compatibility join only; do not broaden it to the module.
     """
 
     def __init__(self, *, retry_after: float) -> None:
