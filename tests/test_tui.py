@@ -161,8 +161,12 @@ async def test_overview_stale_refresh_callback_is_ignored(monkeypatch) -> None:
 
     # Keep the app in normal mode while preventing its automatic overview
     # refresh from racing the callback exercised below.
-    monkeypatch.setattr(OverviewPane, "_refresh_state", mock.Mock())
-    monkeypatch.setattr(OverviewPane, "_probe_external", mock.Mock())
+    # Textual retains these callbacks in its intervals. Use real zero-argument
+    # bound methods rather than Mock: Textual caches Mock's dynamic
+    # ``_param_count`` and later uses it as a slice index when the timer invokes
+    # the callback.
+    monkeypatch.setattr(OverviewPane, "_refresh_state", lambda _self: None)
+    monkeypatch.setattr(OverviewPane, "_probe_external", lambda _self: None)
     app = AirlockApp()
     monkeypatch.setattr(app._mcp_manager, "start_health_loop", mock.Mock())
     monkeypatch.setattr(app, "_start_jsonl_tailer", mock.Mock())

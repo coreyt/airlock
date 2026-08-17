@@ -1,8 +1,8 @@
 # Slice 95 — TUI-test-cycle improvement status
 
-**Status:** complete. Implementation, independent code review, and focused
-independent verification are complete; exact-head CI closes ordinary-suite
-verification.
+**Status:** final CI correction in review. The original implementation and
+reviews are complete; a test-only Textual callback-signature correction awaits
+exact-head CI after the final integration run exposed it.
 The independent code review confirmed the normal-mode guard coverage and exact
 eight-test mapping. Its timing-evidence ordering observation is addressed by
 the explicit experiment-before-acceptance wording in the approved plan and the
@@ -114,6 +114,11 @@ externally terminated at 14% with no pytest failure, timeout, or summary, so it
 was correctly recorded as inconclusive. Exact-head GitHub CI for commit
 `2a908c6` then passed every job: Docker (1m18s), docs (27s), lint (58s),
 security (17s), Gitleaks scan (7s), and the ordinary Python 3.12 suite (15m06s).
-That complete CI run closes the sole remaining condition. Rollback is a reviewed
-reversion of the two test files and this status record; there is no runtime or
-configuration rollback.
+That complete CI run closed the original condition. A later documentation-head
+CI run exposed a test-only race: the stale test's class-level `Mock` callbacks
+were retained by Textual intervals, whose dynamic `_param_count` was later used
+as a slice index when invoking a timer. The focused regression passes after
+replacing them with real zero-argument bound methods; independent FIX review
+and a new exact-head CI run are the remaining closeout gates. Rollback is a
+reviewed reversion of the two test files and this status record; there is no
+runtime or configuration rollback.
