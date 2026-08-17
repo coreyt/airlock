@@ -73,9 +73,15 @@ airlock tui --start            # start proxy + dashboard
 airlock tui                    # dashboard only (connect to running proxy)
 airlock tui --start --daemon   # start proxy and leave it running after the TUI exits
 airlock tui --host H --port P  # monitor a proxy on a specific host/port
+airlock tui --fleet-inventory /secure/fleet.yaml  # manual read-only same-host fleet view
 ```
 
 See [TUI Dashboard](tui.md) for screen details.
+
+`--fleet-inventory` is isolated from the ordinary dashboard and remote Admin
+mode: it cannot start or own a proxy and requires explicit target selection for
+each refresh. See [Admin API](admin-api.md#same-host-fleet-read-view) for the
+owner-only inventory, TLS, and loopback-only deployment contract.
 
 ### `airlock analyze`
 

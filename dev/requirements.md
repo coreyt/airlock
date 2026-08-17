@@ -448,3 +448,41 @@ only `auth_context: remote_tui_jwt` to the existing `admin_action` audit
 record; they SHALL not record bearer material, raw address, certificate data,
 or request content. Existing direct-loopback Admin/TUI, operation-history,
 inference, routing, guardrail, and credential behavior SHALL remain unchanged.
+
+### DFR-40 / DAC-40: Same-host read-only fleet Admin view
+
+An explicit `airlock tui --fleet-inventory` mode SHALL provide only a manually
+refreshed, read-only view of explicitly selected Airlock **container** targets
+on the same host. Every target SHALL use the Slice 50 native-TLS host-loopback
+profile (`admin.enabled: true`, `admin.remote_tui: true`,
+`admin.fleet_read_tui: true`, `trust_loopback: false`), publish a distinct host-loopback port, and use a
+distinct `AIRLOCK_JWT_SECRET`. Its static local YAML inventory SHALL be an
+owner-only regular file and contain only an opaque ID, display name, literal
+loopback HTTPS origin, and references to owner-only per-target CA and
+capability-token files; it SHALL contain no secret value, provider
+configuration, SSH/Docker/systemd/Kubernetes credential, discovery source, or
+desired-state authority. Each target SHALL have distinct CA/token references;
+its token SHALL contain `admin:remote_tui` and `admin:read` only.
+
+Fleet v1 SHALL allow only `localhost`, `127.0.0.1`, or `::1` origins with an
+explicit port, HTTPS, certificate hostname validation, no proxy-from-environment
+and no redirects. Inventory, CA, and token references SHALL be no-follow,
+current-EUID-owned regular files with no group/other mode bits; inventory size,
+target count, and field lengths are bounded, and duplicate IDs, token references,
+or CA references are rejected. The transport SHALL parse an exact origin (no
+userinfo/path/query/fragment), resolve every connection, reject it if **any**
+answer is not loopback, connect only to a vetted numeric answer with TLS SNI and
+hostname verification against the original host, then reject a peer address that
+is not the vetted loopback address. It SHALL use a direct HTTP/1.1 connection,
+not a proxy-aware URL client, and cap the response before parsing. The client
+SHALL select at most 10 explicit IDs (no wildcard/default-all), issue at most
+four concurrent requests, use 2-second connect and 5-second total timeouts,
+accept at most 64 KiB response bodies, make no automatic retry/poll, and render
+only bounded per-target fresh/stale/unavailable/TLS/auth/forbidden state without
+raw errors. Stale state is previous in-memory success plus a displayed timestamp
+only; it is never persisted.
+
+Fleet v1 SHALL make no Admin mutation, configuration/lifecycle/deployment
+action, local persistent operation/audit record, or inference-path change.
+Every target remains its own Admin authorization and audit authority. Existing
+single-target local and remote TUI behavior SHALL remain unchanged.

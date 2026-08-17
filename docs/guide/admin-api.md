@@ -79,6 +79,7 @@ master key (and any loopback operator) satisfies all of them.
 | Scope | Grants |
 |---|---|
 | `admin:read` | The read-only `GET` endpoints |
+| `admin:remote_tui` | Required anchor for the explicitly enabled host-console profiles below; grants no endpoint by itself |
 | `admin:read_config` | The redacted startup provider-configuration view only |
 | `admin:clear_quarantine` | Clear a provider or client→provider quarantine |
 | `admin:reset_circuit` | Reset a model circuit |
@@ -182,6 +183,58 @@ roll back the profile, stop the dedicated Compose deployment (or remove its
 loopback mapping), remove `remote_tui: true`, and restart. Do not publish this
 Admin port to all interfaces or substitute the master key, a Docker bridge, a
 CIDR, or forwarded headers for the capability token.
+
+## Same-host fleet read view
+
+This is a deliberately small extension of the host-console container profile,
+for an operator viewing several Airlock containers on the **same host**. It is
+read-only: it does not manage containers, configuration, secrets, lifecycle,
+or desired state, and it does not poll automatically. It is not remote fleet
+control, service discovery, or a systemd/Kubernetes mode.
+
+Every target must use the preceding `remote_tui: true` profile plus
+`fleet_read_tui: true`, and a separate
+host-loopback published port, native TLS CA, and `AIRLOCK_JWT_SECRET`. Give its
+token **exactly** `admin:remote_tui` and `admin:read`; the target rejects a
+token carrying any other scope, so a fleet credential cannot authorize a
+mutation through the Admin API. The distinct signing secret
+prevents a token for one target being replayed at another.
+
+Create owner-only regular files (`0600`, owned by the user running the TUI) for
+the inventory, each CA bundle, and each token. A profile contains references,
+never embedded secret values:
+
+```yaml
+targets:
+  - id: payments
+    name: Payments proxy
+    origin: https://localhost:4101
+    ca_file: /secure/payments-ca.pem
+    token_file: /secure/payments-read.jwt
+  - id: support
+    name: Support proxy
+    origin: https://127.0.0.1:4102
+    ca_file: /secure/support-ca.pem
+    token_file: /secure/support-read.jwt
+```
+
+Run it with explicit manual selection:
+
+```bash
+airlock tui --fleet-inventory /secure/airlock-fleet.yaml
+```
+
+The inventory accepts at most ten distinct targets. Origins are exact HTTPS
+loopback origins (`localhost`, `127.0.0.1`, or `[::1]`) with an explicit port;
+no path, query, credentials, redirects, proxies, or remote/private-network
+address is admitted. Airlock resolves and validates loopback addresses for each
+connection, validates the TLS hostname and peer address, and directly connects
+only to the vetted address. Refresh only named selected targets (maximum ten,
+four concurrent), uses a 2-second connect and 5-second total timeout, and caps
+responses at 64 KiB. Results show only `fresh`, `stale`, authentication,
+authorization, TLS, or unavailable state; no token or raw remote error is
+displayed or written locally. Stop using the command or remove the inventory
+to roll it back.
 
 ## Endpoints
 

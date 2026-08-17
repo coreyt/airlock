@@ -23,6 +23,7 @@ _REMOTE_TUI_ALLOWED_SCOPES = {
     "admin:read_config",
     "admin:clear_quarantine",
 }
+_FLEET_READ_TUI_SCOPES = {_REMOTE_TUI_SCOPE, "admin:read"}
 _REMOTE_TUI_MAX_TTL_SECONDS = 15 * 60
 
 # Deliberately excludes "" — a missing/stripped client address is NOT loopback
@@ -37,6 +38,7 @@ class AdminConfig:
     allow_insecure_tokens: bool = False
     behind_tls_proxy: bool = False
     remote_tui: bool = False
+    fleet_read_tui: bool = False
 
 
 _admin_config = AdminConfig()
@@ -62,7 +64,10 @@ def configure_admin(
         allow_insecure_tokens=bool(block.get("allow_insecure_tokens", False)),
         behind_tls_proxy=bool(block.get("behind_tls_proxy", False)),
         remote_tui=bool(block.get("remote_tui", False)),
+        fleet_read_tui=bool(block.get("fleet_read_tui", False)),
     )
+    if cfg.fleet_read_tui and not cfg.remote_tui:
+        raise RuntimeError("admin.fleet_read_tui requires admin.remote_tui: true")
     if cfg.remote_tui and host is not None:
         if (
             not cfg.enabled
@@ -136,7 +141,12 @@ def decide(
         master = _master_key()
         if master and hmac.compare_digest(principal.bearer, master):
             return Decision(False, 403, "master key is not valid for remote TUI")
-        from airlock.admin.tokens import TokenError, has_scope, verify_token
+        from airlock.admin.tokens import (
+            TokenError,
+            has_scope,
+            token_scopes,
+            verify_token,
+        )
 
         try:
             claims = verify_token(principal.bearer)
@@ -157,6 +167,18 @@ def decide(
         if not has_scope(claims, _REMOTE_TUI_SCOPE):
             return Decision(
                 False, 403, "token missing scope admin:remote_tui", actor=actor
+            )
+        scopes = token_scopes(claims)
+        if cfg.fleet_read_tui and (
+            op_scope != "admin:read"
+            or len(scopes) != len(_FLEET_READ_TUI_SCOPES)
+            or set(scopes) != _FLEET_READ_TUI_SCOPES
+        ):
+            return Decision(
+                False,
+                403,
+                "fleet read TUI requires exactly admin:remote_tui and admin:read",
+                actor=actor,
             )
         if op_scope not in _REMOTE_TUI_ALLOWED_SCOPES:
             return Decision(

@@ -101,6 +101,52 @@ class TestPDP:
         long_lived = mint_token("operator:one", ["admin:remote_tui", "admin:read"], 901)
         assert not decide(Principal(bearer=long_lived), "admin:read").allowed
 
+    def test_fleet_read_profile_requires_exact_read_capability(self):
+        configure_admin(
+            {
+                "admin": {
+                    "enabled": True,
+                    "trust_loopback": False,
+                    "remote_tui": True,
+                    "fleet_read_tui": True,
+                }
+            },
+            host="0.0.0.0",
+            tls_enabled=True,
+        )
+        read_token = mint_token("fleet:one", ["admin:remote_tui", "admin:read"], 60)
+        assert decide(Principal(bearer=read_token), "admin:read").allowed
+        broad_token = mint_token(
+            "fleet:one",
+            ["admin:remote_tui", "admin:read", "admin:clear_quarantine"],
+            60,
+        )
+        assert not decide(Principal(bearer=broad_token), "admin:read").allowed
+        assert not decide(
+            Principal(bearer=broad_token), "admin:clear_quarantine"
+        ).allowed
+
+    def test_fleet_token_cannot_replay_across_distinct_signing_secrets(
+        self, monkeypatch
+    ):
+        configure_admin(
+            {
+                "admin": {
+                    "enabled": True,
+                    "trust_loopback": False,
+                    "remote_tui": True,
+                    "fleet_read_tui": True,
+                }
+            },
+            host="0.0.0.0",
+            tls_enabled=True,
+        )
+        monkeypatch.setenv("AIRLOCK_JWT_SECRET", "target-one-signing-secret-000000")
+        token = mint_token("fleet:one", ["admin:remote_tui", "admin:read"], 60)
+        assert decide(Principal(bearer=token), "admin:read").allowed
+        monkeypatch.setenv("AIRLOCK_JWT_SECRET", "target-two-signing-secret-000000")
+        assert not decide(Principal(bearer=token), "admin:read").allowed
+
 
 class TestConfigureAdminFailClosed:
     def test_exposed_no_tls_raises(self):
@@ -122,6 +168,14 @@ class TestConfigureAdminFailClosed:
 
     def test_disabled_no_check(self):
         configure_admin({"admin": {"enabled": False}}, host="0.0.0.0")  # no raise
+
+    def test_fleet_read_tui_requires_remote_tui_profile(self):
+        with pytest.raises(RuntimeError, match="fleet_read_tui"):
+            configure_admin(
+                {"admin": {"enabled": True, "fleet_read_tui": True}},
+                host="0.0.0.0",
+                tls_enabled=True,
+            )
 
     @pytest.mark.parametrize(
         "config,host,tls",

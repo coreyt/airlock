@@ -502,6 +502,32 @@ def test_remote_tui_rejects_proxy_start() -> None:
     assert exc_info.value.code == 2
 
 
+def test_fleet_tui_uses_isolated_fleet_app() -> None:
+    from airlock.cli.main import main
+
+    with mock.patch("airlock.tui.fleet_app.run") as fleet_run:
+        main(["tui", "--fleet-inventory", "/secure/fleet.yaml"])
+    fleet_run.assert_called_once_with(inventory_file="/secure/fleet.yaml")
+
+
+def test_fleet_tui_rejects_proxy_ownership_and_remote_flags() -> None:
+    from airlock.cli.main import main
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["tui", "--fleet-inventory", "/secure/fleet.yaml", "--start"])
+    assert exc_info.value.code == 2
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "tui",
+                "--fleet-inventory",
+                "/secure/fleet.yaml",
+                "--remote-admin",
+            ]
+        )
+    assert exc_info.value.code == 2
+
+
 async def test_app_has_proxy_manager() -> None:
     app = AirlockApp(host="127.0.0.1", port="9999")
     from airlock.tui.proxy_manager import ProxyManager

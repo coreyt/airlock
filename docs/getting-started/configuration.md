@@ -550,6 +550,7 @@ admin:
   allow_insecure_tokens: false   # permit token auth over plaintext on a non-loopback bind
   behind_tls_proxy: false   # assert TLS is terminated upstream
   remote_tui: false         # opt-in host-console container Admin profile
+  fleet_read_tui: false     # opt-in exact read-only capability profile for Slice 70 targets
 ```
 
 Tokens are signed with `AIRLOCK_JWT_SECRET` (falling back to a derivation from
@@ -563,6 +564,11 @@ Airlock container through a port published only on the host loopback interface.
 It requires native TLS, `trust_loopback: false`, and rejects proxy/insecure-token
 modes. It accepts only a 15-minute JWT containing `admin:remote_tui` plus its
 operation scope; it never accepts the master key. See [Admin API](../guide/admin-api.md#host-console-container-tui) for the deployment contract.
+
+`fleet_read_tui: true` is only for a target in the same-host read-only fleet
+view. It additionally requires `remote_tui: true` and accepts only a 15-minute
+token with **exactly** `admin:remote_tui` and `admin:read`; it prevents a
+broader capability from authorizing a mutation on that target.
 
 ### `guardrail_overrides`
 

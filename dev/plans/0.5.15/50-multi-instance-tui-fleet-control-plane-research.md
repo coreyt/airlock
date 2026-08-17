@@ -1,10 +1,8 @@
 # 0.5.15 research hypothesis — one TUI for multiple Airlock instances
 
-**Status:** re-evaluated on 2026-08-16: **conditional, planning/design only;
-not admitted for implementation.** This document adds no deployment agent,
-remote-execution capability, or configuration write endpoint. The Slice 70
-audit and independent design review confirmed that the fleet authority/HITL
-decisions below remain unresolved.
+**Status:** ratified for the narrow Slice 70 read-only container v1 on
+2026-08-16. This document adds no deployment agent, remote-execution capability,
+or configuration write endpoint.
 
 ## Slice 70 admission update
 
@@ -42,6 +40,30 @@ Before implementation, the owner/HITL record must decide:
 Until that record is ratified, the appropriate Slice 70 outcome is a status
 record and a decision-ready design, not code, tests, user documentation, or
 deployment changes.
+
+## Ratified Slice 70 v1 (2026-08-16)
+
+The owner selected the conservative read-only baseline:
+
+- **Inventory:** static local owner-only YAML; IDs, display names, literal
+  origins, and CA/token-file references only.
+- **Topology and identity:** only Slice 50 `admin.remote_tui` plus
+  `admin.fleet_read_tui` containers with native TLS and distinct host-loopback
+  ports; every target has distinct
+  CA/token references and a distinct `AIRLOCK_JWT_SECRET`. Tokens contain
+  exactly `admin:remote_tui` + `admin:read`; generic systemd and remote targets defer.
+- **Egress:** only configured `localhost`/`127.0.0.1`/`::1` HTTPS origins;
+  resolve/revalidate loopback per connection; no redirects or proxy environment.
+- **Operations:** read-only manual refresh, explicit selection/no wildcard,
+  at most 10 targets, concurrency 4, 2-second connect/5-second total timeout,
+  64 KiB body cap, no automatic retry/poll, and no persisted local fleet audit.
+
+The hardened transport parses exact origins, securely reads every local file,
+resolves all addresses per connection, connects only to a vetted numeric
+loopback address with original-host TLS SNI/verification, and checks the peer
+address. This closes the fleet authority/HITL gate only for this exact v1. Remote or
+RFC1918 targets, discovery, shared credentials, mutation fan-out, desired-state
+integration, scheduled polling, and retained fleet audit remain later decisions.
 
 ## Outcome and hypothesis
 
