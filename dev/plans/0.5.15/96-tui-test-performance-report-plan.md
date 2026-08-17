@@ -1,8 +1,7 @@
 # Slice 96 — TUI-test performance methods and outcome report
 
-**Status:** revised after Slice 96 audit; awaits Slice 95 independent
-verification before implementation. The report begins only after that closure,
-including the valid outcome that no material speedup was demonstrated.
+**Status:** complete after independent documentation review and verification.
+The valid outcome is that no material speedup was demonstrated.
 
 ## Purpose and inputs
 

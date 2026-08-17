@@ -224,8 +224,8 @@ authorize work before Slice 6.
 | 80 | CI review and improvement | Complete; preserve its least-privilege, pinned-action, and required-check controls in future changes. |
 | 90 | Release closeout | Complete and non-publishing; only delivered, verified slices are included and deferrals are explicit. |
 | 94 | TUI-test characterization and recommendation experiments | Complete; no bulk optimization was admitted from its non-causal timing evidence. |
-| 95 | Evidence-backed TUI-test-cycle improvements | In progress; bounded stale-callback coverage and paired focused timing are complete, with independent verification pending. |
-| 96 | TUI-test performance methods and outcome report | Draft; publish comparable before/after evidence and durable testing guidance. |
+| 95 | Evidence-backed TUI-test-cycle improvements | Complete; normal-mode stale-callback regression and eight pure-test harness mappings verified, with no performance claim. |
+| 96 | TUI-test performance methods and outcome report | Complete; independently reviewed developer methods/outcome note records comparable evidence and limitations. |
 
 ### Mandatory lifecycle for every included feature slice
 

@@ -1,7 +1,6 @@
 # Slice 96 design — TUI test methods and outcome record
 
-**Status:** proposed for independent documentation/design review after Slice
-95 verification closes.
+**Status:** complete; independent documentation review and verification passed.
 
 ## Boundary
 

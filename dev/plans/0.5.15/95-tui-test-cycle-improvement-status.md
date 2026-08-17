@@ -1,7 +1,8 @@
 # Slice 95 — TUI-test-cycle improvement status
 
-**Status:** implementation, independent code review, and focused independent
-verification complete; ordinary-suite verification remains externally pending.
+**Status:** complete. Implementation, independent code review, and focused
+independent verification are complete; exact-head CI closes ordinary-suite
+verification.
 The independent code review confirmed the normal-mode guard coverage and exact
 eight-test mapping. Its timing-evidence ordering observation is addressed by
 the explicit experiment-before-acceptance wording in the approved plan and the
@@ -108,11 +109,11 @@ support a speed claim or broader migration.
 Independent code review approved after three evidence-only FIX cycles. The
 independent verifier repeated focused GREEN, normal lifecycle, `make sync &&
 make verify`, Ruff, format, diff integrity, and strict MkDocs successfully.
-It found no implementation defect. Its exact ordinary-suite `make test` attempt
-was externally terminated at 14% with no pytest failure, timeout, or summary;
-the durable partial log is `/tmp/airlock-slice95-make-test.log`. A bounded
-`tests/test_tui.py` capture was terminated the same way. This is **inconclusive,
-not green**. A complete ordinary-suite result on the final commit (local durable
-runner or CI) is the sole remaining Slice 95 closeout condition. Rollback is a
-reviewed reversion of the two test files and this status record; there is no
-runtime or configuration rollback.
+It found no implementation defect. Its local ordinary-suite attempt was
+externally terminated at 14% with no pytest failure, timeout, or summary, so it
+was correctly recorded as inconclusive. Exact-head GitHub CI for commit
+`2a908c6` then passed every job: Docker (1m18s), docs (27s), lint (58s),
+security (17s), Gitleaks scan (7s), and the ordinary Python 3.12 suite (15m06s).
+That complete CI run closes the sole remaining condition. Rollback is a reviewed
+reversion of the two test files and this status record; there is no runtime or
+configuration rollback.
