@@ -25,6 +25,10 @@ test containers and generated temporary test material.
   112 deselected, 1 expected XPASS in 341.69s. Normal test selection excludes
   the Docker marker; CI's Docker job invokes only the opt-in target after
   locked test dependency provisioning.
+- Exact-head GitHub CI independently ran that opt-in target successfully at
+  `08d8737` ([Docker job](https://github.com/coreyt/airlock/actions/runs/31994296354/job/95283132492),
+  1m10s). It used the disposable local-image contract only; no image was
+  pushed or published.
 
 ## Boundary and follow-up
 

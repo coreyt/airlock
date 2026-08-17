@@ -1,7 +1,7 @@
 # Slice 90 — 0.5.15 release closeout status
 
-**Status:** implementation verified locally — awaiting the parent closeout's
-exact-head GitHub CI and protection evidence; non-publishing throughout.
+**Status:** complete — local and exact-head GitHub closeout verification passed
+2026-08-17; non-publishing throughout.
 
 ## Implemented scope
 
@@ -37,7 +37,7 @@ exact-head GitHub CI and protection evidence; non-publishing throughout.
 - Merge-base-to-head Gitleaks scan — pass after the two exact historic test
   fingerprints; it retains all new-finding detection.
 - `make sync && make verify`, strict MkDocs, documentation/workflow/startup/
-  version contracts (91 passed, 1 expected XPASS), `make test` (3427 passed,
+  version contracts (91 passed, 1 expected XPASS), `make test` (3428 passed,
   112 deselected, 1 expected XPASS), and `make test-docker` (1 passed) — pass.
 - Changed-file Ruff/check-format and actionlint — pass. A deliberately broad
   Ruff run also reports four pre-existing style errors in the unrelated
@@ -54,11 +54,20 @@ uncommitted head reports two historic generic-key test literals in the earlier
 Slice 30 commit. The approved working-tree fixture correction removes those
 literals. Because PR scanning retains history, `.gitleaksignore` adds only the
 two exact reviewed commit/path/rule/line fingerprints; it adds no path, rule,
-or broad baseline suppression. The parent closeout must record the exact-head
-GitHub Gitleaks result after the reviewed changes are committed.
+or broad baseline suppression. The exact-head GitHub Gitleaks result passed at
+`08d8737`.
 
-## Pending closeout evidence
+## Exact-head closeout evidence
 
-This record will name final local-gate results, the exact GitHub head/check
-contexts/app IDs, and branch-protection readback. It will not claim a tag,
-merge, or package/image publication.
+- Head `08d8737` passed CI workflow
+  [31994296354](https://github.com/coreyt/airlock/actions/runs/31994296354)
+  (`docs`, `test (3.12)`, `lint`, `security`, and `docker`) and Gitleaks
+  workflow [31994296357](https://github.com/coreyt/airlock/actions/runs/31994296357)
+  (`scan`). GitHub reports every context from GitHub Actions App `15368`.
+- Main protection now strictly requires the six app-bound contexts: `docs`,
+  `test (3.12)`, `lint`, `security`, `docker`, and Gitleaks `scan`. Readback
+  confirms CODEOWNERS and one approval remain required and admin enforcement
+  remains enabled.
+- This closes preparation only: no tag was created, no release workflow was
+  dispatched, no registry received an artifact, and PR #49 was neither
+  self-approved nor merged.

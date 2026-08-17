@@ -1,8 +1,7 @@
 # Slice 80 — CI reliability, diagnostic signal, and least privilege: status
 
-**Status:** local implementation, code review, and independent verification
-complete; awaiting release-branch push, exact-head GitHub verification, and
-branch-protection reconciliation.
+**Status:** complete — exact-head GitHub CI and strict branch-protection
+reconciliation verified 2026-08-17; non-publishing throughout.
 
 ## Delivered
 
@@ -51,10 +50,21 @@ version CI coverage or revise the public support declaration.
   .github/workflows/release.yml` — passed.
 - `git diff --check` — passed.
 
-## Remaining closeout verification
+## Exact-head GitHub verification and protection readback
 
-1. Push only the reviewed release branch; do not tag, dispatch `release.yml`,
-   or publish a package/image.
-2. Confirm exact-head green CI and Gitleaks, record returned check-context
-   names/app IDs, then apply and re-read branch protection without weakening
-   CODEOWNERS or admin-bypass policy.
+- Reviewed head `08d8737` passed the complete CI workflow
+  [31994296354](https://github.com/coreyt/airlock/actions/runs/31994296354):
+  `docs`, `test (3.12)` (3,428 passed, 112 deselected, 1 expected XPASS;
+  18m44s), `lint`, `security`, and Slice 71's `docker` topology job all
+  succeeded. Gitleaks workflow
+  [31994296357](https://github.com/coreyt/airlock/actions/runs/31994296357)
+  also succeeded.
+- GitHub returned each check as GitHub Actions App `15368`. Main now requires
+  strict, app-bound checks `docs`, `test (3.12)`, `lint`, `security`, `docker`,
+  and `scan`. `scan` is the verified Gitleaks job; GitHub's app-bound
+  `checks` API replaces the former legacy `gitleaks / scan` string rather than
+  retaining both representations.
+- Full protection readback confirms strict mode remains enabled, one approving
+  review and CODEOWNERS remain required, and admin enforcement remains enabled.
+  Force pushes and deletions remain disabled. No workflow was dispatched and
+  no tag, package, or image was published.
