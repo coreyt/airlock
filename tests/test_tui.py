@@ -1075,7 +1075,7 @@ async def test_guards_pause_toggle() -> None:
 async def test_tab_bar_activate() -> None:
     from airlock.tui.widgets.tab_bar import TabBar
 
-    app = AirlockApp()
+    app = AirlockApp(test_harness=True)
     async with app.run_test(size=(120, 40)) as _pilot:
         tab_bar = app.query_one("#tab-bar", TabBar)
         assert tab_bar._active == "overview"
@@ -1090,7 +1090,7 @@ async def test_tab_bar_activate() -> None:
 async def test_tab_bar_update_badge() -> None:
     from airlock.tui.widgets.tab_bar import TabBar
 
-    app = AirlockApp()
+    app = AirlockApp(test_harness=True)
     async with app.run_test(size=(120, 40)) as pilot:
         tab_bar = app.query_one("#tab-bar", TabBar)
 
