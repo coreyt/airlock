@@ -2,11 +2,13 @@
 
 This is the canonical 0.5.15 release workspace index.
 
-**Status:** implementation and non-publishing release closeout complete. Slices
-0–6 are complete planning/HITL records. Delivered slices 10, 20, 30, 40, 50,
-70, 71, 80, and 90 have independent review and exact-head CI evidence. Slice
-60 is deferred to 0.6.0. No release tag or registry publication is part of this
-release workspace; a later owner-authorized tag remains a separate action.
+**Status:** feature implementation and non-publishing release closeout are
+complete. Slices 0–6 are complete planning/HITL records. Delivered slices 10,
+20, 30, 40, 50, 70, 71, 80, and 90 have independent review and exact-head CI
+evidence. Slices 94–96 are a post-closeout, test-only performance and
+documentation follow-up. Slice 60 is deferred to 0.6.0. No release tag or
+registry publication is part of this release workspace; a later
+owner-authorized tag remains a separate action.
 
 **Post-planning guard:** do not begin a feature/function slice merely because it
 is listed or included. First recheck the prior slice closure, update the slice
@@ -221,6 +223,9 @@ authorize work before Slice 6.
 | 71 | Slice 70 Docker topology verification | Complete; local and CI two-container verification without new product authority. |
 | 80 | CI review and improvement | Complete; preserve its least-privilege, pinned-action, and required-check controls in future changes. |
 | 90 | Release closeout | Complete and non-publishing; only delivered, verified slices are included and deferrals are explicit. |
+| 94 | TUI-test characterization and recommendation experiments | Complete; no bulk optimization was admitted from its non-causal timing evidence. |
+| 95 | Evidence-backed TUI-test-cycle improvements | Complete; normal-mode stale-callback regression and eight pure-test harness mappings verified, with no performance claim. |
+| 96 | TUI-test performance methods and outcome report | Complete; independently reviewed developer methods/outcome note records comparable evidence and limitations. |
 
 ### Mandatory lifecycle for every included feature slice
 
@@ -236,6 +241,20 @@ authorize work before Slice 6.
    verification and any approved funded/manual checks.
 5. Write `dev/plans/0.5.15/<slice>-status.md` with accepted requirements, evidence,
    review results, unresolved risk, and release disposition.
+
+## Post-closeout TUI-test performance slices
+
+Slice 94 measures and recommends; Slice 95 may make only reviewed,
+evidence-backed test-cycle changes; Slice 96 reports measured outcomes. All
+preserve DFR-30/DAC-30: ordinary tests compose the production widget tree
+without unrelated workers, while named normal-mode tests retain lifecycle,
+cancellation, shutdown, stale-callback, JSONL, and MCP coverage. None may
+change TUI runtime behavior, inference behavior, dependencies, CI requirements,
+or operator configuration merely to reduce test duration.
+
+- [Slice 94 plan](94-tui-test-characterization-recommendations-plan.md)
+- [Slice 95 plan](95-tui-test-cycle-improvement-plan.md)
+- [Slice 96 plan](96-tui-test-performance-report-plan.md)
 
 ## Existing detailed evidence
 
