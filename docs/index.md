@@ -28,6 +28,7 @@ observability, and operational controls.
 | Batch workloads | [Batch processing](guide/batch.md) |
 | MCP tools | [MCP servers](guide/mcp-servers.md) |
 | Optional FathomDB search/analysis and per-client erasure | [Fathom storage](guide/fathom-storage.md) and [Operations](operations.md#fathomdb) |
+| Opt-in Admin recovery actions and same-host read-only fleet view | [Admin API](guide/admin-api.md) |
 
 ## Continue reading
 
