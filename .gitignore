@@ -30,6 +30,15 @@ secrets/
 logs/
 *.log
 
+# Local runtime and diagnostic artifacts. Persistent runtime state belongs in an
+# operator-selected volume via AIRLOCK_STATE_DIR, never in the source checkout.
+state/
+coverage.xml
+oom-profile-*.bin
+
+# Transient local Codex agent coordination state.
+.agents/
+
 # Docker
 docker-compose.override.yml
 
