@@ -36,6 +36,7 @@ Airlock sits between your developers and LLM providers, giving you visibility an
 | **Operational storage** | Optional FathomDB search/analysis store with authenticated per-client erasure; JSONL retention remains a separate obligation. |
 | **Keyword blocking** | Custom blocklist prevents restricted project names or terms from leaking |
 | **Budget control** | Per-provider daily spend caps — near-limit warning, proactive reroute away from a provider approaching its cap, hard block at the limit. Per-tenant keys with per-key budgets are planned, not yet shipped |
+| **Operator control** | An opt-in Admin API provides bounded live-protection reads and recovery actions. A separate, read-only same-host fleet view uses CA-verified TLS and scoped capability tokens. |
 | **Multi-tool support** | Works with Cursor, Claude Code, GitHub Copilot, and any OpenAI-compatible client |
 | **Self-hosted models** | Route to local vLLM, Ollama, or any OpenAI-compatible endpoint alongside cloud providers |
 | **Batch processing** | OpenAI-compatible Batch API (`/v1/files` + `/v1/batches`) for ~50% cheaper async jobs — OpenAI and Vertex AI Gemini (regional) work through the proxy today |
@@ -125,6 +126,15 @@ If `AIRLOCK_MASTER_KEY` is unset or blank, Airlock strips the runtime proxy
 `master_key` setting and accepts unauthenticated requests for local/dev use.
 
 Or use the TUI's **Basic Chat** screen (press `5`) to interactively test any configured model and inspect the full request/response headers and body.
+
+### Operator controls
+
+The Admin API is disabled by default. When enabled, it provides bounded reads of
+live protection state and narrowly scoped recovery actions. The host-console
+and same-host fleet TUI modes require explicit native TLS, owner-only
+capability-token files, and dedicated configuration; they do not expose a
+general remote control plane. See the [Admin API guide](docs/guide/admin-api.md)
+for the configuration and deployment contract.
 
 ### Advisor
 
