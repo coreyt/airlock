@@ -50,10 +50,13 @@ Each record has a monotonic timestamp and a phase:
 - `periodic` — every `AIRLOCK_OOM_DIAGNOSTICS_EVERY` requests.
 - `signal_usr1_*` or `signal_usr2_*` — an operator snapshot.
 
-The payload includes cgroup current/peak/high/max/event counters, process RSS,
+Most payloads include cgroup current/peak/high/max/event counters, process RSS,
 `smaps_rollup` anonymous/huge-page values, PSI, glibc `mallinfo2`, thread/FD
 counts, optional tracemalloc totals, aggregate GC type counts at checkpoints,
-and LiteLLM/httpx client-pool counts.
+and LiteLLM/httpx client-pool counts. `signal_usr2_skipped_in_flight` is the
+deliberate exception: it contains only its timestamp, phase, in-flight count,
+and `trim` decline reason. It does not scan the heap or sample process state
+while live requests make trimming unsafe.
 
 Important: `in_flight` is decremented at `callback_complete`, not at
 `provider_response`. A growing value can therefore mean a stuck callback or

@@ -221,12 +221,15 @@ AIRLOCK_OOM_DIAGNOSTICS_MAX_RECORDS=6000
 ```
 
 It writes aggregate process, allocator, file-descriptor, thread, cgroup, and
-memory-pressure counters. It does not write request/response bodies, headers,
-model names, exception text, or client metadata. The directory defaults to
-`/tmp/airlock-oom-diagnostics`; output files are owner-only. Secure or
-pre-create a configured directory with the permissions your deployment needs.
-Disable the recorder after the investigation. The repository's engineering OOM
-instrumentation runbook contains the signal and high-water procedure.
+memory-pressure counters. A `SIGUSR2` trim declined because requests are active
+is intentionally recorded as a minimal audit event instead, so it does not
+perturb those requests with a heap scan. It does not write request/response
+bodies, headers, model names, exception text, or client metadata. The directory
+defaults to `/tmp/airlock-oom-diagnostics`; output files are owner-only. Secure
+or pre-create a configured directory with the permissions your deployment
+needs. Disable the recorder after the investigation. The repository's
+engineering OOM instrumentation runbook contains the signal and high-water
+procedure.
 
 ## Startup Modes
 

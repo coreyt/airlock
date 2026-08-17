@@ -342,6 +342,25 @@ class OOMDiagnostics:
     def _signal_usr2(self, _signum: int, _frame: Any) -> None:
         self._signal_snapshot("signal_usr2", trim=True)
 
+    def _record_inflight_trim_skip(self, phase: str, in_flight: int) -> None:
+        """Record why a trim was skipped without perturbing the live workload.
+
+        A full signal snapshot enumerates the Python heap.  That work is
+        specifically unhelpful while requests are in flight, and can hold the
+        signal gate long enough to make a second operator signal look stuck.
+        Preserve the bounded audit event while deliberately omitting sampled
+        process details.
+        """
+        self._append(
+            {
+                "ts_monotonic_ns": time.monotonic_ns(),
+                "phase": f"{phase}_skipped_in_flight",
+                "sequence": None,
+                "in_flight": in_flight,
+                "trim": {"attempted": False, "reason": "requests_in_flight"},
+            }
+        )
+
     def _signal_snapshot(self, phase: str, *, trim: bool) -> None:
         if not _enabled() or not self._signal_lock.acquire(blocking=False):
             return
@@ -351,7 +370,7 @@ class OOMDiagnostics:
                 with self._lock:
                     in_flight = self._in_flight
                 if trim and in_flight:
-                    self.snapshot(f"{phase}_skipped_in_flight")
+                    self._record_inflight_trim_skip(phase, in_flight)
                     return
                 self.snapshot(f"{phase}_before")
                 if trim:
