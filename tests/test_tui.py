@@ -9,9 +9,11 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
+from textual.css.query import NoMatches
 from textual.widgets import Button, DataTable
 
 from airlock.tui.app import AirlockApp
+from airlock.tui.screens.overview import OverviewPane
 from airlock.timeutil import isoformat_z, utc_now
 
 
@@ -151,6 +153,53 @@ async def test_overview_update_alerts() -> None:
         alerts = app.query_one("#ov-alerts", Static)
         # Just verify it doesn't crash
         assert alerts is not None
+
+
+async def test_overview_stale_refresh_callback_is_ignored(monkeypatch) -> None:
+    """A delayed normal-mode worker callback must tolerate a removed table."""
+    raw_refresh = OverviewPane._refresh_state.__wrapped__
+
+    # Keep the app in normal mode while preventing its automatic overview
+    # refresh from racing the callback exercised below.
+    # Textual retains these callbacks in its intervals. Use real zero-argument
+    # bound methods rather than Mock: Textual caches Mock's dynamic
+    # ``_param_count`` and later uses it as a slice index when the timer invokes
+    # the callback.
+    monkeypatch.setattr(OverviewPane, "_refresh_state", lambda _self: None)
+    monkeypatch.setattr(OverviewPane, "_probe_external", lambda _self: None)
+    app = AirlockApp()
+    monkeypatch.setattr(app._mcp_manager, "start_health_loop", mock.Mock())
+    monkeypatch.setattr(app, "_start_jsonl_tailer", mock.Mock())
+
+    async with app.run_test(size=(120, 40)) as _pilot:
+        overview = app.query_one(OverviewPane)
+        callbacks = []
+        monkeypatch.setattr(
+            app,
+            "call_from_thread",
+            lambda callback, *args, **kwargs: callbacks.append(
+                (callback, args, kwargs)
+            ),
+        )
+
+        raw_refresh(overview)
+
+        assert overview.is_mounted
+        assert len(callbacks) == 1
+        callback, args, kwargs = callbacks[0]
+        assert callable(callback)
+        assert args == ()
+        assert kwargs == {}
+
+        original_query_one = overview.query_one
+
+        def stale_query_one(selector, *args, **kwargs):
+            if selector == "#ov-providers":
+                raise NoMatches("providers table removed")
+            return original_query_one(selector, *args, **kwargs)
+
+        monkeypatch.setattr(overview, "query_one", stale_query_one)
+        callback()
 
 
 # -------------------------------------------------------------------
