@@ -31,7 +31,8 @@ that is accepted for investigation from work that is approved for delivery.
 | Read-only provider/configuration visibility in Admin/TUI | Design exists; CRUD is not approved | Slice 40 |
 | Secure host-console TUI administration for containers | Design exists; topology/identity decision is open | Slice 50 |
 | Airlock-native virtual-key management | **Deferred to 0.6.0**; depends on the native identity/keystore foundation | Slice 60 (0.6.0) |
-| Multi-instance TUI administration | Research/design exists; remote operation/configuration authority is open | Slice 70, conditional |
+| Multi-instance TUI administration | Implemented as a bounded same-host read-only view | Slice 70 |
+| Slice 70 live container topology verification | Admitted verification-only work; requires two disposable TLS container targets | Slice 71 |
 | CI review and improvement | Review workflow reliability, signal, coverage, cost, and maintainability without weakening delivery controls | Slice 80 |
 | Release closeout | Required only for work actually included and delivered | Slice 90 |
 
@@ -218,6 +219,7 @@ authorize work before Slice 6.
 | 50 | Secure host-console TUI administration for containerized Airlock | Topology, operator identity, TLS/token lifecycle, and audit decisions pass. |
 | 60 | **Deferred to 0.6.0** virtual-key management | The 0.6.0 B5 identity/keystore foundation must close first; not a 0.5.15 delivery slice. |
 | 70 | Multi-instance TUI named inventory and read-only Admin-API fan-out | Fleet identity/TLS/token/inventory/operation limits are approved; otherwise postpone. |
+| 71 | Slice 70 Docker topology verification | Slice 70 is closed; Docker daemon access and a disposable local image are available. Verification-only: no product authority expansion. |
 | 80 | CI review and improvement | Review current workflows, required checks, runtime/cost, cache and matrix design, test-signal quality, and failure triage; preserve least privilege, pinned actions, Gitleaks enforcement, and no-secret CI boundaries. Document and independently review proposed changes before implementation. |
 | 90 | Release closeout | Only delivered, verified slices are included; deferred work is named explicitly. |
 
