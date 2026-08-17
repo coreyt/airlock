@@ -1,8 +1,7 @@
 # Slice 95 — TUI-test-cycle improvement status
 
-**Status:** final CI correction in review. The original implementation and
-reviews are complete; a test-only Textual callback-signature correction awaits
-exact-head CI after the final integration run exposed it.
+**Status:** complete. The test-only Textual callback-signature correction is
+independently reviewed and exact-head CI verified.
 The independent code review confirmed the normal-mode guard coverage and exact
 eight-test mapping. Its timing-evidence ordering observation is addressed by
 the explicit experiment-before-acceptance wording in the approved plan and the
@@ -118,7 +117,8 @@ That complete CI run closed the original condition. A later documentation-head
 CI run exposed a test-only race: the stale test's class-level `Mock` callbacks
 were retained by Textual intervals, whose dynamic `_param_count` was later used
 as a slice index when invoking a timer. The focused regression passes after
-replacing them with real zero-argument bound methods; independent FIX review
-and a new exact-head CI run are the remaining closeout gates. Rollback is a
-reviewed reversion of the two test files and this status record; there is no
-runtime or configuration rollback.
+replacing them with real zero-argument bound methods; FIX review approved and
+exact-head CI passed docs, test (3.12) in 14m59s, lint, security, Docker, and a
+rerun Gitleaks scan (the first scan failed only on GitHub codeload 429/503
+before repository code ran). Rollback is a reviewed reversion of the two test
+files and this status record; there is no runtime or configuration rollback.
