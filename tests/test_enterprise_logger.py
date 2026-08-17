@@ -910,9 +910,11 @@ class TestLogFieldRedaction:
     def test_redaction_applied_in_write_log(self, log_dir, monkeypatch):
         """End-to-end: _write_log applies redaction before writing."""
         monkeypatch.setenv("AIRLOCK_LOG_REDACT_FIELDS", "messages,response")
+        prompt_sentinel = "benchmark-prompt-sentinel"
+        response_sentinel = "benchmark-response-sentinel"
         record = {
-            "messages": [{"role": "user", "content": "sensitive prompt"}],
-            "response": {"choices": [{"message": {"content": "sensitive output"}}]},
+            "messages": [{"role": "user", "content": prompt_sentinel}],
+            "response": {"choices": [{"message": {"content": response_sentinel}}]},
             "model": "claude-sonnet",
             "timestamp": "2024-01-15T10:00:00",
         }
@@ -924,6 +926,9 @@ class TestLogFieldRedaction:
         assert written["messages"] == "[REDACTED]"
         assert written["response"] == "[REDACTED]"
         assert written["model"] == "claude-sonnet"
+        persisted = log_path.read_text()
+        assert prompt_sentinel not in persisted
+        assert response_sentinel not in persisted
 
     def test_redaction_applied_in_precall_block_record(self, log_dir, monkeypatch):
         """write_precall_block_record applies redaction at write time."""

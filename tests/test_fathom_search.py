@@ -165,8 +165,17 @@ def test_advisor_search_logs_uses_engine(monkeypatch, log_dir, tmp_path):
 
     engine = init_engine(str(tmp_path / "airlock-fathom.db"))
     try:
-        _write_log(engine, "r1", {"model": "gpt-4", "error": "rate limit exceeded"})
+        _write_log(
+            engine,
+            "r1",
+            {
+                "model": "gpt-4",
+                "error": "rate limit exceeded",
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            },
+        )
         monkeypatch.setattr(airlock.datastore, "get_engine", lambda: engine)
+        monkeypatch.setenv("AIRLOCK_OPERATIONAL_READ_BACKEND", "fathomdb")
 
         out = search_logs(str(log_dir), "rate limit")
 
@@ -175,6 +184,36 @@ def test_advisor_search_logs_uses_engine(monkeypatch, log_dir, tmp_path):
         assert [r["logical_id"] for r in out["results"]] == ["r1"]
     finally:
         engine.close()
+
+
+def test_advisor_search_marks_stale_filled_fts_page_as_partial(monkeypatch, log_dir):
+    """A pre-time-filter FTS cap cannot be represented as a complete window."""
+    import airlock.datastore
+    from airlock.advisor.tools import search_logs
+
+    monkeypatch.setenv("AIRLOCK_OPERATIONAL_READ_BACKEND", "fathomdb")
+    monkeypatch.setattr(airlock.datastore, "get_engine", lambda: "engine")
+    stale = "2020-01-01T00:00:00Z"
+    monkeypatch.setattr(
+        "airlock.advisor.tools.search_request_logs",
+        lambda engine, query, limit: {
+            "mode": "lexical_only",
+            "degraded_reason": "no vector projection",
+            "soft_fallback": None,
+            "results": [
+                {
+                    "logical_id": str(i),
+                    "properties": {"timestamp": stale},
+                }
+                for i in range(limit)
+            ],
+        },
+    )
+
+    out = search_logs(str(log_dir), "rate limit", limit=3, days=1)
+
+    assert out["results"] == []
+    assert out["window"] == {"truncated": True, "limit_hit": "search_result_limit"}
 
 
 def test_advisor_search_logs_jsonl_fallback_is_labelled(monkeypatch, log_dir):

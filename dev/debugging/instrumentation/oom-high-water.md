@@ -13,8 +13,8 @@ request or response bodies, headers, model names, exception text, or client
 metadata. Keep artifacts outside source control and use an isolated service
 for a real-provider replay.
 
-Never probe `GET /health`: it can issue model calls. Use
-`GET /health/liveliness` for a safe liveness check.
+Never use `GET /health` as a liveness probe. Use `GET /livez` for the canonical
+safe liveness check.
 
 ## Enable the recorder
 
@@ -50,10 +50,13 @@ Each record has a monotonic timestamp and a phase:
 - `periodic` — every `AIRLOCK_OOM_DIAGNOSTICS_EVERY` requests.
 - `signal_usr1_*` or `signal_usr2_*` — an operator snapshot.
 
-The payload includes cgroup current/peak/high/max/event counters, process RSS,
+Most payloads include cgroup current/peak/high/max/event counters, process RSS,
 `smaps_rollup` anonymous/huge-page values, PSI, glibc `mallinfo2`, thread/FD
 counts, optional tracemalloc totals, aggregate GC type counts at checkpoints,
-and LiteLLM/httpx client-pool counts.
+and LiteLLM/httpx client-pool counts. `signal_usr2_skipped_in_flight` is the
+deliberate exception: it contains only its timestamp, phase, in-flight count,
+and `trim` decline reason. It does not scan the heap or sample process state
+while live requests make trimming unsafe.
 
 Important: `in_flight` is decremented at `callback_complete`, not at
 `provider_response`. A growing value can therefore mean a stuck callback or
@@ -115,7 +118,7 @@ Before stopping a diagnostic run, retain:
    cgroup.
 3. Aggregate per-call success/error counts from the real runner; its top-level
    `complete` verdict alone may hide error rows.
-4. A safe `/health/liveliness` result and unit result/restart state.
+4. A safe `/livez` result and unit result/restart state.
 
 Do not stop a driver merely because it crossed an historical request-count
 landmark. Stop only at an explicit operator-approved safety boundary or after

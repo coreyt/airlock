@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 import json
+import urllib.error
 from unittest.mock import patch
 
+import pytest
 
 from airlock.models_catalog import (
+    _configured_provider_discovery,
     _custom_fetchers_from_config,
     _fetch_gemini_models,
     _get_api_key,
     _load_config,
+    _models_url_from_configured_base,
+    _provider_fetchers_from_model_list,
     _resolve_secret,
+    _safe_discovery_failure,
+    _fetch_openai_compatible,
     fetch_live_provider_models,
 )
 
@@ -211,6 +218,159 @@ class TestResolveSecret:
         assert _resolve_secret(123) is None
 
 
+class TestConfiguredProviderDiscovery:
+    @pytest.mark.parametrize(
+        "base,expected",
+        [
+            ("https://openrouter.ai/api/v1", "https://openrouter.ai/api/v1/models"),
+            ("https://api.deepseek.com", "https://api.deepseek.com/models"),
+            (
+                "https://private.example/v1/chat/completions",
+                "https://private.example/v1/models",
+            ),
+        ],
+    )
+    def test_models_url_from_reviewed_base(self, base, expected):
+        assert _models_url_from_configured_base(base) == expected
+
+    @pytest.mark.parametrize(
+        "base",
+        [
+            None,
+            "http://insecure.example/v1",
+            "https://user:pass@example/v1",
+            "https://example/v1?secret=value",
+            "https://example/v1#fragment",
+            "https://example/v1/models",
+        ],
+    )
+    def test_unsafe_base_is_rejected_before_key_use(self, base):
+        assert _models_url_from_configured_base(base) is None
+
+    def test_requires_one_consistent_base_and_resolvable_key(self, monkeypatch):
+        monkeypatch.setenv("OPENROUTER_TEST_KEY", "test-key")
+        config = _cfg(
+            {
+                "model_name": "openrouter/openai/gpt-4o-mini",
+                "litellm_params": {
+                    "model": "openrouter/openai/gpt-4o-mini",
+                    "api_key": "os.environ/OPENROUTER_TEST_KEY",
+                    "api_base": "https://openrouter.ai/api/v1",
+                },
+            }
+        )
+        assert _configured_provider_discovery(config, "openrouter") == (
+            "https://openrouter.ai/api/v1/models",
+            "test-key",
+        )
+        config["model_list"].append(
+            {
+                "model_name": "openrouter/other",
+                "litellm_params": {
+                    "model": "openrouter/other",
+                    "api_key": "os.environ/OPENROUTER_TEST_KEY",
+                    "api_base": "https://other.example/v1",
+                },
+            }
+        )
+        assert _configured_provider_discovery(config, "openrouter") is None
+
+    def test_no_configured_base_or_key_means_no_fetcher(self, monkeypatch):
+        monkeypatch.delenv("DEEPSEEK_TEST_KEY", raising=False)
+        config = _cfg(
+            {
+                "model_name": "deepseek/deepseek-chat",
+                "litellm_params": {
+                    "model": "deepseek/deepseek-chat",
+                    "api_key": "os.environ/DEEPSEEK_TEST_KEY",
+                    "api_base": "https://api.deepseek.com",
+                },
+            }
+        )
+        assert _provider_fetchers_from_model_list(config) == []
+
+    def test_failure_summary_excludes_exception_text_and_keeps_status(self):
+        exc = urllib.error.HTTPError(
+            "https://example/models", 429, "sentinel-provider-secret", {}, None
+        )
+        summary = _safe_discovery_failure(exc)
+        assert summary == "error_type=HTTPError status=429"
+        assert "sentinel" not in summary
+
+    def test_configured_provider_models_are_normalized_without_registration(
+        self, monkeypatch
+    ):
+        monkeypatch.setenv("OPENROUTER_TEST_KEY", "test-key")
+        config = _cfg(
+            {
+                "model_name": "openrouter/openai/gpt-4o-mini",
+                "litellm_params": {
+                    "model": "openrouter/openai/gpt-4o-mini",
+                    "api_key": "os.environ/OPENROUTER_TEST_KEY",
+                    "api_base": "https://openrouter.ai/api/v1",
+                },
+            }
+        )
+        fetcher = _provider_fetchers_from_model_list(config)[0]
+
+        class _Response:
+            def read(self):
+                return json.dumps(
+                    {"data": [{"id": "openai/gpt-4o-mini", "created": 7}]}
+                ).encode()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                pass
+
+        captured: dict[str, object] = {}
+
+        class _Opener:
+            def open(self, request, timeout):
+                captured["url"] = request.full_url
+                captured["authorization"] = request.get_header("Authorization")
+                captured["timeout"] = timeout
+                return _Response()
+
+        with patch(
+            "airlock.models_catalog.urllib.request.build_opener", return_value=_Opener()
+        ):
+            entries = fetcher.fn(fetcher.api_key_override or "", 2.0)
+
+        assert entries == [
+            {
+                "id": "openrouter/openai/gpt-4o-mini",
+                "object": "model",
+                "created": 7,
+                "owned_by": "openrouter",
+            }
+        ]
+        assert captured == {
+            "url": "https://openrouter.ai/api/v1/models",
+            "authorization": "Bearer test-key",
+            "timeout": 2.0,
+        }
+
+    def test_provider_discovery_uses_no_redirect_opener(self):
+        """A redirect is an HTTP error, never a second credential-bearing request."""
+        with patch("airlock.models_catalog.urllib.request.build_opener") as opener:
+            opener.return_value.open.side_effect = urllib.error.HTTPError(
+                "https://reviewed.example/models", 302, "redirect", {}, None
+            )
+            with pytest.raises(urllib.error.HTTPError):
+                _fetch_openai_compatible(
+                    "https://reviewed.example/models",
+                    "deepseek",
+                    "sentinel-key",
+                    1.0,
+                    no_redirect=True,
+                )
+        handlers = opener.call_args.args
+        assert any(handler.__class__.__name__ == "_NoRedirect" for handler in handlers)
+
+
 class TestCustomFetchersFromConfig:
     def test_builds_fetcher(self, monkeypatch):
         monkeypatch.setenv("LITELLM_KEY", "sk-proxy")
@@ -244,6 +404,22 @@ class TestCustomFetchersFromConfig:
             ]
         }
         assert _custom_fetchers_from_config(config) == []
+
+    @pytest.mark.parametrize("provider", ["openrouter", "deepseek"])
+    def test_protected_provider_cannot_use_generic_provider_config(self, provider):
+        """A custom entry cannot bypass model-list HTTPS/no-redirect controls."""
+        config = {
+            "providers": [
+                {
+                    "name": provider,
+                    "base_url": "http://attacker.example/models",
+                    "api_key": "sentinel-key",
+                }
+            ]
+        }
+        assert _custom_fetchers_from_config(config) == []
+        # With no model_list entry, startup has no authorized discovery fetcher.
+        assert fetch_live_provider_models(config, timeout=0.1) == []
 
     def test_fetch_live_includes_custom(self, monkeypatch):
         for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "MISTRAL_API_KEY"):

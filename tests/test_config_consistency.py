@@ -12,6 +12,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from airlock.capability import airlock_provider_for, endpoints_for
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -254,6 +256,71 @@ class TestTemplateRootParity:
         assert not mismatches, (
             "Template and root disagree on shared aliases: " + "; ".join(mismatches)
         )
+
+
+class TestFathomDBBenchmarkAliases:
+    """The benchmark client depends on these explicit, OpenAI-backed names."""
+
+    @pytest.mark.parametrize("alias", ["gpt-4o-mini", "openai/gpt-4o-mini"])
+    def test_chat_benchmark_aliases_are_explicit(self, any_config, alias):
+        which, config, _ = any_config
+        entries = {
+            entry["model_name"]: entry
+            for entry in config.get("model_list", [])
+            if "model_name" in entry
+        }
+        assert alias in entries, f"[{which}] missing FathomDB chat alias {alias!r}"
+        params = entries[alias]["litellm_params"]
+        assert params["model"] == "openai/gpt-4o-mini"
+        assert params["api_key"] == "os.environ/OPENAI_API_KEY"
+        assert airlock_provider_for(entries[alias]) == "openai"
+        assert endpoints_for(entries[alias]) == ["chat"]
+
+        fallback_refs = {
+            model
+            for chain in config.get("router_settings", {}).get("fallbacks", [])
+            for source, targets in chain.items()
+            for model in [source, *targets]
+        }
+        assert alias not in fallback_refs, (
+            f"[{which}] benchmark alias {alias!r} must not be an automatic fallback"
+        )
+
+    @pytest.mark.parametrize(
+        "alias", ["text-embedding-3-small", "openai/text-embedding-3-small"]
+    )
+    def test_embedding_benchmark_aliases_are_explicit(self, any_config, alias):
+        which, config, _ = any_config
+        entries = {
+            entry["model_name"]: entry
+            for entry in config.get("model_list", [])
+            if "model_name" in entry
+        }
+        assert alias in entries, f"[{which}] missing FathomDB embedding alias {alias!r}"
+        params = entries[alias]["litellm_params"]
+        assert params["model"] == "openai/text-embedding-3-small"
+        assert params["api_key"] == "os.environ/OPENAI_API_KEY"
+        assert endpoints_for(entries[alias]) == ["embeddings"]
+
+
+class TestOptionalProviderRecipes:
+    """Provider keys/config examples must not widen the shipped model surface."""
+
+    @pytest.mark.parametrize("provider", ["openrouter", "deepseek"])
+    def test_optional_provider_is_not_enabled_or_a_fallback_by_default(
+        self, any_config, provider
+    ):
+        which, config, names = any_config
+        assert not any(name.startswith(f"{provider}/") for name in names), (
+            f"[{which}] {provider} must require an operator model_list entry"
+        )
+        fallback_refs = {
+            model
+            for chain in config.get("router_settings", {}).get("fallbacks", [])
+            for source, targets in chain.items()
+            for model in [source, *targets]
+        }
+        assert not any(name.startswith(f"{provider}/") for name in fallback_refs)
 
 
 # ---------------------------------------------------------------------------
@@ -651,6 +718,8 @@ class TestVersionConsistency:
             [
                 sys.executable,
                 str(repo_root / "scripts" / "check-version-consistency.py"),
+                "--tag",
+                "v0.5.15",
             ],
             capture_output=True,
             text=True,
@@ -658,3 +727,37 @@ class TestVersionConsistency:
         assert result.returncode == 0, (
             f"version drift detected:\n{result.stderr or result.stdout}"
         )
+
+    def test_checker_reports_editable_lock_entry_drift(self, tmp_path):
+        """The editable Airlock lock entry is a fourth canonical version source."""
+        import importlib.util
+
+        repo_root = Path(__file__).resolve().parent.parent
+        checker_path = repo_root / "scripts" / "check-version-consistency.py"
+        spec = importlib.util.spec_from_file_location("version_checker", checker_path)
+        assert spec is not None and spec.loader is not None
+        checker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(checker)
+
+        (tmp_path / "airlock" / "callbacks").mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nversion = "0.5.15"\n', encoding="utf-8"
+        )
+        (tmp_path / "airlock" / "__init__.py").write_text(
+            '__version__ = "0.5.15"\n', encoding="utf-8"
+        )
+        (tmp_path / "airlock" / "callbacks" / "tracing.py").write_text(
+            'trace.get_tracer("airlock", "0.5.15")\n', encoding="utf-8"
+        )
+        (tmp_path / "uv.lock").write_text(
+            '[[package]]\nname = "airlock-llm"\nversion = "0.5.14"\n'
+            'source = { editable = "." }\n',
+            encoding="utf-8",
+        )
+
+        mismatches = checker.version_mismatches(tmp_path, "v0.5.15")
+
+        assert mismatches == [
+            "version mismatch: pyproject.toml=0.5.15 "
+            "uv.lock editable airlock-llm=0.5.14"
+        ]

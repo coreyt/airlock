@@ -18,6 +18,21 @@ airlock config import backup.zip --dir ~  # extracts into home directory
 
 Existing files will be safely backed up before being overwritten during an import.
 
+### `airlock admin`
+
+Mint scoped administrative/capability tokens and perform the local FathomDB
+per-client erasure operation:
+
+```bash
+airlock admin mint-token --sub ops --scope admin:read --ttl 15m
+airlock admin erase-client key:90abcdef --confirm key:90abcdef
+```
+
+`erase-client` calls the running proxy's loopback admin API; it never opens the
+database file from the CLI process. It is irreversible for the FathomDB store,
+idempotent to retry after an incomplete result, and does not erase JSONL logs.
+See [Admin API → Erase one client's FathomDB records](admin-api.md#erase-one-clients-fathomdb-records).
+
 ### `airlock init`
 
 Generate `config.yaml`, `.env`, and `logs/` in the current directory.
@@ -58,9 +73,15 @@ airlock tui --start            # start proxy + dashboard
 airlock tui                    # dashboard only (connect to running proxy)
 airlock tui --start --daemon   # start proxy and leave it running after the TUI exits
 airlock tui --host H --port P  # monitor a proxy on a specific host/port
+airlock tui --fleet-inventory /secure/fleet.yaml  # manual read-only same-host fleet view
 ```
 
 See [TUI Dashboard](tui.md) for screen details.
+
+`--fleet-inventory` is isolated from the ordinary dashboard and remote Admin
+mode: it cannot start or own a proxy and requires explicit target selection for
+each refresh. See [Admin API](admin-api.md#same-host-fleet-read-view) for the
+owner-only inventory, TLS, and loopback-only deployment contract.
 
 ### `airlock analyze`
 

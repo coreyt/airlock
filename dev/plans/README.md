@@ -6,16 +6,15 @@ memory; this tree is the source of truth.
 
 ## Current work
 
-The active release is [0.5.10](0.5.10-plan.md) — a deliberate catch-up and
-clean-up milestone — with its live board at
-[`runs/STATUS-0.5.10.md`](runs/STATUS-0.5.10.md). Start a cold session from
-[`prompts/0.5.10-COLD-START.md`](prompts/0.5.10-COLD-START.md).
+The latest published release is [0.5.12](0.5.12-plan.md), with retained
+delivery evidence in the [PII egress canary](runs/0.5.12-pii-egress-canary-2026-08-11.md)
+and [measurement protocol](runs/0.5.12-pii-egress-measurement-protocol.md). Its
+PII egress gate is shipped in `observe`; promotion remains a human decision
+based on that record.
 
-0.5.9 is **closed out** (`milestone/0.5.9-internal-closeout` at `b2752d7`). Its
-board [`runs/STATUS-0.5.9.md`](runs/STATUS-0.5.9.md) remains the authoritative
-record of what shipped; its steward handoff is **superseded** and must not be
-followed as instructions. Completed trains are historical evidence catalogued in
-the [release archive](archive/README.md), not active roadmap commitments.
+The next recorded engineering backlog is [0.5.14 TODO](0.5.14-todo.md). It is
+a TODO list, not a live release board. Completed trains are historical evidence catalogued in the
+[release archive](archive/README.md), not active roadmap commitments.
 
 ## Layout
 

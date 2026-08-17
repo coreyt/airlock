@@ -154,10 +154,14 @@ class ConfigPane(Vertical):
         self,
         *,
         mcp_manager: McpServerManager | None = None,
+        host: str = "localhost",
+        port: str = "4000",
         id: str | None = None,
     ) -> None:
         super().__init__(id=id)
         self._mcp_manager: McpServerManager | None = mcp_manager
+        self._host = host
+        self._port = port
         self._selected_server: str = ""
         self._applied_values: dict[str, str] = {}
 
@@ -188,6 +192,25 @@ class ConfigPane(Vertical):
                         password=True,
                         id="cfg-master-key",
                     )
+
+            # This is deliberately separate from the local environment editor
+            # above.  It reads only the proxy child snapshot over Admin HTTP.
+            with TabPane("Configured", id="cfg-tab-configured-providers"):
+                yield Static(
+                    "Loading configured provider state from the proxy…",
+                    id="cfg-provider-config-status",
+                )
+                configured = _SafeDataTable(
+                    id="cfg-provider-config-table", cursor_type="row"
+                )
+                configured.add_columns(
+                    "Provider", "Alias", "Underlying", "Endpoints", "Credential"
+                )
+                yield configured
+                yield Static(
+                    "Read-only child startup configuration. Changes require deployment workflow and proxy restart.",
+                    id="cfg-provider-config-detail",
+                )
 
             # Tab 2 — Guardrails
             with TabPane("Guardrails", id="cfg-tab-guardrails"):
@@ -385,8 +408,67 @@ class ConfigPane(Vertical):
 
     def on_mount(self) -> None:
         self._applied_values = self._current_values()
+        if getattr(self.app, "_test_harness", False):
+            return
         self._refresh_mcp_servers()
         self.set_interval(10.0, self._refresh_mcp_servers)
+        self._refresh_provider_configuration()
+        self.set_interval(30.0, self._refresh_provider_configuration)
+
+    @work(thread=True)
+    def _refresh_provider_configuration(self) -> None:
+        """Refresh only through the Admin client; failure is an explicit state."""
+        from airlock.tui.admin_client import provider_configuration_snapshot
+
+        status, payload = provider_configuration_snapshot(self._host, self._port)
+        if status == 200 and isinstance(payload.get("providers"), list):
+            self.app.call_from_thread(
+                self._render_provider_configuration, payload, None
+            )
+            return
+        if status == 403:
+            message = "Configured provider state unavailable: Admin token lacks admin:read_config."
+        elif status == 404:
+            message = "Configured provider state unavailable: Admin API is disabled."
+        else:
+            message = "Configured provider state unavailable: proxy did not return its startup snapshot."
+        self.app.call_from_thread(self._render_provider_configuration, None, message)
+
+    def _render_provider_configuration(
+        self, payload: dict | None, error: str | None
+    ) -> None:
+        """Update read-only widgets on the UI thread from a bounded DTO."""
+        status = self.query_one("#cfg-provider-config-status", Static)
+        table = self.query_one("#cfg-provider-config-table", _SafeDataTable)
+        detail = self.query_one("#cfg-provider-config-detail", Static)
+        table.clear()
+        if error:
+            status.update(f"[yellow]{error}[/]")
+            detail.update("No local configuration fallback is used.")
+            return
+        assert payload is not None
+        for provider in payload["providers"]:
+            for alias in provider.get("aliases", []):
+                credential = alias.get("credential", {})
+                credential_text = (
+                    f"{credential.get('kind', 'none')}"
+                    f" ({'configured' if credential.get('configured') else 'not configured'})"
+                )
+                table.add_row(
+                    str(provider.get("provider", "-")),
+                    str(alias.get("alias", "-")),
+                    str(alias.get("underlying") or "-"),
+                    ", ".join(alias.get("endpoints") or []) or "-",
+                    credential_text,
+                )
+        status.update(
+            f"Source: {payload.get('source', 'startup_config')} · loaded {payload.get('loaded_at', 'unknown')} · restart required"
+        )
+        truncation = payload.get("truncated", {})
+        detail.update(
+            "Read-only child startup configuration. Changes require deployment workflow and proxy restart."
+            + (" Results were truncated." if any(truncation.values()) else "")
+        )
 
     # ------------------------------------------------------------------
     # Button handler

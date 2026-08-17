@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "airlock-llm"
-version = "0.5.12"
+version = "0.5.15"
 description = "Enterprise LLM proxy built on LiteLLM — logging, guardrails, and unified access for AI coding tools."
 readme = "README.md"
 license = "Apache-2.0"
@@ -50,7 +50,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-db = ["fathomdb>=0.8.21,<0.9"]
+db = ["fathomdb>=0.8.22,<0.9"]
 s3 = ["boto3>=1.34.0"]
 sql = ["sqlalchemy>=2.0.0"]
 metrics = ["prometheus-client>=0.20.0"]
@@ -95,6 +95,7 @@ addopts = "-p no:xdist -p no:hypothesis -p no:Faker -p no:dash -m 'not stress'"
 markers = [
     "harness: Feature test harness (integration)",
     "live: Requires running proxy with real API keys",
+    "docker: Requires an accessible Docker daemon; opt-in disposable topology test",
     "stress: Concurrency/stress tests excluded from default run",
 ]
 # The deprecation budget is NOT enforced here. pytest's `filterwarnings` matches

@@ -23,9 +23,7 @@ def test_round_trip_tool_allows_email(monkeypatch):
 
 def test_known_bad_class_vetoes_round_trip(monkeypatch):
     monkeypatch.setenv("AIRLOCK_PII_EGRESS_TOOL_BANDS", '{"card_lookup":"round_trip"}')
-    decision = decide(
-        tool="card_lookup", path="/card", placeholder="<CREDIT_CARD_1>"
-    )
+    decision = decide(tool="card_lookup", path="/card", placeholder="<CREDIT_CARD_1>")
     assert decision.allow is False
     assert decision.reason == "sensitive_class"
 
@@ -36,12 +34,8 @@ def test_exfil_requires_residual_allow(monkeypatch):
         "AIRLOCK_PII_EGRESS_ALLOWLIST",
         '[{"tool":"send_mail","path":"/to","entity_type":"EMAIL_ADDRESS"}]',
     )
-    allowed = decide(
-        tool="send_mail", path="/to", placeholder="<EMAIL_ADDRESS_1>"
-    )
-    denied = decide(
-        tool="send_mail", path="/body", placeholder="<EMAIL_ADDRESS_1>"
-    )
+    allowed = decide(tool="send_mail", path="/to", placeholder="<EMAIL_ADDRESS_1>")
+    denied = decide(tool="send_mail", path="/body", placeholder="<EMAIL_ADDRESS_1>")
     assert allowed.allow is True
     assert denied.allow is False
     assert denied.reason == "exfil_not_allowlisted"
@@ -69,9 +63,7 @@ def test_known_bad_blocklist_vetoes_residual_allow(monkeypatch):
         '[{"tool":"send_mail","path":"/to","entity_type":"EMAIL_ADDRESS"}]',
     )
 
-    decision = decide(
-        tool="send_mail", path="/to", placeholder="<EMAIL_ADDRESS_1>"
-    )
+    decision = decide(tool="send_mail", path="/to", placeholder="<EMAIL_ADDRESS_1>")
 
     assert decision.allow is False
     assert decision.reason == "known_bad"

@@ -137,6 +137,26 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Leave the proxy running after the TUI exits.",
     )
+    tui_parser.add_argument(
+        "--remote-admin",
+        action="store_true",
+        help="Use the restricted TLS capability UI for a container Admin endpoint.",
+    )
+    tui_parser.add_argument(
+        "--admin-token-file",
+        default=None,
+        help="Protected capability-token file required with --remote-admin.",
+    )
+    tui_parser.add_argument(
+        "--admin-ca-file",
+        default=None,
+        help="CA bundle required with --remote-admin.",
+    )
+    tui_parser.add_argument(
+        "--fleet-inventory",
+        default=None,
+        help="Owner-only same-host read-only fleet inventory YAML.",
+    )
 
     # -- analyze --
     analyze_parser = subparsers.add_parser(
@@ -502,6 +522,43 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "tui":
         host = args.host or os.environ.get("AIRLOCK_HOST", "localhost")
         port = args.port or os.environ.get("AIRLOCK_PORT", "4000")
+
+        if args.fleet_inventory:
+            if args.remote_admin or args.admin_token_file or args.admin_ca_file:
+                parser.error(
+                    "tui --fleet-inventory cannot be combined with remote Admin options"
+                )
+            if (
+                args.start
+                or args.daemon
+                or args.host is not None
+                or args.port is not None
+            ):
+                parser.error(
+                    "tui --fleet-inventory cannot start, own, or target a local proxy"
+                )
+            from airlock.tui.fleet_app import run as fleet_tui_run
+
+            fleet_tui_run(inventory_file=args.fleet_inventory)
+            return
+        if args.remote_admin:
+            if not args.admin_token_file or not args.admin_ca_file:
+                parser.error(
+                    "tui --remote-admin requires --admin-token-file and --admin-ca-file"
+                )
+            if args.start or args.daemon:
+                parser.error("tui --remote-admin cannot start or own a local proxy")
+            from airlock.tui.remote_app import run as remote_tui_run
+
+            remote_tui_run(
+                host=host,
+                port=port,
+                token_file=args.admin_token_file,
+                ca_file=args.admin_ca_file,
+            )
+            return
+        if args.admin_token_file or args.admin_ca_file:
+            parser.error("Admin credential files require tui --remote-admin")
 
         from airlock.tui.app import run as tui_run
 

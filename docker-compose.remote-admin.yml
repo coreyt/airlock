@@ -1,0 +1,25 @@
+# Opt-in Slice 50 host-console profile. Do not combine this file with the
+# standard deployment: it is a complete hardened alternative with a
+# loopback-only published port, not an override for its default publication.
+services:
+  airlock:
+    build: .
+    ports:
+      - "127.0.0.1:${AIRLOCK_PORT:-4000}:4000"
+    env_file:
+      - .env
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./certs/server.crt:/run/airlock-tls/server.crt:ro
+      - ./certs/server.key:/run/airlock-tls/server.key:ro
+      - ./logs:/app/logs
+    environment:
+      AIRLOCK_HOST: 0.0.0.0
+      AIRLOCK_SSL_CERTFILE: /run/airlock-tls/server.crt
+      AIRLOCK_SSL_KEYFILE: /run/airlock-tls/server.key
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fk", "https://localhost:4000/livez"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

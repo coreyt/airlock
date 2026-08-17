@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -12,8 +13,12 @@ from airlock.fast.guardian import (
     AirlockFastGuardian,
     _extract_client_id,
     _request_client_id,
+    reject_openrouter_routing_overrides,
+    validate_deepseek_tools,
 )
+from airlock.fast.model_alias import AliasResolution
 from airlock.guardrails.extract import extract_text_from_messages as _extract_text
+from airlock.proxy_errors import AirlockEndpointNotSupported, AirlockThreatBackoff
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +84,53 @@ class TestExtractText:
 # ---------------------------------------------------------------------------
 # AirlockFastGuardian.async_pre_call_hook()
 # ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "data,option",
+    [
+        ({"route": "fallback"}, "route"),
+        ({"models": ["other/model"]}, "models"),
+        ({"transforms": ["middle-out"]}, "transforms"),
+        ({"extra_body": {"route": "fallback"}}, "extra_body.route"),
+        ({"extra_body": {"models": ["other/model"]}}, "extra_body.models"),
+        (
+            {"extra_body": {"transforms": ["middle-out"]}},
+            "extra_body.transforms",
+        ),
+    ],
+)
+def test_openrouter_routing_overrides_are_rejected_pre_dispatch(data, option):
+    from airlock.proxy_errors import AirlockGatewayRoutingOverride
+
+    with pytest.raises(AirlockGatewayRoutingOverride) as raised:
+        reject_openrouter_routing_overrides(data)
+    assert raised.value.option == option
+
+
+def test_openrouter_unrelated_extra_body_is_not_overclaimed():
+    reject_openrouter_routing_overrides({"extra_body": {"safe_extension": True}})
+
+
+@pytest.mark.parametrize(
+    "tools",
+    [
+        [{"type": "namespace", "name": "shell"}],
+        [{"type": "function", "function": {"name": "ok"}}, {"type": "web_search"}],
+        {"type": "function"},
+    ],
+)
+def test_deepseek_non_function_tools_reject_pre_dispatch(tools):
+    from airlock.proxy_errors import AirlockDeepSeekToolNotSupported
+
+    with pytest.raises(AirlockDeepSeekToolNotSupported):
+        validate_deepseek_tools({"tools": tools})
+
+
+def test_deepseek_function_tools_pass_unchanged():
+    data = {"tools": [{"type": "function", "function": {"name": "lookup"}}]}
+    validate_deepseek_tools(data)
+    assert data["tools"][0]["function"]["name"] == "lookup"
+
+
 class TestGuardianPreCallHook:
     @pytest.fixture
     def guardian(self):
@@ -97,6 +149,341 @@ class TestGuardianPreCallHook:
         assert "metadata" in result
         assert "airlock_priority" in result["metadata"]
         assert "score" in result["metadata"]["airlock_priority"]
+        client = fresh_state_store.all_clients()[
+            result["metadata"]["airlock_request"]["client_id"]
+        ]
+        assert client.priority_score == result["metadata"]["airlock_priority"]["score"]
+        assert client.priority_observed_at > 0
+
+    @pytest.mark.parametrize(
+        "field,value,option",
+        [
+            ("route", "fallback", "route"),
+            ("models", ["other/model"], "models"),
+            ("transforms", ["middle-out"], "transforms"),
+            ("extra_body", {"route": "fallback"}, "extra_body.route"),
+            ("extra_body", {"models": ["other/model"]}, "extra_body.models"),
+            (
+                "extra_body",
+                {"transforms": ["middle-out"]},
+                "extra_body.transforms",
+            ),
+        ],
+    )
+    async def test_guardian_rejects_openrouter_routing_override_before_dispatch(
+        self,
+        guardian,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
+        monkeypatch,
+        field,
+        value,
+        option,
+    ):
+        """The final resolved provider, not request spelling, controls the guard."""
+        from airlock.proxy_errors import AirlockGatewayRoutingOverride
+
+        monkeypatch.setattr(
+            "airlock.fast.guardian.alias_table.resolve_with_diagnostic",
+            lambda _model: AliasResolution(alias="operator-openrouter"),
+        )
+        monkeypatch.setattr(
+            "airlock.fast.guardian.infer_provider", lambda _model: "openrouter"
+        )
+        with pytest.raises(AirlockGatewayRoutingOverride) as raised:
+            await guardian.async_pre_call_hook(
+                mock_user_api_key_dict,
+                mock_cache,
+                {
+                    "model": "operator-openrouter",
+                    "messages": [{"role": "user", "content": "safe"}],
+                    field: value,
+                },
+                "acompletion",
+            )
+        assert raised.value.option == option
+
+    async def test_guardian_allows_routing_named_field_for_non_openrouter(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict,
+            mock_cache,
+            {
+                "model": "gpt-4o-mini",
+                "messages": [{"role": "user", "content": "safe"}],
+                "route": "unrelated-client-field",
+            },
+            "acompletion",
+        )
+        assert result["model"] == "gpt-4o-mini"
+
+    async def test_guardian_rejects_non_function_tool_for_final_deepseek(
+        self,
+        guardian,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
+        monkeypatch,
+    ):
+        from airlock.proxy_errors import AirlockDeepSeekToolNotSupported
+
+        monkeypatch.setattr(
+            "airlock.fast.guardian.alias_table.resolve_with_diagnostic",
+            lambda _model: AliasResolution(alias="operator-deepseek"),
+        )
+        monkeypatch.setattr(
+            "airlock.fast.guardian.infer_provider", lambda _model: "deepseek"
+        )
+        with pytest.raises(AirlockDeepSeekToolNotSupported):
+            await guardian.async_pre_call_hook(
+                mock_user_api_key_dict,
+                mock_cache,
+                {
+                    "model": "operator-deepseek",
+                    "messages": [{"role": "user", "content": "safe"}],
+                    "tools": [{"type": "namespace", "name": "shell"}],
+                },
+                "acompletion",
+            )
+
+    async def test_guardian_preserves_function_tool_for_final_deepseek(
+        self,
+        guardian,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
+        monkeypatch,
+    ):
+        tool = {"type": "function", "function": {"name": "lookup"}}
+        monkeypatch.setattr(
+            "airlock.fast.guardian.alias_table.resolve_with_diagnostic",
+            lambda _model: AliasResolution(alias="operator-deepseek"),
+        )
+        monkeypatch.setattr(
+            "airlock.fast.guardian.infer_provider", lambda _model: "deepseek"
+        )
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict,
+            mock_cache,
+            {
+                "model": "operator-deepseek",
+                "messages": [{"role": "user", "content": "safe"}],
+                "tools": [tool],
+            },
+            "acompletion",
+        )
+        assert result["tools"] == [tool]
+
+    async def test_guardian_allows_non_function_tool_for_non_deepseek(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        tool = {"type": "namespace", "name": "shell"}
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict,
+            mock_cache,
+            {
+                "model": "gpt-4o-mini",
+                "messages": [{"role": "user", "content": "safe"}],
+                "tools": [tool],
+            },
+            "acompletion",
+        )
+        assert result["tools"] == [tool]
+
+    async def test_configured_embedding_alias_passes_without_routing(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        data = {
+            "input": ["first benchmark input", "second benchmark input"],
+            "model": "text-embedding-3-small",
+        }
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "aembedding"
+        )
+        assert result["model"] == "text-embedding-3-small"
+        assert "airlock_routing" not in result.get("metadata", {})
+
+    @pytest.mark.parametrize(
+        "airlock_metadata",
+        [{"cost_tier": "cheap"}, {"prefer_provider": "anthropic"}],
+    )
+    async def test_aembedding_ignores_client_routing_preferences(
+        self,
+        guardian,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
+        monkeypatch,
+        airlock_metadata,
+    ):
+        def unexpected_routing(data):
+            raise AssertionError("embedding request must never enter apply_routing")
+
+        monkeypatch.setattr("airlock.fast.guardian.apply_routing", unexpected_routing)
+        data = {
+            "input": "benchmark input",
+            "model": "text-embedding-3-small",
+            "metadata": {"airlock": airlock_metadata},
+        }
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "aembedding"
+        )
+        assert result["model"] == "text-embedding-3-small"
+        assert result["disable_fallbacks"] is True
+        assert result["num_retries"] == 0
+        assert result["metadata"]["airlock_request"]["pinned_model"] is True
+        assert "airlock_routing" not in result["metadata"]
+
+    async def test_aembedding_open_circuit_does_not_fail_over(
+        self,
+        guardian,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            "airlock.fast.guardian.check_model_with_filters",
+            lambda *args, **kwargs: SimpleNamespace(
+                allowed=False,
+                reason="open_circuit",
+                failover_model="gpt-4o-mini",
+            ),
+        )
+        data = {
+            "input": "benchmark input",
+            "model": "text-embedding-3-small",
+            "metadata": {"airlock": {"cost_tier": "cheap"}},
+        }
+        with pytest.raises(RateLimitError):
+            await guardian.async_pre_call_hook(
+                mock_user_api_key_dict, mock_cache, data, "aembedding"
+            )
+        assert data["model"] == "text-embedding-3-small"
+        assert "airlock_failover" not in data["metadata"]
+
+    @pytest.mark.parametrize("model", ["gpt-4o-mini", "smart", "not-a-model"])
+    async def test_embedding_rejects_non_embedding_aliases(
+        self,
+        guardian,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
+        model,
+    ):
+        with pytest.raises(AirlockEndpointNotSupported):
+            await guardian.async_pre_call_hook(
+                mock_user_api_key_dict,
+                mock_cache,
+                {"input": "benchmark input", "model": model},
+                "embedding",
+            )
+
+    @pytest.mark.parametrize(
+        "option, value",
+        [
+            ("dimensions", 0),
+            ("encoding_format", "json"),
+            ("temperature", 0.1),
+            ("bogus_embedding_option", 1),
+        ],
+    )
+    async def test_embedding_invalid_options_reject_before_dispatch(
+        self,
+        guardian,
+        fresh_state_store,
+        mock_cache,
+        mock_user_api_key_dict,
+        option,
+        value,
+    ):
+        from airlock.embedding import AirlockInvalidEmbeddingOption
+
+        data = {
+            "input": "benchmark input",
+            "model": "text-embedding-3-small",
+            option: value,
+        }
+        with pytest.raises(AirlockInvalidEmbeddingOption):
+            await guardian.async_pre_call_hook(
+                mock_user_api_key_dict, mock_cache, data, "aembedding"
+            )
+
+    async def test_embedding_supported_options_pass_through(
+        self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
+    ):
+        data = {
+            "input": ["first", "second"],
+            "model": "text-embedding-3-small",
+            "dimensions": 512,
+            "encoding_format": "base64",
+        }
+        result = await guardian.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "aembedding"
+        )
+        assert result["dimensions"] == 512
+        assert result["encoding_format"] == "base64"
+
+    def test_embedding_option_validator_permits_safe_proxy_fields(self):
+        """Fields LiteLLM adds before the aembedding pre-call hook are not API options."""
+        from airlock.embedding import validate_embedding_options
+
+        payload = {
+            "model": "text-embedding-3-small",
+            "input": "benchmark input",
+            "metadata": {},
+            "secret_fields": object(),
+            "litellm_call_id": "call-1",
+            "litellm_session_id": "session-1",
+            "litellm_trace_id": "trace-1",
+            "litellm_logging_obj": object(),
+            "proxy_server_request": {},
+            "api_version": "2025-01-01",
+            "request_timeout": 10,
+            "timeout": 10,
+            "stream_timeout": 10,
+            "max_retries": 0,
+            "num_retries": 0,
+            "disable_fallbacks": True,
+            "model_info": {},
+            "litellm_params": {},
+            "caching": False,
+            "cache": {},
+            "ttl": 60,
+            "organization": "org-1",
+            "allowed_model_region": "us",
+        }
+        validate_embedding_options(payload)
+
+    @pytest.mark.parametrize(
+        "option",
+        [
+            "api_base",
+            "api_key",
+            "custom_llm_provider",
+            "deployment_id",
+            "headers",
+            "extra_headers",
+        ],
+    )
+    def test_embedding_direct_dispatch_controls_are_rejected(self, option):
+        from airlock.embedding import (
+            AirlockInvalidEmbeddingOption,
+            validate_embedding_options,
+        )
+
+        with pytest.raises(AirlockInvalidEmbeddingOption):
+            validate_embedding_options(
+                {
+                    "model": "text-embedding-3-small",
+                    "input": "benchmark input",
+                    option: {"X-Airlock-Client": "forged"}
+                    if option in {"headers", "extra_headers"}
+                    else "unreviewed",
+                }
+            )
 
     async def test_reasoning_effort_none_normalized_in_hook(
         self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
@@ -124,10 +511,11 @@ class TestGuardianPreCallHook:
             "messages": [{"role": "user", "content": "Hello"}],
             "model": "claude-sonnet",
         }
-        with pytest.raises(ValueError, match="Too many requests"):
+        with pytest.raises(AirlockThreatBackoff) as raised:
             await guardian.async_pre_call_hook(
                 mock_user_api_key_dict, mock_cache, data, "completion"
             )
+        assert 59.0 < raised.value.retry_after <= 60.0
 
     async def test_high_threat_blocked(
         self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
@@ -145,10 +533,11 @@ class TestGuardianPreCallHook:
             "messages": [{"role": "user", "content": "Hello"}],
             "model": "claude-sonnet",
         }
-        with pytest.raises(ValueError, match="unusual activity"):
+        with pytest.raises(AirlockThreatBackoff) as raised:
             await guardian.async_pre_call_hook(
                 mock_user_api_key_dict, mock_cache, data, "completion"
             )
+        assert raised.value.retry_after > 0
 
     async def test_open_circuit_pinned_request_returns_429(
         self, guardian, fresh_state_store, mock_cache, mock_user_api_key_dict
@@ -475,7 +864,7 @@ class TestMCPCallHandling:
             "mcp_tool_name": "search",
             "mcp_arguments": {"q": "test"},
         }
-        with pytest.raises(ValueError, match="Too many requests"):
+        with pytest.raises(AirlockThreatBackoff):
             await guardian.async_pre_call_hook(
                 mock_user_api_key_dict, mock_cache, data, "call_mcp_tool"
             )
@@ -541,7 +930,7 @@ class TestBatchCallHandling:
         client.backoff_until = time.time() + 60  # force backoff
 
         data = {"input_file_id": "file-abc"}
-        with pytest.raises(ValueError, match="Too many requests"):
+        with pytest.raises(AirlockThreatBackoff):
             await guardian.async_pre_call_hook(
                 mock_user_api_key_dict, mock_cache, data, "acreate_batch"
             )

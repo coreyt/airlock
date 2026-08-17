@@ -272,8 +272,8 @@ Missing `.env` → warning on stderr, proceed with startup.
 
 **Traces to:** UN-9
 
-`airlock status` SHALL probe `/health` using only stdlib (urllib). Default
-target: `http://localhost:4000/health`, configurable via `--host`/`--port` flags
+`airlock status` SHALL probe `/health/liveliness` using only stdlib (urllib). Default
+target: `http://localhost:4000/health/liveliness`, configurable via `--host`/`--port` flags
 or `AIRLOCK_HOST`/`AIRLOCK_PORT` env vars. Exit 0 if healthy, exit 1 if not
 reachable.
 
@@ -283,3 +283,206 @@ reachable.
 
 The CLI framework SHALL use only Python standard library modules (argparse) and
 SHALL NOT introduce new third-party dependencies.
+
+---
+
+## 0.5.14 ratified requirements
+
+### DFR-24 / DAC-24: Benchmark chat alias
+
+Airlock SHALL expose `gpt-4o-mini` only as an explicit reviewed model-list
+alias. Mocked normal and streaming tests SHALL retain authentication, policy,
+and served-provider attribution; a non-sensitive funded smoke is recorded
+separately.
+
+### DFR-25 / DAC-25: Embedding alias boundary
+
+Airlock SHALL serve `/v1/embeddings` only through explicit embedding-capable
+aliases, preserving string/batch input and supported options through ordinary
+policy and observability. Unconfigured aliases and unsupported options SHALL
+fail clearly before dispatch; embedding requests SHALL not be rerouted or
+failed-over.
+
+### DFR-26 / DAC-26: Benchmark-safe logging
+
+Operators SHALL have a logging profile that redacts request/response content in
+enterprise JSONL and disables unredacted SQL/Fathom retention paths. Sentinel
+tests SHALL prove redaction, and the profile SHALL prescribe
+`/health/liveliness` as the no-model-call probe.
+
+### DFR-27 through DFR-29 / DAC-27 through DAC-29: Optional providers
+
+Provider configuration SHALL be explicit; discovery is informational,
+same-origin and redirect-free; and provider errors are bounded before any
+artifact boundary. OpenRouter is an operator-configured gateway: client routing
+overrides are rejected and Airlock never claims downstream-provider control.
+DeepSeek uses its stable explicit base and supports function tools only. Neither
+provider is auto-enabled by an environment key or default alias.
+
+### DFR-30 / DAC-30: Deterministic TUI verification
+
+Ordinary TUI tests SHALL compose the production widget tree without unrelated
+background workers. Named normal-mode tests SHALL retain lifecycle, cancellation,
+shutdown, stale-callback, JSONL, and MCP coverage.
+
+### DFR-31 / DAC-31: Bounded operator diagnostics
+
+Authenticated operators SHALL receive bounded, source-labelled routing,
+session-affinity, QoS-priority, and telemetry-health views without a UI
+dependency on the inference path. Session IDs, key material, credentials,
+prompt content, raw exporter errors, and raw endpoints SHALL not appear in these
+views. A session-pin break SHALL be authenticated and audited; unavailable or
+stale state SHALL be stated rather than inferred.
+
+### DFR-33 / DAC-33: Optional FathomDB operational reads
+
+Operators MAY select FathomDB as the operational-read backend only through an
+explicit setting. The default SHALL remain bounded JSONL reads. TUI history and
+Advisor error/search reads SHALL label their actual source, limit/truncation,
+and any unavailable/invalid-backend JSONL fallback. FathomDB remains
+single-owner and optional. Selected separate-process reads SHALL use a
+loopback-only proxy-admin bridge (and require its local admin configuration),
+never a second engine open. A FathomDB erasure receipt SHALL continue to state
+that JSONL retention/deletion is a separate obligation.
+
+---
+
+## 0.5.15 ratified requirements
+
+### DFR-36 / DAC-36: Unused configured-provider credential warning
+
+After normal environment loading and before optional provider discovery or
+LiteLLM launch, Airlock SHALL emit one redacted, local, advisory startup warning
+per recognised provider that has a nonblank recognised credential and zero
+explicit aliases in LiteLLM's effective direct-include model list. The warning
+SHALL use the stable event
+`airlock.startup.provider_credential_without_alias` and expose only the
+canonical provider, `credential_configured: true`,
+`configured_alias_count: 0`, and `source: startup_validation`. It SHALL not
+scan arbitrary environment variables, disclose values or variable names, make a
+network/provider call, alter configuration/routing/discovery/startup status, or
+create an Admin/TUI surface. Effective aliases SHALL use
+`airlock_provider_for`; include semantics SHALL match installed LiteLLM's
+active include-list expansion, including descendants reached through an
+included `include:` list.
+
+### DFR-34 / DAC-34: Typed Fast Guardian threat-backoff response
+
+Fast Guardian SHALL raise an Airlock-owned typed rate-limit exception for both
+the request that creates a client threat backoff and a request rejected while
+that backoff remains active. The proxy SHALL render the exception as an
+OpenAI-shaped HTTP 429 with a whole-second, minimum-one `Retry-After`, stable
+`type` and `code`, and `error.airlock.source: threat_backoff`. The response
+SHALL not expose client identity, threat score, heuristic reason, request
+content, provider identity, or provider-circuit-breaker state. Provider and
+admission 429 contracts SHALL remain distinguishable and unchanged.
+
+### DFR-35 / DAC-35: Secret-scan delivery control
+
+Airlock's repository SHALL use a dedicated, non-deploying Gitleaks control at
+scanner version `8.30.0`: a staged pre-commit hook and an isolated GitHub
+Actions `gitleaks / scan` job for pull requests to `main`, pushes to `main`,
+manual dispatch, and scheduled reachable-history scans. The workflow SHALL use
+full-SHA-pinned actions, a full checkout, and only `contents: read` and
+`pull-requests: read` permissions. It SHALL not use `pull_request_target`,
+write/OIDC permissions, repository/deployment secrets, comments, artifact or
+SARIF upload, or result summaries.
+
+The baseline SHALL contain only individually reviewed exact fingerprints;
+broad path/rule exclusions and inline allow comments are prohibited. Scanner
+configuration files SHALL have designated code ownership, and `main` SHALL
+require both that review and the stable `gitleaks / scan` check once a GitHub
+administrator configures the external rule. Directory and reachable-history
+scans must be clean for the reviewed baseline; a synthetic non-usable detector
+fixture must fail redacted and pass after removal. The control SHALL not alter
+Airlock runtime behavior, configuration, image contents, or provider/deployment
+credential access.
+
+### DFR-37 / DAC-37: Read-only provider configuration projection
+
+When the existing Admin control plane is explicitly enabled, Airlock SHALL
+provide `GET /airlock/admin/config/providers` as a bounded, immutable,
+startup-effective provider-configuration projection. It SHALL require
+`admin:read_config` for a capability token; the existing master-key and trusted
+loopback operator paths retain full authority, while `admin:read` alone SHALL
+receive `403` and a disabled Admin plane SHALL receive `404`. The projection
+SHALL report only aliases, `capability_record()` provider/endpoints/underlying/
+region/deprecation truth, hostname-only API bases, opaque credential kind plus
+presence, source, timestamp, schema version, credential-blind redacted canonical fingerprint,
+restart-required status, and deterministic truncation within 64 providers, 200
+aliases, and 256-character metadata fields. It SHALL set `Cache-Control:
+no-store`.
+
+The launcher, LiteLLM child, Admin policy, snapshot, and capability seam SHALL
+use the same pinned LiteLLM include-list expansion semantics and the same
+materialized runtime config path. The child SHALL receive that path via
+`AIRLOCK_CONFIG` before installing the Admin perimeter. Neither literal or
+reference credential names/values/lengths, arbitrary environment names, include
+paths, raw API-base paths/query/userinfo, provider calls/errors, CRUD, reload,
+discovery activation, nor a second configuration owner are permitted. The TUI
+SHALL read this view only over its Admin HTTP client in a bounded background
+refresh, visibly label unavailable/stale startup state, and never fall back to
+another process's files. YAML plus deployment workflow and restart remain the
+configuration authority.
+
+### DFR-38 / DAC-38: Secure host-console container Admin TUI
+
+An explicit, default-off `admin.remote_tui` profile SHALL support only a host
+console TUI connecting to a container through a host-loopback-published port.
+It SHALL require native TLS, `admin.enabled: true`, `trust_loopback: false`,
+and a CA/name-validated HTTPS client using an operator-owned protected token
+file. The profile SHALL accept only a signed capability JWT, with a maximum
+15-minute TTL and the `admin:remote_tui` anchor plus exact scope among
+`admin:read`, `admin:read_config`, and `admin:clear_quarantine`; master-key,
+loopback, Docker/CIDR, forwarded-header,
+and proxy identity are not remote authorization paths. The remote UI SHALL use
+only the Admin HTTP perimeter and SHALL not access local state, logs, FathomDB,
+configuration files, proxy lifecycle, or operational history.
+
+The standard Compose deployment SHALL remain unchanged. A separate opt-in
+manifest SHALL bind the published port only to `127.0.0.1`, mount TLS material
+read-only, and document token/CA delivery, 15-minute rotation/revocation, and
+rollback. Remote reads and failures SHALL be bounded and secret-blind.
+Successful remote mutations SHALL retain the validated token subject and add
+only `auth_context: remote_tui_jwt` to the existing `admin_action` audit
+record; they SHALL not record bearer material, raw address, certificate data,
+or request content. Existing direct-loopback Admin/TUI, operation-history,
+inference, routing, guardrail, and credential behavior SHALL remain unchanged.
+
+### DFR-40 / DAC-40: Same-host read-only fleet Admin view
+
+An explicit `airlock tui --fleet-inventory` mode SHALL provide only a manually
+refreshed, read-only view of explicitly selected Airlock **container** targets
+on the same host. Every target SHALL use the Slice 50 native-TLS host-loopback
+profile (`admin.enabled: true`, `admin.remote_tui: true`,
+`admin.fleet_read_tui: true`, `trust_loopback: false`), publish a distinct host-loopback port, and use a
+distinct `AIRLOCK_JWT_SECRET`. Its static local YAML inventory SHALL be an
+owner-only regular file and contain only an opaque ID, display name, literal
+loopback HTTPS origin, and references to owner-only per-target CA and
+capability-token files; it SHALL contain no secret value, provider
+configuration, SSH/Docker/systemd/Kubernetes credential, discovery source, or
+desired-state authority. Each target SHALL have distinct CA/token references;
+its token SHALL contain `admin:remote_tui` and `admin:read` only.
+
+Fleet v1 SHALL allow only `localhost`, `127.0.0.1`, or `::1` origins with an
+explicit port, HTTPS, certificate hostname validation, no proxy-from-environment
+and no redirects. Inventory, CA, and token references SHALL be no-follow,
+current-EUID-owned regular files with no group/other mode bits; inventory size,
+target count, and field lengths are bounded, and duplicate IDs, token references,
+or CA references are rejected. The transport SHALL parse an exact origin (no
+userinfo/path/query/fragment), resolve every connection, reject it if **any**
+answer is not loopback, connect only to a vetted numeric answer with TLS SNI and
+hostname verification against the original host, then reject a peer address that
+is not the vetted loopback address. It SHALL use a direct HTTP/1.1 connection,
+not a proxy-aware URL client, and cap the response before parsing. The client
+SHALL select at most 10 explicit IDs (no wildcard/default-all), issue at most
+four concurrent requests, use 2-second connect and 5-second total timeouts,
+accept at most 64 KiB response bodies, make no automatic retry/poll, and render
+only bounded per-target fresh/stale/unavailable/TLS/auth/forbidden state without
+raw errors. Stale state is previous in-memory success plus a displayed timestamp
+only; it is never persisted.
+
+Fleet v1 SHALL make no Admin mutation, configuration/lifecycle/deployment
+action, local persistent operation/audit record, or inference-path change.
+Every target remains its own Admin authorization and audit authority. Existing
+single-target local and remote TUI behavior SHALL remain unchanged.

@@ -26,27 +26,32 @@ on:
       - "v*"
 
 permissions:
-  contents: write   # create GitHub release
-  id-token: write   # PyPI trusted publishing (OIDC)
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Never interrupt a release after a tag has started publishing.
+  cancel-in-progress: false
 
 jobs:
   # Gate: run the full test suite before publishing
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     strategy:
       matrix:
         python-version: ["3.12"]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.0.0
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
 
       - name: Install dependencies
         run: uv sync --locked --all-extras
@@ -55,46 +60,36 @@ jobs:
         run: make ensure-spacy
 
       - name: Run tests
-        run: uv run pytest --tb=short -q -m "not live"
+        run: uv run pytest --tb=short -q -m "not live and not docker"
 
       - name: Build strict documentation site
         run: uv run mkdocs build --strict --site-dir /tmp/airlock-docs
 
-  # Gate: verify the tag version matches pyproject.toml
+  # Gate: verify the tag matches every canonical Airlock version source.
   check-version:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
 
-      - name: Verify tag matches pyproject.toml version
-        run: |
-          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-          PKG_VERSION=$(python -c "
-          import tomllib
-          with open('pyproject.toml', 'rb') as f:
-              print(tomllib.load(f)['project']['version'])
-          ")
-          echo "Tag version:     $TAG_VERSION"
-          echo "Package version: $PKG_VERSION"
-          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
-            echo "::error::Tag v$TAG_VERSION does not match pyproject.toml version $PKG_VERSION"
-            exit 1
-          fi
+      - name: Verify tag and canonical Airlock versions
+        run: python scripts/check-version-consistency.py --tag "${GITHUB_REF_NAME}"
 
   # Build sdist and wheel
   build:
     needs: [test, check-version]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.0.0
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
 
       - name: Build package
         run: |
@@ -102,7 +97,7 @@ jobs:
           uv build
 
       - name: Upload dist artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: dist
           path: dist/
@@ -111,26 +106,32 @@ jobs:
   publish:
     needs: [build]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      id-token: write
     environment: pypi
     steps:
       - name: Download dist artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: dist
           path: dist/
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
 
   # Create a GitHub release with the built artifacts
   github-release:
     needs: [publish]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Download dist artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: dist
           path: dist/
@@ -140,7 +141,7 @@ jobs:
         run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ steps.version.outputs.version }}
           name: ${{ steps.version.outputs.version }}

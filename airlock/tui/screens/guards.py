@@ -78,6 +78,7 @@ class FlowEntry:
     call_type: str = ""
     mcp_tool_name: str = ""
     mcp_server_name: str = ""
+    routing: dict[str, Any] | None = None
 
 
 def _parse_entry(record: dict) -> FlowEntry | None:
@@ -90,6 +91,7 @@ def _parse_entry(record: dict) -> FlowEntry | None:
         or record.get("mutations")
         or record.get("airlock_enforcement")
         or record.get("airlock_code_inspection")
+        or record.get("airlock_routing")
     ):
         return None
     return FlowEntry(
@@ -110,6 +112,11 @@ def _parse_entry(record: dict) -> FlowEntry | None:
         call_type=record.get("call_type", ""),
         mcp_tool_name=record.get("mcp_tool_name") or "",
         mcp_server_name=record.get("mcp_server_name") or "",
+        routing=(
+            record.get("airlock_routing")
+            if isinstance(record.get("airlock_routing"), dict)
+            else None
+        ),
     )
 
 
@@ -499,6 +506,11 @@ class GuardsPane(VerticalScroll):
                 yield Static(
                     "Loading semantic classifier report...", id="guards-semantic"
                 )
+            with TabPane("Routing", id="guards-tab-routing"):
+                yield Static(
+                    "No smart-routing classifications in the bounded request window.",
+                    id="guards-routing",
+                )
         with Collapsible(
             title="Request Stream", collapsed=False, id="guards-stream-collapsible"
         ):
@@ -516,6 +528,8 @@ class GuardsPane(VerticalScroll):
             yield table
 
     def on_mount(self) -> None:
+        if getattr(self.app, "_test_harness", False):
+            return
         self._poll_logs()
         self._poll_timer = self.set_interval(1.0, self._poll_if_live)
         # The semantic report aggregates a multi-day window, so it is far more
@@ -724,9 +738,49 @@ class GuardsPane(VerticalScroll):
         raw = self.query_one("#guards-raw", Static)
         tool_result = self.query_one("#guards-tool-result", Static)
         mutations = self.query_one("#guards-mutations", Static)
+        routing = self.query_one("#guards-routing", Static)
 
         signals.update(_render_signals(entry))
         pipeline.update(_render_pipeline(entry))
         raw.update(_render_raw(entry))
         tool_result.update(_render_tool_result(entry))
         mutations.update(_render_mutations(entry))
+        routing.update(_render_routing(entry, self._entries))
+
+
+def _render_routing(entry: FlowEntry, entries: list[FlowEntry]) -> str:
+    """Render a bounded JSONL-derived smart-routing view without prompt text."""
+    counts = {"simple": 0, "moderate": 0, "complex": 0}
+    for candidate in entries:
+        classification = (candidate.routing or {}).get("smart_classify")
+        if not isinstance(classification, dict):
+            continue
+        complexity = classification.get("complexity")
+        if complexity in counts:
+            counts[complexity] += 1
+
+    total = sum(counts.values())
+    if not total:
+        return "[dim]No smart-routing classifications in the bounded request window.[/]"
+
+    routing = entry.routing or {}
+    classification = routing.get("smart_classify")
+    if not isinstance(classification, dict):
+        classification = {}
+    complexity = classification.get("complexity", "-")
+    score = classification.get("score")
+    mapped_model = routing.get("routed_model") or entry.model
+    reasons = routing.get("reasons")
+    if not isinstance(reasons, list):
+        reasons = []
+    distribution = "  ".join(f"{name}: {count}" for name, count in counts.items())
+    score_text = f"{float(score):.2f}" if isinstance(score, (int, float)) else "-"
+    reason_text = escape(", ".join(str(reason) for reason in reasons[:4])) or "-"
+    return (
+        "[bold]Smart routing (bounded JSONL window)[/]\n"
+        f"  Distribution: {distribution}\n"
+        f"  Selected request: {escape(str(complexity))} (score {score_text})\n"
+        f"  Routed model: {escape(str(mapped_model))}\n"
+        f"  Route reasons: {reason_text}\n"
+        "  Source: persisted request metadata; unavailable classifications are not inferred."
+    )

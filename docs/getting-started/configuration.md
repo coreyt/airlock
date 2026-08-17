@@ -13,6 +13,75 @@ Key sections:
 - **`mcp_servers`** — MCP tool servers accessible via the proxy
 - **`general_settings`** — master key, host/port
 
+### FathomDB benchmark chat model
+
+The shipped configuration includes the explicit `gpt-4o-mini` and
+`openai/gpt-4o-mini` chat aliases for benchmark extraction workloads. They both
+target `openai/gpt-4o-mini`, use `OPENAI_API_KEY`, and are not router fallback
+targets: clients must request one deliberately. These are chat-completions
+aliases; the separate embedding model is introduced with Airlock's
+`/v1/embeddings` capability.
+
+The shipped `text-embedding-3-small` and `openai/text-embedding-3-small`
+aliases are embedding-only. Send a normal OpenAI embedding request to
+`/v1/embeddings`; `input` may be a string or a batch of strings. The optional
+`dimensions` value is an integer from 1 through 1536, and `encoding_format` is
+`float` or `base64`; both pass through. Completion-only controls, such as
+`temperature`, `messages`, or `tools`, fail with an OpenAI-shaped 400 before
+dispatch rather than being silently dropped. Airlock also rejects chat-only,
+`smart`, fuzzy, and unconfigured model names for this endpoint instead of
+routing or falling back to another model.
+
+## OpenRouter (operator-configured gateway)
+
+OpenRouter is not enabled merely because the key exists. To expose a model, an
+operator adds a reviewed deployment `model_list` entry and restarts Airlock:
+
+```yaml
+# reviewed deployment config — not the shipped default config.yaml
+model_list:
+  - model_name: openrouter/openai/gpt-4o-mini
+    litellm_params:
+      model: openrouter/openai/gpt-4o-mini
+      api_key: os.environ/OPENROUTER_API_KEY
+      api_base: https://openrouter.ai/api/v1
+```
+
+Keep provider routing and privacy choices in the reviewed deployment policy.
+Airlock rejects client-supplied OpenRouter `route`, `models`, and `transforms`
+overrides (including those nested in `extra_body`), so a caller cannot alter the
+operator's chosen gateway policy. The optional startup catalog is informational:
+it does not authorize models or alter routing.
+
+`X-Airlock-Served-By: openrouter` means the OpenRouter gateway immediately
+served the request. Airlock does not identify or control OpenRouter's downstream
+provider, fallback choice, price, availability, or data-retention policy. LiteLLM
+may use its own OpenRouter `HTTP-Referer` and `X-Title` defaults; they are not
+Airlock routing or identity metadata. Do not place identifying client data in
+provider-specific request fields.
+
+## DeepSeek (operator-configured stable endpoint)
+
+DeepSeek is also disabled until an operator adds a reviewed deployment entry.
+Use the explicit stable base below; the pinned LiteLLM version otherwise has a
+beta-default path that is not Airlock’s supported 0.5.15 configuration.
+
+```yaml
+model_list:
+  - model_name: deepseek/deepseek-chat
+    litellm_params:
+      model: deepseek/deepseek-chat
+      api_key: os.environ/DEEPSEEK_API_KEY
+      api_base: https://api.deepseek.com
+```
+
+The optional startup catalog is informational and never authorizes aliases.
+Airlock preserves ordinary policy and observability for configured DeepSeek
+requests, but accepts OpenAI **function** tools only. It rejects other tool
+types with an OpenAI-shaped 400 before LiteLLM can silently discard them. Do
+not map `X-Airlock-Client`, an authenticated identity, or customer data to a
+DeepSeek `user_id`; no such mapping is implemented in this release.
+
 ## Machine-specific overrides (`config.local.yaml`)
 
 Settings that must not live in the tracked `config.yaml` — chiefly MCP servers
@@ -26,11 +95,78 @@ uncommitted edit (start from `config.local.yaml.example`).
 include: ["config.local.yaml"]
 ```
 
-LiteLLM **replaces** dict-valued keys from an included file rather than deep-merging
-them, so `config.local.yaml` must list **every** MCP server you want at runtime
+LiteLLM processes includes in source order. It **replaces** dict-valued keys
+from an included file rather than deep-merging them, and extends an existing
+top-level list with an included list. In the pinned version, an included
+`include:` list extends the active include list too, so nested files are reached
+after files already queued from the root directory. Airlock materializes those
+same semantics into the private runtime config passed to the LiteLLM child.
+Therefore `config.local.yaml` must list **every** MCP server you want at runtime
 (including bundled ones like `newscatcher`). LiteLLM also does **not** expand
 `${HOME}`/`~` in MCP `command`/`args`, and only launches commands whose basename is
 on its allowlist. Full rules and examples in [MCP Servers](../guide/mcp-servers.md).
+
+### Supported local override: machine-specific MCP servers
+
+Airlock's supported use of `config.local.yaml` is the top-level
+`mcp_servers` mapping. Use it when a server's executable, virtual environment,
+or source checkout is specific to one host. Keep portable models, guardrails,
+routing, callbacks, and deployment policy in the reviewed `config.yaml` and
+keep all secret values in `.env` or the deployment's secret manager.
+
+Each local server can set these fields:
+
+| Field | Use | Requirement |
+| --- | --- | --- |
+| Server name | Key under `mcp_servers` | Unique name used by tool discovery |
+| `transport` | MCP transport | Use `stdio` for a locally spawned process |
+| `command` | Executable to start | Absolute path when host-specific; its basename must be allowed |
+| `args` | Executable arguments | Use absolute paths; `${HOME}`, `~`, and `$VAR` are literal text |
+| `env` | Environment passed to the server | Reference values as `os.environ/NAME`; never put a secret value here |
+
+```yaml
+# config.local.yaml — local working-tree edit; do not commit credential values
+mcp_servers:
+  local_utility:
+    transport: stdio
+    command: /home/you/projects/local-utility/.venv/bin/python
+    args: ["/home/you/projects/local-utility/server.py"]
+    env:
+      LOCAL_UTILITY_TOKEN: os.environ/LOCAL_UTILITY_TOKEN
+
+  # `mcp_servers` is replacement, not merge: repeat a bundled server that
+  # should remain enabled when this file is present.
+  newscatcher:
+    transport: stdio
+    command: python3
+    args: ["-m", "airlock.mcp_servers.newscatcher_server"]
+    env:
+      NEWS_CATCHER_API_KEY: os.environ/NEWS_CATCHER_API_KEY
+```
+
+Put the referenced value in `.env`, not in the YAML:
+
+```bash
+# .env
+LOCAL_UTILITY_TOKEN=managed-out-of-band
+```
+
+For a custom launcher whose basename is not one of LiteLLM's built-ins, add
+only its basename to `LITELLM_MCP_STDIO_EXTRA_COMMANDS` in `.env`. For example,
+`command: /home/you/bin/local-utility` requires
+`LITELLM_MCP_STDIO_EXTRA_COMMANDS=local-utility`.
+
+Restart after editing. `AIRLOCK_MCP_STARTUP_MODE=lazy` keeps the configured
+servers but delays tool discovery; `eager` probes them during startup; `off`
+removes all MCP servers, including local overrides, for that process. Verify
+the live result with the [MCP tool-discovery check](../guide/mcp-servers.md#verifying-after-a-change-or-restart).
+
+!!! warning "Do not use this file as a general secret or policy overlay"
+    A LiteLLM include is technically a YAML fragment and a dict-valued top-level
+    setting can replace the matching main setting. That makes arbitrary local
+    overrides easy to misread and difficult to review. Airlock documents
+    `mcp_servers` as the supported local surface; use a reviewed deployment
+    config selected with `airlock start --config` for other configuration.
 
 ## Reasoning-effort validation
 
@@ -222,6 +358,19 @@ batch_profile:
 
 See [Batch Processing](../guide/batch.md) for the end-to-end recipe.
 
+## Unused provider credential warning
+
+At startup, Airlock emits one local warning when a recognised provider
+credential is nonblank but no explicit effective `model_list` alias serves that
+provider. The warning is advisory: it makes no provider request and does not
+enable discovery, alter routing, or expose the credential or its environment
+variable name.
+
+If the credential is intentional, add a reviewed alias for that provider. If it
+is not, remove it from the deployment's secret source and restart Airlock. An
+included configuration file's direct `model_list` aliases are considered; a
+discovered provider model is not an alias.
+
 ## Environment variables
 
 | Variable | Description | Default |
@@ -230,17 +379,26 @@ See [Batch Processing](../guide/batch.md) for the end-to-end recipe.
 | `OPENAI_API_KEY` | OpenAI API key | -- |
 | `GOOGLE_AISTUDIO_API_KEY` | Google AI Studio API key for Gemini models (+ AI Studio batch gateway) | -- |
 | `MISTRAL_API_KEY` | Mistral API key for Mistral models (+ Mistral batch gateway) | -- |
+| `OPENROUTER_API_KEY` | OpenRouter key for an explicit operator-configured `model_list` entry | -- |
+| `DEEPSEEK_API_KEY` | DeepSeek key for an explicit operator-configured `model_list` entry | -- |
 | `AIRLOCK_MASTER_KEY` | Optional proxy auth key. Leave unset for local/dev unauthenticated runs; set it for protected deployments. | -- |
 | `AIRLOCK_HOST` | Bind address | `127.0.0.1` |
 | `AIRLOCK_PORT` | Listen port | `4000` |
 | `AIRLOCK_LOG_DIR` | Directory for JSONL log files | `./logs` |
+| `AIRLOCK_LOG_REDACT_FIELDS` | Comma-separated JSONL record fields replaced with `[REDACTED]` | unset (no field redaction) |
 | `AIRLOCK_STATE_DIR` | State directory for circuit-breaker state and optional FathomDB files | `./logs` |
 | `AIRLOCK_MAX_LOG_DAYS` | Days to retain log files | `30` |
 | `AIRLOCK_MAX_LOG_SIZE_MB` | Max log file size before rotation | `500` |
 | `AIRLOCK_BLOCKED_KEYWORDS` | Comma-separated restricted phrases | -- |
 | `AIRLOCK_PII_ENTITIES` | Presidio entity types to redact | `CREDIT_CARD,US_SSN,EMAIL_ADDRESS,PHONE_NUMBER` |
 | `AIRLOCK_PII_FAIL_MODE` | PII redaction unavailable posture: `open` or `closed` | `open` |
+| `AIRLOCK_PII_HYDRATION` | Restore placeholders in non-streaming tool-call arguments: `tools` or `off` | `tools` |
+| `AIRLOCK_PII_MAP_MAX_ENTRIES` | Maximum live opaque PII reverse maps per process | `1024` |
+| `AIRLOCK_PII_MAP_TTL_SECONDS` | Seconds before an unconsumed PII reverse map expires | `300` |
 | `AIRLOCK_PII_EGRESS_MODE` | Rehydration egress policy: `observe`, `shadow`, `enforce` | `observe` |
+| `AIRLOCK_PII_EGRESS_TOOL_BANDS` | JSON object mapping tool names to `round_trip` or `exfil` | `{}` |
+| `AIRLOCK_PII_EGRESS_ALLOWLIST` | JSON allowlist of `{tool,path,entity_type}` egress tuples | `[]` |
+| `AIRLOCK_PII_EGRESS_BLOCKLIST` | JSON blocklist of `{tool,path,entity_type}` egress tuples | `[]` |
 | `AIRLOCK_ENFORCE_MODE` | Guardrail mode: `observe`, `shadow`, or `enforce` | `observe` |
 | `AIRLOCK_CLIENT` | Client identity label propagated as the `X-Airlock-Client` header and recorded on each request for per-tool attribution | -- |
 | `AIRLOCK_ADVISOR_MODEL` | Override model for the advisor | -- |
@@ -252,6 +410,7 @@ See [Batch Processing](../guide/batch.md) for the end-to-end recipe.
 | `LITELLM_MCP_STDIO_EXTRA_COMMANDS` | Comma-separated extra command basenames allowed to launch stdio MCP servers (beyond the built-in `deno,docker,node,npx,python,python3,uvx`). See [MCP Servers](../guide/mcp-servers.md). | — |
 | `AIRLOCK_ENABLE_FATHOMDB` | Enable lazy FathomDB engine initialization | `0` |
 | `AIRLOCK_ENABLE_FATHOM_LOGGER` | Enable the Fathom request-logging sink (recorder-fed) | `0` |
+| `AIRLOCK_OPERATIONAL_READ_BACKEND` | Select operational history source: `jsonl` (default) or proxy-owned `fathomdb` | `jsonl` |
 | `AIRLOCK_ENABLE_S3_LOGGER` | Enable the S3 logging sink (recorder-fed; also needs `AIRLOCK_S3_BUCKET`) | `0` |
 | `AIRLOCK_ENABLE_SQL_LOGGER` | Enable the SQL logging sink (recorder-fed; also needs `AIRLOCK_SQL_URL`) | `0` |
 | `AIRLOCK_LOCAL_VLLM_BASE_URL` | URL of the local vLLM endpoint the router guardrail watches | `http://192.168.1.45:8000/v1` |
@@ -271,6 +430,39 @@ See [Batch Processing](../guide/batch.md) for the end-to-end recipe.
 | `AIRLOCK_JWT_SECRET_PREV` | Previous JWT secret, accepted for verification during a rolling secret rotation | -- |
 | `AIRLOCK_VALIDATE_REASONING_EFFORT` | Reject known-invalid OpenAI/Azure `reasoning_effort` values with an OpenAI-shaped 400. Set `0` for the short-term `drop_params` rollback. | `1` |
 | `AIRLOCK_NORMALIZE_REASONING_EFFORT` | Legacy compatibility fallback for validation while `AIRLOCK_VALIDATE_REASONING_EFFORT` is unset; still controls Gemini/Anthropic normalization. | `1` |
+| `AIRLOCK_OOM_DIAGNOSTICS` | Enable bounded aggregate memory/cgroup diagnostic snapshots; use only for an investigation | `0` |
+| `AIRLOCK_OOM_DIAGNOSTICS_DIR` | Diagnostic artifact directory when OOM diagnostics are enabled | `/tmp/airlock-oom-diagnostics` |
+
+For the PII boundary, egress modes, and the spaCy requirement for semantic
+entities, see [Guardrails → PII redaction, hydration, and egress](../guide/guardrails.md#pii-redaction-hydration-and-egress). For the opt-in memory recorder, see [Operations → Memory guardrails and OOM diagnostics](../operations.md#memory-guardrails-and-oom-diagnostics).
+
+## Benchmark-safe FathomDB profile
+
+When FathomDB uses Airlock as an LLM client for a benchmark, it does not need
+Airlock's optional FathomDB request logger. Use this profile for the benchmark
+process when prompts and completions must not be retained in Airlock telemetry:
+
+```bash
+AIRLOCK_LOG_REDACT_FIELDS=messages,response
+AIRLOCK_ENABLE_SQL_LOGGER=0
+AIRLOCK_ENABLE_S3_LOGGER=0
+AIRLOCK_ENABLE_FATHOMDB=0
+AIRLOCK_ENABLE_FATHOM_LOGGER=0
+AIRLOCK_FATHOM_STORE_MESSAGES=0
+AIRLOCK_FATHOM_STORE_RESPONSE_TEXT=0
+```
+
+The always-on enterprise JSONL record retains operational metadata but replaces
+the `messages` and `response` fields with `[REDACTED]`. SQL logging is disabled
+because its projection stores those fields without this redaction setting.
+FathomDB message/response flags remain off as defense in depth, even though the
+Fathom request logger is disabled. This logging profile is separate from the
+outbound PII guard and does not change its observe-only posture. Use
+`/health/liveliness` for benchmark process liveness; it makes no model call.
+
+Before a funded benchmark, run a non-sensitive sentinel request/response and
+confirm that the resulting JSONL contains `[REDACTED]` and not either sentinel.
+Do not upload that log or the request/response content as a benchmark artifact.
 
 ### `reasoning_effort` validation and normalization
 
@@ -357,6 +549,8 @@ admin:
   trust_loopback: true      # loopback connections are the operator (Path A)
   allow_insecure_tokens: false   # permit token auth over plaintext on a non-loopback bind
   behind_tls_proxy: false   # assert TLS is terminated upstream
+  remote_tui: false         # opt-in host-console container Admin profile
+  fleet_read_tui: false     # opt-in exact read-only capability profile for Slice 70 targets
 ```
 
 Tokens are signed with `AIRLOCK_JWT_SECRET` (falling back to a derivation from
@@ -364,6 +558,17 @@ Tokens are signed with `AIRLOCK_JWT_SECRET` (falling back to a derivation from
 or capability skips are active on a non-loopback bind without TLS, Airlock refuses
 to start unless one of `AIRLOCK_SSL_*`, `behind_tls_proxy`, or
 `allow_insecure_tokens` is set.
+
+`remote_tui: true` is a narrower profile for a host-console TUI reaching an
+Airlock container through a port published only on the host loopback interface.
+It requires native TLS, `trust_loopback: false`, and rejects proxy/insecure-token
+modes. It accepts only a 15-minute JWT containing `admin:remote_tui` plus its
+operation scope; it never accepts the master key. See [Admin API](../guide/admin-api.md#host-console-container-tui) for the deployment contract.
+
+`fleet_read_tui: true` is only for a target in the same-host read-only fleet
+view. It additionally requires `remote_tui: true` and accepts only a 15-minute
+token with **exactly** `admin:remote_tui` and `admin:read`; it prevents a
+broader capability from authorizing a mutation on that target.
 
 ### `guardrail_overrides`
 

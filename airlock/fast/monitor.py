@@ -25,6 +25,7 @@ from airlock.client_identity import extract_airlock_client_from_kwargs
 from airlock.fast.ratelimit_headers import parse_ratelimit_headers
 from airlock.gemini_interface import classify_gemini_response
 from airlock.litellm_adapter import additional_headers, hidden_params
+from airlock.provider_errors import summarize_provider_error
 from airlock.text_extract import is_batch_call
 from airlock.transparency import attribute_served_backend, get_transparency_config
 from litellm.exceptions import APIError, RateLimitError
@@ -110,12 +111,14 @@ def _is_provider_rate_limited(exc: Exception | None) -> tuple[bool, str]:
     """Detect provider 429/quota exhaustion signals."""
     if exc is None:
         return False, ""
+    summary = summarize_provider_error(exc)
+    safe_reason = summary.message() if summary is not None else ""
     text = str(exc).strip()
     lowered = text.lower()
     if isinstance(exc, RateLimitError):
-        return True, text or "provider_rate_limited"
+        return True, safe_reason or text or "provider_rate_limited"
     if isinstance(exc, APIError) and getattr(exc, "status_code", None) == 429:
-        return True, text or "provider_rate_limited"
+        return True, safe_reason or text or "provider_rate_limited"
     markers = (
         "rate limit",
         "too many requests",
@@ -124,8 +127,8 @@ def _is_provider_rate_limited(exc: Exception | None) -> tuple[bool, str]:
         "quota",
     )
     if any(marker in lowered for marker in markers):
-        return True, text or "provider_rate_limited"
-    return False, text
+        return True, safe_reason or text or "provider_rate_limited"
+    return False, safe_reason or text
 
 
 class AirlockFastMonitor(CustomLogger):

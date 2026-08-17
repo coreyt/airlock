@@ -191,6 +191,14 @@ class TestExtractAirlockClientFromRequest:
             ({"headers": {"x-airlock-client": "hdr"}}, None, "hdr"),
             ({"headers": {"X-Airlock-Client": "hdr2"}}, None, "hdr2"),
             ({"metadata": {"headers": {"airlock-client": "mhdr"}}}, None, "mhdr"),
+            (
+                {
+                    "headers": {"X-Airlock-Client": "forged-body-value"},
+                    "metadata": {"headers": {"X-Airlock-Client": "wire-value"}},
+                },
+                None,
+                "wire-value",
+            ),
             # api-key fallback when no header/metadata identity present
             ({}, _FakeKey("sk-1234567890abcdef"), "key:90abcdef"),
             ({}, {"api_key": "sk-1234567890abcdef"}, "key:90abcdef"),

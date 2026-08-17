@@ -24,7 +24,12 @@ import yaml
 from dotenv import load_dotenv
 
 from airlock.capability import capability_record
+from airlock.litellm_config import resolve_litellm_direct_config
 from airlock.models_catalog import fetch_live_provider_models
+from airlock.startup_validation import (
+    credential_without_alias_warnings,
+    emit_provider_credential_warnings,
+)
 
 _ENV_REF_PREFIX = "os.environ/"
 
@@ -57,8 +62,7 @@ def _validate_mcp_env_refs(config_path: str) -> list[str]:
     if _mcp_startup_mode() == "off":
         return []
 
-    with open(config_path) as f:
-        cfg = yaml.safe_load(f) or {}
+    cfg = resolve_litellm_direct_config(config_path)
 
     errors: list[str] = []
     mcp_servers = cfg.get("mcp_servers") or {}
@@ -162,79 +166,26 @@ def _fathom_logger_enabled() -> bool:
     return _env_flag("AIRLOCK_ENABLE_FATHOM_LOGGER", default=False)
 
 
-def _inline_config_includes(config: dict, config_path: str) -> None:
-    """Inline local YAML includes when a runtime mode must remove a top-level key.
-
-    LiteLLM applies included files after the main file. Simply popping
-    ``mcp_servers`` from the main runtime config would therefore let a local
-    include add it back. The documented include semantics are a top-level
-    replacement, so process includes in order and update the parent mapping.
-    """
-
-    def merge_includes(target: dict, includes: object, parent: Path) -> None:
-        if isinstance(includes, str):
-            include_items = [includes]
-        elif isinstance(includes, list):
-            include_items = includes
-        elif includes is None:
-            return
-        else:
-            raise ValueError("config include must be a path or a list of paths")
-
-        for item in include_items:
-            if not isinstance(item, str):
-                raise ValueError("config include entries must be paths")
-            path = Path(item)
-            if not path.is_absolute():
-                path = parent / path
-            try:
-                with open(path, encoding="utf-8") as f:
-                    included = yaml.safe_load(f) or {}
-            except (OSError, yaml.YAMLError) as exc:
-                raise ValueError(
-                    f"could not load config include {path}: {exc}"
-                ) from exc
-            if not isinstance(included, dict):
-                raise ValueError(f"config include {path} must contain a mapping")
-            nested = included.pop("include", None)
-            merge_includes(included, nested, path.parent)
-            target.update(included)
-
-    merge_includes(
-        config, config.pop("include", None), Path(config_path).resolve().parent
-    )
-
-
 def _prepare_runtime_config(config_path: str) -> tuple[str, str | None]:
-    """Apply env-driven startup overrides and return a config path for LiteLLM."""
-    with open(config_path, encoding="utf-8") as f:
-        config = yaml.safe_load(f) or {}
+    """Materialize the one canonical config file consumed by the LiteLLM child."""
+    config = resolve_litellm_direct_config(config_path)
 
     mcp_mode = _mcp_startup_mode()
-    # In off mode, materialize config.local.yaml first. Otherwise LiteLLM will
-    # apply that include after this function and can reintroduce mcp_servers.
-    if mcp_mode == "off":
-        _inline_config_includes(config, config_path)
-
-    changed = False
     general_settings = config.setdefault("general_settings", {})
 
     for entry in config.get("model_list", []) or []:
         if not isinstance(entry, dict):
             continue
         entry.setdefault("model_info", {}).update(capability_record(entry))
-        changed = True
 
     master_key_ref = general_settings.get("master_key")
     if isinstance(master_key_ref, str) and master_key_ref.startswith(_ENV_REF_PREFIX):
         master_key_env = master_key_ref[len(_ENV_REF_PREFIX) :]
         if not os.getenv(master_key_env):
             general_settings.pop("master_key", None)
-            changed = True
 
     if mcp_mode == "off" and config.get("mcp_servers"):
         config.pop("mcp_servers", None)
-        changed = True
         print(
             "Configured MCP servers disabled for startup (AIRLOCK_MCP_STARTUP_MODE=off)."
         )
@@ -247,7 +198,6 @@ def _prepare_runtime_config(config_path: str) -> tuple[str, str | None]:
     if background_override is not None:
         if general_settings.get("background_health_checks") != background_override:
             general_settings["background_health_checks"] = background_override
-            changed = True
         mode = "enabled" if background_override else "disabled"
         print(f"Background health checks {mode} by AIRLOCK_BACKGROUND_HEALTH_CHECKS.")
 
@@ -256,25 +206,9 @@ def _prepare_runtime_config(config_path: str) -> tuple[str, str | None]:
         # the same AIRLOCK_ENABLE_FATHOM_LOGGER flag — no config-callback append needed.
         print("Fathom logger enabled for startup (AIRLOCK_ENABLE_FATHOM_LOGGER=1).")
 
-    if not changed:
-        return config_path, None
-
-    # The proxy may run as a non-root user while its packaged config lives in a
-    # read-only application directory. Write the generated config to the system
-    # temp directory instead. LiteLLM resolves `include:` paths relative to the
-    # generated file, so make relative includes absolute before relocating it.
-    config_dir = Path(config_path).resolve().parent
-    includes = config.get("include")
-    if isinstance(includes, list):
-        config["include"] = [
-            str((config_dir / item).resolve())
-            if isinstance(item, str) and not Path(item).is_absolute()
-            else item
-            for item in includes
-        ]
-    elif isinstance(includes, str) and not Path(includes).is_absolute():
-        config["include"] = str((config_dir / includes).resolve())
-
+    # Always write a private runtime file: it is the single configuration
+    # authority for LiteLLM, child Admin policy, model metadata, and Slice 40's
+    # immutable projection. It also works for read-only packaged configs.
     tmp = tempfile.NamedTemporaryFile(
         mode="w",
         encoding="utf-8",
@@ -282,17 +216,20 @@ def _prepare_runtime_config(config_path: str) -> tuple[str, str | None]:
         prefix="airlock-runtime-",
         delete=False,
     )
-    with tmp:
-        yaml.safe_dump(config, tmp, sort_keys=False)
+    try:
+        with tmp:
+            yaml.safe_dump(config, tmp, sort_keys=False)
+    except Exception:
+        Path(tmp.name).unlink(missing_ok=True)
+        raise
     return tmp.name, tmp.name
 
 
 def _validate_config(config_path: str) -> list[str]:
     """Validate config.yaml schema and return a list of warning strings."""
     try:
-        with open(config_path) as f:
-            cfg = yaml.safe_load(f) or {}
-    except yaml.YAMLError as e:
+        cfg = resolve_litellm_direct_config(config_path)
+    except (ValueError, yaml.YAMLError) as e:
         return [f"config.yaml is not valid YAML: {e}"]
 
     warnings: list[str] = []
@@ -392,6 +329,69 @@ def _warn_observe_mode() -> None:
         )
 
 
+def _launch_litellm_child(
+    config: dict,
+    runtime_config_path: str,
+    host: str,
+    port: int,
+    project_root: Path,
+) -> int:
+    """Configure all parent seams then run the child from the canonical file."""
+    from airlock.admin.policy import configure_admin
+    from airlock.fast.router import set_router_config
+    from airlock.fast.settings import configure_settings
+    from airlock.fast.state import configure_breaker
+    from airlock.guardrails.overrides import configure_guardrail_overrides
+    from airlock.transparency import configure_transparency
+
+    set_router_config(config)
+    configure_settings(config)
+    from airlock.fast.admission import configure_admission
+
+    configure_admission(config)
+    configure_breaker(config)
+    configure_admin(config, host=host, tls_enabled=bool(_ssl_cli_args()))
+    configure_guardrail_overrides(config)
+    configure_transparency(config)
+    if _startup_model_discovery_enabled():
+        live_models = fetch_live_provider_models(config)
+        if live_models:
+            providers = sorted({m["id"].split("/")[0] for m in live_models})
+            print(
+                f"Provider models discovered: {len(live_models)} across {', '.join(providers)}"
+            )
+    else:
+        print(
+            "Startup model discovery disabled "
+            "(set AIRLOCK_STARTUP_MODEL_DISCOVERY=1 to enable)."
+        )
+
+    litellm_bin = str(Path(sys.executable).parent / "litellm")
+    litellm_cmd = [
+        litellm_bin,
+        "--config",
+        runtime_config_path,
+        "--host",
+        host,
+        "--port",
+        str(port),
+    ]
+    litellm_cmd += _ssl_cli_args()
+    env = os.environ.copy()
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    repo_pythonpath = str(project_root)
+    env["PYTHONPATH"] = (
+        f"{repo_pythonpath}:{existing_pythonpath}"
+        if existing_pythonpath
+        else repo_pythonpath
+    )
+    env["AIRLOCK_LITELLM_CHILD"] = "1"
+    env["AIRLOCK_CONFIG"] = runtime_config_path
+    _register_shutdown_handlers()
+    print(f"Airlock starting on {host}:{port}")
+    return subprocess.run(litellm_cmd, check=False, env=env).returncode
+
+
 def main() -> None:
     """Launch Airlock proxy entrypoint.
 
@@ -436,89 +436,32 @@ def main() -> None:
     port = int(os.getenv("AIRLOCK_PORT", "4000"))
 
     # Log live provider models at startup (informational — does not affect routing).
-    with open(config_path) as f:
-        config = yaml.safe_load(f) or {}
-    from airlock.admin.policy import configure_admin
-    from airlock.fast.router import set_router_config
-    from airlock.fast.settings import configure_settings
-    from airlock.fast.state import configure_breaker
-    from airlock.guardrails.overrides import configure_guardrail_overrides
-    from airlock.transparency import configure_transparency
-
-    set_router_config(config)
-    # Build the typed AirlockSettings snapshot once at startup. The router (budget-aware
-    # swap), monitor (near-limit warn) and circuit-breaker (failover) consumers read
-    # their budgets/failover map from this snapshot via get_settings() (0.5.1-SET-unify).
-    configure_settings(config)
-    from airlock.fast.admission import configure_admission
-
-    configure_admission(config)
-    # Load per-client circuit-breaker policy once at startup (CC-2); defaults to a
-    # no-op when unconfigured (CC-3). Provider budget caps now flow through
-    # configure_settings above (the monitor reads get_settings().provider_budgets).
-    configure_breaker(config)
-    # Admin control plane (off by default). The fail-closed check (CC-12) refuses
-    # bearer-token admin over plaintext on a non-loopback bind.
-    configure_admin(config, host=host, tls_enabled=bool(_ssl_cli_args()))
-    # Per-request guardrail-skip policy (off by default).
-    configure_guardrail_overrides(config)
-    # Response-transparency policy (served-by/region headers; default-on, opt-out).
-    configure_transparency(config)
-    if _startup_model_discovery_enabled():
-        live_models = fetch_live_provider_models(config)
-        if live_models:
-            providers = sorted({m["id"].split("/")[0] for m in live_models})
-            print(
-                f"Provider models discovered: {len(live_models)} across {', '.join(providers)}"
-            )
-    else:
-        print(
-            "Startup model discovery disabled "
-            "(set AIRLOCK_STARTUP_MODEL_DISCOVERY=1 to enable)."
-        )
-
-    runtime_config_path, temp_config_path = _prepare_runtime_config(config_path)
-
-    litellm_bin = str(Path(sys.executable).parent / "litellm")
-    litellm_cmd = [
-        litellm_bin,
-        "--config",
-        runtime_config_path,
-        "--host",
-        host,
-        "--port",
-        str(port),
-    ]
-    # Native HTTPS (opt-in): append uvicorn ssl flags when AIRLOCK_SSL_* are set.
-    litellm_cmd += _ssl_cli_args()
-    env = os.environ.copy()
-    existing_pythonpath = env.get("PYTHONPATH", "")
-    repo_pythonpath = str(project_root)
-    env["PYTHONPATH"] = (
-        f"{repo_pythonpath}:{existing_pythonpath}"
-        if existing_pythonpath
-        else repo_pythonpath
-    )
-    # FIX-1: mark the litellm subprocess so airlock.fast.monitor restores spend +
-    # breaker state on startup and checkpoints them periodically/on shutdown there —
-    # in the process that actually mutates the store.
-    env["AIRLOCK_LITELLM_CHILD"] = "1"
-
-    _register_shutdown_handlers()
-
-    # FIX-1: state restore now happens in the litellm child (airlock.fast.monitor),
-    # not here — the launcher's store is empty, so a launcher-side restore was a no-op
-    # that defeated restart recovery.
-
-    print(f"Airlock starting on {host}:{port}")
     try:
-        sys.exit(subprocess.run(litellm_cmd, check=False, env=env).returncode)
+        emit_provider_credential_warnings(
+            credential_without_alias_warnings(config_path, os.getenv)
+        )
+    except ValueError:
+        # Validation is advisory: never expose a path/parser detail or make an
+        # already-valid launch depend on a second local read.
+        print(
+            "WARNING: airlock.startup.provider_credential_validation_unavailable "
+            "source=startup_validation",
+            file=sys.stderr,
+        )
+    # Every parent consumer below and the LiteLLM child use this one materialized
+    # file. Keep it before Admin's CC-12 check so an included admin block cannot
+    # produce a launcher/child split.
+    runtime_config_path, temp_config_path = _prepare_runtime_config(config_path)
+    try:
+        config = resolve_litellm_direct_config(runtime_config_path)
+        sys.exit(
+            _launch_litellm_child(config, runtime_config_path, host, port, project_root)
+        )
     finally:
-        if temp_config_path:
-            try:
-                Path(temp_config_path).unlink(missing_ok=True)
-            except OSError:
-                pass
+        try:
+            Path(temp_config_path).unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":

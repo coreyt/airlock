@@ -156,6 +156,7 @@ class TestThreatDetection:
     ):
         import time as _time
         from airlock.fast.guardian import AirlockFastGuardian
+        from airlock.proxy_errors import AirlockThreatBackoff
 
         guardian = AirlockFastGuardian()
         # Set client into backoff state directly (simulates previous threat block)
@@ -167,7 +168,7 @@ class TestThreatDetection:
             "messages": [{"role": "user", "content": "ping"}],
             "model": "claude-sonnet",
         }
-        with pytest.raises(ValueError, match="[Tt]oo many|[Rr]etry"):
+        with pytest.raises(AirlockThreatBackoff):
             await guardian.async_pre_call_hook(
                 mock_user_api_key_dict, mock_cache, data, "completion"
             )

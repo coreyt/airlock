@@ -16,6 +16,7 @@ from airlock.text_extract import (  # noqa: F401
     extract_text_from_mcp,
     extract_text_from_messages,
     is_batch_call,
+    is_embedding_call,
     is_mcp_call,
 )
 
@@ -24,5 +25,6 @@ __all__ = [
     "extract_text_from_mcp",
     "extract_text_from_messages",
     "is_batch_call",
+    "is_embedding_call",
     "is_mcp_call",
 ]

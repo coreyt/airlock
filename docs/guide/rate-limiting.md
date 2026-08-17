@@ -16,6 +16,13 @@ OpenAI-shaped body. The same handler also shapes *passthrough* provider 429s (wh
 the provider returned 429 and the breaker did not block), so clients get a backoff
 signal either way.
 
+Fast Guardian's local threat protection is distinct: a threat backoff returns
+HTTP 429 with the same whole-second `Retry-After` discipline, but an
+`airlock_threat_backoff` / `threat_backoff` error and
+`airlock.source: threat_backoff`. It does not mean the provider is rate-limiting
+you, and it intentionally does not reveal the triggering heuristic or client
+identity. Honor `Retry-After` for this response too.
+
 ### Headers
 
 | Header | Value | Meaning |
@@ -53,6 +60,7 @@ extra `airlock` sub-object:
 | `type` | `airlock.source` | When |
 |---|---|---|
 | `airlock_circuit_breaker` | `circuit_breaker` | Airlock's breaker is blocking the client. |
+| `airlock_threat_backoff` | `threat_backoff` | Airlock's local threat protection is temporarily blocking the client. |
 | `provider_rate_limit` | `provider` | Passthrough: the provider returned 429; `Retry-After` comes from the provider's own headers when present, else a default. |
 
 ### What your client should do

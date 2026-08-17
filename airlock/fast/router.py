@@ -522,7 +522,7 @@ def _apply_budget_awareness(
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
-def apply_routing(data: dict) -> dict:
+def apply_routing(data: dict, *, client_id: str = "") -> dict:
     """Apply intelligent routing directives from metadata.airlock.
 
     Called from guardian.py between threat assessment and circuit breaker.
@@ -589,7 +589,7 @@ def apply_routing(data: dict) -> dict:
     # ---- 1. Session affinity ----
     session_ttl = _load_session_ttl()
     if session_id:
-        existing = store.get_session(session_id)
+        existing = store.get_session(session_id, client_id)
         if existing and (time.time() - existing.last_used) < session_ttl:
             # Active session — pin to recorded model
             model = existing.model
@@ -617,7 +617,7 @@ def apply_routing(data: dict) -> dict:
                 reasons.append(reason)
 
             # Pin the resolved model
-            store.set_session(session_id, model)
+            store.set_session(session_id, model, client_id)
             reasons.append(f"session_new({model})")
     else:
         # No session — apply directives in order
@@ -665,8 +665,6 @@ def apply_routing(data: dict) -> dict:
                 "reasons": reasons,
             }
         )
-        if session_id:
-            routing_meta["session_id"] = session_id
         if cost_tier:
             routing_meta["cost_tier"] = cost_tier
 

@@ -31,7 +31,9 @@ Airlock sits between your developers and LLM providers, giving you visibility an
 |---|---|
 | **Unified access** | Single OpenAI-compatible endpoint for all providers |
 | **Logging** | Every request/response logged as structured JSONL |
-| **PII stripping** | Microsoft Presidio detects and redacts configured entity types (default: credit cards, SSNs, emails, phone numbers); each redaction is recorded in the mutation ledger |
+| **PII stripping** | Microsoft Presidio redacts configured entity types. The shipped pattern recognizers (cards, SSNs, emails, phones, bank numbers, IBANs) run without spaCy NER; configured semantic entities such as `PERSON` use spaCy. |
+| **PII-safe tool calls** | Opaque, bounded reverse maps can rehydrate only non-streaming tool-call arguments; per-tool egress policy starts in observe mode and can be promoted to enforce. |
+| **Operational storage** | Optional FathomDB search/analysis store with authenticated per-client erasure; JSONL retention remains a separate obligation. |
 | **Keyword blocking** | Custom blocklist prevents restricted project names or terms from leaking |
 | **Budget control** | Per-provider daily spend caps — near-limit warning, proactive reroute away from a provider approaching its cap, hard block at the limit. Per-tenant keys with per-key budgets are planned, not yet shipped |
 | **Multi-tool support** | Works with Cursor, Claude Code, GitHub Copilot, and any OpenAI-compatible client |
@@ -46,7 +48,7 @@ Airlock sits between your developers and LLM providers, giving you visibility an
 
 ```bash
 pip install airlock-llm
-pip install "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"  # required for PII redaction
+pip install "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"  # only when configuring spaCy/NER entities, e.g. PERSON
 airlock init
 ```
 
@@ -60,8 +62,9 @@ git clone https://github.com/coreyt/airlock && cd airlock
 ./scripts/setup.sh
 ```
 
-This installs Airlock and its dependencies, downloads the spaCy model for PII
-redaction, and runs `airlock init`. Pass `--pip` to use pip instead of uv.
+This installs Airlock and its dependencies, prepares the optional spaCy model for
+semantic PII detection, and runs `airlock init`. The shipped deterministic PII
+recognizers do not require that model. Pass `--pip` to use pip instead of uv.
 
 ### Developer setup
 
@@ -145,6 +148,23 @@ Or press `6` in the TUI for the Advisor screen. The advisor prefers local models
 ```bash
 docker compose up --build
 ```
+
+### Developer Docker topology verification
+
+`make test` is offline and excludes the opt-in Docker topology test. To verify
+the Slice 70 same-host fleet connection against two disposable local Airlock
+containers, run:
+
+```bash
+make test-docker
+```
+
+This requires an accessible Docker daemon and `openssl`. It builds a uniquely
+labelled image from the current checkout, generates short-lived test CAs,
+certificates, capability tokens, configuration, and two loopback-only container
+ports in a temporary directory, and removes only the exact labelled containers
+it created. It does not use provider credentials, contact provider or inference
+endpoints, reuse an ambient image, or publish an image or registry artifact.
 
 ## Documentation and repository map
 

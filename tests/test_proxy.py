@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -70,6 +71,46 @@ class TestFindConfig:
 # main()
 # ---------------------------------------------------------------------------
 class TestMain:
+    def test_main_emits_credential_warnings_before_optional_discovery(
+        self, config_file, monkeypatch
+    ):
+        monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
+        warnings = (object(),)
+        mock_result = MagicMock(returncode=0)
+        with (
+            patch(
+                "airlock.proxy.credential_without_alias_warnings",
+                return_value=warnings,
+            ) as evaluate,
+            patch("airlock.proxy.emit_provider_credential_warnings") as emit,
+            patch("airlock.proxy.subprocess.run", return_value=mock_result),
+            patch("airlock.proxy.fetch_live_provider_models", return_value=[]),
+            pytest.raises(SystemExit),
+        ):
+            main()
+        evaluate.assert_called_once_with(str(config_file), os.getenv)
+        emit.assert_called_once_with(warnings)
+
+    def test_main_hides_credential_validation_failure_detail(
+        self, config_file, monkeypatch, capsys
+    ):
+        monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
+        mock_result = MagicMock(returncode=0)
+        with (
+            patch(
+                "airlock.proxy.credential_without_alias_warnings",
+                side_effect=ValueError("sk-sentinel-secret /tmp/private.yaml"),
+            ),
+            patch("airlock.proxy.subprocess.run", return_value=mock_result),
+            patch("airlock.proxy.fetch_live_provider_models", return_value=[]),
+            pytest.raises(SystemExit),
+        ):
+            main()
+        captured = capsys.readouterr().err
+        assert "provider_credential_validation_unavailable" in captured
+        assert "sk-sentinel-secret" not in captured
+        assert "/tmp/private.yaml" not in captured
+
     def test_main_starts_litellm_on_public_port(self, config_file, monkeypatch):
         """subprocess.run should run LiteLLM directly on the public host:port."""
         monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
@@ -107,6 +148,135 @@ class TestMain:
         mock_run.assert_called_once()
         # Verify check=False is passed
         assert mock_run.call_args[1].get("check") is False
+
+    def test_main_hands_same_runtime_file_to_litellm_child(
+        self, config_file, monkeypatch
+    ):
+        monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
+        mock_result = MagicMock(returncode=0)
+        with (
+            patch("airlock.proxy.subprocess.run", return_value=mock_result) as run,
+            patch("airlock.proxy.fetch_live_provider_models", return_value=[]),
+            pytest.raises(SystemExit),
+        ):
+            main()
+        command = run.call_args.args[0]
+        child_env = run.call_args.kwargs["env"]
+        assert child_env["AIRLOCK_CONFIG"] == command[command.index("--config") + 1]
+
+    def test_directly_included_admin_is_checked_before_external_plaintext_launch(
+        self, tmp_path, monkeypatch
+    ):
+        included = tmp_path / "admin.yaml"
+        included.write_text("admin:\n  enabled: true\n")
+        config = tmp_path / "config.yaml"
+        config.write_text("include: [admin.yaml]\nmodel_list: []\n")
+        monkeypatch.setenv("AIRLOCK_CONFIG", str(config))
+        monkeypatch.setenv("AIRLOCK_HOST", "0.0.0.0")
+        monkeypatch.delenv("AIRLOCK_SSL_CERTFILE", raising=False)
+        monkeypatch.delenv("AIRLOCK_SSL_KEYFILE", raising=False)
+        with pytest.raises(RuntimeError, match="non-loopback"):
+            main()
+
+    def test_all_parent_consumers_receive_the_child_runtime_mapping(
+        self, tmp_path, monkeypatch
+    ):
+        included = tmp_path / "included.yaml"
+        included.write_text(
+            "admin:\n  enabled: false\nmodel_list:\n"
+            "  - model_name: included\n    litellm_params:\n      model: openai/included\n"
+        )
+        config = tmp_path / "config.yaml"
+        config.write_text(
+            "include: [included.yaml]\nmodel_list:\n"
+            "  - model_name: root\n    litellm_params:\n      model: anthropic/root\n"
+        )
+        monkeypatch.setenv("AIRLOCK_CONFIG", str(config))
+        captured: list[dict] = []
+
+        def capture(mapping, *args, **kwargs):
+            captured.append(mapping)
+
+        result = MagicMock(returncode=0)
+        runtime_mappings: list[dict] = []
+
+        def run_child(*args, **kwargs):
+            runtime_mappings.append(
+                yaml.safe_load(Path(kwargs["env"]["AIRLOCK_CONFIG"]).read_text())
+            )
+            return result
+
+        with (
+            patch("airlock.fast.router.set_router_config", capture),
+            patch("airlock.fast.settings.configure_settings", capture),
+            patch("airlock.fast.admission.configure_admission", capture),
+            patch("airlock.fast.state.configure_breaker", capture),
+            patch("airlock.admin.policy.configure_admin", capture),
+            patch(
+                "airlock.guardrails.overrides.configure_guardrail_overrides", capture
+            ),
+            patch("airlock.transparency.configure_transparency", capture),
+            patch("airlock.proxy.subprocess.run", side_effect=run_child),
+            patch("airlock.proxy.fetch_live_provider_models", return_value=[]),
+            pytest.raises(SystemExit),
+        ):
+            main()
+        runtime = runtime_mappings[0]
+        assert len(captured) == 7
+        assert all(mapping == runtime for mapping in captured)
+
+    def test_prelaunch_failure_removes_private_runtime_config(
+        self, config_file, monkeypatch
+    ):
+        import airlock.proxy as proxy_module
+
+        monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
+        generated: list[str] = []
+        real_prepare = proxy_module._prepare_runtime_config
+
+        def capture_prepare(path: str):
+            runtime_path, temporary_path = real_prepare(path)
+            generated.append(runtime_path)
+            return runtime_path, temporary_path
+
+        monkeypatch.setattr(proxy_module, "_prepare_runtime_config", capture_prepare)
+        with patch(
+            "airlock.fast.router.set_router_config",
+            side_effect=RuntimeError("parent configuration failed"),
+        ):
+            with pytest.raises(RuntimeError, match="parent configuration failed"):
+                main()
+        assert generated
+        assert not Path(generated[0]).exists()
+
+    def test_runtime_reread_failure_removes_private_runtime_config(
+        self, config_file, monkeypatch
+    ):
+        import airlock.proxy as proxy_module
+
+        monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
+        generated: list[str] = []
+        real_prepare = proxy_module._prepare_runtime_config
+        real_resolve = proxy_module.resolve_litellm_direct_config
+
+        def capture_prepare(path: str):
+            runtime_path, temporary_path = real_prepare(path)
+            generated.append(runtime_path)
+            return runtime_path, temporary_path
+
+        def fail_runtime_reread(path):
+            if generated and str(path) == generated[0]:
+                raise ValueError("runtime reread failed")
+            return real_resolve(path)
+
+        monkeypatch.setattr(proxy_module, "_prepare_runtime_config", capture_prepare)
+        monkeypatch.setattr(
+            proxy_module, "resolve_litellm_direct_config", fail_runtime_reread
+        )
+        with pytest.raises(ValueError, match="runtime reread failed"):
+            main()
+        assert generated
+        assert not Path(generated[0]).exists()
 
     def test_main_default_host_port(self, config_file, monkeypatch):
         monkeypatch.setenv("AIRLOCK_CONFIG", str(config_file))
@@ -510,12 +680,11 @@ class TestStartupFlags:
 
 
 class TestRuntimeConfigPreparation:
-    def test_prepare_runtime_config_returns_original_when_no_overrides(
+    def test_prepare_runtime_config_always_materializes_canonical_child_file(
         self, tmp_path, monkeypatch
     ):
-        # No model_list -> nothing to inject; with no env overrides the original
-        # config path is returned unchanged. (A model_list always triggers the
-        # unconditional model_info injection, exercised in the injection tests.)
+        # Even without rewrites, the child must consume a private canonical
+        # file so its Admin policy and snapshot cannot diverge from LiteLLM.
         cfg = tmp_path / "config.yaml"
         cfg.write_text("litellm_settings: {}\n")
 
@@ -524,8 +693,9 @@ class TestRuntimeConfigPreparation:
         monkeypatch.delenv("AIRLOCK_BACKGROUND_HEALTH_CHECKS", raising=False)
 
         runtime_path, temp_path = _prepare_runtime_config(str(cfg))
-        assert runtime_path == str(cfg)
-        assert temp_path is None
+        assert runtime_path != str(cfg)
+        assert temp_path == runtime_path
+        assert Path(runtime_path).parent != cfg.parent
 
     def test_prepare_runtime_config_can_strip_mcp_servers_in_off_mode(
         self, tmp_path, monkeypatch
@@ -579,7 +749,7 @@ class TestRuntimeConfigPreparation:
         assert "mcp_servers" not in loaded
         assert loaded["general_settings"]["custom_value"] == "local"
 
-    def test_prepare_runtime_config_uses_writable_temp_and_absolutizes_includes(
+    def test_prepare_runtime_config_uses_writable_temp_and_consumes_includes(
         self, tmp_path, monkeypatch
     ):
         include = tmp_path / "config.local.yaml"
@@ -600,7 +770,7 @@ class TestRuntimeConfigPreparation:
         assert Path(runtime_path).parent != cfg.parent
         with open(runtime_path, encoding="utf-8") as f:
             loaded = yaml.safe_load(f) or {}
-        assert loaded["include"] == [str(include.resolve())]
+        assert "include" not in loaded
 
     def test_prepare_runtime_config_keeps_mcp_servers_in_lazy_mode(
         self, tmp_path, monkeypatch

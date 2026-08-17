@@ -38,7 +38,7 @@ async def test_app_has_bindings(app) -> None:
 
 
 async def test_app_composes_all_panes() -> None:
-    app = AirlockApp()
+    app = AirlockApp(test_harness=True)
     async with app.run_test(size=(120, 40)) as _pilot:
         # Tab bar exists (no sidebar)
         tab_bar = app.query_one("#tab-bar")
@@ -55,7 +55,7 @@ async def test_app_composes_all_panes() -> None:
 
 
 async def test_screen_switching_via_keys() -> None:
-    app = AirlockApp()
+    app = AirlockApp(test_harness=True)
     async with app.run_test(size=(120, 40)) as pilot:
         workspace = app.query_one("#workspace")
 
@@ -76,7 +76,7 @@ async def test_screen_switching_via_keys() -> None:
 
 
 async def test_tab_bar_navigation() -> None:
-    app = AirlockApp()
+    app = AirlockApp(test_harness=True)
     async with app.run_test(size=(120, 40)) as pilot:
         workspace = app.query_one("#workspace")
 
@@ -93,7 +93,7 @@ async def test_tab_bar_navigation() -> None:
 
 
 async def test_overview_has_widgets() -> None:
-    app = AirlockApp()
+    app = AirlockApp(test_harness=True)
     async with app.run_test(size=(120, 40)) as _pilot:
         # Proxy status indicator
         indicator = app.query_one("#ov-proxy-indicator")
@@ -113,7 +113,7 @@ async def test_overview_has_widgets() -> None:
 
 
 async def test_overview_has_start_button() -> None:
-    app = AirlockApp()
+    app = AirlockApp(test_harness=True)
     async with app.run_test(size=(120, 40)) as _pilot:
         btn = app.query_one("#ov-proxy-btn", Button)
         assert btn is not None
@@ -127,7 +127,7 @@ async def test_overview_has_start_button() -> None:
 
 
 async def test_overview_has_console_log() -> None:
-    app = AirlockApp()
+    app = AirlockApp(test_harness=True)
     async with app.run_test(size=(120, 40)) as _pilot:
         from textual.widgets import Collapsible, RichLog
 
@@ -455,6 +455,79 @@ def test_tui_daemon_flag_passed_through() -> None:
     )
 
 
+def test_remote_tui_requires_both_secret_files() -> None:
+    from airlock.cli.main import main
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["tui", "--remote-admin", "--admin-token-file", "/tmp/token"])
+    assert exc_info.value.code == 2
+
+
+def test_remote_tui_uses_isolated_remote_app() -> None:
+    from airlock.cli.main import main
+
+    with mock.patch("airlock.tui.remote_app.run") as remote_run:
+        main(
+            [
+                "tui",
+                "--remote-admin",
+                "--host",
+                "localhost",
+                "--admin-token-file",
+                "/tmp/token",
+                "--admin-ca-file",
+                "/tmp/ca.pem",
+            ]
+        )
+    remote_run.assert_called_once_with(
+        host="localhost", port="4000", token_file="/tmp/token", ca_file="/tmp/ca.pem"
+    )
+
+
+def test_remote_tui_rejects_proxy_start() -> None:
+    from airlock.cli.main import main
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "tui",
+                "--remote-admin",
+                "--start",
+                "--admin-token-file",
+                "/tmp/token",
+                "--admin-ca-file",
+                "/tmp/ca.pem",
+            ]
+        )
+    assert exc_info.value.code == 2
+
+
+def test_fleet_tui_uses_isolated_fleet_app() -> None:
+    from airlock.cli.main import main
+
+    with mock.patch("airlock.tui.fleet_app.run") as fleet_run:
+        main(["tui", "--fleet-inventory", "/secure/fleet.yaml"])
+    fleet_run.assert_called_once_with(inventory_file="/secure/fleet.yaml")
+
+
+def test_fleet_tui_rejects_proxy_ownership_and_remote_flags() -> None:
+    from airlock.cli.main import main
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["tui", "--fleet-inventory", "/secure/fleet.yaml", "--start"])
+    assert exc_info.value.code == 2
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "tui",
+                "--fleet-inventory",
+                "/secure/fleet.yaml",
+                "--remote-admin",
+            ]
+        )
+    assert exc_info.value.code == 2
+
+
 async def test_app_has_proxy_manager() -> None:
     app = AirlockApp(host="127.0.0.1", port="9999")
     from airlock.tui.proxy_manager import ProxyManager
@@ -742,6 +815,49 @@ async def test_config_has_provider_tab() -> None:
         assert app.query_one("#cfg-tab-providers") is not None
 
 
+async def test_config_has_http_only_configured_provider_tab() -> None:
+    app = AirlockApp(test_harness=True)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("4")
+        await pilot.pause()
+        assert app.query_one("#cfg-tab-configured-providers") is not None
+        from airlock.tui.screens.config import ConfigPane
+        from textual.widgets import Static
+
+        pane = app.query_one(ConfigPane)
+        pane._render_provider_configuration(
+            None, "Configured provider state unavailable."
+        )
+        assert "No local configuration fallback" in str(
+            app.query_one("#cfg-provider-config-detail", Static).content
+        )
+        pane._render_provider_configuration(
+            {
+                "source": "startup_config",
+                "loaded_at": "2026-08-16T00:00:00Z",
+                "truncated": {"providers": False, "aliases": False},
+                "providers": [
+                    {
+                        "provider": "openai",
+                        "aliases": [
+                            {
+                                "alias": "reviewed",
+                                "underlying": "openai/gpt-test",
+                                "endpoints": ["chat"],
+                                "credential": {
+                                    "kind": "env_ref",
+                                    "configured": True,
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+            None,
+        )
+        assert app.query_one("#cfg-provider-config-table").row_count == 1
+
+
 async def test_config_has_guardrails_tab() -> None:
     app = AirlockApp()
     async with app.run_test(size=(120, 40)) as pilot:
@@ -959,7 +1075,7 @@ async def test_guards_pause_toggle() -> None:
 async def test_tab_bar_activate() -> None:
     from airlock.tui.widgets.tab_bar import TabBar
 
-    app = AirlockApp()
+    app = AirlockApp(test_harness=True)
     async with app.run_test(size=(120, 40)) as _pilot:
         tab_bar = app.query_one("#tab-bar", TabBar)
         assert tab_bar._active == "overview"
@@ -974,7 +1090,7 @@ async def test_tab_bar_activate() -> None:
 async def test_tab_bar_update_badge() -> None:
     from airlock.tui.widgets.tab_bar import TabBar
 
-    app = AirlockApp()
+    app = AirlockApp(test_harness=True)
     async with app.run_test(size=(120, 40)) as pilot:
         tab_bar = app.query_one("#tab-bar", TabBar)
 

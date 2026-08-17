@@ -1037,3 +1037,29 @@ setting is protecting a running proxy.
    changes accurately without exposing a secret or configuration value in its status.
 4. Existing live controls—enforcement mode, PII/keyword controls, and MCP tool
    allow/block lists—continue to update the runtime environment immediately.
+
+---
+
+## UN-32: Safe Benchmarks and Explainable Operator State
+
+**As a** benchmark operator or platform operator,
+**I need** Airlock to make configured low-cost chat/embedding workloads and
+optional providers usable without exposing content or credentials, and to explain
+routing, affinity, priority, and telemetry state honestly,
+**so that** I can evaluate and operate the gateway without turning diagnostics
+into a data-leak or mistaking unavailable state for a healthy system.
+
+### Acceptance Criteria
+
+1. Benchmark aliases and optional providers require explicit configuration; an
+   environment key or discovered catalog never authorizes a model by itself.
+2. Request/response logging can be configured to redact content, with a
+   sentinel-proof profile and a liveness endpoint that does not invoke a model.
+3. Operator views are bounded, source-labelled, and state unavailable or stale
+   data visibly. They never display session IDs, key material, exporter
+   credentials, raw endpoints, or raw provider/exporter errors.
+4. A client session pin may be broken only through authenticated, audited
+   control-plane action; the TUI cannot directly mutate proxy state.
+5. TUI verification uses production widgets while keeping background lifecycle
+   work in named normal-mode tests rather than silently removing it from product
+   behavior.

@@ -295,7 +295,10 @@ An LLM-powered operational assistant that lets administrators query
 Airlock's state in natural language.  The advisor runs a bounded
 tool-calling loop (max 5 iterations) against the proxy's own
 `/v1/chat/completions` endpoint, using tools that read from the
-StateStore, JSONL logs, config, and analysis pipeline.
+StateStore, JSONL logs, config, and analysis pipeline. When the operator
+selects FathomDB operational reads, the separate TUI/CLI process obtains those
+reads from the proxy-owned, loopback-only admin bridge rather than opening the
+embedded database itself.
 
 ```
 airlock/advisor/
@@ -316,6 +319,9 @@ airlock/advisor/
 - **No new network listener:** The advisor runs in-process (TUI worker
   thread or CLI process).  It calls the proxy as a client, not as an
   internal endpoint, avoiding circular dependencies.
+- **Proxy-owned embedded reads:** FathomDB remains owned by the proxy process;
+  the Advisor reaches selected FathomDB history through the loopback admin
+  bridge and visibly falls back to bounded JSONL if that bridge is unavailable.
 - **Tool-based context assembly:** Rather than dumping all data into the
   prompt, the LLM selectively requests data via function calling.  This
   keeps token usage bounded and works with smaller local models.
@@ -444,6 +450,19 @@ victim of UN-10), `POST /airlock/admin/providers/{p}/quarantine` (loopback-only)
 
 **Design documents:** `dev/notes/design-admin-api-capability-auth.md`,
 `dev/notes/design-resilience-and-admin-overview.md`.
+
+#### Proxy-owned FathomDB operational reads
+
+FathomDB is an optional, embedded request-analysis store. The proxy is its sole
+process owner. The Textual TUI and Advisor worker are separate processes, so
+they MUST NOT call `datastore.get_engine()` against the proxy's database file.
+When `AIRLOCK_OPERATIONAL_READ_BACKEND=fathomdb` is explicitly selected, they
+obtain bounded history, error summaries, and search results from loopback-only
+`/airlock/admin/operational/*` views. Those proxy views retain source,
+truncation, and degradation fields; an unavailable bridge or datastore visibly
+falls back to bounded JSONL. Default operational reads remain JSONL even if the
+FathomDB write path is enabled. FathomDB erasure remains limited to that store;
+JSONL retention/deletion is a separate obligation.
 
 ### 3.7 Transparency Layer (`airlock/transparency.py`)
 
@@ -637,15 +656,15 @@ User-facing detail: [`docs/guide/mcp-servers.md`]. Constraint reference for agen
 │  │    - ./logs (writable bind)        │  │
 │  └────────────────────────────────────┘  │
 │                                          │
-│  Health: GET /health/liveliness (30s)    │
+│  Health: GET /livez (30s)                │
 │  Restart: unless-stopped                 │
 └─────────────────────────────────────────┘
 ```
 
-> **Liveness probes use `GET /health/liveliness`, never `GET /health`.** `/health`
-> fires live completions to every model when `background_health_checks` is off;
-> `/health/liveliness` is unprotected and makes no model calls (repo hard
-> constraint).
+> **Liveness probes use `GET /livez`, never `GET /health`.** `/livez` is the
+> canonical liveness route and makes no model calls. Use `/readyz` for traffic
+> readiness and `/healthz` for an aggregate status view. The LiteLLM
+> `/health/liveliness` alias remains for compatibility only.
 
 ### 5.2 Local Development Deployment
 
@@ -654,6 +673,8 @@ User-facing detail: [`docs/guide/mcp-servers.md`]. Constraint reference for agen
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
+# Required only when configured PII entities need named-entity recognition,
+# such as PERSON; the shipped pattern recognizers use Presidio's no-NLP engine.
 python -m spacy download en_core_web_lg
 airlock  # or: python -m airlock.proxy
 ```

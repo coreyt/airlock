@@ -176,6 +176,10 @@ class ClientState:
     gemini_outcomes: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     threat_score: float = 0.0
     backoff_until: float = 0.0  # unix ts; 0 → no backoff
+    priority_score: float | None = None
+    priority_boost: bool = False
+    priority_reasons: tuple[str, ...] = ()
+    priority_observed_at: float = 0.0
 
     # -- writers --------------------------------------------------------
 
@@ -191,6 +195,15 @@ class ClientState:
 
     def record_gemini_outcome(self, timestamp: float, output_shape: str) -> None:
         self.gemini_outcomes.append((timestamp, output_shape))
+
+    def record_priority(
+        self, score: float, boost: bool, reasons: list[str], timestamp: float
+    ) -> None:
+        """Keep only bounded, non-content QoS evidence for operator reads."""
+        self.priority_score = round(float(score), 3)
+        self.priority_boost = bool(boost)
+        self.priority_reasons = tuple(str(reason)[:120] for reason in reasons[:4])
+        self.priority_observed_at = timestamp
 
     # -- readers --------------------------------------------------------
 
@@ -245,6 +258,10 @@ class SessionRecord:
 
     session_id: str
     model: str
+    # Session identifiers are client supplied and may be sensitive.  The live
+    # admin view therefore groups records by this authenticated client owner,
+    # never returns the identifier itself.
+    client_id: str = ""
     created_at: float = 0.0
     last_used: float = 0.0
 
@@ -565,7 +582,7 @@ class StateStore:
         self._lock = threading.RLock()
         self._clients: dict[str, ClientState] = {}
         self._models: dict[str, ModelState] = {}
-        self._sessions: dict[str, SessionRecord] = {}
+        self._sessions: dict[tuple[str, str], SessionRecord] = {}
         self._provider_spend: dict[str, ProviderSpend] = {}
         # Single seam-backed accumulator shared by all provider handles; shares the
         # store lock so compound read-modify-write stays atomic (FIX-3).
@@ -636,32 +653,86 @@ class StateStore:
                 client.backoff_until = now + backoff_seconds
             return combined, blocked, backoff_seconds
 
+    def record_client_priority(
+        self, client_id: str, score: float, boost: bool, reasons: list[str], now: float
+    ) -> None:
+        with self._lock:
+            self.get_client(client_id).record_priority(score, boost, reasons, now)
+
     def all_models(self) -> dict[str, ModelState]:
         with self._lock:
             return dict(self._models)
 
     # -- Session affinity --------------------------------------------------
 
-    def get_session(self, session_id: str) -> SessionRecord | None:
+    def get_session(self, session_id: str, client_id: str = "") -> SessionRecord | None:
         with self._lock:
-            return self._sessions.get(session_id)
+            return self._sessions.get((normalize_client_id(client_id), session_id))
 
-    def set_session(self, session_id: str, model: str) -> SessionRecord:
+    def set_session(
+        self, session_id: str, model: str, client_id: str = ""
+    ) -> SessionRecord:
         now = time.time()
+        client_id = normalize_client_id(client_id)
+        key = (client_id, session_id)
         with self._lock:
-            if session_id in self._sessions:
-                rec = self._sessions[session_id]
+            if key in self._sessions:
+                rec = self._sessions[key]
                 rec.model = model
                 rec.last_used = now
             else:
                 rec = SessionRecord(
                     session_id=session_id,
                     model=model,
+                    client_id=client_id,
                     created_at=now,
                     last_used=now,
                 )
-                self._sessions[session_id] = rec
+                self._sessions[key] = rec
             return rec
+
+    def active_session_snapshot(
+        self, *, ttl_seconds: int, limit: int = 100, now: float | None = None
+    ) -> list[dict[str, object]]:
+        """Return a bounded, identifier-free snapshot of live affinity pins."""
+        now = time.time() if now is None else now
+        with self._lock:
+            active = [
+                rec
+                for rec in self._sessions.values()
+                if now - rec.last_used < ttl_seconds
+            ]
+        active.sort(key=lambda rec: rec.last_used, reverse=True)
+        return [
+            {
+                "client_id": rec.client_id,
+                "model": rec.model,
+                "age_seconds": round(max(0.0, now - rec.created_at), 1),
+                "ttl_remaining_seconds": round(
+                    max(0.0, ttl_seconds - (now - rec.last_used)), 1
+                ),
+            }
+            for rec in active[:limit]
+        ]
+
+    def clear_client_sessions(
+        self, client_id: str, *, actor: str = "", now: float | None = None
+    ) -> dict:
+        """Break every live session pin owned by a client and audit the action."""
+        now = time.time() if now is None else now
+        client_id = normalize_client_id(client_id)
+        with self._lock:
+            keys = [key for key in self._sessions if key[0] == client_id]
+            for key in keys:
+                del self._sessions[key]
+        return {
+            "record_type": "admin_action",
+            "timestamp": self._admin_iso(now),
+            "op": "clear_client_sessions",
+            "actor": actor,
+            "client_id": client_id,
+            "cleared_sessions": len(keys),
+        }
 
     # -- Provider spend ----------------------------------------------------
 

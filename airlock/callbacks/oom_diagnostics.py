@@ -29,7 +29,10 @@ from airlock.callbacks.memory import collect_memory_snapshot
 
 def _enabled() -> bool:
     return os.getenv("AIRLOCK_OOM_DIAGNOSTICS", "").strip().lower() in {
-        "1", "true", "yes", "on"
+        "1",
+        "true",
+        "yes",
+        "on",
     }
 
 
@@ -40,8 +43,13 @@ def _tracemalloc_enabled() -> bool:
     deliberately on for short diagnostic runs, while a long reproduction can
     turn it off and attach a short native profile only at high water.
     """
-    return os.getenv("AIRLOCK_OOM_DIAGNOSTICS_TRACEMALLOC", "1").strip().lower() not in {
-        "0", "false", "no", "off",
+    return os.getenv(
+        "AIRLOCK_OOM_DIAGNOSTICS_TRACEMALLOC", "1"
+    ).strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
     }
 
 
@@ -87,8 +95,16 @@ class _Mallinfo2(ctypes.Structure):
     _fields_ = [
         (name, ctypes.c_size_t)
         for name in (
-            "arena", "ordblks", "smblks", "hblks", "hblkhd", "usmblks",
-            "fsmblks", "uordblks", "fordblks", "keepcost",
+            "arena",
+            "ordblks",
+            "smblks",
+            "hblks",
+            "hblkhd",
+            "usmblks",
+            "fsmblks",
+            "uordblks",
+            "fordblks",
+            "keepcost",
         )
     ]
 
@@ -117,7 +133,8 @@ def _object_type_counts() -> dict[str, Any]:
     """Return type names/counts only; never object values or reprs."""
     try:
         counts = Counter(
-            f"{type(obj).__module__}.{type(obj).__qualname__}" for obj in gc.get_objects()
+            f"{type(obj).__module__}.{type(obj).__qualname__}"
+            for obj in gc.get_objects()
         )
     except Exception:
         return {}
@@ -166,7 +183,9 @@ class OOMDiagnostics:
         with self._lock:
             if self._started:
                 return
-            directory = Path(os.getenv("AIRLOCK_OOM_DIAGNOSTICS_DIR", "/tmp/airlock-oom-diagnostics"))
+            directory = Path(
+                os.getenv("AIRLOCK_OOM_DIAGNOSTICS_DIR", "/tmp/airlock-oom-diagnostics")
+            )
             directory.mkdir(mode=0o700, parents=True, exist_ok=True)
             self._path = directory / f"litellm-{os.getpid()}.jsonl"
             if _tracemalloc_enabled():
@@ -179,13 +198,19 @@ class OOMDiagnostics:
         self.snapshot("diagnostics_started")
 
     def _append(self, record: dict[str, Any]) -> None:
-        if self._path is None or self._records >= _positive_int("AIRLOCK_OOM_DIAGNOSTICS_MAX_RECORDS", 6000):
+        if self._path is None or self._records >= _positive_int(
+            "AIRLOCK_OOM_DIAGNOSTICS_MAX_RECORDS", 6000
+        ):
             return
-        line = (json.dumps(record, separators=(",", ":"), sort_keys=True) + "\n").encode()
+        line = (
+            json.dumps(record, separators=(",", ":"), sort_keys=True) + "\n"
+        ).encode()
         # A single O_APPEND write plus this process lock prevents interleaving.
         try:
             with self._lock:
-                if self._records >= _positive_int("AIRLOCK_OOM_DIAGNOSTICS_MAX_RECORDS", 6000):
+                if self._records >= _positive_int(
+                    "AIRLOCK_OOM_DIAGNOSTICS_MAX_RECORDS", 6000
+                ):
                     return
                 fd = os.open(self._path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
                 try:
@@ -200,7 +225,14 @@ class OOMDiagnostics:
         except OSError:
             pass
 
-    def snapshot(self, phase: str, *, sequence: int | None = None, outcome: str | None = None, elapsed_ms: int | None = None) -> None:
+    def snapshot(
+        self,
+        phase: str,
+        *,
+        sequence: int | None = None,
+        outcome: str | None = None,
+        elapsed_ms: int | None = None,
+    ) -> None:
         if not _enabled():
             return
         self._start()
@@ -216,27 +248,41 @@ class OOMDiagnostics:
         )
         with self._lock:
             in_flight = self._in_flight
-        self._append({
-            "ts_monotonic_ns": time.monotonic_ns(), "phase": phase,
-            "sequence": sequence, "outcome": outcome, "elapsed_ms": elapsed_ms,
-            "in_flight": in_flight,
-            "memory": {
-                "rss": memory.process_rss_bytes, "rss_peak": memory.process_rss_peak_bytes,
-                "cgroup_current": memory.cgroup_current_bytes, "cgroup_peak": memory.cgroup_peak_bytes,
-                "cgroup_high": memory.cgroup_high_bytes, "cgroup_max": memory.cgroup_max_bytes,
-                "events": memory.cgroup_events, "smaps": smaps, "pressure": _memory_pressure(),
-            },
-            "allocator": _mallinfo(), "tracemalloc": {"current": trace_current, "peak": trace_peak},
-            "process": {"threads": _count_entries("/proc/self/task"), "fds": _count_entries("/proc/self/fd")},
-            # gc.get_objects() walks the full Python heap.  It is useful at
-            # periodic/high-water checkpoints but would itself perturb a
-            # thousands-request faithful replay if performed three times per
-            # request.
-            "objects": _object_type_counts()
-            if phase == "periodic" or phase.startswith("signal_")
-            else {},
-            "transport": _transport_counts(),
-        })
+        self._append(
+            {
+                "ts_monotonic_ns": time.monotonic_ns(),
+                "phase": phase,
+                "sequence": sequence,
+                "outcome": outcome,
+                "elapsed_ms": elapsed_ms,
+                "in_flight": in_flight,
+                "memory": {
+                    "rss": memory.process_rss_bytes,
+                    "rss_peak": memory.process_rss_peak_bytes,
+                    "cgroup_current": memory.cgroup_current_bytes,
+                    "cgroup_peak": memory.cgroup_peak_bytes,
+                    "cgroup_high": memory.cgroup_high_bytes,
+                    "cgroup_max": memory.cgroup_max_bytes,
+                    "events": memory.cgroup_events,
+                    "smaps": smaps,
+                    "pressure": _memory_pressure(),
+                },
+                "allocator": _mallinfo(),
+                "tracemalloc": {"current": trace_current, "peak": trace_peak},
+                "process": {
+                    "threads": _count_entries("/proc/self/task"),
+                    "fds": _count_entries("/proc/self/fd"),
+                },
+                # gc.get_objects() walks the full Python heap.  It is useful at
+                # periodic/high-water checkpoints but would itself perturb a
+                # thousands-request faithful replay if performed three times per
+                # request.
+                "objects": _object_type_counts()
+                if phase == "periodic" or phase.startswith("signal_")
+                else {},
+                "transport": _transport_counts(),
+            }
+        )
 
     def pre_call(self, data: dict) -> None:
         if not _enabled():
@@ -258,8 +304,15 @@ class OOMDiagnostics:
         if not _enabled():
             return
         metadata = data.get("metadata", {}) if isinstance(data, dict) else {}
-        sequence = metadata.get("airlock_oom_diag_sequence") if isinstance(metadata, dict) else None
-        self.snapshot("provider_response", sequence=sequence if isinstance(sequence, int) else None)
+        sequence = (
+            metadata.get("airlock_oom_diag_sequence")
+            if isinstance(metadata, dict)
+            else None
+        )
+        self.snapshot(
+            "provider_response",
+            sequence=sequence if isinstance(sequence, int) else None,
+        )
 
     def record_event(self, event: Any) -> None:
         if not _enabled():
@@ -269,10 +322,19 @@ class OOMDiagnostics:
         started = metadata.get("airlock_oom_diag_started_ns")
         if not isinstance(sequence, int):
             return
-        elapsed_ms = (time.monotonic_ns() - started) // 1_000_000 if isinstance(started, int) else None
+        elapsed_ms = (
+            (time.monotonic_ns() - started) // 1_000_000
+            if isinstance(started, int)
+            else None
+        )
         with self._lock:
             self._in_flight = max(0, self._in_flight - 1)
-        self.snapshot("callback_complete", sequence=sequence, outcome="success" if getattr(event, "success", False) else "failure", elapsed_ms=elapsed_ms)
+        self.snapshot(
+            "callback_complete",
+            sequence=sequence,
+            outcome="success" if getattr(event, "success", False) else "failure",
+            elapsed_ms=elapsed_ms,
+        )
 
     def _signal_usr1(self, _signum: int, _frame: Any) -> None:
         self._signal_snapshot("signal_usr1", trim=False)
@@ -280,15 +342,35 @@ class OOMDiagnostics:
     def _signal_usr2(self, _signum: int, _frame: Any) -> None:
         self._signal_snapshot("signal_usr2", trim=True)
 
+    def _record_inflight_trim_skip(self, phase: str, in_flight: int) -> None:
+        """Record why a trim was skipped without perturbing the live workload.
+
+        A full signal snapshot enumerates the Python heap.  That work is
+        specifically unhelpful while requests are in flight, and can hold the
+        signal gate long enough to make a second operator signal look stuck.
+        Preserve the bounded audit event while deliberately omitting sampled
+        process details.
+        """
+        self._append(
+            {
+                "ts_monotonic_ns": time.monotonic_ns(),
+                "phase": f"{phase}_skipped_in_flight",
+                "sequence": None,
+                "in_flight": in_flight,
+                "trim": {"attempted": False, "reason": "requests_in_flight"},
+            }
+        )
+
     def _signal_snapshot(self, phase: str, *, trim: bool) -> None:
         if not _enabled() or not self._signal_lock.acquire(blocking=False):
             return
+
         def worker() -> None:
             try:
                 with self._lock:
                     in_flight = self._in_flight
                 if trim and in_flight:
-                    self.snapshot(f"{phase}_skipped_in_flight")
+                    self._record_inflight_trim_skip(phase, in_flight)
                     return
                 self.snapshot(f"{phase}_before")
                 if trim:
@@ -300,7 +382,10 @@ class OOMDiagnostics:
                     self.snapshot(f"{phase}_after_gc")
             finally:
                 self._signal_lock.release()
-        threading.Thread(target=worker, daemon=True, name="airlock-oom-snapshot").start()
+
+        threading.Thread(
+            target=worker, daemon=True, name="airlock-oom-snapshot"
+        ).start()
 
 
 def _count_entries(path: str) -> int | None:
@@ -317,12 +402,22 @@ class AirlockOOMDiagnosticsGuard(CustomGuardrail):
     """No-op guardrail unless diagnostics are explicitly enabled for a repro."""
 
     def __init__(self, **kwargs: Any) -> None:
-        super().__init__(supported_event_hooks=[GuardrailEventHooks.pre_call, GuardrailEventHooks.post_call], **kwargs)
+        super().__init__(
+            supported_event_hooks=[
+                GuardrailEventHooks.pre_call,
+                GuardrailEventHooks.post_call,
+            ],
+            **kwargs,
+        )
 
-    async def async_pre_call_hook(self, user_api_key_dict: Any, cache: DualCache, data: dict, call_type: str) -> dict:  # noqa: ARG002
+    async def async_pre_call_hook(
+        self, user_api_key_dict: Any, cache: DualCache, data: dict, call_type: str
+    ) -> dict:  # noqa: ARG002
         oom_diagnostics.pre_call(data)
         return data
 
-    async def async_post_call_success_hook(self, data: dict, user_api_key_dict: Any, response: Any) -> Any:  # noqa: ARG002
+    async def async_post_call_success_hook(
+        self, data: dict, user_api_key_dict: Any, response: Any
+    ) -> Any:  # noqa: ARG002
         oom_diagnostics.post_call(data)
         return response

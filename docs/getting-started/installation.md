@@ -4,7 +4,7 @@
 
 ```bash
 pip install airlock-llm
-pip install "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"  # required for PII redaction
+pip install "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"  # only for spaCy/NER PII entities, e.g. PERSON
 airlock init
 ```
 
@@ -17,7 +17,9 @@ git clone https://github.com/coreyt/airlock && cd airlock
 ./scripts/setup.sh
 ```
 
-This installs Airlock and its dependencies, downloads the spaCy model for PII redaction, and runs `airlock init`. Pass `--pip` to use pip instead of uv.
+This installs Airlock and its dependencies, prepares the optional spaCy model
+for semantic PII detection, and runs `airlock init`. The shipped deterministic
+PII recognizers do not need that model. Pass `--pip` to use pip instead of uv.
 
 ## Developer setup
 

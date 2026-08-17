@@ -20,9 +20,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from airlock.capability import capability_record
+from airlock.litellm_config import resolve_litellm_direct_config
 from airlock.litellm_adapter import install_asgi_middleware, resolve_proxy_app
 
 try:  # FastAPI is always present at runtime; tolerate its absence defensively.
@@ -53,9 +52,8 @@ def _build_capability_map() -> dict[str, dict]:
         return {}
 
     try:
-        with open(path) as f:
-            cfg = yaml.safe_load(f)
-    except (OSError, yaml.YAMLError) as exc:
+        cfg = resolve_litellm_direct_config(path)
+    except ValueError as exc:
         logger.warning("Failed to load config for models seam: %s", exc)
         return {}
 

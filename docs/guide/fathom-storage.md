@@ -1,10 +1,41 @@
 # Fathom Storage
 
 Airlock can optionally write a compact operational record for each logical
-request into FathomDB. This page describes the intended data model, what is
-stored as first-class fields, what belongs in the nested payload JSON, what is
-computed at write time, and what is expected to be derived later from
-projections or summary tables.
+request into FathomDB. This page distinguishes the shipped operator contract
+from the longer-term data-model direction.
+
+## Shipped behavior (0.5.12)
+
+Enable the FathomDB engine with:
+
+```bash
+AIRLOCK_ENABLE_FATHOMDB=1
+```
+
+To record logical requests into that engine, also enable the recorder-fed
+logger:
+
+```bash
+AIRLOCK_ENABLE_FATHOM_LOGGER=1
+```
+
+Airlock opens `airlock-fathom.db` lazily under `AIRLOCK_STATE_DIR`. The engine
+is PID-bound and thread-safe inside one proxy process; do not run multiple
+live processes against the same database path. The former FathomDB 0.3.x
+`logs/airlock.db` path is not migrated or opened by Airlock.
+
+The optional store supports bounded operational search/analysis and audited
+per-client erasure. Erasure is performed by the running proxy, is loopback
+only, and covers FathomDB only — it does not delete JSONL records. See
+[Operations → FathomDB](../operations.md#fathomdb) and [Admin API](admin-api.md#erase-one-clients-fathomdb-records).
+
+## Data-model direction
+
+The sections below describe the intended data model: what is stored as
+first-class fields, what belongs in nested payload JSON, what is computed at
+write time, and what is expected to be derived later from projections or
+summary tables. They are not a promise that every listed field or control is
+enabled in every deployment.
 
 ## Overview
 

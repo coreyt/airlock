@@ -245,13 +245,19 @@ def _expects_batch(entry: dict) -> bool:
     return False
 
 
+def _expected_endpoints(entry: dict) -> list[str]:
+    if entry.get("airlock_embeddings"):
+        return ["embeddings"]
+    return ["chat", "batch"] if _expects_batch(entry) else ["chat"]
+
+
 class TestCapabilityWiringConsistency:
     def test_no_entry_over_or_under_claims_batch(self, model_list: list[dict]):
         # Assert the FULL endpoints list for every entry — an entry returning
         # extra/garbage endpoints (e.g. ["chat","embeddings"]) must NOT pass.
         mismatches = []
         for entry in model_list:
-            expected = ["chat", "batch"] if _expects_batch(entry) else ["chat"]
+            expected = _expected_endpoints(entry)
             actual = endpoints_for(entry)
             if actual != expected:
                 mismatches.append((entry.get("model_name"), actual, expected))

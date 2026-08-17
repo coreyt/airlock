@@ -60,13 +60,17 @@ def airlock_provider_for(entry: dict) -> str | None:
 def endpoints_for(entry: dict) -> list[str]:
     """Return the supported endpoints for a ``model_list`` entry.
 
-    Always includes ``"chat"``. Appends ``"batch"`` iff the entry carries a
-    truthy ``airlock_batch`` marker OR it is a ``vertex_ai/`` model with a
+    An ``airlock_embeddings: true`` entry is embedding-only. All other entries
+    include ``"chat"`` and append ``"batch"`` iff the entry carries a truthy
+    ``airlock_batch`` marker OR it is a ``vertex_ai/`` model with a
     *regional* ``vertex_location`` (set and not ``global``). A bare ``vertex_ai/``
     prefix is NOT sufficient — vertex batch is region-gated, and the current
     entries use ``vertex_location: global`` (sync/chat-only). This is the
     anti-overclaim rule; do not weaken it.
     """
+    if entry.get("airlock_embeddings"):
+        return ["embeddings"]
+
     endpoints = ["chat"]
 
     if entry.get("airlock_batch"):

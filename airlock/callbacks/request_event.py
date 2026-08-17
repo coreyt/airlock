@@ -34,6 +34,7 @@ from airlock.callbacks.enterprise_logger import (
 )
 from airlock.fast.router import infer_provider
 from airlock.metadata_policy import SECRET_METADATA_KEYS
+from airlock.provider_errors import summarize_provider_error
 from airlock.gemini_interface import (
     build_gemini_response_headers,
     classify_gemini_response,
@@ -132,8 +133,14 @@ def build_request_event(
     bare_exception_error = None
     if not success:
         error, error_type, failure_category = _normalize_failure(kwargs, response_obj)
-        # s3/sql project the raw exception string verbatim (incl. str(None) == "None")
-        bare_exception_error = str(kwargs.get("exception"))
+        # Provider errors are bounded before any projection sees them.  Preserve the
+        # historical raw local-error form (including str(None) == "None").
+        provider_summary = summarize_provider_error(kwargs.get("exception"))
+        bare_exception_error = (
+            provider_summary.message()
+            if provider_summary is not None
+            else str(kwargs.get("exception"))
+        )
 
     # Token usage — same getattr-with-0 sourcing as the enterprise builder.
     usage: dict[str, int] = {}

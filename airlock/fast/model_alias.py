@@ -22,7 +22,11 @@ from pathlib import Path
 
 import yaml  # type: ignore[import-untyped]
 
-from airlock.capability import airlock_provider_for, normalize_provider_token
+from airlock.capability import (
+    airlock_provider_for,
+    endpoints_for,
+    normalize_provider_token,
+)
 
 logger = logging.getLogger("airlock.fast.model_alias")
 
@@ -246,6 +250,8 @@ class ModelAliasTable:
         # variant keys dropped in pass 2 because ≥2 entries claimed them — these
         # must NOT leak into the fuzzy slow path (silent cross-provider repoint).
         self._ambiguous_variants: set[str] = set()
+        self._explicit_aliases: dict[str, str] = {}
+        self._endpoints_by_alias: dict[str, frozenset[str]] = {}
         self._loaded = False
 
     def load_from_config(self, config_path: str | Path | None = None) -> None:
@@ -260,6 +266,8 @@ class ModelAliasTable:
         self._provider_body_alias = {}
         self._body_providers = {}
         self._ambiguous_variants = set()
+        self._explicit_aliases = {}
+        self._endpoints_by_alias = {}
 
         if config_path is None:
             config_path = os.getenv("AIRLOCK_CONFIG", "config.yaml")
@@ -319,6 +327,8 @@ class ModelAliasTable:
 
             alias_lower = alias.lower()
             self._exact[alias_lower] = alias
+            self._explicit_aliases[alias_lower] = alias
+            self._endpoints_by_alias[alias_lower] = frozenset(endpoints_for(item))
             explicit_keys.add(alias_lower)
 
             # Provider-aware index: served-by token (NOT the alias prefix) keyed
@@ -355,6 +365,20 @@ class ModelAliasTable:
 
         self._loaded = True
         self._log_table()
+
+    def configured_alias(self, model_name: str) -> str | None:
+        """Return an explicitly configured alias, never a fuzzy/variant match."""
+        if not self._loaded:
+            self.load_from_config()
+        if not isinstance(model_name, str):
+            return None
+        return self._explicit_aliases.get(model_name.lower())
+
+    def supports_endpoint(self, alias: str, endpoint: str) -> bool:
+        """Return whether an explicit alias is configured for *endpoint*."""
+        if not self._loaded:
+            self.load_from_config()
+        return endpoint in self._endpoints_by_alias.get(alias.lower(), frozenset())
 
     def _log_table(self) -> None:
         """Log the routing table at INFO for startup visibility."""

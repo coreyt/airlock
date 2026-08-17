@@ -22,11 +22,12 @@ observability, and operational controls.
 | Capability | Start here |
 | --- | --- |
 | Provider routing and model aliases | [Routing](guide/routing.md) |
-| PII, keyword, semantic, and response controls | [Guardrails](guide/guardrails.md) |
+| PII redaction, safe tool hydration/egress, keyword, semantic, and response controls | [Guardrails](guide/guardrails.md) |
 | Provider protection and admission | [Rate limiting](guide/rate-limiting.md) |
 | Logs, metrics, tracing, and response transparency | [Observability](guide/observability.md) |
 | Batch workloads | [Batch processing](guide/batch.md) |
 | MCP tools | [MCP servers](guide/mcp-servers.md) |
+| Optional FathomDB search/analysis and per-client erasure | [Fathom storage](guide/fathom-storage.md) and [Operations](operations.md#fathomdb) |
 
 ## Continue reading
 

@@ -164,6 +164,21 @@ def is_mcp_call(data: dict, call_type: str = "") -> bool:
     return "mcp_tool_name" in data
 
 
+_EMBEDDING_CALL_TYPES = frozenset({"embedding", "aembedding"})
+
+
+def is_embedding_call(data: dict, call_type: str = "") -> bool:
+    """Return whether this is a LiteLLM embedding call.
+
+    ``call_type`` is authoritative when provided. The input-shaped fallback is
+    deliberately limited to requests without chat messages, so a client cannot
+    label a chat request as embeddings merely by adding an ``input`` field.
+    """
+    if call_type:
+        return call_type in _EMBEDDING_CALL_TYPES
+    return "input" in data and "messages" not in data
+
+
 # LiteLLM call_types for batch/file routes. These carry no top-level model and
 # no messages, so model-specific guardrail logic must be skipped for them.
 _BATCH_CALL_TYPES = frozenset(
@@ -219,6 +234,8 @@ _TEXT_CACHE_KEY = "_airlock_text"
 def _compute_text(data: dict, call_type: str) -> str:
     if is_mcp_call(data, call_type):
         return extract_text_from_mcp(data)
+    if is_embedding_call(data, call_type):
+        return "\n".join(_collect_strings(data.get("input")))
     return extract_text_from_messages(data.get("messages", []))
 
 

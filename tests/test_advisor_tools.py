@@ -182,9 +182,10 @@ class FakeNodeRecord:
 
 
 def test_get_recent_errors_uses_fathomdb(monkeypatch, log_dir):
-    """If airlock.datastore.engine is set, uses RequestLog rows from FathomDB."""
+    """An explicit FathomDB selection uses bounded RequestLog rows."""
     import airlock.datastore
 
+    monkeypatch.setenv("AIRLOCK_OPERATIONAL_READ_BACKEND", "fathomdb")
     monkeypatch.setattr(airlock.datastore, "get_engine", lambda: "dummy_engine")
 
     mock_called = False
@@ -198,7 +199,9 @@ def test_get_recent_errors_uses_fathomdb(monkeypatch, log_dir):
                     "model": "gpt-4o",
                     "error_type": "RateLimitError",
                     "airlock_client": "c1",
-                    "timestamp": "2025-01-01T10:01:00Z",
+                    "timestamp": datetime.datetime.now(
+                        datetime.timezone.utc
+                    ).isoformat(),
                     "error": "boom",
                     "success": False,
                 }
@@ -206,34 +209,98 @@ def test_get_recent_errors_uses_fathomdb(monkeypatch, log_dir):
         ]
 
     monkeypatch.setattr(
-        "airlock.advisor.tools.get_request_logs", mock_get_request_logs, raising=False
+        "airlock.operational_reads.get_request_logs", mock_get_request_logs
     )
 
     result = get_recent_errors(str(log_dir), days=2)
     assert mock_called
+    assert result["source"] == "fathomdb"
     assert result["total_errors"] == 1
     assert result["by_model"]["gpt-4o"] == 1
+
+
+def test_get_recent_errors_uses_proxy_owned_bridge_when_available(monkeypatch, log_dir):
+    monkeypatch.setenv("AIRLOCK_OPERATIONAL_READ_BACKEND", "fathomdb")
+    monkeypatch.setattr(
+        "airlock.tui.admin_client.operational_view",
+        lambda host, port, kind, body: {
+            "source": "fathomdb",
+            "total_errors": 1,
+            "by_model": {"gpt-4o": 1},
+        },
+    )
+
+    result = get_recent_errors(
+        str(log_dir), days=2, proxy_host="localhost", proxy_port="4000"
+    )
+
+    assert result["source"] == "fathomdb"
+    assert result["total_errors"] == 1
+
+
+def test_failed_advisor_bridge_never_opens_the_proxy_owned_engine(monkeypatch, log_dir):
+    import airlock.datastore
+
+    monkeypatch.setenv("AIRLOCK_OPERATIONAL_READ_BACKEND", "fathomdb")
+    monkeypatch.setattr(
+        airlock.datastore,
+        "get_engine",
+        lambda: (_ for _ in ()).throw(AssertionError("must use bridge")),
+    )
+    monkeypatch.setattr(
+        "airlock.tui.admin_client.operational_view",
+        lambda host, port, kind, body: None,
+    )
+    today = datetime.date.today().isoformat()
+    (log_dir / f"airlock-{today}.jsonl").write_text(
+        json.dumps(
+            {
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "success": False,
+                "model": "gpt-4o",
+            }
+        )
+        + "\n"
+    )
+
+    errors = get_recent_errors(str(log_dir), proxy_host="localhost", proxy_port="4000")
+
+    assert errors["source"] == "jsonl"
+    assert "proxy operational reads unavailable" in errors["degraded_reason"]
+
+    from airlock.advisor.tools import search_logs
+
+    search = search_logs(
+        str(log_dir), "gpt-4o", proxy_host="localhost", proxy_port="4000"
+    )
+    assert search["backend"] == "jsonl"
+    assert "proxy operational reads unavailable" in search["degraded_reason"]
 
 
 def test_get_recent_errors_uses_error_flag_from_fathom(monkeypatch, log_dir):
     import airlock.datastore
 
+    monkeypatch.setenv("AIRLOCK_OPERATIONAL_READ_BACKEND", "fathomdb")
     monkeypatch.setattr(airlock.datastore, "get_engine", lambda: "dummy_engine")
 
     monkeypatch.setattr(
-        "airlock.advisor.tools.get_request_logs",
+        "airlock.operational_reads.get_request_logs",
         lambda engine, limit=50_000: [
             FakeNodeRecord(
                 {
                     "model": "gemini-coding",
-                    "timestamp": "2025-01-01T10:01:00Z",
+                    "timestamp": datetime.datetime.now(
+                        datetime.timezone.utc
+                    ).isoformat(),
                     "error_flag": True,
                 }
             ),
             FakeNodeRecord(
                 {
                     "model": "gpt-4o",
-                    "timestamp": "2025-01-01T10:02:00Z",
+                    "timestamp": datetime.datetime.now(
+                        datetime.timezone.utc
+                    ).isoformat(),
                     "success": True,
                 }
             ),
@@ -254,6 +321,7 @@ def test_get_recent_errors_against_real_engine(monkeypatch, log_dir, tmp_path):
     engine = init_engine(str(tmp_path / "airlock-fathom.db"))
     assert engine is not None
     try:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
         engine.write(
             [
                 {
@@ -264,7 +332,7 @@ def test_get_recent_errors_against_real_engine(monkeypatch, log_dir, tmp_path):
                         {
                             "model": "gpt-4o",
                             "error_type": "RateLimitError",
-                            "timestamp": "2025-01-01T10:01:00Z",
+                            "timestamp": now,
                             "success": False,
                         }
                     ),
@@ -276,7 +344,7 @@ def test_get_recent_errors_against_real_engine(monkeypatch, log_dir, tmp_path):
                     "body": json.dumps(
                         {
                             "model": "gpt-4o",
-                            "timestamp": "2025-01-01T10:02:00Z",
+                            "timestamp": now,
                             "success": True,
                         }
                     ),
@@ -284,6 +352,7 @@ def test_get_recent_errors_against_real_engine(monkeypatch, log_dir, tmp_path):
             ]
         )
         monkeypatch.setattr(airlock.datastore, "get_engine", lambda: engine)
+        monkeypatch.setenv("AIRLOCK_OPERATIONAL_READ_BACKEND", "fathomdb")
 
         result = get_recent_errors(str(log_dir), days=2)
 
@@ -296,13 +365,14 @@ def test_get_recent_errors_against_real_engine(monkeypatch, log_dir, tmp_path):
 
 def test_get_recent_errors_reports_datastore_truncation(monkeypatch, log_dir):
     """A scan that fills the datastore bound is reported as a partial window."""
-    import airlock.advisor.tools as tools_mod
+    import airlock.operational_reads as reads_mod
     import airlock.datastore
 
     monkeypatch.setattr(airlock.datastore, "get_engine", lambda: "dummy_engine")
-    monkeypatch.setattr(tools_mod, "DATASTORE_QUERY_LIMIT", 2)
+    monkeypatch.setenv("AIRLOCK_OPERATIONAL_READ_BACKEND", "fathomdb")
+    monkeypatch.setattr(reads_mod, "DATASTORE_QUERY_LIMIT", 2)
     monkeypatch.setattr(
-        "airlock.advisor.tools.get_request_logs",
+        "airlock.operational_reads.get_request_logs",
         lambda engine, limit=2: [
             FakeNodeRecord({"model": "gpt-4o", "success": False}),
             FakeNodeRecord({"model": "gpt-4o", "success": True}),

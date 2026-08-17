@@ -24,6 +24,11 @@ from textual.widgets import (
     TabPane,
 )
 
+from airlock.operational_reads import (
+    OperationalReadPage,
+    fathomdb_selected,
+    read_records,
+)
 from airlock.tui.widgets.safe_data_table import _SafeDataTable
 
 
@@ -35,6 +40,18 @@ def _analysis_days(range_value: str) -> int:
 
 
 _MAX_LOG_RECORDS = 5_000
+
+
+def _operational_source_text(
+    source: str, degraded_reason: str | None, truncated: bool
+) -> str:
+    """Make the selected history source and its limits visible to operators."""
+    text = f"History source: {source.upper()}"
+    if degraded_reason:
+        text = f"{text} — {degraded_reason}"
+    if truncated:
+        text = f"{text} — bounded result"
+    return text
 
 
 def _is_blocked_request(record: dict[str, Any]) -> bool:
@@ -129,6 +146,9 @@ class LogsPane(VerticalScroll):
         self._records: list[dict[str, Any]] = []
         self._filtered: list[dict[str, Any]] = []
         self._refresh_timer: Timer | None = None
+        self._read_source = "jsonl"
+        self._read_degraded_reason: str | None = None
+        self._read_truncated = False
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="logs-filters"):
@@ -183,6 +203,7 @@ class LogsPane(VerticalScroll):
             yield Button("Run Analysis", id="logs-run-analysis", variant="primary")
             yield Button("Export", id="logs-export-btn")
             yield Static("", id="logs-analysis-status")
+            yield Static("History source: JSONL", id="logs-source")
         with TabbedContent(id="logs-tabs"):
             with TabPane("Detail", id="tab-detail"):
                 yield Static(
@@ -223,6 +244,8 @@ class LogsPane(VerticalScroll):
             yield table
 
     def on_mount(self) -> None:
+        if getattr(self.app, "_test_harness", False):
+            return
         self._load_logs()
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
@@ -236,6 +259,11 @@ class LogsPane(VerticalScroll):
             self._show_detail(self._filtered[idx])
 
     def on_select_changed(self, event: Select.Changed) -> None:
+        # Textual emits initial Select.Changed messages while the production
+        # widget tree is composing.  In the explicit test harness those must
+        # not schedule a JSONL worker behind the mount-time guard.
+        if getattr(self.app, "_test_harness", False):
+            return
         if event.select.id == "logs-refresh-mode":
             self._update_refresh_mode(str(event.value))
         else:
@@ -243,6 +271,8 @@ class LogsPane(VerticalScroll):
             self._reload_with_filters()
 
     def on_input_changed(self, event: Input.Changed) -> None:
+        if getattr(self.app, "_test_harness", False):
+            return
         if event.input.id in (
             "logs-user-filter",
             "logs-tool-filter",
@@ -291,49 +321,44 @@ class LogsPane(VerticalScroll):
     @work(exclusive=True, thread=True)
     def _load_logs(self, filters: dict[str, str] | None = None) -> None:
         log_dir = Path(os.getenv("AIRLOCK_LOG_DIR", "./logs"))
-        records: list[dict[str, Any]] = []
-        today = datetime.now(timezone.utc).date()
-        filters = filters or {
-            "model": "all",
-            "user": "",
-            "status": "all",
-            "type": "all",
-            "tool": "",
-            "search": "",
-            "range": "7d",
-            "start": "",
-            "end": "",
-        }
+        # The current UI snapshot is read on the main thread by
+        # ``_apply_filters`` below.  The optional argument remains part of the
+        # worker seam used by refresh callers.
+        _ = filters
 
-        days = 31  # range filtering below bounds the retained working set
+        page: OperationalReadPage | None = None
+        if fathomdb_selected():
+            from airlock.tui.admin_client import operational_records
 
-        for i in range(days):
-            day = today - timedelta(days=i)
-            path = log_dir / f"airlock-{day.isoformat()}.jsonl"
-            if not path.exists():
-                continue
-            with open(path, encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        try:
-                            record = json.loads(line)
-                            # JSONL is an operator-facing boundary.  A valid
-                            # JSON scalar/array is not an Airlock event and
-                            # must not take down the loader worker.
-                            if isinstance(record, dict) and _matches_snapshot(
-                                record, filters
-                            ):
-                                records.append(record)
-                            if len(records) >= _MAX_LOG_RECORDS:
-                                break
-                        except json.JSONDecodeError:
-                            continue
-            if len(records) >= _MAX_LOG_RECORDS:
-                break
-
+            payload = operational_records(
+                getattr(self.app, "_proxy_host", "localhost"),
+                getattr(self.app, "_proxy_port", "4000"),
+                days=31,
+                limit=_MAX_LOG_RECORDS,
+            )
+            if payload is not None:
+                page = OperationalReadPage(
+                    records=[r for r in payload["records"] if isinstance(r, dict)],
+                    source=str(payload.get("source", "jsonl")),
+                    degraded_reason=payload.get("degraded_reason"),
+                    truncated=bool(payload.get("truncated")),
+                    limit_hit=payload.get("limit_hit"),
+                )
+        if page is None:
+            # The dashboard is a separate process. Do not open its own engine
+            # against a proxy-owned FathomDB file when the bridge is down.
+            page = read_records(
+                directory=log_dir,
+                days=31,
+                limit=_MAX_LOG_RECORDS,
+                allow_fathom=not fathomdb_selected(),
+            )
+        records = page.records
         records.sort(key=lambda r: r.get("timestamp") or "", reverse=True)
         self._records = records  # explicit bounded client-side view
+        self._read_source = page.source
+        self._read_degraded_reason = page.degraded_reason
+        self._read_truncated = page.truncated
 
         # Populate model filter options. Batch/file routes (/v1/batches, /v1/files)
         # log records with no model (model is None) — coerce so sorted() doesn't
@@ -345,6 +370,16 @@ class LogsPane(VerticalScroll):
             try:
                 model_select = self.query_one("#logs-model-filter", Select)
                 model_select.set_options(options)
+            except Exception:
+                pass
+            try:
+                self.query_one("#logs-source", Static).update(
+                    _operational_source_text(
+                        self._read_source,
+                        self._read_degraded_reason,
+                        self._read_truncated,
+                    )
+                )
             except Exception:
                 pass
             try:

@@ -25,12 +25,17 @@ from typing import Any, Callable
 
 from airlock.api.queries import (
     DATASTORE_QUERY_LIMIT,
-    get_request_logs,
-    node_properties,
+    SEARCH_RESULT_LIMIT,
     search_request_logs,
 )
 from airlock.fast.state import StateStore
 from airlock.log_query import LogPage, LogQuery, query_logs
+from airlock.operational_reads import (
+    _within_days,
+    fathomdb_selected,
+    read_records,
+    selected_fathom_engine,
+)
 
 logger = logging.getLogger("airlock.advisor.tools")
 
@@ -135,42 +140,31 @@ def get_state_snapshot(store: StateStore) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def get_recent_errors(log_dir: str, days: int = 2) -> dict:
+def get_recent_errors(
+    log_dir: str,
+    days: int = 2,
+    proxy_host: str | None = None,
+    proxy_port: str | None = None,
+) -> dict:
     """Load JSONL logs, filter to failures, group by model and error_type."""
-    engine = None
-    try:
-        import airlock.datastore
+    bridge_selected = fathomdb_selected() and bool(proxy_host and proxy_port)
+    if bridge_selected:
+        from airlock.tui.admin_client import operational_view
 
-        engine = airlock.datastore.get_engine()
-    except Exception:
-        engine = None
-
-    truncated: dict[str, Any] = {"truncated": False, "limit_hit": None}
-    if engine is not None:
-        # Bounded read (was limit=1000000 — a limit in name only). The failure
-        # filter stays Python-side: the engine's json-path predicate allowlist
-        # is fixed and does not cover $.success.
-        nodes = get_request_logs(engine, limit=DATASTORE_QUERY_LIMIT)
-        records = [node_properties(n) for n in nodes]
-        failures = [
-            r
-            for r in records
-            if (r.get("success") is False) or bool(r.get("error_flag"))
-        ]
-        if len(records) >= DATASTORE_QUERY_LIMIT:
-            truncated = {"truncated": True, "limit_hit": "datastore_limit"}
-    else:
-        # Filter during the scan so a quiet window never materializes the
-        # successful traffic it is dominated by.
-        page = _load_page(
-            log_dir,
-            days=days,
-            predicate=lambda r: (
-                (r.get("success") is False) or bool(r.get("error_flag"))
-            ),
-        )
-        failures = page.records
-        truncated = _truncation(page)
+        remote = operational_view(proxy_host, proxy_port, "errors", {"days": days})
+        if remote is not None:
+            return remote
+    page = read_records(
+        directory=log_dir,
+        days=days,
+        limit=DATASTORE_QUERY_LIMIT,
+        # A separate Advisor process never opens a selected proxy-owned DB if
+        # its bridge fails. Its truthful fallback is JSONL only.
+        allow_fathom=not bridge_selected,
+        predicate=lambda r: (r.get("success") is False) or bool(r.get("error_flag")),
+    )
+    failures = page.records
+    truncated = {"truncated": page.truncated, "limit_hit": page.limit_hit}
 
     by_model: Counter = Counter()
     by_error_type: Counter = Counter()
@@ -197,6 +191,8 @@ def get_recent_errors(log_dir: str, days: int = 2) -> dict:
         "by_error_type": dict(by_error_type),
         "by_client": dict(by_client),
         "recent_samples": recent_samples,
+        "source": page.source,
+        "degraded_reason": page.degraded_reason,
         # The advisor must be able to say "based on a partial window" rather
         # than presenting a truncated scan as the whole picture.
         "window": truncated,
@@ -208,40 +204,100 @@ def get_recent_errors(log_dir: str, days: int = 2) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def search_logs(log_dir: str, query: str, limit: int = 20, days: int = 7) -> dict:
-    """Search request logs (#11): engine search when available, JSONL scan otherwise.
+def search_logs(
+    log_dir: str,
+    query: str,
+    limit: int = 20,
+    days: int = 7,
+    proxy_host: str | None = None,
+    proxy_port: str | None = None,
+) -> dict:
+    """Search the explicitly selected source without mislabelling its mode.
 
-    The engine path reports its ``mode`` honestly — ``hybrid`` only when dense
-    retrieval actually contributed alongside lexical; ``lexical_only`` with the
-    reason otherwise. The JSONL fallback is a bounded substring scan and says
-    so: ``substring`` is not search-engine ranking and must not look like it.
+    FathomDB opt-in uses its existing active-only FTS/hybrid reader. JSONL
+    remains a bounded substring fallback and is never presented as ranked
+    search. Both sources report their source and any degraded operation.
     """
-    engine = None
-    try:
-        import airlock.datastore
-
-        engine = airlock.datastore.get_engine()
-    except Exception:
-        engine = None
-
-    if engine is not None:
-        out = search_request_logs(engine, query, limit=limit)
-        out["backend"] = "fathomdb"
-        return out
-
+    if not isinstance(limit, int) or isinstance(limit, bool):
+        raise ValueError("limit must be an integer")
+    limit = max(1, min(limit, SEARCH_RESULT_LIMIT))
+    bridge_selected = fathomdb_selected() and bool(proxy_host and proxy_port)
     needle = query.lower()
+
+    if bridge_selected:
+        from airlock.tui.admin_client import operational_view
+
+        remote = operational_view(
+            proxy_host,
+            proxy_port,
+            "search",
+            {"query": query, "limit": limit, "days": days},
+        )
+        if remote is not None:
+            return remote
+
+    if bridge_selected:
+        engine, selection_reason = (
+            None,
+            (
+                "FathomDB selected but proxy operational reads unavailable; "
+                "using bounded JSONL"
+            ),
+        )
+    else:
+        engine, selection_reason = selected_fathom_engine()
+    if engine is not None:
+        try:
+            result = search_request_logs(engine, query, limit=limit)
+        except Exception:
+            result = None
+        if result is not None:
+            result_filled_cap = len(result["results"]) >= limit
+            result["results"] = [
+                row
+                for row in result["results"]
+                if _within_days(row["properties"], days)
+            ]
+            result.update(
+                {
+                    "backend": "fathomdb",
+                    "window": {
+                        # Fathom FTS applies its cap before the caller's time
+                        # filter. A full raw page can therefore conceal a
+                        # later in-window hit even when this filtered page is
+                        # empty; never present that window as complete.
+                        "truncated": result_filled_cap,
+                        "limit_hit": (
+                            "search_result_limit" if result_filled_cap else None
+                        ),
+                    },
+                }
+            )
+            return result
 
     def _matches(record: dict[str, Any]) -> bool:
         return needle in json.dumps(record, default=str).lower()
 
-    page = _load_page(log_dir, days=days, predicate=_matches)
+    page = read_records(
+        directory=log_dir,
+        days=days,
+        predicate=_matches,
+        limit=min(limit, DATASTORE_QUERY_LIMIT),
+        allow_fathom=not bridge_selected,
+    )
     return {
-        "backend": "jsonl",
+        "backend": page.source,
         "mode": "substring",
-        "degraded_reason": "datastore disabled; bounded JSONL substring scan",
+        "degraded_reason": page.degraded_reason
+        or selection_reason
+        or (
+            "FathomDB not selected; bounded JSONL substring scan"
+            if page.source == "jsonl"
+            else None
+        ),
         "soft_fallback": None,
         "results": page.records[-limit:],
-        "window": _truncation(page),
+        "window": {"truncated": page.truncated, "limit_hit": page.limit_hit},
     }
 
 

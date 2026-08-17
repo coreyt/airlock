@@ -29,6 +29,13 @@ except ImportError:
 from litellm.integrations.custom_logger import CustomLogger
 
 from airlock.callbacks.memory import collect_memory_snapshot
+from airlock.telemetry_health import configure_exporter, record_signal
+
+configure_exporter(
+    "prometheus",
+    enabled=_PROM_AVAILABLE,
+    endpoint="http://in-process/metrics" if _PROM_AVAILABLE else None,
+)
 
 
 def _build_metrics() -> dict[str, Any]:
@@ -244,6 +251,8 @@ class AirlockMetricsCallback(CustomLogger):
     def record_event(self, event: Any) -> None:
         if not _PROM_AVAILABLE:
             return
+
+        record_signal("prometheus")
 
         # This callback executes in the LiteLLM worker after every success/failure,
         # correlating the latest kernel memory counters with request completion.

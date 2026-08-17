@@ -236,9 +236,7 @@ def test_guardrail_meta_excludes_request_scoped_pii_reverse_map():
         }
     )
 
-    event = build_request_event(
-        kwargs, _FakeResponse(), _ts(0), _ts(1), success=True
-    )
+    event = build_request_event(kwargs, _FakeResponse(), _ts(0), _ts(1), success=True)
 
     assert "airlock_pii_map" not in event.guardrail_meta
     assert secret not in repr(event.guardrail_meta)

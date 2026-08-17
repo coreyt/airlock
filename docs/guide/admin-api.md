@@ -31,6 +31,7 @@ admin:
 | `trust_loopback` | `true` | A connection from `127.0.0.1`/`::1` is the operator tier, no credential (Path A). |
 | `allow_insecure_tokens` | `false` | Permit token auth on a non-loopback bind without TLS (downgrades the fail-closed startup refusal to a warning). |
 | `behind_tls_proxy` | `false` | Assert that TLS is terminated by an upstream reverse proxy, so the fail-closed check is satisfied. |
+| `remote_tui` | `false` | Enable only the host-console container profile below; requires native TLS and capability JWTs. |
 
 ### Fail-closed on insecure token auth
 
@@ -78,10 +79,26 @@ master key (and any loopback operator) satisfies all of them.
 | Scope | Grants |
 |---|---|
 | `admin:read` | The read-only `GET` endpoints |
+| `admin:remote_tui` | Required anchor for the explicitly enabled host-console profiles below; grants no endpoint by itself |
+| `admin:read_config` | The redacted startup provider-configuration view only |
 | `admin:clear_quarantine` | Clear a provider or client→provider quarantine |
 | `admin:reset_circuit` | Reset a model circuit |
 | `admin:clear_backoff` | Clear a client threat backoff |
 | `admin:force_quarantine` | Manually quarantine a provider (loopback-only) |
+| `admin:erase_client` | Erase a client's FathomDB rows (loopback-only) |
+
+### Proxy-owned FathomDB operational reads
+
+When `AIRLOCK_OPERATIONAL_READ_BACKEND=fathomdb` is selected, the TUI and
+Advisor use the proxy-owned operational-read bridge instead of opening the
+embedded database from their separate processes. Its bounded records, error,
+and search views are **loopback-only**: a capability token cannot read them
+remotely, even with `admin:read`. Enable the local admin path with
+`admin.enabled: true` and `trust_loopback: true`.
+
+The bridge carries source, degradation, and truncation information. When it or
+FathomDB is unavailable, the consumer visibly falls back to bounded JSONL;
+default deployments continue to use JSONL.
 
 ## Minting capability tokens
 
@@ -113,6 +130,112 @@ airlock admin mint-token --sub ci-bot \
 > `--sub` **must** be the client's authenticated key-derived id (`key:<last8>`).
 > See [Guardrails → Per-request guardrail skips](guardrails.md#per-request-guardrail-skips).
 
+## Host-console container TUI
+
+This opt-in profile is for a host console that administers an Airlock container.
+It is not a general remote Admin deployment, a peer-container mode, or a
+reverse-proxy integration. Docker reachability is not operator identity.
+
+Use the dedicated complete manifest, not an overlay with the standard Compose
+file: `docker compose -f docker-compose.remote-admin.yml up`. It publishes only
+`127.0.0.1:${AIRLOCK_PORT:-4000}:4000`, mounts native TLS server material
+read-only, and leaves the normal Compose deployment unchanged. Configure:
+
+```yaml
+admin:
+  enabled: true
+  trust_loopback: false
+  remote_tui: true
+  allow_insecure_tokens: false
+  behind_tls_proxy: false
+```
+
+Set both native TLS environment variables and provide a CA bundle on the host.
+Mint a distinct, non-secret-subject token for each operator with a maximum
+15-minute lifetime and all necessary scopes, including the anchor:
+
+```bash
+airlock admin mint-token --sub host-console-alice \
+  --scope admin:remote_tui --scope admin:read \
+  --scope admin:read_config --scope admin:clear_quarantine --ttl 15m
+```
+
+Place the emitted token in an owner-only (`0600`) regular file delivered by your
+secret manager, then run:
+
+```bash
+airlock tui --remote-admin --host localhost --port 4000 \
+  --admin-token-file /secure/airlock-remote.jwt \
+  --admin-ca-file /secure/airlock-ca.pem
+```
+
+The remote UI validates the hostname even for `localhost`, uses only the Admin
+HTTP perimeter, and is restricted to snapshots plus clear-quarantine. It never
+reads local logs/configuration/state, manages a proxy, or accesses operational
+history; force quarantine and erasure remain loopback-only. Failed TLS,
+authentication, and scope checks show the console as unavailable without
+displaying credentials.
+
+For routine rotation, issue a new short-lived token. For an emergency
+revocation, replace `AIRLOCK_JWT_SECRET`, omit `AIRLOCK_JWT_SECRET_PREV`, and
+restart the proxy; this invalidates all tokens signed with the old secret. To
+roll back the profile, stop the dedicated Compose deployment (or remove its
+loopback mapping), remove `remote_tui: true`, and restart. Do not publish this
+Admin port to all interfaces or substitute the master key, a Docker bridge, a
+CIDR, or forwarded headers for the capability token.
+
+## Same-host fleet read view
+
+This is a deliberately small extension of the host-console container profile,
+for an operator viewing several Airlock containers on the **same host**. It is
+read-only: it does not manage containers, configuration, secrets, lifecycle,
+or desired state, and it does not poll automatically. It is not remote fleet
+control, service discovery, or a systemd/Kubernetes mode.
+
+Every target must use the preceding `remote_tui: true` profile plus
+`fleet_read_tui: true`, and a separate
+host-loopback published port, native TLS CA, and `AIRLOCK_JWT_SECRET`. Give its
+token **exactly** `admin:remote_tui` and `admin:read`; the target rejects a
+token carrying any other scope, so a fleet credential cannot authorize a
+mutation through the Admin API. The distinct signing secret
+prevents a token for one target being replayed at another.
+
+Create owner-only regular files (`0600`, owned by the user running the TUI) for
+the inventory, each CA bundle, and each token. A profile contains references,
+never embedded secret values:
+
+```yaml
+targets:
+  - id: payments
+    name: Payments proxy
+    origin: https://localhost:4101
+    ca_file: /secure/payments-ca.pem
+    token_file: /secure/payments-read.jwt
+  - id: support
+    name: Support proxy
+    origin: https://127.0.0.1:4102
+    ca_file: /secure/support-ca.pem
+    token_file: /secure/support-read.jwt
+```
+
+Run it with explicit manual selection:
+
+```bash
+airlock tui --fleet-inventory /secure/airlock-fleet.yaml
+```
+
+The inventory accepts at most ten distinct targets. Origins are exact HTTPS
+loopback origins (`localhost`, `127.0.0.1`, or `[::1]`) with an explicit port;
+no path, query, credentials, redirects, proxies, or remote/private-network
+address is admitted. Airlock resolves and validates loopback addresses for each
+connection, validates the TLS hostname and peer address, and directly connects
+only to the vetted address. Refresh only named selected targets (maximum ten,
+four concurrent), uses a 2-second connect and 5-second total timeout, and caps
+responses at 64 KiB. Results show only `fresh`, `stale`, authentication,
+authorization, TLS, or unavailable state; no token or raw remote error is
+displayed or written locally. Stop using the command or remove the inventory
+to roll it back.
+
 ## Endpoints
 
 All routes are under `/airlock/admin/` and only exist when `admin.enabled: true`.
@@ -124,9 +247,25 @@ All routes are under `/airlock/admin/` and only exist when `admin.enabled: true`
 | `GET` | `/airlock/admin/providers` | `admin:read` |
 | `GET` | `/airlock/admin/clients` | `admin:read` |
 | `GET` | `/airlock/admin/circuits` | `admin:read` |
+| `GET` | `/airlock/admin/config/providers` | `admin:read_config` |
 
 These return a richer view of live protection state than the read-only
 `GET /health/circuits`.
+
+### Read configured providers
+
+`GET /airlock/admin/config/providers` is deliberately distinct from live
+provider health and requires `admin:read_config` (or the existing loopback or
+master-key operator authority). It reports the LiteLLM child's bounded,
+redacted startup configuration: configured aliases and capability metadata,
+hostname-only API bases, opaque credential kind/presence, load time, and a
+redacted-state fingerprint. It sends `Cache-Control: no-store`.
+
+It never contains credential values or reference names, environment-variable
+names, include paths, full URLs, provider errors, or a way to edit/reload
+configuration. The view is not a disk watcher: apply configuration through the
+normal reviewed deployment workflow and restart the proxy before expecting a
+change. `admin:read` alone receives `403`; disabled Admin still returns `404`.
 
 ```bash
 # Loopback operator — no credential needed:
@@ -192,6 +331,32 @@ curl -X POST https://airlock.internal/airlock/admin/clients/key:b35cf679/clear-b
 ```
 
 Scope: `admin:clear_backoff`.
+
+### Erase one client's FathomDB records
+
+Erasure is deliberately a local control-plane operation. Use the CLI against
+the running proxy, repeating the authenticated client id as confirmation:
+
+```bash
+airlock admin erase-client key:90abcdef --confirm key:90abcdef
+```
+
+The equivalent loopback-only HTTP operation is:
+
+```bash
+curl -X POST http://127.0.0.1:4000/airlock/admin/clients/key%3A90abcdef/erase \
+  -H 'Content-Type: application/json' \
+  -d '{"confirm":"key:90abcdef"}'
+```
+
+Scope: `admin:erase_client`. A successful operation emits an `admin_action`
+audit record with its erase report. HTTP 409 means erasure was incomplete and
+must not be treated as done; retrying the same request is safe.
+
+This affects the optional FathomDB search/analysis store only. It does **not**
+remove the corresponding JSONL logs, whose retention is controlled separately
+by `AIRLOCK_MAX_LOG_DAYS`. See [Operations → Per-client erasure](../operations.md#per-client-erasure)
+before making a deletion commitment.
 
 ### Manually quarantine a provider
 

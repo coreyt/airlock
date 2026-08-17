@@ -1,1 +1,52 @@
-{}
+# config.local.yaml — gitignored, machine-specific overrides (NOT committed).
+# Preserved here when the personal MCP servers were removed from the tracked
+# config.yaml (pre-push hygiene). Activate by adding to your LOCAL config.yaml:
+#     include: ["config.local.yaml"]
+# Caveat (litellm `_process_includes`): an included file's `mcp_servers` REPLACES
+# the main config's `mcp_servers` (dict keys are not deep-merged), and the file must
+# exist or startup fails. So if you `include` this, list ALL the MCP servers you want
+# here (copy any you still want from config.yaml's mcp_servers block alongside these).
+
+mcp_servers:
+  # --- Azure DevOps (stdio) ---
+  # Literal path (litellm does not expand ${HOME} in stdio command/args). The
+  # `ado-mcp` basename is allow-listed via LITELLM_MCP_STDIO_EXTRA_COMMANDS in .env.
+  ado_mcp:
+    transport: stdio
+    command: /home/coreyt/projects/ado-mcp/.venv/bin/ado-mcp
+    args: ["--profile", "full"]
+    env:
+      ADO_ORG_URL: os.environ/ADO_ORG_URL
+      ADO_PAT: os.environ/ADO_PAT
+
+  # --- Monospace Design TUI (stdio) ---
+  # Two fixes vs. the old broken entry:
+  #  1. Use the project's dedicated venv python (has the `mcp` SDK). Its basename
+  #     is `python`, which is in litellm's MCP stdio command allowlist. Bare
+  #     `python3` is system python and lacks `mcp` -> "Connection closed" at init.
+  #  2. LITERAL absolute paths, not ${HOME}: litellm does NOT expand env vars in
+  #     stdio command/args, so ${HOME}/... is taken verbatim and fails to resolve.
+  #     This file is gitignored + machine-specific, so absolute paths are correct.
+  mono_tui:
+    transport: stdio
+    command: /home/coreyt/projects/monospace-design-tui/.venv/bin/python
+    args: ["/home/coreyt/projects/monospace-design-tui/mcp-server/server.py"]
+
+  # --- NewsCatcher CatchAll (stdio) ---
+  # Copied from tracked config.yaml: litellm `include` REPLACES the main config's
+  # mcp_servers dict wholesale, so EVERY server wanted at runtime must be listed
+  # here — not just the machine-specific ones — or it is dropped on restart.
+  newscatcher:
+    transport: stdio
+    command: python3
+    args: ["-m", "airlock.mcp_servers.newscatcher_server"]
+    env:
+      NEWS_CATCHER_API_KEY: os.environ/NEWS_CATCHER_API_KEY
+
+  # --- Armada GraphRAG (stdio) --- DISABLED: server hangs during MCP init
+  # armada:
+  #   transport: stdio
+  #   command: ${HOME}/projects/armada/cartographer/.venv/bin/armada-mcp
+  #   args: []
+  #   env:
+  #     ARMADA_PROFILE: essential

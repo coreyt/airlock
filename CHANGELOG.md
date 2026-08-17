@@ -7,6 +7,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Opt-in Admin read surface.** The Admin API remains disabled by default and
+  now provides a bounded, redacted configuration snapshot for authorized local
+  operators.
+- **Secure remote fleet visibility.** The terminal UI can read a bounded fleet
+  inventory over CA-verified TLS with scoped read-only JWT capabilities; its
+  Docker topology verification exercises two independently secured proxy
+  containers.
+- **Configured-provider startup guidance.** Airlock warns when a recognized
+  provider credential is configured without a matching served alias, without
+  inspecting arbitrary environment-variable names.
+
+### Changed
+
+- **CI verification.** The ordinary test suite and the opt-in Docker topology
+  test are independently gated in CI, alongside pinned workflow actions and
+  secret scanning.
+
+### Deferred
+
+- Virtual-key lifecycle management remains deferred to the 0.6.0 identity and
+  durability contract; this release does not add a virtual-key control plane.
+
+## [0.5.14] — 2026-08-12
+
+### Added
+
+- **FathomDB benchmark readiness.** Airlock now provides explicit,
+  policy-governed aliases for `gpt-4o-mini` and
+  `text-embedding-3-small`, including a real `/v1/embeddings` boundary with
+  strict configured-alias and option validation. The documented benchmark
+  logging profile proves request and response redaction without retaining raw
+  Fathom content.
+- **Opt-in OpenRouter and DeepSeek integration.** Operators can add reviewed
+  explicit model entries using runtime `OPENROUTER_API_KEY` or
+  `DEEPSEEK_API_KEY`; neither provider is enabled by default. Safe configured
+  model discovery, served-provider attribution, and bounded provider-error
+  handling support both integrations.
+- **Optional proxy-owned FathomDB operational reads.** The proxy is the sole
+  FathomDB owner; the TUI and Advisor use authenticated bounded admin reads and
+  fall back truthfully to JSONL if the bridge is unavailable.
+- **Operator visibility.** New bounded TUI/Admin views cover routing
+  classification, session affinity, QoS observations, and telemetry-exporter
+  health. Ordinary TUI tests use an explicit lifecycle harness while retaining
+  real lifecycle coverage.
+
+### Security
+
+- Embedding requests are always exact-alias pinned and reject direct-dispatch,
+  client-identity, and unsupported-option controls before provider dispatch.
+- Provider discovery accepts only explicitly configured, same-origin HTTPS
+  catalog endpoints and never follows credential-bearing redirects. Provider
+  errors are reduced to bounded safe summaries before logging, tracing, and
+  monitor state.
+- OpenRouter gateway-routing overrides and unsupported DeepSeek non-function
+  tools are rejected as OpenAI-shaped client errors before dispatch.
+
+### Changed
+
+- **FathomDB is now 0.8.22** (`fathomdb>=0.8.22,<0.9`) after optional-backend,
+  search, erasure, and proxy-owned operational-read verification.
+- OpenRouter and DeepSeek recipes now require explicit operator configuration;
+  an environment key alone never exposes a model or activates discovery.
+
+### Deferred
+
+- Virtual-key management remains a 0.5.15 design and scope-decision item.
+- PII egress remains in its previously approved observe-only deployment mode.
+
 ## [0.5.12] — 2026-08-11
 
 This public release includes the internal 0.5.11 FathomDB milestone below,

@@ -11,6 +11,8 @@ rate-limit error handler.
 from __future__ import annotations
 
 import json
+import base64
+import os
 from typing import Any
 
 import airlock.fast.state as _state
@@ -55,16 +57,39 @@ def _view_providers() -> dict:
     return {"providers": out}
 
 
+def _view_provider_configuration() -> dict:
+    """Return the immutable child-startup projection, never source YAML."""
+    from airlock.provider_configuration import provider_configuration_snapshot
+
+    return provider_configuration_snapshot()
+
+
 def _view_clients() -> dict:
     out = {}
+    admission_enabled = get_settings().admission.enabled
+    for client_id, client in _state.store.all_clients().items():
+        if client.priority_score is not None:
+            out.setdefault(client_id, {})["priority"] = {
+                "score": client.priority_score,
+                "boost": client.priority_boost,
+                "reasons": list(client.priority_reasons),
+                "observed_at": client.priority_observed_at,
+                "admission_enabled": admission_enabled,
+            }
     for cid, cp in _state.store.all_client_provider_states().items():
         client_id, provider = cid
         if cp.is_quarantined():
-            out.setdefault(client_id, {})[provider] = {
+            out.setdefault(client_id, {}).setdefault("quarantines", {})[provider] = {
                 "quarantined": True,
                 "cooldown_remaining": round(cp.cooldown_remaining(), 1),
             }
-    return {"clients": out}
+    return {"source": "live_admin", "clients": out}
+
+
+def _view_telemetry() -> dict:
+    from airlock.telemetry_health import telemetry_snapshot
+
+    return {"source": "process_instrumentation", "exporters": telemetry_snapshot()}
 
 
 def _view_circuits() -> dict:
@@ -75,6 +100,88 @@ def _view_circuits() -> dict:
             "consecutive_failures": ms.consecutive_failures,
         }
     return {"circuits": out}
+
+
+def _view_sessions() -> dict:
+    """Return bounded live affinity data without session identifiers."""
+    from airlock.fast.router import _load_session_ttl
+
+    return {
+        "source": "live_admin",
+        "sessions": _state.store.active_session_snapshot(
+            ttl_seconds=_load_session_ttl(), limit=100
+        ),
+    }
+
+
+def _operational_records(body: dict) -> dict:
+    """Serve bounded history from the proxy-owned datastore process only."""
+    from airlock.operational_reads import read_records
+
+    days = body.get("days", 31)
+    limit = body.get("limit", 5_000)
+    if not isinstance(days, int) or not 1 <= days <= 31:
+        raise ValueError("days must be an integer from 1 through 31")
+    if not isinstance(limit, int) or not 1 <= limit <= 5_000:
+        raise ValueError("limit must be an integer from 1 through 5000")
+    page = read_records(
+        directory=os.getenv("AIRLOCK_LOG_DIR", "./logs"), days=days, limit=limit
+    )
+    return {
+        "records": page.records,
+        "source": page.source,
+        "degraded_reason": page.degraded_reason,
+        "truncated": page.truncated,
+        "limit_hit": page.limit_hit,
+    }
+
+
+def _operational_errors(body: dict) -> dict:
+    from airlock.advisor.tools import get_recent_errors
+
+    days = _operational_int(body, "days", default=2, maximum=31)
+    return get_recent_errors(os.getenv("AIRLOCK_LOG_DIR", "./logs"), days=days)
+
+
+def _operational_search(body: dict) -> dict:
+    from airlock.advisor.tools import search_logs
+
+    days = _operational_int(body, "days", default=7, maximum=31)
+    limit = _operational_int(body, "limit", default=20, maximum=50)
+    query = body.get("query")
+    if not isinstance(query, str) or not query.strip() or len(query) > 1_000:
+        raise ValueError("query must be a non-empty string of at most 1000 characters")
+    return search_logs(
+        os.getenv("AIRLOCK_LOG_DIR", "./logs"),
+        query=query,
+        limit=limit,
+        days=days,
+    )
+
+
+def _operational_int(body: dict, name: str, *, default: int, maximum: int) -> int:
+    value = body.get(name, default)
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or not 1 <= value <= maximum
+    ):
+        raise ValueError(f"{name} must be an integer from 1 through {maximum}")
+    return value
+
+
+def _decode_session_client_selector(selector: str) -> str:
+    """Decode the opaque URL-safe client selector used by the TUI.
+
+    Client identifiers are header-derived and therefore cannot safely be put
+    into a slash-delimited route.  The selector is transport-only; the decoded
+    value remains subject to normal StateStore normalization.
+    """
+    try:
+        padded = selector + "=" * (-len(selector) % 4)
+        return base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        raise ValueError("invalid session client selector") from None
 
 
 # --- route table: (method, segments-template) -> (scope, loopback_only, fn) --
@@ -90,10 +197,28 @@ def _match_route(method: str, path: str):
 
     if method == "GET" and seg == ["providers"]:
         return ("admin:read", False, lambda p, b, a: _view_providers())
+    if method == "GET" and seg == ["config", "providers"]:
+        return (
+            "admin:read_config",
+            False,
+            lambda p, b, a: _view_provider_configuration(),
+        )
     if method == "GET" and seg == ["clients"]:
         return ("admin:read", False, lambda p, b, a: _view_clients())
     if method == "GET" and seg == ["circuits"]:
         return ("admin:read", False, lambda p, b, a: _view_circuits())
+    if method == "GET" and seg == ["sessions"]:
+        return ("admin:read", False, lambda p, b, a: _view_sessions())
+    if method == "GET" and seg == ["telemetry"]:
+        return ("admin:read", False, lambda p, b, a: _view_telemetry())
+    if method == "POST" and seg == ["operational", "records"]:
+        # History may contain request content; it is a local TUI bridge, not a
+        # remotely capability-token-readable snapshot.
+        return ("admin:read", True, lambda p, b, a: _operational_records(b))
+    if method == "POST" and seg == ["operational", "errors"]:
+        return ("admin:read", True, lambda p, b, a: _operational_errors(b))
+    if method == "POST" and seg == ["operational", "search"]:
+        return ("admin:read", True, lambda p, b, a: _operational_search(b))
 
     if (
         method == "POST"
@@ -150,6 +275,20 @@ def _match_route(method: str, path: str):
             False,
             lambda p, b, a: _state.store.clear_client_backoff(client, actor=a),
         )
+    if (
+        method == "POST"
+        and len(seg) == 3
+        and seg[0] == "session-clients"
+        and seg[2] == "clear"
+    ):
+        selector = seg[1]
+        return (
+            "admin:clear_sessions",
+            False,
+            lambda p, b, a: _state.store.clear_client_sessions(
+                _decode_session_client_selector(selector), actor=a
+            ),
+        )
     if method == "POST" and len(seg) == 3 and seg[0] == "clients" and seg[2] == "erase":
         client = seg[1]
         return (
@@ -200,6 +339,10 @@ def handle_admin_request(
         result = handler([], parsed, d.actor)
         # Mutating ops return an admin_action record → audit + replicate.
         if isinstance(result, dict) and result.get("record_type") == "admin_action":
+            # The PDP, not request headers, supplies this stable non-secret
+            # transport descriptor.  Existing replay ignores additive fields.
+            if d.auth_context:
+                result["auth_context"] = d.auth_context
             write_admin_action_record(result)
     except ValueError as exc:
         return 400, {"error": str(exc)}, {}
@@ -210,7 +353,8 @@ def handle_admin_request(
         return 409, dict(exc.record), {}
     except Exception:  # noqa: BLE001 — the perimeter must never raise (CC-10)
         return 500, {"error": "internal error"}, {}
-    return 200, result, {}
+    headers = {"cache-control": "no-store"} if op_scope == "admin:read_config" else {}
+    return 200, result, headers
 
 
 # --- ASGI plumbing ----------------------------------------------------------

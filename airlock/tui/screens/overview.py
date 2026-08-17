@@ -128,6 +128,7 @@ def _format_headroom(snapshot: dict) -> str:
 #: traffic, and the operator should not have to divide two dollar figures in
 #: their head to notice.
 _BUDGET_ALERT_UTILIZATION = 0.8
+_PRIORITY_STALE_SECONDS = 120.0
 
 
 def _budget_utilization(snapshot: dict) -> float | None:
@@ -208,6 +209,60 @@ def _render_budget_detail(snapshot: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_telemetry_health(snapshot: dict[str, dict] | None) -> str:
+    """Compact, truthful exporter state without secrets or delivery claims."""
+    if snapshot is None:
+        return "Telemetry: [dim]unavailable — admin read is disabled or unreachable[/]"
+    if not snapshot:
+        return "Telemetry: [dim]no instrumentation reported[/]"
+    parts: list[str] = []
+    for name in sorted(snapshot):
+        item = snapshot[name]
+        enabled = "enabled" if item.get("enabled") else "disabled"
+        signals = int(item.get("signals", 0) or 0)
+        failures = int(item.get("failures", 0) or 0)
+        endpoint = item.get("endpoint") or "local/no endpoint"
+        error = item.get("last_error")
+        suffix = f" errors={failures}" if failures else ""
+        if error:
+            suffix += f" last_error={escape(str(error)[:80])}"
+        parts.append(
+            f"{escape(str(name))}: {enabled}, signals={signals}, endpoint={escape(str(endpoint))}{suffix}"
+        )
+    return "Telemetry: " + "  |  ".join(parts)
+
+
+def _render_client_priority(priority: dict | None, now: float) -> tuple[str, str]:
+    """Return source-labelled priority detail, degrading explicitly when stale."""
+    if not isinstance(priority, dict):
+        return (
+            "  QoS priority: unavailable — admin read is disabled or unreachable.",
+            "",
+        )
+    observed_at = priority.get("observed_at")
+    age = max(0.0, now - observed_at) if isinstance(observed_at, (int, float)) else None
+    if age is None or age > _PRIORITY_STALE_SECONDS:
+        suffix = f" ({age:.0f}s old)" if age is not None else ""
+        return f"  QoS priority: stale{suffix} — not treated as active.", ""
+    enabled = bool(priority.get("admission_enabled"))
+    state = (
+        "active boost"
+        if priority.get("boost") and enabled
+        else ("advisory (admission disabled)" if not enabled else "normal")
+    )
+    reasons = priority.get("reasons")
+    reason_text = (
+        ", ".join(str(reason) for reason in reasons[:4])
+        if isinstance(reasons, list)
+        else "-"
+    )
+    return (
+        f"  QoS priority: score={float(priority.get('score', 0)):.2f} "
+        f"state={state} source=live_admin ({age:.0f}s ago)",
+        f"  QoS signals: {escape(reason_text)}",
+    )
+
+
 def _gemini_mode_summary(counts: dict[str, int]) -> str:
     """Render Gemini response-mode counts as a distribution (#28).
 
@@ -267,6 +322,7 @@ class OverviewPane(VerticalScroll):
 
     BINDINGS = [
         Binding("c", "clear_quarantine", "Clear quarantine", show=True),
+        Binding("b", "break_client_pins", "Break client pins", show=True),
     ]
 
     def __init__(
@@ -288,6 +344,13 @@ class OverviewPane(VerticalScroll):
         self._highlighted_provider: str | None = None
         self._admin_snapshot: dict[str, dict] | None = None
         self._admin_snapshot_at: float = 0.0
+        self._session_snapshot: list[dict] | None = None
+        self._session_snapshot_at: float = 0.0
+        self._client_snapshot: dict[str, dict] | None = None
+        self._client_snapshot_at: float = 0.0
+        self._telemetry_snapshot: dict[str, dict] | None = None
+        self._telemetry_snapshot_at: float = 0.0
+        self._highlighted_client: str | None = None
         self._failover_feed = FailoverFeed()
 
     # -- compose ------------------------------------------------------------
@@ -309,6 +372,7 @@ class OverviewPane(VerticalScroll):
                     disabled=True,
                 )
                 yield Static("", id="ov-status-line")
+                yield Static("Telemetry: loading…", id="ov-telemetry-health")
             with Vertical(id="ov-alerts-panel"):
                 yield Static("[bold]Alerts[/]", id="ov-alerts-header")
                 yield Static(self._alert_text, id="ov-alerts")
@@ -366,6 +430,8 @@ class OverviewPane(VerticalScroll):
     # -- lifecycle ----------------------------------------------------------
 
     def on_mount(self) -> None:
+        if getattr(self.app, "_test_harness", False):
+            return
         self._probe_external()
         self._refresh_state()
         self.set_interval(300.0, self._probe_external)
@@ -609,6 +675,7 @@ class OverviewPane(VerticalScroll):
         elif table_id == "ov-models":
             self._show_model_detail(key)
         elif table_id == "ov-clients":
+            self._highlighted_client = key
             self._show_client_detail(key)
 
     # -- admin: clear quarantine (loopback operator) ------------------------
@@ -638,6 +705,39 @@ class OverviewPane(VerticalScroll):
             err = payload.get("error", status)
             self.app.call_from_thread(
                 self.notify, f"Clear failed: {err}", severity="error"
+            )
+
+    def action_break_client_pins(self) -> None:
+        """`b` — remove all affinity pins for the highlighted client."""
+        client_id = self._highlighted_client
+        if not client_id or client_id.startswith("_empty"):
+            self.notify("Highlight a client row first.", severity="warning")
+            return
+        self._break_client_pins_worker(client_id)
+
+    @work(thread=True)
+    def _break_client_pins_worker(self, client_id: str) -> None:
+        from airlock.tui.admin_client import clear_client_sessions
+
+        status, payload = clear_client_sessions(self._host, self._port, client_id)
+        if status == 200:
+            count = payload.get("cleared_sessions", 0)
+            self._session_snapshot = None
+            self._session_snapshot_at = 0.0
+            self.app.call_from_thread(
+                self.notify, f"Broke {count} session pin(s) for {client_id}."
+            )
+        elif status == 404:
+            self.app.call_from_thread(
+                self.notify,
+                "Admin API disabled (set admin.enabled).",
+                severity="error",
+            )
+        else:
+            self.app.call_from_thread(
+                self.notify,
+                f"Break pins failed: {payload.get('error', status)}",
+                severity="error",
             )
 
     def _show_provider_detail(self, provider_name: str) -> None:
@@ -818,6 +918,60 @@ class OverviewPane(VerticalScroll):
         if not found:
             rows.append("  No provider activity recorded.")
 
+        # Session affinity exists only in the live proxy process. Read the
+        # bounded, authenticated admin view rather than trying to reconstruct
+        # it from JSONL; identifiers are deliberately absent from that view.
+        if now - self._session_snapshot_at >= 30:
+            try:
+                from airlock.tui.admin_client import session_snapshot
+
+                payload = session_snapshot(self._host, self._port)
+                self._session_snapshot = (
+                    payload.get("sessions", []) if payload else None
+                )
+            except Exception:
+                self._session_snapshot = None
+            self._session_snapshot_at = now
+
+        if self._session_snapshot is None:
+            rows.append(
+                "  Session pins: unavailable — admin read is disabled or unreachable."
+            )
+        else:
+            pins = [
+                pin
+                for pin in self._session_snapshot
+                if pin.get("client_id") == client_id
+            ]
+            if pins:
+                rows.append("  Session pins (live admin; identifiers hidden):")
+                for pin in pins[:10]:
+                    rows.append(
+                        "    "
+                        f"model={escape(str(pin.get('model', '-')))} "
+                        f"age={float(pin.get('age_seconds', 0)):.0f}s "
+                        f"ttl={float(pin.get('ttl_remaining_seconds', 0)):.0f}s"
+                    )
+                rows.append("  Press b to break this client's pins (audited).")
+            else:
+                rows.append("  Session pins: none active.")
+
+        if now - self._client_snapshot_at >= 30:
+            try:
+                from airlock.tui.admin_client import client_snapshot
+
+                payload = client_snapshot(self._host, self._port)
+                self._client_snapshot = payload.get("clients", {}) if payload else None
+            except Exception:
+                self._client_snapshot = None
+            self._client_snapshot_at = now
+
+        priority = (self._client_snapshot or {}).get(client_id, {}).get("priority")
+        priority_line, signals_line = _render_client_priority(priority, now)
+        rows.append(priority_line)
+        if signals_line:
+            rows.append(signals_line)
+
         detail.update("\n".join(rows))
 
     # -- unified data refresh -----------------------------------------------
@@ -836,6 +990,18 @@ class OverviewPane(VerticalScroll):
             _load_failover_map = None  # type: ignore[assignment]
 
         now = time.time()
+
+        if now - self._telemetry_snapshot_at >= 30:
+            try:
+                from airlock.tui.admin_client import telemetry_snapshot
+
+                payload = telemetry_snapshot(self._host, self._port)
+                self._telemetry_snapshot = (
+                    payload.get("exporters", {}) if payload else None
+                )
+            except Exception:
+                self._telemetry_snapshot = None
+            self._telemetry_snapshot_at = now
 
         # The overview table itself needs the optional admin snapshot; do not
         # wait for an operator to select a provider detail row.
@@ -1107,5 +1273,7 @@ class OverviewPane(VerticalScroll):
             status_line.update(
                 f"Guard: [{enforce_clr}]{enforce_mode}[/]  {split_str}  {mcp_str}  {billing_str}{failover_str}"
             )
+            telemetry_line = self.query_one("#ov-telemetry-health", Static)
+            telemetry_line.update(_render_telemetry_health(self._telemetry_snapshot))
 
         self.app.call_from_thread(_update_ui)

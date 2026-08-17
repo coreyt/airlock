@@ -106,6 +106,8 @@ def _execute_tool(
     store: StateStore | None,
     log_dir: str,
     config_path: str,
+    proxy_host: str | None = None,
+    proxy_port: str | None = None,
 ) -> str:
     """Execute a tool from TOOL_REGISTRY, injecting store/log_dir as needed."""
     if tool_name not in TOOL_REGISTRY:
@@ -121,6 +123,10 @@ def _execute_tool(
         kwargs["log_dir"] = log_dir
     if "config_path" in params:
         kwargs["config_path"] = config_path
+    if "proxy_host" in params and proxy_host is not None:
+        kwargs["proxy_host"] = proxy_host
+    if "proxy_port" in params and proxy_port is not None:
+        kwargs["proxy_port"] = proxy_port
 
     try:
         result = func(**kwargs)
@@ -233,6 +239,8 @@ def run_advisor(
                 store,
                 actual_log_dir,
                 actual_config,
+                proxy_host,
+                proxy_port,
             )
 
             messages.append(

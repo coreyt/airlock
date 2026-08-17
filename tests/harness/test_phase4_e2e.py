@@ -90,6 +90,7 @@ class TestThreatBurst:
     ):
         import time as _time
         from airlock.fast.guardian import AirlockFastGuardian
+        from airlock.proxy_errors import AirlockThreatBackoff
 
         guardian = AirlockFastGuardian()
         # Simulate previous threat block by setting backoff
@@ -101,7 +102,7 @@ class TestThreatBurst:
             "messages": [{"role": "user", "content": "ping"}],
             "model": "claude-sonnet",
         }
-        with pytest.raises(ValueError, match="[Tt]oo many|[Rr]etry"):
+        with pytest.raises(AirlockThreatBackoff):
             await guardian.async_pre_call_hook(
                 mock_user_api_key_dict, mock_cache, data, "completion"
             )

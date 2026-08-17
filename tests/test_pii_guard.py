@@ -17,6 +17,7 @@ from airlock.guardrails.pii_guard import (
     _hydration_enabled,
     _requires_nlp_entities,
     _scrub_messages,
+    _scrub_embedding_input,
     _scrub_text,
     _scrub_text_with_mapping,
 )
@@ -84,9 +85,19 @@ class TestConfiguredEntities:
         assert _requires_nlp_entities(_configured_entities()) is False
 
     def test_shipped_bank_entities_do_not_require_spacy_ner(self):
-        assert _requires_nlp_entities(
-            ["CREDIT_CARD", "US_SSN", "EMAIL_ADDRESS", "PHONE_NUMBER", "US_BANK_NUMBER", "IBAN_CODE"]
-        ) is False
+        assert (
+            _requires_nlp_entities(
+                [
+                    "CREDIT_CARD",
+                    "US_SSN",
+                    "EMAIL_ADDRESS",
+                    "PHONE_NUMBER",
+                    "US_BANK_NUMBER",
+                    "IBAN_CODE",
+                ]
+            )
+            is False
+        )
 
     def test_named_entities_require_spacy_ner(self):
         assert _requires_nlp_entities(["EMAIL_ADDRESS", "PERSON"]) is True
@@ -178,6 +189,26 @@ class TestScrubMessages:
         original_content = messages[0]["content"]
         _scrub_messages(messages)
         assert messages[0]["content"] == original_content
+
+    def test_embedding_input_scrubbed_without_changing_batch_shape(self, monkeypatch):
+        def scrub(text, mapping, counters):
+            mapping.setdefault("<EMAIL_ADDRESS_1>", "alice@example.com")
+            return text.replace("alice@example.com", "<EMAIL_ADDRESS_1>").replace(
+                "555-123-4567", "<PHONE_NUMBER_1>"
+            )
+
+        monkeypatch.setattr(
+            "airlock.guardrails.pii_guard._scrub_text_with_mapping", scrub
+        )
+        mapping: dict[str, str] = {}
+        result = _scrub_embedding_input(
+            ["Contact alice@example.com", ["Call 555-123-4567"]], mapping, {}
+        )
+        assert isinstance(result, list)
+        assert isinstance(result[1], list)
+        assert "alice@example.com" not in result[0]
+        assert "555-123-4567" not in result[1][0]
+        assert mapping
 
 
 # ---------------------------------------------------------------------------
@@ -361,6 +392,31 @@ class TestAsyncPreCallHook:
             mock_user_api_key_dict, mock_cache, data, "completion"
         )
         assert result["messages"] == []
+
+    async def test_aembedding_hook_scrubs_input_and_refreshes_text_cache(
+        self, mock_cache, mock_user_api_key_dict, monkeypatch
+    ):
+        def scrub(text, mapping, counters):
+            mapping.setdefault("<EMAIL_ADDRESS_1>", "alice@corp.com")
+            return text.replace("alice@corp.com", "<EMAIL_ADDRESS_1>").replace(
+                "555-123-4567", "<PHONE_NUMBER_1>"
+            )
+
+        monkeypatch.setattr(
+            "airlock.guardrails.pii_guard._scrub_text_with_mapping", scrub
+        )
+        guard = AirlockPIIGuard()
+        data = {
+            "input": ["benchmark alice@corp.com", "call 555-123-4567"],
+            "model": "text-embedding-3-small",
+        }
+        result = await guard.async_pre_call_hook(
+            mock_user_api_key_dict, mock_cache, data, "aembedding"
+        )
+        assert "alice@corp.com" not in str(result["input"])
+        assert "555-123-4567" not in str(result["input"])
+        assert "alice@corp.com" not in result["metadata"]["_airlock_text"]
+        assert "airlock_pii_handle" not in result["metadata"]
 
 
 class TestOffloadByteParity:

@@ -35,7 +35,7 @@ from litellm import DualCache
 from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.types.guardrails import GuardrailEventHooks
 
-from airlock.text_extract import refresh_text_cache
+from airlock.text_extract import is_embedding_call, refresh_text_cache
 from airlock.transparency import record_redaction
 
 from . import _env_flag
@@ -151,7 +151,9 @@ def _handle_pii_unavailable(data: dict, exc: Exception) -> dict:
     }
     logger.warning("pii_unavailable mode=%s reason=%s", mode, type(exc).__name__)
     if mode == "closed":
-        raise ValueError("PII redaction is unavailable; request blocked by policy") from exc
+        raise ValueError(
+            "PII redaction is unavailable; request blocked by policy"
+        ) from exc
     return data
 
 
@@ -246,6 +248,24 @@ def _scrub_messages(
     return cleaned
 
 
+def _scrub_embedding_input(
+    value: Any,
+    mapping: dict[str, str],
+    counters: dict[str, int],
+    depth: int = 0,
+) -> Any:
+    """Redact textual embedding input without changing its batch structure."""
+    if depth >= 20:
+        return value
+    if isinstance(value, str):
+        return _scrub_text_with_mapping(value, mapping, counters)
+    if isinstance(value, list):
+        return [
+            _scrub_embedding_input(item, mapping, counters, depth + 1) for item in value
+        ]
+    return value
+
+
 class AirlockPIIGuard(CustomGuardrail):
     """Pre-call PII redaction with post-call hydration of tool-call arguments.
 
@@ -281,8 +301,10 @@ class AirlockPIIGuard(CustomGuardrail):
         counters: dict[str, int] = {}
         redacted_messages = None
         redacted_mcp_arguments = None
+        redacted_embedding_input = None
         mcp_redaction_count = 0
         message_redaction_count = 0
+        embedding_redaction_count = 0
         try:
             if is_mcp_call(data, call_type) and data.get("mcp_arguments") is not None:
                 # Scrub a copy. If Presidio fails, fail-open must leave the
@@ -295,17 +317,32 @@ class AirlockPIIGuard(CustomGuardrail):
                 redacted_mcp_arguments = working_data["mcp_arguments"]
                 mcp_redaction_count = len(mapping)
 
+            if is_embedding_call(data, call_type) and "input" in data:
+                redacted_embedding_input = await asyncio.to_thread(
+                    _scrub_embedding_input,
+                    copy.deepcopy(data["input"]),
+                    mapping,
+                    counters,
+                )
+                embedding_redaction_count = len(mapping) - mcp_redaction_count
+
             messages = data.get("messages")
             if messages:
                 redacted_messages = await asyncio.to_thread(
                     _scrub_messages, messages, mapping, counters
                 )
-                message_redaction_count = len(mapping) - mcp_redaction_count
+                message_redaction_count = (
+                    len(mapping) - mcp_redaction_count - embedding_redaction_count
+                )
         except Exception as exc:
             return _handle_pii_unavailable(data, exc)
 
         handle = None
-        if mapping and not data.get("stream"):
+        if (
+            mapping
+            and not data.get("stream")
+            and not is_embedding_call(data, call_type)
+        ):
             handle = _pii_map_store.put(mapping)
             if handle is None:
                 return _handle_pii_unavailable(
@@ -322,6 +359,17 @@ class AirlockPIIGuard(CustomGuardrail):
                     category="pii",
                     stage="pre_call",
                     source="pii_guard.mcp",
+                )
+        if redacted_embedding_input is not None:
+            data["input"] = redacted_embedding_input
+            if embedding_redaction_count:
+                record_redaction(
+                    data.setdefault("metadata", {}),
+                    field="input",
+                    count=embedding_redaction_count,
+                    category="pii",
+                    stage="pre_call",
+                    source="pii_guard.embedding",
                 )
         if redacted_messages is not None:
             data["messages"] = redacted_messages
