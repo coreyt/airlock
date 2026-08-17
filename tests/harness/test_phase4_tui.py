@@ -24,7 +24,7 @@ class TestTUIBasic:
     async def test_overview_is_default(self):
         from airlock.tui.app import AirlockApp
 
-        app = AirlockApp()
+        app = AirlockApp(test_harness=True)
         async with app.run_test(size=(120, 40)) as _pilot:
             workspace = app.query_one("#workspace")
             assert workspace.current == "overview"
@@ -32,7 +32,7 @@ class TestTUIBasic:
     async def test_overview_has_widgets(self):
         from airlock.tui.app import AirlockApp
 
-        app = AirlockApp()
+        app = AirlockApp(test_harness=True)
         async with app.run_test(size=(120, 40)) as _pilot:
             overview = app.query_one("#overview")
             assert overview is not None
@@ -40,7 +40,7 @@ class TestTUIBasic:
     async def test_guards_screen_exists(self):
         from airlock.tui.app import AirlockApp
 
-        app = AirlockApp()
+        app = AirlockApp(test_harness=True)
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.press("2")
             guards = app.query_one("#guards")
@@ -49,7 +49,7 @@ class TestTUIBasic:
     async def test_logs_screen_exists(self):
         from airlock.tui.app import AirlockApp
 
-        app = AirlockApp()
+        app = AirlockApp(test_harness=True)
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.press("3")
             logs = app.query_one("#logs")
@@ -58,7 +58,7 @@ class TestTUIBasic:
     async def test_config_screen_exists(self):
         from airlock.tui.app import AirlockApp
 
-        app = AirlockApp()
+        app = AirlockApp(test_harness=True)
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.press("4")
             config = app.query_one("#config")
@@ -67,7 +67,7 @@ class TestTUIBasic:
     async def test_test_screen_exists(self):
         from airlock.tui.app import AirlockApp
 
-        app = AirlockApp()
+        app = AirlockApp(test_harness=True)
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.press("5")
             test_pane = app.query_one("#test")
@@ -78,7 +78,7 @@ class TestTUINavigation:
     async def test_navigation_by_number_keys(self):
         from airlock.tui.app import AirlockApp
 
-        app = AirlockApp()
+        app = AirlockApp(test_harness=True)
         view_ids = ["overview", "guards", "logs", "config", "test"]
         async with app.run_test(size=(120, 40)) as pilot:
             workspace = app.query_one("#workspace")
@@ -91,7 +91,7 @@ class TestTUINavigation:
     async def test_all_five_views_accessible(self):
         from airlock.tui.app import AirlockApp
 
-        app = AirlockApp()
+        app = AirlockApp(test_harness=True)
         async with app.run_test(size=(120, 40)) as pilot:
             for key in "12345":
                 await pilot.press(key)
