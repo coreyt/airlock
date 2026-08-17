@@ -2,12 +2,11 @@
 
 This is the canonical 0.5.15 release workspace index.
 
-**Status:** planning complete. Slices 0–5 are complete planning records and
-Slice 6’s HITL decision was recorded on 2026-08-15. Slice 10 is implemented and
-awaits its required external PR review/CI closure; Slice 20 is implemented
-locally with focused verification, while its full ordinary-suite rerun remains
-release-closeout work. Other feature work remains subject to its documented
-prerequisites and lifecycle.
+**Status:** implementation and non-publishing release closeout complete. Slices
+0–6 are complete planning/HITL records. Delivered slices 10, 20, 30, 40, 50,
+70, 71, 80, and 90 have independent review and exact-head CI evidence. Slice
+60 is deferred to 0.6.0. No release tag or registry publication is part of this
+release workspace; a later owner-authorized tag remains a separate action.
 
 **Post-planning guard:** do not begin a feature/function slice merely because it
 is listed or included. First recheck the prior slice closure, update the slice
@@ -25,16 +24,16 @@ that is accepted for investigation from work that is approved for delivery.
 
 | Candidate | Current evidence | Initial allocation |
 | --- | --- | --- |
-| Gitleaks local and CI secret scanning | Implemented; external enforcement and PR evidence recorded | Slice 10 |
-| Typed Fast Guardian threat-backoff HTTP 429 | Implemented locally; status/evidence recorded | Slice 20 |
-| Configured-provider credential with no enabled alias warning | Implemented locally; redacted startup-warning evidence recorded | Slice 30 |
-| Read-only provider/configuration visibility in Admin/TUI | Design exists; CRUD is not approved | Slice 40 |
-| Secure host-console TUI administration for containers | Design exists; topology/identity decision is open | Slice 50 |
+| Gitleaks local and CI secret scanning | Implemented and externally enforced | Slice 10 |
+| Typed Fast Guardian threat-backoff HTTP 429 | Implemented and exact-head CI verified | Slice 20 |
+| Configured-provider credential with no enabled alias warning | Implemented and exact-head CI verified | Slice 30 |
+| Read-only provider/configuration visibility in Admin/TUI | Implemented; CRUD remains out of scope | Slice 40 |
+| Secure host-console TUI administration for containers | Implemented as default-off host-console profile | Slice 50 |
 | Airlock-native virtual-key management | **Deferred to 0.6.0**; depends on the native identity/keystore foundation | Slice 60 (0.6.0) |
 | Multi-instance TUI administration | Implemented as a bounded same-host read-only view | Slice 70 |
-| Slice 70 live container topology verification | Admitted verification-only work; requires two disposable TLS container targets | Slice 71 |
-| CI review and improvement | Review workflow reliability, signal, coverage, cost, and maintainability without weakening delivery controls | Slice 80 |
-| Release closeout | Required only for work actually included and delivered | Slice 90 |
+| Slice 70 live container topology verification | Complete; two disposable TLS container targets verified locally and in CI | Slice 71 |
+| CI review and improvement | Complete; immutable workflow pins, independent checks, least privilege, and failure diagnostics | Slice 80 |
+| Release closeout | Complete; version/readiness and exact-head CI/protection evidence recorded, without publication | Slice 90 |
 
 Claude Code subscription-preserving pass-through is explicitly out of scope for
 0.5.15. The even-minor roadmap migration is planning/documentation work, not a
@@ -212,16 +211,16 @@ authorize work before Slice 6.
 
 | Slice | Candidate scope | Initial condition |
 | --- | --- | --- |
-| 10 | Gitleaks local/CI controls, baseline, ownership, and GitHub enforcement | Slice 6 includes it; external GitHub action/branch-rule authority is available. |
-| 20 | Typed Fast Guardian threat-backoff exception and HTTP 429 contract | Slice 3 draft contract and Slice 4 architecture pass. |
-| 30 | Redacted startup warning for configured credential/no enabled alias | Provider taxonomy, logging, and redaction drafts pass. |
-| 40 | Read-only provider/configuration Admin/TUI visibility | Read-only configuration-owner posture remains approved; no CRUD expansion. |
-| 50 | Secure host-console TUI administration for containerized Airlock | Topology, operator identity, TLS/token lifecycle, and audit decisions pass. |
+| 10 | Gitleaks local/CI controls, baseline, ownership, and GitHub enforcement | Complete; enforced on `main`. |
+| 20 | Typed Fast Guardian threat-backoff exception and HTTP 429 contract | Complete; typed/redacted 429 contract verified. |
+| 30 | Redacted startup warning for configured credential/no enabled alias | Complete; finite taxonomy and redaction contract verified. |
+| 40 | Read-only provider/configuration Admin/TUI visibility | Complete; read-only posture retained, no CRUD expansion. |
+| 50 | Secure host-console TUI administration for containerized Airlock | Complete; default-off host-console TLS/capability profile only. |
 | 60 | **Deferred to 0.6.0** virtual-key management | The 0.6.0 B5 identity/keystore foundation must close first; not a 0.5.15 delivery slice. |
-| 70 | Multi-instance TUI named inventory and read-only Admin-API fan-out | Fleet identity/TLS/token/inventory/operation limits are approved; otherwise postpone. |
-| 71 | Slice 70 Docker topology verification | Slice 70 is closed; Docker daemon access and a disposable local image are available. Verification-only: no product authority expansion. |
-| 80 | CI review and improvement | Review current workflows, required checks, runtime/cost, cache and matrix design, test-signal quality, and failure triage; preserve least privilege, pinned actions, Gitleaks enforcement, and no-secret CI boundaries. Document and independently review proposed changes before implementation. |
-| 90 | Release closeout | Only delivered, verified slices are included; deferred work is named explicitly. |
+| 70 | Multi-instance TUI named inventory and read-only Admin-API fan-out | Complete; same-host read-only v1 only. |
+| 71 | Slice 70 Docker topology verification | Complete; local and CI two-container verification without new product authority. |
+| 80 | CI review and improvement | Complete; preserve its least-privilege, pinned-action, and required-check controls in future changes. |
+| 90 | Release closeout | Complete and non-publishing; only delivered, verified slices are included and deferrals are explicit. |
 
 ### Mandatory lifecycle for every included feature slice
 
