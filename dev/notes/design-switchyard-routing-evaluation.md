@@ -231,14 +231,19 @@ measuring the wrong thing, and this is fixable in Airlock's own code.
 
 1. **Fix `_extract_text` first (bug, not a feature).** Dropping `tool_result`
    blocks is a defect in its own right, and it is not confined to the router:
-   `airlock/text_extract.py:extract_text_from_messages` — which feeds the threat
-   detector, keyword scanning, and PII scanning — takes only `type == "text"`
-   blocks from list-shaped content by the same rule. An OpenAI-shaped tool reply
-   (`role: "tool"`, string content) is captured; an Anthropic-normalized
-   `tool_result` block is not. Whether that is a live guardrail gap depends on
-   which wire shapes reach each guardrail after LiteLLM's own normalization, and
-   that needs its own verification — it is asserted here as a lead, not a
-   finding.
+   `airlock/text_extract.py:extract_text_from_messages` and
+   `pii_guard.py:_scrub_messages` — which between them feed the threat detector,
+   keyword scanning, and PII redaction — take only `type == "text"` blocks from
+   list-shaped content by the same rule.
+
+   **This was filed as a lead and has since been verified as a live guardrail
+   gap with security impact.** On the `ANTHROPIC_BASE_URL` dogfooding path
+   LiteLLM hands the guardrails the raw Anthropic body, where tool output
+   arrives as a `tool_result` block nested in a user message: it is not scanned
+   and not redacted, and it egresses to the provider. The evidence, requirements,
+   and staged fix are in
+   [design-conversation-text-extraction.md](design-conversation-text-extraction.md).
+   It outranks everything else in this section and is not 0.6.0 roadmap work.
 2. **Adopt the signal, not the library.** Tool-history staging — error severity,
    spinning, exploring, production intensity — is a few hundred lines of pure
    Python at Airlock's own latency, no dependency, no protocol coupling. Take the
@@ -248,7 +253,10 @@ measuring the wrong thing, and this is fixable in Airlock's own code.
    cost/accuracy claim. Airlock ships a cost router with zero routing-quality
    evidence. A replay-based routing-quality oracle over recorded JSONL, in the
    slow path, is worth more than any classifier swap — and it is what would let
-   a future Switchyard decision be evaluated rather than argued about.
+   a future Switchyard decision be evaluated rather than argued about. Drafted in
+   [design-routing-quality-oracle.md](design-routing-quality-oracle.md); item 2
+   is gated on it, because this note shows only that `stage_router` *decides
+   differently*, never that it decides *better*.
 4. **Keep the seam clean.** If `apply_routing` grows a pluggable tier-advisor
    interface, a Switchyard-backed advisor stays a drop-in later, once the API is
    released and the concurrency measurement exists.
