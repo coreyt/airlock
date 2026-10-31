@@ -20,6 +20,8 @@ from typing import Callable
 from .base import InjectionProvider
 from .model_armor import PROVIDER_NAME as MODEL_ARMOR
 from .model_armor import build_from_env as _build_model_armor
+from .typesafe_jev import PROVIDER_NAME as TYPESAFE_JEV
+from .typesafe_jev import build_from_env as _build_typesafe_jev
 
 logger = logging.getLogger("airlock.guardrails.providers.registry")
 
@@ -29,6 +31,7 @@ logger = logging.getLogger("airlock.guardrails.providers.registry")
 #: programmatically without mutating the process environment.
 _BUILDERS: dict[str, Callable[[dict[str, str] | None], InjectionProvider | None]] = {
     MODEL_ARMOR: _build_model_armor,
+    TYPESAFE_JEV: _build_typesafe_jev,
 }
 
 
