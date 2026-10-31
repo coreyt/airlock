@@ -24,7 +24,7 @@ Usage::
 
     uv run python scripts/jev_smoke.py --out dev/plans/runs/jev-smoke.json
 
-Requires ``TYPESAFE_API`` (or ``TYPESAFE_API_KEY``) in the project ``.env`` or
+Requires ``TYPESAFE_API_KEY`` in the project ``.env`` or
 the environment. The report contains no corpus text, only row indices into the
 public test split, so it is safe to retain in Git.
 """
@@ -114,7 +114,11 @@ async def fetch_test_split() -> list[dict]:
             response.raise_for_status()
             page = response.json().get("rows", [])
             rows.extend(
-                {"index": r["row_idx"], "text": r["row"]["text"], "label": int(r["row"]["label"])}
+                {
+                    "index": r["row_idx"],
+                    "text": r["row"]["text"],
+                    "label": int(r["row"]["label"]),
+                }
                 for r in page
             )
             if len(page) < 100:
@@ -126,7 +130,9 @@ class GuardRunner:
     """Drives the guard's own classifiers, enforcing the call budget and spacing."""
 
     def __init__(self, classifiers: list, max_calls: int, spacing: float) -> None:
-        self.tripwire = next(c for c in classifiers if isinstance(c, InputInjectionTripwire))
+        self.tripwire = next(
+            c for c in classifiers if isinstance(c, InputInjectionTripwire)
+        )
         self.provider_tier = next(
             c for c in classifiers if isinstance(c, ProviderInjectionClassifier)
         )
@@ -147,7 +153,11 @@ class GuardRunner:
         tripwire = await self.tripwire.classify(text)
         result = await self.provider_tier.classify(text)
         jev = next(
-            (p for p in result.metadata.get("provider_results", []) if p.get("provider") == PROVIDER_NAME),
+            (
+                p
+                for p in result.metadata.get("provider_results", [])
+                if p.get("provider") == PROVIDER_NAME
+            ),
             {},
         )
         return {
@@ -180,7 +190,7 @@ async def run(args: argparse.Namespace) -> dict:
     classifiers = build_classifiers(env)
     if not any(isinstance(c, ProviderInjectionClassifier) for c in classifiers):
         sys.exit(
-            "Jev provider did not build: is TYPESAFE_API (or TYPESAFE_API_KEY) set "
+            "Jev provider did not build: is TYPESAFE_API_KEY set "
             "in .env or the environment?"
         )
     runner = GuardRunner(classifiers, args.max_calls, args.spacing)
@@ -199,7 +209,13 @@ async def run(args: argparse.Namespace) -> dict:
 
     scored: list[dict] = []
     for row in sample:
-        scored.append({"index": row["index"], "label": row["label"], **await runner.score(row["text"])})
+        scored.append(
+            {
+                "index": row["index"],
+                "label": row["label"],
+                **await runner.score(row["text"]),
+            }
+        )
 
     answered = [s for s in scored if s["probability"] is not None]
     threshold = float(provider.describe()["threshold"])
@@ -244,7 +260,9 @@ async def run(args: argparse.Namespace) -> dict:
             "path": "airlock build_classifiers() -> tripwire + ProviderInjectionClassifier",
             "provider": provider.describe(),
             "preflight": preflight.detail or "ok",
-            "served_models": sorted({s["served_model"] for s in scored if s["served_model"]}),
+            "served_models": sorted(
+                {s["served_model"] for s in scored if s["served_model"]}
+            ),
             "jev_calls": runner.calls,
             "max_calls": args.max_calls,
             "spacing_seconds": args.spacing,
@@ -270,8 +288,12 @@ async def run(args: argparse.Namespace) -> dict:
             "recall_ci95": wilson(tp, tp + fn),
             "false_positive_rate": round(fp / (fp + tn), 4) if fp + tn else None,
             "false_positive_rate_ci95": wilson(fp, fp + tn),
-            "auroc": auroc([s["probability"] for s in answered], [s["label"] for s in answered]),
-            "tripwire_hits_on_attacks": sum(1 for s in scored if s["label"] == 1 and s["tripwire"]),
+            "auroc": auroc(
+                [s["probability"] for s in answered], [s["label"] for s in answered]
+            ),
+            "tripwire_hits_on_attacks": sum(
+                1 for s in scored if s["label"] == 1 and s["tripwire"]
+            ),
             "reference_model_armor_full_test_split": {
                 "recall": 0.2167,
                 "false_positive_rate": 0.0,
@@ -283,28 +305,47 @@ async def run(args: argparse.Namespace) -> dict:
             "rescored": len(steering),
             "truncated_by_budget": truncated,
             "steering_flipped": flipped("steered"),
-            "steering_flip_rate": round(flipped("steered") / len(steering), 4) if steering else None,
+            "steering_flip_rate": round(flipped("steered") / len(steering), 4)
+            if steering
+            else None,
             "steering_flip_rate_ci95": wilson(flipped("steered"), len(steering)),
             "control_flipped": flipped("control"),
-            "control_flip_rate": round(flipped("control") / len(steering), 4) if steering else None,
+            "control_flip_rate": round(flipped("control") / len(steering), 4)
+            if steering
+            else None,
             "control_flip_rate_ci95": wilson(flipped("control"), len(steering)),
             "median_probability": {
-                "before": round(statistics.median(e["before"] for e in steering), 4) if steering else None,
-                "steered": round(statistics.median(e["steered"] for e in steering if e["steered"] is not None), 4)
+                "before": round(statistics.median(e["before"] for e in steering), 4)
+                if steering
+                else None,
+                "steered": round(
+                    statistics.median(
+                        e["steered"] for e in steering if e["steered"] is not None
+                    ),
+                    4,
+                )
                 if any(e["steered"] is not None for e in steering)
                 else None,
-                "control": round(statistics.median(e["control"] for e in steering if e["control"] is not None), 4)
+                "control": round(
+                    statistics.median(
+                        e["control"] for e in steering if e["control"] is not None
+                    ),
+                    4,
+                )
                 if any(e["control"] is not None for e in steering)
                 else None,
             },
-            "tripwire_caught_steered_text": sum(1 for e in steering if e["steered_tripwire"]),
+            "tripwire_caught_steered_text": sum(
+                1 for e in steering if e["steered_tripwire"]
+            ),
         },
         "latency_ms": {
             "p50": round(statistics.median(durations), 1) if durations else None,
             "max": round(max(durations), 1) if durations else None,
         },
         "samples": [
-            {k: s[k] for k in ("index", "label", "probability", "tripwire", "error")} for s in scored
+            {k: s[k] for k in ("index", "label", "probability", "tripwire", "error")}
+            for s in scored
         ],
         "steering_samples": steering,
     }
@@ -315,7 +356,9 @@ def main() -> None:
     parser.add_argument("--attacks", type=int, default=20)
     parser.add_argument("--benign", type=int, default=20)
     parser.add_argument("--max-calls", type=int, default=80)
-    parser.add_argument("--spacing", type=float, default=2.5, help="seconds between Jev calls")
+    parser.add_argument(
+        "--spacing", type=float, default=2.5, help="seconds between Jev calls"
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()

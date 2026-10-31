@@ -19,7 +19,7 @@ Configuration
 -------------
 ``AIRLOCK_JEV_ENABLED``
     ``true`` to activate. Absent or false leaves the provider disabled.
-``TYPESAFE_API`` (or ``TYPESAFE_API_KEY``)
+``TYPESAFE_API_KEY``
     API key, sent as a bearer token. Never read from YAML, written to metadata,
     or retained in evidence.
 ``AIRLOCK_JEV_MODEL``
@@ -338,14 +338,10 @@ def build_from_env(env: dict[str, str] | None = None) -> InjectionProvider | Non
     if enabled not in ("1", "true", "yes", "on"):
         return None
 
-    api_key = (
-        source.get("TYPESAFE_API", "").strip()
-        or source.get("TYPESAFE_API_KEY", "").strip()
-    )
+    api_key = source.get("TYPESAFE_API_KEY", "").strip()
     if not api_key:
         raise JevConfigError(
-            "AIRLOCK_JEV_ENABLED is set but neither TYPESAFE_API nor "
-            "TYPESAFE_API_KEY is present"
+            "AIRLOCK_JEV_ENABLED is set but TYPESAFE_API_KEY is missing"
         )
 
     model = source.get("AIRLOCK_JEV_MODEL", "").strip() or _DEFAULT_MODEL

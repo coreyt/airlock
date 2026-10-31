@@ -208,19 +208,19 @@ class TestPreflight:
 
 class TestConfiguration:
     def test_disabled_by_default(self):
-        assert build_from_env({"TYPESAFE_API": SECRET}) is None
+        assert build_from_env({"TYPESAFE_API_KEY": SECRET}) is None
 
-    def test_reads_the_typesafe_api_variable(self):
-        provider = build_from_env(
-            {"AIRLOCK_JEV_ENABLED": "true", "TYPESAFE_API": SECRET}
-        )
-        assert isinstance(provider, JevProvider)
-
-    def test_accepts_the_conventional_key_name_too(self):
+    def test_reads_the_typesafe_api_key_variable(self):
         provider = build_from_env(
             {"AIRLOCK_JEV_ENABLED": "true", "TYPESAFE_API_KEY": SECRET}
         )
         assert isinstance(provider, JevProvider)
+
+    @pytest.mark.parametrize("name", ["TYPESAFE_API", "TYPESAFE_API_TOKEN"])
+    def test_other_key_names_are_not_read(self, name):
+        # One name only: silently accepting near-misses hides a misconfigured key.
+        with pytest.raises(JevConfigError):
+            build_from_env({"AIRLOCK_JEV_ENABLED": "true", name: SECRET})
 
     def test_enabled_without_key_is_a_config_error(self):
         with pytest.raises(JevConfigError):
@@ -234,7 +234,7 @@ class TestConfiguration:
             build_from_env(
                 {
                     "AIRLOCK_JEV_ENABLED": "true",
-                    "TYPESAFE_API": SECRET,
+                    "TYPESAFE_API_KEY": SECRET,
                     "AIRLOCK_JEV_MODEL": model,
                 }
             )
@@ -245,7 +245,7 @@ class TestConfiguration:
             build_from_env(
                 {
                     "AIRLOCK_JEV_ENABLED": "true",
-                    "TYPESAFE_API": SECRET,
+                    "TYPESAFE_API_KEY": SECRET,
                     "AIRLOCK_JEV_THRESHOLD": threshold,
                 }
             )
@@ -255,7 +255,7 @@ class TestConfiguration:
             {
                 "AIRLOCK_INJECTION_PROVIDERS": PROVIDER_NAME,
                 "AIRLOCK_JEV_ENABLED": "true",
-                "TYPESAFE_API": SECRET,
+                "TYPESAFE_API_KEY": SECRET,
             }
         )
         assert [p.name for p in providers] == [PROVIDER_NAME]
